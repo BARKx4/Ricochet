@@ -15,6 +15,8 @@ pub enum ParseError {
         found: TokenKind,
         span: Span,
     },
+    #[error("invalid number literal {literal:?} at {span:?}")]
+    InvalidNumber { literal: String, span: Span },
 }
 
 pub fn parse_module(source: &str) -> Result<Module, ParseError> {
@@ -146,15 +148,19 @@ impl Parser {
     }
 
     fn parse_expr_item(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_expr()?;
+        let mut exprs = vec![self.parse_expr()?];
         while !matches!(
             self.peek_kind(),
             TokenKind::Newline | TokenKind::DocComment(_) | TokenKind::Eof | TokenKind::RightBracket
         ) && !matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "end")
         {
-            expr = self.parse_expr()?;
+            exprs.push(self.parse_expr()?);
         }
-        Ok(expr)
+        if exprs.len() == 1 {
+            Ok(exprs.remove(0))
+        } else {
+            Ok(Expr::Sequence(exprs))
+        }
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
@@ -165,14 +171,24 @@ impl Parser {
             TokenKind::BangWord(s) => Ok(Expr::BangWord(s)),
             TokenKind::DotWord(s) => Ok(Expr::DotWord(s)),
             TokenKind::String(s) => Ok(Expr::String(s)),
-            TokenKind::Number(n) => Ok(Expr::Number(n.parse().unwrap_or(0))),
+            TokenKind::Number(n) => n
+                .parse()
+                .map(Expr::Number)
+                .map_err(|_| ParseError::InvalidNumber {
+                    literal: n,
+                    span: token.span,
+                }),
             TokenKind::LeftParen => {
                 self.pos = self.pos.saturating_sub(1);
                 Ok(Expr::Args(self.parse_args()?))
             }
             TokenKind::LeftBracket => {
                 let mut exprs = Vec::new();
-                while !matches!(self.peek_kind(), TokenKind::RightBracket | TokenKind::Eof) {
+                loop {
+                    self.skip_newlines();
+                    if matches!(self.peek_kind(), TokenKind::RightBracket | TokenKind::Eof) {
+                        break;
+                    }
                     exprs.push(self.parse_expr()?);
                 }
                 self.expect_right_bracket()?;
@@ -190,7 +206,11 @@ impl Parser {
         let mut inputs = Vec::new();
         let mut outputs = Vec::new();
         let mut in_outputs = false;
-        while !matches!(self.peek_kind(), TokenKind::RightParen | TokenKind::Eof) {
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek_kind(), TokenKind::RightParen | TokenKind::Eof) {
+                break;
+            }
             let token = self.advance();
             match token.kind {
                 TokenKind::Arrow => in_outputs = true,
@@ -315,6 +335,34 @@ mod tests {
                 assert_eq!(class.name, "User");
                 assert_eq!(class.superclass, "Model");
                 assert_eq!(class.body.len(), 3);
+                assert_eq!(
+                    class.body[0],
+                    Item::Expr(Expr::Sequence(vec![
+                        Expr::Symbol("users".to_string()),
+                        Expr::Symbol("table".to_string()),
+                    ]))
+                );
+                assert_eq!(
+                    class.body[1],
+                    Item::Expr(Expr::Sequence(vec![
+                        Expr::Symbol("email".to_string()),
+                        Expr::Symbol("field".to_string()),
+                    ]))
+                );
+                match &class.body[2] {
+                    Item::Method(method) => {
+                        assert_eq!(method.name, "displayName");
+                        assert_eq!(
+                            method.body,
+                            vec![
+                                Expr::Symbol("self".to_string()),
+                                Expr::DotWord(".email".to_string()),
+                                Expr::Symbol("get".to_string()),
+                            ]
+                        );
+                    }
+                    other => panic!("expected method, got {other:?}"),
+                }
             }
             other => panic!("expected class, got {other:?}"),
         }
@@ -325,6 +373,76 @@ mod tests {
         let src = r#""index" [ ctx get "home/index" swap view ] !method"#;
         let module = parse_module(src).expect("parse succeeds");
         assert_eq!(module.items.len(), 1);
-        assert!(matches!(module.items[0], Item::Expr(Expr::BangWord(_))));
+        match &module.items[0] {
+            Item::Expr(Expr::Sequence(exprs)) => {
+                assert_eq!(exprs.len(), 3);
+                assert_eq!(exprs[0], Expr::String("index".to_string()));
+                assert!(matches!(exprs[1], Expr::Block(_)));
+                assert_eq!(exprs[2], Expr::BangWord("!method".to_string()));
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_multiline_block_with_trivia_before_close() {
+        let src = r#"
+          "index" [
+            (( fetch context ))
+            ctx get
+          ] !method
+        "#;
+
+        let module = parse_module(src).expect("parse succeeds");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Expr(Expr::Sequence(exprs)) => match &exprs[1] {
+                Expr::Block(block) => {
+                    assert_eq!(
+                        block,
+                        &vec![
+                            Expr::Symbol("ctx".to_string()),
+                            Expr::Symbol("get".to_string()),
+                        ]
+                    );
+                }
+                other => panic!("expected block, got {other:?}"),
+            },
+            other => panic!("expected expression sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_multiline_args_with_trivia_before_close() {
+        let src = r#"
+          (
+            amount target
+            -> Result
+          ) transfer method
+            amount get
+          end
+        "#;
+
+        let module = parse_module(src).expect("parse succeeds");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Method(method) => {
+                let args = method.args.as_ref().expect("args parsed");
+                assert_eq!(args.inputs, vec!["amount", "target"]);
+                assert_eq!(args.outputs, vec!["Result"]);
+            }
+            other => panic!("expected method, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_overflowing_number_literal() {
+        let err = parse_module("9223372036854775808").expect_err("parse fails");
+        match err {
+            ParseError::InvalidNumber { literal, .. } => {
+                assert_eq!(literal, "9223372036854775808");
+            }
+            other => panic!("expected invalid number, got {other:?}"),
+        }
     }
 }

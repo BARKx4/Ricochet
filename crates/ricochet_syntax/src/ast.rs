@@ -52,5 +52,6 @@ pub enum Expr {
     Number(i64),
     Args(ArgsDecl),
     Block(Vec<Expr>),
+    Sequence(Vec<Expr>),
     If { then_body: Vec<Expr>, else_body: Vec<Expr> },
 }
