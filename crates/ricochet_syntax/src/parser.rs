@@ -1,0 +1,330 @@
+use crate::ast::*;
+use crate::lexer::{lex, LexError};
+use crate::token::{Span, Token, TokenKind};
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq)]
+pub enum ParseError {
+    #[error(transparent)]
+    Lex(#[from] LexError),
+    #[error("unexpected token {found:?} at {span:?}")]
+    Unexpected { found: TokenKind, span: Span },
+    #[error("expected {expected}, found {found:?} at {span:?}")]
+    Expected {
+        expected: &'static str,
+        found: TokenKind,
+        span: Span,
+    },
+}
+
+pub fn parse_module(source: &str) -> Result<Module, ParseError> {
+    let tokens = lex(source)?;
+    Parser { tokens, pos: 0 }.parse_module()
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+}
+
+impl Parser {
+    fn parse_module(&mut self) -> Result<Module, ParseError> {
+        let mut items = Vec::new();
+        self.skip_newlines();
+        while !self.at_eof() {
+            items.push(self.parse_item()?);
+            self.skip_newlines();
+        }
+        Ok(Module { items })
+    }
+
+    fn parse_item(&mut self) -> Result<Item, ParseError> {
+        if let Some(class) = self.try_parse_class()? {
+            return Ok(Item::Class(class));
+        }
+        if let Some(method) = self.try_parse_method()? {
+            return Ok(Item::Method(method));
+        }
+        Ok(Item::Expr(self.parse_expr_item()?))
+    }
+
+    fn try_parse_class(&mut self) -> Result<Option<ClassDecl>, ParseError> {
+        self.skip_newlines();
+        let checkpoint = self.pos;
+        let start = self.current_span();
+        let Some(name) = self.peek_symbol_like() else {
+            return Ok(None);
+        };
+        self.advance();
+        let Some(superclass) = self.peek_symbol_like() else {
+            self.pos = checkpoint;
+            return Ok(None);
+        };
+        self.advance();
+        if !self.consume_symbol("subclass") {
+            self.pos = checkpoint;
+            return Ok(None);
+        }
+
+        let mut body = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.consume_symbol("end") {
+                let end = self.previous_span().end;
+                return Ok(Some(ClassDecl {
+                    name,
+                    superclass,
+                    body,
+                    span: Span {
+                        start: start.start,
+                        end,
+                    },
+                }));
+            }
+            if self.at_eof() {
+                let token = self.current_token().clone();
+                return Err(ParseError::Expected {
+                    expected: "end",
+                    found: token.kind,
+                    span: token.span,
+                });
+            }
+            body.push(self.parse_item()?);
+        }
+    }
+
+    fn try_parse_method(&mut self) -> Result<Option<MethodDecl>, ParseError> {
+        self.skip_newlines();
+        let checkpoint = self.pos;
+        let start = self.current_span();
+        let args = if matches!(self.peek_kind(), TokenKind::LeftParen) {
+            Some(self.parse_args()?)
+        } else {
+            None
+        };
+        let Some(name) = self.peek_symbol_like() else {
+            self.pos = checkpoint;
+            return Ok(None);
+        };
+        self.advance();
+        if !self.consume_symbol("method") {
+            self.pos = checkpoint;
+            return Ok(None);
+        }
+
+        let body = self.parse_expr_body_until_end()?;
+        let end = self.previous_span().end;
+        Ok(Some(MethodDecl {
+            name,
+            args,
+            body,
+            span: Span {
+                start: start.start,
+                end,
+            },
+        }))
+    }
+
+    fn parse_expr_body_until_end(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let mut body = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.consume_symbol("end") {
+                break;
+            }
+            if self.at_eof() {
+                let token = self.current_token().clone();
+                return Err(ParseError::Expected {
+                    expected: "end",
+                    found: token.kind,
+                    span: token.span,
+                });
+            }
+            body.push(self.parse_expr()?);
+        }
+        Ok(body)
+    }
+
+    fn parse_expr_item(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_expr()?;
+        while !matches!(
+            self.peek_kind(),
+            TokenKind::Newline | TokenKind::DocComment(_) | TokenKind::Eof | TokenKind::RightBracket
+        ) && !matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "end")
+        {
+            expr = self.parse_expr()?;
+        }
+        Ok(expr)
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
+        self.skip_newlines();
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Symbol(s) => Ok(Expr::Symbol(s)),
+            TokenKind::BangWord(s) => Ok(Expr::BangWord(s)),
+            TokenKind::DotWord(s) => Ok(Expr::DotWord(s)),
+            TokenKind::String(s) => Ok(Expr::String(s)),
+            TokenKind::Number(n) => Ok(Expr::Number(n.parse().unwrap_or(0))),
+            TokenKind::LeftParen => {
+                self.pos = self.pos.saturating_sub(1);
+                Ok(Expr::Args(self.parse_args()?))
+            }
+            TokenKind::LeftBracket => {
+                let mut exprs = Vec::new();
+                while !matches!(self.peek_kind(), TokenKind::RightBracket | TokenKind::Eof) {
+                    exprs.push(self.parse_expr()?);
+                }
+                self.expect_right_bracket()?;
+                Ok(Expr::Block(exprs))
+            }
+            other => Err(ParseError::Unexpected {
+                found: other,
+                span: token.span,
+            }),
+        }
+    }
+
+    fn parse_args(&mut self) -> Result<ArgsDecl, ParseError> {
+        self.expect_left_paren()?;
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        let mut in_outputs = false;
+        while !matches!(self.peek_kind(), TokenKind::RightParen | TokenKind::Eof) {
+            let token = self.advance();
+            match token.kind {
+                TokenKind::Arrow => in_outputs = true,
+                TokenKind::Symbol(s) => {
+                    if in_outputs {
+                        outputs.push(s);
+                    } else {
+                        inputs.push(s);
+                    }
+                }
+                other => {
+                    return Err(ParseError::Unexpected {
+                        found: other,
+                        span: token.span,
+                    });
+                }
+            }
+        }
+        self.expect_right_paren()?;
+        Ok(ArgsDecl { inputs, outputs })
+    }
+
+    fn consume_symbol(&mut self, expected: &str) -> bool {
+        if matches!(self.peek_kind(), TokenKind::Symbol(s) if s == expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect_left_paren(&mut self) -> Result<(), ParseError> {
+        self.expect_kind("left paren", |kind| matches!(kind, TokenKind::LeftParen))
+    }
+
+    fn expect_right_paren(&mut self) -> Result<(), ParseError> {
+        self.expect_kind("right paren", |kind| matches!(kind, TokenKind::RightParen))
+    }
+
+    fn expect_right_bracket(&mut self) -> Result<(), ParseError> {
+        self.expect_kind("right bracket", |kind| matches!(kind, TokenKind::RightBracket))
+    }
+
+    fn expect_kind(
+        &mut self,
+        expected: &'static str,
+        predicate: impl FnOnce(&TokenKind) -> bool,
+    ) -> Result<(), ParseError> {
+        let token = self.advance();
+        if predicate(&token.kind) {
+            Ok(())
+        } else {
+            Err(ParseError::Expected {
+                expected,
+                found: token.kind,
+                span: token.span,
+            })
+        }
+    }
+
+    fn skip_newlines(&mut self) {
+        while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::DocComment(_)) {
+            self.pos += 1;
+        }
+    }
+
+    fn at_eof(&self) -> bool {
+        matches!(self.peek_kind(), TokenKind::Eof)
+    }
+
+    fn peek_kind(&self) -> &TokenKind {
+        &self.current_token().kind
+    }
+
+    fn peek_symbol_like(&self) -> Option<String> {
+        match self.peek_kind() {
+            TokenKind::Symbol(s) | TokenKind::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    fn advance(&mut self) -> Token {
+        let token = self.current_token().clone();
+        self.pos += 1;
+        token
+    }
+
+    fn current_token(&self) -> &Token {
+        &self.tokens[self.pos.min(self.tokens.len() - 1)]
+    }
+
+    fn current_span(&self) -> Span {
+        self.current_token().span
+    }
+
+    fn previous_span(&self) -> Span {
+        self.tokens[self.pos.saturating_sub(1).min(self.tokens.len() - 1)].span
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Expr, Item};
+
+    #[test]
+    fn parses_class_with_field_and_method() {
+        let src = r#"
+          User Model subclass
+            users table
+            email field
+            displayName method
+              self .email get
+            end
+          end
+        "#;
+
+        let module = parse_module(src).expect("parse succeeds");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Class(class) => {
+                assert_eq!(class.name, "User");
+                assert_eq!(class.superclass, "Model");
+                assert_eq!(class.body.len(), 3);
+            }
+            other => panic!("expected class, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_block_method_mutation() {
+        let src = r#""index" [ ctx get "home/index" swap view ] !method"#;
+        let module = parse_module(src).expect("parse succeeds");
+        assert_eq!(module.items.len(), 1);
+        assert!(matches!(module.items[0], Item::Expr(Expr::BangWord(_))));
+    }
+}
