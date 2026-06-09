@@ -2,7 +2,7 @@ pub mod chunk;
 pub mod debug;
 pub mod op;
 
-pub use chunk::Chunk;
+pub use chunk::{Chunk, Instruction};
 pub use debug::SourceSpan;
 pub use op::Op;
 
