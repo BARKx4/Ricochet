@@ -62,21 +62,25 @@ impl Vm {
 
     fn call_add(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
-        let left = self.stack[self.stack.len() - 2].clone();
-        let right = self.stack[self.stack.len() - 1].clone();
-
-        match (&left, &right) {
-            (Value::Number(left), Value::Number(right)) => {
-                self.stack.truncate(self.stack.len() - 2);
-                self.stack.push(Value::Number(*left + *right));
-                Ok(())
+        let stack_before = self.stack.clone();
+        let right = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
             }
-            _ => Err(VmError::TypeError {
-                word: word.to_string(),
-                expected: "number, number".to_string(),
-                actual: format!("{}, {}", value_kind(&left), value_kind(&right)),
-            }),
-        }
+        };
+        let left = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        self.stack.push(Value::Number(left + right));
+
+        Ok(())
     }
 
     fn call_equals(&mut self, word: &str) -> Result<(), VmError> {
@@ -135,6 +139,26 @@ impl Vm {
         Ok(())
     }
 
+    fn pop(&mut self, word: &str) -> Result<Value, VmError> {
+        let available = self.stack.len();
+        self.stack.pop().ok_or_else(|| VmError::StackUnderflow {
+            word: word.to_string(),
+            needed: 1,
+            available,
+        })
+    }
+
+    fn pop_number(&mut self, word: &str) -> Result<i64, VmError> {
+        match self.pop(word)? {
+            Value::Number(value) => Ok(value),
+            value => Err(VmError::TypeError {
+                word: word.to_string(),
+                expected: "number".to_string(),
+                actual: value_kind(&value).to_string(),
+            }),
+        }
+    }
+
     fn pop_unchecked(&mut self) -> Value {
         self.stack
             .pop()
@@ -191,5 +215,34 @@ mod tests {
         assert_eq!(ok.call_predicate("ok?"), Some(Value::Bool(true)));
         assert_eq!(err.call_predicate("ok?"), Some(Value::Bool(false)));
         assert_eq!(err.truthy(), true);
+    }
+
+    #[test]
+    fn pop_reports_stack_underflow() {
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.pop("test"),
+            Err(VmError::StackUnderflow {
+                word: "test".to_string(),
+                needed: 1,
+                available: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn pop_number_rejects_non_numbers() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::String("nope".to_string()));
+
+        assert_eq!(
+            vm.pop_number("add"),
+            Err(VmError::TypeError {
+                word: "add".to_string(),
+                expected: "number".to_string(),
+                actual: "string".to_string(),
+            })
+        );
     }
 }
