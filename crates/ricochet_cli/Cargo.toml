@@ -1,0 +1,22 @@
+[package]
+name = "ricochet_cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rco"
+path = "src/main.rs"
+
+[[bin]]
+name = "ricochet"
+path = "src/main.rs"
+
+[dependencies]
+ricochet_compiler = { path = "../ricochet_compiler" }
+ricochet_syntax = { path = "../ricochet_syntax" }
+ricochet_vm = { path = "../ricochet_vm" }
+ricochet_web = { path = "../ricochet_web" }
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "ricochet_compiler"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+ricochet_bytecode = { path = "../ricochet_bytecode" }
+ricochet_syntax = { path = "../ricochet_syntax" }
+thiserror.workspace = true

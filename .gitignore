@@ -1,0 +1,8 @@
+/target/
+**/*.rs.bk
+*.pdb
+*.profraw
+
+.env
+.env.*
+!.env.example

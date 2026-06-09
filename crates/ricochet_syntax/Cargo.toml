@@ -1,0 +1,8 @@
+[package]
+name = "ricochet_syntax"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
