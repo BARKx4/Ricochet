@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use axum::{
+    extract::State,
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
@@ -7,14 +8,24 @@ use axum::{
 };
 
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
+use crate::revision::{AppRevision, RevisionManager};
 use crate::template::{render_template, EscapeMode};
 
-pub fn build_test_app() -> Result<Router> {
-    Ok(Router::new().route("/", get(home)))
+#[derive(Clone)]
+struct AppState {
+    revisions: RevisionManager,
 }
 
-async fn home() -> impl IntoResponse {
-    match render_home() {
+pub fn build_test_app() -> Result<Router> {
+    Ok(Router::new().route("/", get(home)).with_state(AppState {
+        revisions: RevisionManager::default(),
+    }))
+}
+
+async fn home(State(state): State<AppState>) -> impl IntoResponse {
+    let revision = state.revisions.current();
+
+    match render_home(revision) {
         Ok(body) => Html(body).into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -24,7 +35,7 @@ async fn home() -> impl IntoResponse {
     }
 }
 
-fn render_home() -> Result<String> {
+fn render_home(revision: AppRevision) -> Result<String> {
     let mut registry = ControllerRegistry::default();
     registry.register_static("HomeController", "index", |ctx| {
         ctx.view_data
@@ -33,6 +44,9 @@ fn render_home() -> Result<String> {
     });
 
     let mut ctx = RequestContext::default();
+    ctx.view_data
+        .insert("revision".to_string(), revision.id.to_string());
+
     match registry.call("HomeController", "index", &mut ctx)? {
         ActionResult::View(view) if view == "home/index" => {
             render_template("<h1>{ title get }</h1>", &ctx.view_data, EscapeMode::Html)
