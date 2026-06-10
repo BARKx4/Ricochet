@@ -5,7 +5,7 @@ pub mod vm;
 
 pub use debug::DebugEvent;
 pub use result::{RicochetError, RicochetResult};
-pub use value::Value;
+pub use value::{TruthinessError, Value};
 pub use vm::{Vm, VmError};
 
 pub fn crate_version() -> &'static str {
