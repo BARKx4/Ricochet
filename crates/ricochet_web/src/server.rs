@@ -1,11 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use axum::{
-    extract::State,
+    extract::{Path as AxumPath, State},
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
@@ -71,10 +71,14 @@ pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
         let action = route.action.clone();
         app = app.route(
             &route.path,
-            get(move |State(state): State<AppState>| {
+            get(move |State(state): State<AppState>,
+                      path_params: Option<AxumPath<HashMap<String, String>>>| {
                 let controller = controller.clone();
                 let action = action.clone();
-                async move { render_route(state, controller, action).await }
+                let path_params = path_params
+                    .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                    .unwrap_or_default();
+                async move { render_route(state, controller, action, path_params).await }
             }),
         );
     }
@@ -114,10 +118,11 @@ async fn render_route(
     state: AppState,
     controller: String,
     action: String,
+    path_params: BTreeMap<String, String>,
 ) -> impl IntoResponse {
     let revision = state.revisions.current();
 
-    match render_action(&state.runtime, revision, &controller, &action) {
+    match render_action(&state.runtime, revision, &controller, &action, path_params) {
         Ok(body) => Html(body).into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -132,8 +137,12 @@ fn render_action(
     revision: AppRevision,
     controller: &str,
     action: &str,
+    path_params: BTreeMap<String, String>,
 ) -> Result<String> {
-    let mut ctx = RequestContext::default();
+    let mut ctx = RequestContext {
+        params: path_params,
+        ..RequestContext::default()
+    };
     ctx.view_data
         .insert("revision".to_string(), revision.id.to_string());
 

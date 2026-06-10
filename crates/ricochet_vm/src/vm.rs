@@ -196,9 +196,10 @@ impl Vm {
                 .get(field)
                 .cloned()
                 .unwrap_or(Value::Nil)),
+            Value::Map(map) => Ok(map.get(field).cloned().unwrap_or(Value::Nil)),
             value => Err(VmError::TypeError {
                 word: format!("get_field {field}"),
-                expected: "instance".to_string(),
+                expected: "instance or map".to_string(),
                 actual: value_kind(value).to_string(),
             }),
         }
@@ -1460,6 +1461,25 @@ mod tests {
             vm.get_field(&updated, "missing").expect("missing field is nil"),
             Value::Nil
         );
+    }
+
+    #[test]
+    fn map_member_get_reads_entries_and_missing_entries_are_nil() {
+        let mut params = BTreeMap::new();
+        params.insert("id".to_string(), Value::String("42".to_string()));
+
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Map(params.clone()));
+        vm.stack.push(Value::Member("id".to_string()));
+        vm.call_word("get").expect("map member get succeeds");
+        assert_eq!(vm.stack(), &[Value::String("42".to_string())]);
+
+        vm.stack.clear();
+        vm.stack.push(Value::Map(params));
+        vm.stack.push(Value::Member("missing".to_string()));
+        vm.call_word("get")
+            .expect("missing map member get succeeds");
+        assert_eq!(vm.stack(), &[Value::Nil]);
     }
 
     #[test]
