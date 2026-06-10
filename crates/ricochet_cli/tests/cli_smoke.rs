@@ -891,11 +891,9 @@ fn run_installs_a_method_from_runtime_class_and_method_names() {
     fs::write(
         &source_path,
         r#"
-Widget Object subclass
-end
-
 "Widget" className var
 "label" methodName var
+className get "Object" subclass
 className get methodName get [ "dynamic" ] !method
 className get new .label
 "#,

@@ -211,11 +211,13 @@ end
 Dynamic class creation is available from v1 and is central to the language's identity.
 
 ```forth
-className get Model subclass
-  "dynamic_table" table
-  "name" field
-end
+className get "Model" subclass
+className get "displayName" [ self .name get ] !method
 ```
+
+The runtime `subclass` operator consumes a string class name and a superclass
+class value or string. It creates or reopens the class without requiring a
+compile-time declaration.
 
 Open classes can add or freely replace methods at runtime.
 

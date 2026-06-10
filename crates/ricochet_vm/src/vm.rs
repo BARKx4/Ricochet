@@ -615,6 +615,7 @@ impl Vm {
             "set" => self.call_set(word),
             "var" => self.call_var(word),
             "table" => self.call_table(word),
+            "subclass" => self.call_subclass(word),
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
@@ -749,6 +750,44 @@ impl Vm {
         match self.current_class_mut(word) {
             Ok(class) => {
                 class.set_table(table_name);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_subclass(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let superclass = match self.pop_unchecked() {
+            Value::String(superclass) | Value::Class(superclass) => superclass,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class or class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let class_name = match self.pop_unchecked() {
+            Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.define_class(class_name, superclass) {
+            Ok(()) => {
+                self.end_class();
                 Ok(())
             }
             Err(error) => {
@@ -2408,6 +2447,46 @@ mod tests {
             [Value::String(class_name), Value::String(method_name), Value::Block(_)]
                 if class_name == "Missing" && method_name == "label"
         ));
+    }
+
+    #[test]
+    fn subclass_word_creates_a_class_from_runtime_names() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Widget".to_string()), span());
+        chunk.push(Op::PushString("Object".to_string()), span());
+        chunk.push(Op::CallWord("subclass".to_string()), span());
+        chunk.push(Op::PushString("Widget".to_string()), span());
+        chunk.push(Op::CallWord("new".to_string()), span());
+        let mut vm = Vm::default();
+
+        vm.run_chunk(&chunk).expect("runtime class is created");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Instance(instance)] if instance.class_name == "Widget"
+        ));
+    }
+
+    #[test]
+    fn subclass_word_preserves_the_stack_on_type_error() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(7), span());
+        chunk.push(Op::PushString("Object".to_string()), span());
+        chunk.push(Op::CallWord("subclass".to_string()), span());
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::TypeError {
+                word: "subclass".to_string(),
+                expected: "class name string".to_string(),
+                actual: "number".to_string(),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[Value::Number(7), Value::String("Object".to_string())]
+        );
     }
 
     #[test]
