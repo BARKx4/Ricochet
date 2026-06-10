@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
+use crate::object::Instance;
 use crate::result::{RicochetError, RicochetResult};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -12,6 +13,7 @@ pub enum Value {
     String(String),
     Array(Vec<Value>),
     Map(BTreeMap<String, Value>),
+    Instance(Instance),
     Result(RicochetResult),
 }
 
@@ -30,6 +32,7 @@ impl Value {
             Value::String(v) => !v.is_empty(),
             Value::Array(v) => !v.is_empty(),
             Value::Map(v) => !v.is_empty(),
+            Value::Instance(_) => true,
             Value::Result(_) => true,
         }
     }
@@ -70,6 +73,8 @@ impl Value {
 mod tests {
     use std::collections::BTreeMap;
 
+    use crate::object::Instance;
+
     use super::*;
 
     #[test]
@@ -86,8 +91,9 @@ mod tests {
     fn vm_condition_truthiness_accepts_ordinary_values() {
         let mut populated_map = BTreeMap::new();
         populated_map.insert("name".to_string(), Value::String("Ada".to_string()));
+        let instance = Value::Instance(Instance::new("Widget", BTreeMap::new()));
 
-        let cases = [
+        let cases = vec![
             (Value::Nil, false),
             (Value::Bool(false), false),
             (Value::Bool(true), true),
@@ -99,6 +105,7 @@ mod tests {
             (Value::Array(vec![Value::Nil]), true),
             (Value::Map(BTreeMap::new()), false),
             (Value::Map(populated_map), true),
+            (instance, true),
         ];
 
         for (value, expected) in cases {

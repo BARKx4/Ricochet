@@ -1,6 +1,11 @@
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
 use ricochet_bytecode::{Chunk, Op};
 use thiserror::Error;
 
+use crate::class::{Class, NativeMethod};
+use crate::object::Instance;
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -23,16 +28,143 @@ pub enum VmError {
         expected: String,
         actual: String,
     },
+    #[error("no current class for {0}")]
+    NoCurrentClass(String),
+    #[error("unknown class: {0}")]
+    UnknownClass(String),
+    #[error("unknown method {method} on class {class_name}")]
+    UnknownMethod { class_name: String, method: String },
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Vm {
     stack: Vec<Value>,
+    classes: BTreeMap<String, Class>,
+    current_class: Option<String>,
 }
 
 impl Vm {
     pub fn stack(&self) -> &[Value] {
         &self.stack
+    }
+
+    pub fn define_class(
+        &mut self,
+        name: impl Into<String>,
+        superclass: impl Into<String>,
+    ) -> Result<(), VmError> {
+        let name = name.into();
+        let superclass = superclass.into();
+
+        if let Some(class) = self.classes.get_mut(&name) {
+            class.superclass = superclass;
+        } else {
+            self.classes
+                .insert(name.clone(), Class::new(name.clone(), superclass));
+        }
+        self.current_class = Some(name);
+
+        Ok(())
+    }
+
+    pub fn end_class(&mut self) {
+        self.current_class = None;
+    }
+
+    pub fn add_field(&mut self, name: impl Into<String>) -> Result<(), VmError> {
+        self.current_class_mut("add_field")?.add_field(name);
+        Ok(())
+    }
+
+    pub fn add_native_method<F>(
+        &mut self,
+        name: impl Into<String>,
+        method: F,
+    ) -> Result<(), VmError>
+    where
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+    {
+        let method: NativeMethod = Rc::new(method);
+        self.current_class_mut("add_native_method")?
+            .add_native_method(name, method);
+        Ok(())
+    }
+
+    pub fn new_instance(&self, class_name: &str) -> Result<Value, VmError> {
+        let class = self
+            .classes
+            .get(class_name)
+            .ok_or_else(|| VmError::UnknownClass(class_name.to_string()))?;
+        let fields = class
+            .fields
+            .iter()
+            .map(|field| (field.clone(), Value::Nil))
+            .collect();
+
+        Ok(Value::Instance(Instance::new(class.name.clone(), fields)))
+    }
+
+    pub fn set_field(
+        &self,
+        instance: Value,
+        field: &str,
+        value: Value,
+    ) -> Result<Value, VmError> {
+        match instance {
+            Value::Instance(mut instance) => {
+                instance.fields.insert(field.to_string(), value);
+                Ok(Value::Instance(instance))
+            }
+            value => Err(VmError::TypeError {
+                word: format!("set_field {field}"),
+                expected: "instance".to_string(),
+                actual: value_kind(&value).to_string(),
+            }),
+        }
+    }
+
+    pub fn get_field(&self, instance: &Value, field: &str) -> Result<Value, VmError> {
+        match instance {
+            Value::Instance(instance) => Ok(instance
+                .fields
+                .get(field)
+                .cloned()
+                .unwrap_or(Value::Nil)),
+            value => Err(VmError::TypeError {
+                word: format!("get_field {field}"),
+                expected: "instance".to_string(),
+                actual: value_kind(value).to_string(),
+            }),
+        }
+    }
+
+    pub fn call_method_value(
+        &self,
+        receiver: Value,
+        method_name: &str,
+    ) -> Result<Value, VmError> {
+        match receiver {
+            Value::Instance(instance) => {
+                let class_name = instance.class_name.clone();
+                let class = self
+                    .classes
+                    .get(&class_name)
+                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?;
+                let method = class.native_methods.get(method_name).ok_or_else(|| {
+                    VmError::UnknownMethod {
+                        class_name: class_name.clone(),
+                        method: method_name.to_string(),
+                    }
+                })?;
+
+                method(vec![Value::Instance(instance)])
+            }
+            value => Err(VmError::TypeError {
+                word: format!("call_method {method_name}"),
+                expected: "instance".to_string(),
+                actual: value_kind(&value).to_string(),
+            }),
+        }
     }
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
@@ -43,6 +175,14 @@ impl Vm {
                 Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
                 Op::PushString(value) => self.stack.push(Value::String(value.clone())),
                 Op::CallWord(word) => self.call_word(word)?,
+                Op::BeginClass { name, superclass } => {
+                    self.define_class(name.clone(), superclass.clone())?
+                }
+                Op::EndClass => self.end_class(),
+                Op::AddField(name) => self.add_field(name.clone())?,
+                Op::AddMethod { .. } => {
+                    return Err(VmError::UnsupportedOpcode(format!("{:?}", &instruction.op)));
+                }
                 op => return Err(VmError::UnsupportedOpcode(format!("{op:?}"))),
             }
         }
@@ -189,6 +329,17 @@ impl Vm {
             .pop()
             .expect("stack length checked before pop")
     }
+
+    fn current_class_mut(&mut self, word: &str) -> Result<&mut Class, VmError> {
+        let class_name = self
+            .current_class
+            .clone()
+            .ok_or_else(|| VmError::NoCurrentClass(word.to_string()))?;
+
+        self.classes
+            .get_mut(&class_name)
+            .ok_or(VmError::UnknownClass(class_name))
+    }
 }
 
 fn value_kind(value: &Value) -> &'static str {
@@ -199,6 +350,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Map(_) => "map",
+        Value::Instance(_) => "instance",
         Value::Result(_) => "result",
     }
 }
@@ -454,5 +606,107 @@ mod tests {
             Err(VmError::UnknownWord("ready?".to_string()))
         );
         assert_eq!(vm.stack(), &[Value::Number(1)]);
+    }
+
+    #[test]
+    fn open_class_replaces_method() {
+        let mut vm = Vm::default();
+
+        vm.define_class("Widget", "").expect("class opens");
+        vm.add_field("name").expect("field is declared");
+        vm.add_native_method("label", |_| {
+            Ok(Value::String("old label".to_string()))
+        })
+        .expect("method is declared");
+
+        vm.define_class("Widget", "").expect("class reopens");
+        vm.add_native_method("label", |_| {
+            Ok(Value::String("new label".to_string()))
+        })
+        .expect("method is replaced");
+        vm.end_class();
+
+        let instance = vm.new_instance("Widget").expect("instance is created");
+
+        assert_eq!(
+            vm.get_field(&instance, "name").expect("field exists"),
+            Value::Nil
+        );
+        assert_eq!(
+            vm.call_method_value(instance, "label")
+                .expect("native method is called"),
+            Value::String("new label".to_string())
+        );
+    }
+
+    #[test]
+    fn class_field_get_and_set_are_postfix_words_api() {
+        let mut vm = Vm::default();
+        vm.define_class("Article", "").expect("class opens");
+        vm.add_field("title").expect("field is declared");
+        vm.end_class();
+
+        let instance = vm.new_instance("Article").expect("instance is created");
+        assert_eq!(
+            vm.get_field(&instance, "title").expect("field reads"),
+            Value::Nil
+        );
+
+        let updated = vm
+            .set_field(instance, "title", Value::String("Launch".to_string()))
+            .expect("field writes");
+
+        assert_eq!(
+            vm.get_field(&updated, "title").expect("field reads"),
+            Value::String("Launch".to_string())
+        );
+        assert_eq!(
+            vm.get_field(&updated, "missing").expect("missing field is nil"),
+            Value::Nil
+        );
+    }
+
+    #[test]
+    fn run_chunk_handles_class_field_declarations() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(
+            Op::BeginClass {
+                name: "Post".to_string(),
+                superclass: "".to_string(),
+            },
+            span(),
+        );
+        chunk.push(Op::AddField("title".to_string()), span());
+        chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("class opcodes run");
+
+        let instance = vm.new_instance("Post").expect("instance is created");
+        assert_eq!(
+            vm.get_field(&instance, "title").expect("field reads"),
+            Value::Nil
+        );
+    }
+
+    #[test]
+    fn class_add_method_opcode_is_explicitly_unsupported() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(
+            Op::AddMethod {
+                name: "render".to_string(),
+                block: 0,
+            },
+            span(),
+        );
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnsupportedOpcode(
+                "AddMethod { name: \"render\", block: 0 }".to_string()
+            ))
+        );
     }
 }
