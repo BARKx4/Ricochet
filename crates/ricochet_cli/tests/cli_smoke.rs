@@ -789,6 +789,36 @@ fn run_executes_top_level_function_script() {
 }
 
 #[test]
+fn run_honors_explicit_early_return() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        "answer function\n  42 return\n  99\nend\nanswer\n",
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(42)") && !stdout.contains("Number(99)"),
+        "stdout should show the early return value only, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_executes_first_class_block_call_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

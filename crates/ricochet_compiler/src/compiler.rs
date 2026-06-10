@@ -245,6 +245,7 @@ impl Compiler {
             "nil" => self.push(Op::PushNil),
             "true" => self.push(Op::PushBool(true)),
             "false" => self.push(Op::PushBool(false)),
+            "return" => self.push(Op::Return),
             word => self.push(Op::CallWord(word.to_string())),
         }
     }
@@ -715,6 +716,25 @@ mod tests {
         assert_eq!(
             chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
             vec![Op::PushString("hi".to_string()), Op::Return]
+        );
+    }
+
+    #[test]
+    fn compiles_explicit_return_to_return_opcode() {
+        let chunk = compile_source(
+            "test.rco",
+            "answer function\n  42 return\n  99\nend\nanswer\n",
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushNumber(42),
+                Op::Return,
+                Op::PushNumber(99),
+                Op::Return,
+            ]
         );
     }
 
