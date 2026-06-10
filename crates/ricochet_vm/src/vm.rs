@@ -354,7 +354,7 @@ impl Vm {
             }
             Op::EndClass => self.end_class(),
             Op::AddField(name) => self.add_field(name.clone())?,
-            Op::AddMethod { name, block } => {
+            Op::AddMethod { name, block, .. } => {
                 let method = chunk
                     .blocks
                     .get(*block)
@@ -365,7 +365,7 @@ impl Vm {
                     })?;
                 self.add_bytecode_method(name.clone(), method)?;
             }
-            Op::AddFunction { name, block } => {
+            Op::AddFunction { name, block, .. } => {
                 let function =
                     chunk
                         .blocks
@@ -1684,6 +1684,7 @@ mod tests {
             Op::AddMethod {
                 name: "displayName".to_string(),
                 block: display_name_block,
+                args: None,
             },
             span(),
         );
@@ -1730,6 +1731,7 @@ mod tests {
             Op::AddMethod {
                 name: "displayName".to_string(),
                 block: display_name_block,
+                args: None,
             },
             span(),
         );
@@ -1776,6 +1778,7 @@ mod tests {
             Op::AddMethod {
                 name: "displayName".to_string(),
                 block: display_name_block,
+                args: None,
             },
             span(),
         );
@@ -2016,6 +2019,7 @@ mod tests {
             Op::AddFunction {
                 name: "hello".to_string(),
                 block,
+                args: None,
             },
             span(),
         );
@@ -2082,6 +2086,7 @@ mod tests {
             Op::AddMethod {
                 name: "displayName".to_string(),
                 block: display_name_block,
+                args: None,
             },
             span(),
         );
@@ -2114,6 +2119,7 @@ mod tests {
             Op::AddMethod {
                 name: "render".to_string(),
                 block: 0,
+                args: None,
             },
             span(),
         );

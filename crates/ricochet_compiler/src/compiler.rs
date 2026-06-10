@@ -1,6 +1,6 @@
-use ricochet_bytecode::{Chunk, Op, SourceSpan};
+use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_syntax::{
-    parse_module, ClassDecl, Expr, Item, MethodDecl, Module, ParseError, Span,
+    parse_module, ArgsDecl, ClassDecl, Expr, Item, MethodDecl, Module, ParseError, Span,
 };
 use thiserror::Error;
 
@@ -85,20 +85,13 @@ impl Compiler {
         &mut self,
         function: &ricochet_syntax::FunctionDecl,
     ) -> Result<(), CompileError> {
-        if let Some(args) = &function.args {
-            return Err(CompileError::Unsupported(format!(
-                "function {} argument declarations are not supported by compiler lowering yet: {}",
-                function.name,
-                format_args_decl(args)
-            )));
-        }
-
         let block = self.compile_block_chunk(&function.body, function.span)?;
         let block = self.chunk.push_block(block);
         self.chunk.push(
             Op::AddFunction {
                 name: function.name.clone(),
                 block,
+                args: function.args.as_ref().map(args_spec),
             },
             self.source_span(function.span),
         );
@@ -126,7 +119,11 @@ impl Compiler {
                 let block = self.compile_block_chunk(body, fallback_span)?;
                 let block = self.chunk.push_block(block);
                 self.chunk.push(
-                    Op::AddMethod { name, block },
+                    Op::AddMethod {
+                        name,
+                        block,
+                        args: None,
+                    },
                     self.source_span(fallback_span),
                 );
                 Ok(())
@@ -144,20 +141,13 @@ impl Compiler {
     }
 
     fn compile_method_decl(&mut self, method: &MethodDecl) -> Result<(), CompileError> {
-        if let Some(args) = &method.args {
-            return Err(CompileError::Unsupported(format!(
-                "method {} argument declarations are not supported by compiler lowering yet: {}",
-                method.name,
-                format_args_decl(args)
-            )));
-        }
-
         let block = self.compile_block_chunk(&method.body, method.span)?;
         let block = self.chunk.push_block(block);
         self.chunk.push(
             Op::AddMethod {
                 name: method.name.clone(),
                 block,
+                args: method.args.as_ref().map(args_spec),
             },
             self.source_span(method.span),
         );
@@ -303,18 +293,11 @@ fn variable_binding_pair(exprs: &[Expr], index: usize) -> Option<(String, String
         .then(|| (name.clone(), operator.clone()))
 }
 
-fn format_args_decl(args: &ricochet_syntax::ArgsDecl) -> String {
-    let inputs = if args.inputs.is_empty() {
-        "none".to_string()
-    } else {
-        args.inputs.join(" ")
-    };
-    let outputs = if args.outputs.is_empty() {
-        "none".to_string()
-    } else {
-        args.outputs.join(" ")
-    };
-    format!("inputs=({inputs}) outputs=({outputs})")
+fn args_spec(args: &ArgsDecl) -> ArgsSpec {
+    ArgsSpec {
+        inputs: args.inputs.clone(),
+        outputs: args.outputs.clone(),
+    }
 }
 
 fn method_name(word: &str) -> String {
@@ -343,7 +326,7 @@ fn line_column(line_starts: &[usize], offset: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ricochet_bytecode::Op;
+    use ricochet_bytecode::{ArgsSpec, Op};
 
     #[test]
     fn compiles_ordinary_postfix_sequence() {
@@ -381,6 +364,7 @@ mod tests {
                 Op::AddMethod {
                     name: "displayName".to_string(),
                     block: 0,
+                    args: None,
                 },
                 Op::EndClass,
             ]
@@ -398,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_class_methods_with_args_until_bytecode_can_preserve_them() {
+    fn compiles_class_methods_with_args_metadata() {
         let source = r#"
           Transfer Service subclass
             ( amount target -> Result ) transfer method
@@ -407,15 +391,26 @@ mod tests {
           end
         "#;
 
-        let err = compile_source("services/transfer.rco", source).expect_err("compile fails");
+        let chunk = compile_source("services/transfer.rco", source).expect("compile succeeds");
 
-        match err {
-            CompileError::Unsupported(message) => {
-                assert!(message.contains("transfer"));
-                assert!(message.contains("argument declarations"));
-            }
-            other => panic!("expected unsupported method args, got {other:?}"),
-        }
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "Transfer".to_string(),
+                    superclass: "Service".to_string(),
+                },
+                Op::AddMethod {
+                    name: "transfer".to_string(),
+                    block: 0,
+                    args: Some(ArgsSpec {
+                        inputs: vec!["amount".to_string(), "target".to_string()],
+                        outputs: vec!["Result".to_string()],
+                    }),
+                },
+                Op::EndClass,
+            ]
+        );
     }
 
     #[test]
@@ -440,6 +435,7 @@ mod tests {
                 Op::AddMethod {
                     name: "displayName".to_string(),
                     block: 0,
+                    args: None,
                 },
                 Op::EndClass,
             ]
@@ -541,6 +537,7 @@ mod tests {
                 Op::AddMethod {
                     name: "index".to_string(),
                     block: 0,
+                    args: None,
                 },
                 Op::EndClass,
             ]
@@ -591,6 +588,7 @@ mod tests {
                 Op::AddFunction {
                     name: "hello".to_string(),
                     block: 0,
+                    args: None,
                 },
                 Op::CallWord("hello".to_string()),
             ]
@@ -598,6 +596,28 @@ mod tests {
         assert_eq!(
             chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
             vec![Op::PushString("hi".to_string()), Op::Return]
+        );
+    }
+
+    #[test]
+    fn compiles_top_level_function_args_metadata() {
+        let source = r#"
+          ( name -> String ) greet function
+            name get
+          end
+        "#;
+        let chunk = compile_source("test.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![Op::AddFunction {
+                name: "greet".to_string(),
+                block: 0,
+                args: Some(ArgsSpec {
+                    inputs: vec!["name".to_string()],
+                    outputs: vec!["String".to_string()],
+                }),
+            }]
         );
     }
 
