@@ -106,6 +106,30 @@ end
     assert_eq!(ctx.view_data.get("title"), Some(&"42".to_string()));
 }
 
+#[test]
+fn ricochet_controller_returns_text_response() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+PingController Controller subclass
+  "index" [
+    ctx get
+    "pong" swap text
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("PingController", "index", "PingController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    let result = controllers
+        .call("PingController", "index", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::Text("pong".to_string()));
+}
+
 #[tokio::test]
 async fn serves_minimal_mvc_home_page() {
     let app = ricochet_web::server::build_test_app().expect("build app");
@@ -215,6 +239,66 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body.trim(), "<h1>42</h1>");
+}
+
+#[tokio::test]
+async fn serves_ricochet_text_response_without_view_file() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "text_response"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/ping" PingController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/PingController.rco"),
+        r#"
+PingController Controller subclass
+  "index" [
+    ctx get
+    "pong" swap text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/ping").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "pong");
 }
 
 fn temp_project_path() -> PathBuf {

@@ -409,6 +409,7 @@ impl Vm {
             "call" => self.call_block(word),
             "send" => self.call_send(word),
             "view" => self.call_view(word),
+            "text" => self.call_text(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
@@ -829,6 +830,35 @@ impl Vm {
         let mut action = BTreeMap::new();
         action.insert("type".to_string(), Value::String("view".to_string()));
         action.insert("name".to_string(), Value::String(view_name));
+        self.stack.push(Value::Map(action));
+        Ok(())
+    }
+
+    fn call_text(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let top = self.pop(word)?;
+        let body = match top {
+            Value::String(body) => body,
+            _context => match self.pop(word) {
+                Ok(Value::String(body)) => body,
+                Ok(value) => {
+                    self.stack = stack_before;
+                    return Err(VmError::TypeError {
+                        word: word.to_string(),
+                        expected: "text body string".to_string(),
+                        actual: value_kind(&value).to_string(),
+                    });
+                }
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            },
+        };
+
+        let mut action = BTreeMap::new();
+        action.insert("type".to_string(), Value::String("text".to_string()));
+        action.insert("body".to_string(), Value::String(body));
         self.stack.push(Value::Map(action));
         Ok(())
     }
@@ -1735,6 +1765,33 @@ mod tests {
         assert_eq!(
             action.get("name"),
             Some(&Value::String("home/index".to_string()))
+        );
+    }
+
+    #[test]
+    fn text_word_returns_text_action_map() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("ctx".to_string()), span());
+        chunk.push(Op::CallWord("var".to_string()), span());
+        chunk.push(Op::PushString("ctx".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+        chunk.push(Op::PushString("pong".to_string()), span());
+        chunk.push(Op::CallWord("swap".to_string()), span());
+        chunk.push(Op::CallWord("text".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("text word runs");
+
+        let [Value::Map(action)] = vm.stack() else {
+            panic!("expected one action map on stack, got {:?}", vm.stack());
+        };
+        assert_eq!(
+            action.get("type"),
+            Some(&Value::String("text".to_string()))
+        );
+        assert_eq!(
+            action.get("body"),
+            Some(&Value::String("pong".to_string()))
         );
     }
 
