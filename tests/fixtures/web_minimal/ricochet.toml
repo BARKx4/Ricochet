@@ -10,4 +10,4 @@ escape = "html"
 
 [database.default]
 adapter = "postgres"
-url = "postgres://localhost/ricochet_development"
+url = "${DATABASE_URL}"

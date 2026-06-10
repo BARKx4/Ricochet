@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Run { path } => run(&path)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
-        Command::Serve { debug, watch } => println!("serve debug={debug} watch={watch}"),
+        Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
         Command::Test { path } => println!("test {}", path.unwrap_or_else(|| ".".to_string())),
     }
     Ok(())
