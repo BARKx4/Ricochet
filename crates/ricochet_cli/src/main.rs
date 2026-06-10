@@ -19,7 +19,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Run { path: String },
+    Run {
+        #[arg(long)]
+        debug: bool,
+        path: String,
+    },
     Build { path: Option<String> },
     Serve { #[arg(long)] debug: bool, #[arg(long)] watch: bool },
     Test { path: Option<String> },
@@ -29,7 +33,7 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Run { path } => run(&path)?,
+        Command::Run { debug, path } => run(&path, debug)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
         Command::Test { path } => println!("test {}", path.unwrap_or_else(|| ".".to_string())),
@@ -37,11 +41,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn run(path: &str) -> Result<()> {
+fn run(path: &str, debug: bool) -> Result<()> {
     let (file, source) = read_source(path)?;
     let chunk = compile_source(&file, &source)?;
     let mut vm = Vm::default();
-    vm.run_chunk(&chunk)?;
+    if debug {
+        vm.enable_debug();
+    }
+
+    let result = vm.run_chunk(&chunk);
+    if debug {
+        for event in vm.debug_events() {
+            println!("{event:?}");
+        }
+    }
+    result?;
 
     println!("{:?}", vm.stack());
 

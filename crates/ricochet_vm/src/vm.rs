@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use ricochet_bytecode::{Chunk, Op};
+use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use thiserror::Error;
 
 use crate::class::{Class, NativeMethod};
+use crate::debug::DebugEvent;
 use crate::object::Instance;
 use crate::value::Value;
 
@@ -41,11 +42,30 @@ pub struct Vm {
     stack: Vec<Value>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
+    debug_enabled: bool,
+    debug_events: Vec<DebugEvent>,
+    breakpoints: BTreeSet<(String, usize)>,
 }
 
 impl Vm {
     pub fn stack(&self) -> &[Value] {
         &self.stack
+    }
+
+    pub fn enable_debug(&mut self) {
+        self.debug_enabled = true;
+    }
+
+    pub fn debug_events(&self) -> &[DebugEvent] {
+        &self.debug_events
+    }
+
+    pub fn clear_debug_events(&mut self) {
+        self.debug_events.clear();
+    }
+
+    pub fn add_line_breakpoint(&mut self, file: impl Into<String>, line: usize) {
+        self.breakpoints.insert((file.into(), line));
     }
 
     pub fn define_class(
@@ -169,22 +189,59 @@ impl Vm {
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
         for instruction in &chunk.instructions {
-            match &instruction.op {
-                Op::PushNil => self.stack.push(Value::Nil),
-                Op::PushBool(value) => self.stack.push(Value::Bool(*value)),
-                Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
-                Op::PushString(value) => self.stack.push(Value::String(value.clone())),
-                Op::CallWord(word) => self.call_word(word)?,
-                Op::BeginClass { name, superclass } => {
-                    self.define_class(name.clone(), superclass.clone())?
-                }
-                Op::EndClass => self.end_class(),
-                Op::AddField(name) => self.add_field(name.clone())?,
-                Op::AddMethod { .. } => {
-                    return Err(VmError::UnsupportedOpcode(format!("{:?}", &instruction.op)));
-                }
-                op => return Err(VmError::UnsupportedOpcode(format!("{op:?}"))),
+            let stack_before = self.debug_enabled.then(|| self.stack.clone());
+            let source = self
+                .debug_enabled
+                .then(|| source_label(&instruction.span));
+            let opcode = self
+                .debug_enabled
+                .then(|| format!("{:?}", &instruction.op));
+
+            let result = self.execute_instruction(&instruction.op);
+
+            if let (Some(stack_before), Some(source), Some(opcode)) =
+                (stack_before, source, opcode)
+            {
+                self.debug_events.push(DebugEvent::Instruction {
+                    frame: "<main>".to_string(),
+                    source,
+                    opcode,
+                    stack_before,
+                    stack_after: self.stack.clone(),
+                });
             }
+
+            if let Err(error) = result {
+                if self.debug_enabled {
+                    self.debug_events.push(DebugEvent::Fault {
+                        frame: "<main>".to_string(),
+                        message: error.to_string(),
+                        stack: self.stack.clone(),
+                    });
+                }
+                return Err(error);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn execute_instruction(&mut self, op: &Op) -> Result<(), VmError> {
+        match op {
+            Op::PushNil => self.stack.push(Value::Nil),
+            Op::PushBool(value) => self.stack.push(Value::Bool(*value)),
+            Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
+            Op::PushString(value) => self.stack.push(Value::String(value.clone())),
+            Op::CallWord(word) => self.call_word(word)?,
+            Op::BeginClass { name, superclass } => {
+                self.define_class(name.clone(), superclass.clone())?
+            }
+            Op::EndClass => self.end_class(),
+            Op::AddField(name) => self.add_field(name.clone())?,
+            Op::AddMethod { .. } => {
+                return Err(VmError::UnsupportedOpcode(format!("{op:?}")));
+            }
+            op => return Err(VmError::UnsupportedOpcode(format!("{op:?}"))),
         }
 
         Ok(())
@@ -355,6 +412,10 @@ fn value_kind(value: &Value) -> &'static str {
     }
 }
 
+fn source_label(span: &SourceSpan) -> String {
+    format!("{}:{}", span.file, span.line)
+}
+
 fn is_known_predicate(name: &str) -> bool {
     matches!(name, "ok?" | "nil?" | "empty?")
 }
@@ -371,7 +432,7 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::Value;
+    use crate::{debug::DebugEvent, value::Value};
     use ricochet_bytecode::{Chunk, Op, SourceSpan};
 
     fn span() -> SourceSpan {
@@ -395,6 +456,80 @@ mod tests {
         vm.run_chunk(&chunk).expect("vm succeeds");
 
         assert_eq!(vm.stack(), &[Value::Number(5)]);
+    }
+
+    #[test]
+    fn debug_mode_records_instruction_events_with_stack_before_and_after() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.enable_debug();
+        vm.run_chunk(&chunk).expect("vm succeeds");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert_eq!(vm.debug_events().len(), 3);
+        assert_eq!(
+            vm.debug_events()[2],
+            DebugEvent::Instruction {
+                frame: "<main>".to_string(),
+                source: "test.rco:1".to_string(),
+                opcode: "CallWord(\"+\")".to_string(),
+                stack_before: vec![Value::Number(2), Value::Number(3)],
+                stack_after: vec![Value::Number(5)],
+            }
+        );
+    }
+
+    #[test]
+    fn debug_mode_records_fault_event_and_still_returns_error() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(1), span());
+        chunk.push(Op::CallWord("missing".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.enable_debug();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownWord("missing".to_string()))
+        );
+        assert_eq!(vm.stack(), &[Value::Number(1)]);
+        assert_eq!(vm.debug_events().len(), 3);
+        assert_eq!(
+            vm.debug_events()[1],
+            DebugEvent::Instruction {
+                frame: "<main>".to_string(),
+                source: "test.rco:1".to_string(),
+                opcode: "CallWord(\"missing\")".to_string(),
+                stack_before: vec![Value::Number(1)],
+                stack_after: vec![Value::Number(1)],
+            }
+        );
+        assert_eq!(
+            vm.debug_events().last(),
+            Some(&DebugEvent::Fault {
+                frame: "<main>".to_string(),
+                message: "unknown word: missing".to_string(),
+                stack: vec![Value::Number(1)],
+            })
+        );
+    }
+
+    #[test]
+    fn debug_disabled_does_not_record_events() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("vm succeeds");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert!(vm.debug_events().is_empty());
     }
 
     #[test]
