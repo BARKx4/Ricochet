@@ -25,7 +25,7 @@ pub struct ClassDecl {
 pub struct MethodDecl {
     pub name: String,
     pub args: Option<ArgsDecl>,
-    pub body: Vec<Expr>,
+    pub body: Vec<SpannedExpr>,
     pub span: Span,
 }
 
@@ -33,7 +33,7 @@ pub struct MethodDecl {
 pub struct FunctionDecl {
     pub name: String,
     pub args: Option<ArgsDecl>,
-    pub body: Vec<Expr>,
+    pub body: Vec<SpannedExpr>,
     pub span: Span,
 }
 
@@ -44,6 +44,12 @@ pub struct ArgsDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct SpannedExpr {
+    pub expr: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Symbol(String),
     BangWord(String),
@@ -51,7 +57,10 @@ pub enum Expr {
     String(String),
     Number(i64),
     Args(ArgsDecl),
-    Block(Vec<Expr>),
-    Sequence(Vec<Expr>),
-    If { then_body: Vec<Expr>, else_body: Vec<Expr> },
+    Block(Vec<SpannedExpr>),
+    Sequence(Vec<SpannedExpr>),
+    If {
+        then_body: Vec<SpannedExpr>,
+        else_body: Vec<SpannedExpr>,
+    },
 }

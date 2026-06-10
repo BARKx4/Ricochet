@@ -629,6 +629,53 @@ fn run_debug_breakpoint_can_continue_to_completion() {
 }
 
 #[test]
+fn run_debug_breakpoint_pauses_inside_function_body() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        "work function\n  2\n  3\n  +\nend\nwork\n",
+    )
+    .expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--breakpoint")
+        .arg("3")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"continue\n")
+        .expect("debugger command should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "function breakpoint should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains(":3 [work] PushNumber(3)"),
+        "pause should identify the function frame and exact source line, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[Number(5)]"),
+        "stdout should include final stack, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_runs_testcase_methods() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

@@ -73,6 +73,7 @@ pub struct Vm {
     debug_controller: Option<DebugController>,
     step_mode: bool,
     breakpoints: BTreeSet<(String, usize)>,
+    suppressed_breakpoint: Option<(String, String, usize)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -349,6 +350,7 @@ impl Vm {
     }
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
+        self.suppressed_breakpoint = None;
         self.run_chunk_with_frame(chunk, "<main>", false).map(|_| ())
     }
 
@@ -409,9 +411,22 @@ impl Vm {
         frame: &str,
         instruction: &ricochet_bytecode::Instruction,
     ) -> Result<(), VmError> {
+        let breakpoint_site = (
+            frame.to_string(),
+            instruction.span.file.clone(),
+            instruction.span.line,
+        );
+        if self
+            .suppressed_breakpoint
+            .as_ref()
+            .is_some_and(|suppressed| suppressed != &breakpoint_site)
+        {
+            self.suppressed_breakpoint = None;
+        }
         let breakpoint_hit = self
             .breakpoints
-            .contains(&(instruction.span.file.clone(), instruction.span.line));
+            .contains(&(instruction.span.file.clone(), instruction.span.line))
+            && self.suppressed_breakpoint.as_ref() != Some(&breakpoint_site);
         if !self.step_mode && !breakpoint_hit {
             return Ok(());
         }
@@ -437,10 +452,16 @@ impl Vm {
 
         match action {
             DebugAction::Step => {
+                if breakpoint_hit {
+                    self.suppressed_breakpoint = Some(breakpoint_site);
+                }
                 self.step_mode = true;
                 Ok(())
             }
             DebugAction::Continue => {
+                if breakpoint_hit {
+                    self.suppressed_breakpoint = Some(breakpoint_site);
+                }
                 self.step_mode = false;
                 Ok(())
             }
@@ -1529,6 +1550,48 @@ mod tests {
         assert_eq!(pauses.borrow()[0].reason, DebugPauseReason::Breakpoint);
         assert_eq!(pauses.borrow()[0].source, "test.rco:2");
         assert_eq!(pauses.borrow()[0].stack, vec![Value::Number(2)]);
+    }
+
+    #[test]
+    fn continuing_from_line_breakpoint_skips_remaining_opcodes_on_same_line() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let pause_count = Rc::new(RefCell::new(0usize));
+        let seen = pause_count.clone();
+        let mut vm = Vm::default();
+        vm.add_line_breakpoint("test.rco", 1);
+        vm.set_debug_controller(move |_| {
+            *seen.borrow_mut() += 1;
+            DebugAction::Continue
+        });
+
+        vm.run_chunk(&chunk).expect("breakpoint continues");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert_eq!(*pause_count.borrow(), 1);
+    }
+
+    #[test]
+    fn line_breakpoint_can_pause_again_on_a_later_top_level_run() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+
+        let pause_count = Rc::new(RefCell::new(0usize));
+        let seen = pause_count.clone();
+        let mut vm = Vm::default();
+        vm.add_line_breakpoint("test.rco", 1);
+        vm.set_debug_controller(move |_| {
+            *seen.borrow_mut() += 1;
+            DebugAction::Continue
+        });
+
+        vm.run_chunk(&chunk).expect("first run continues");
+        vm.run_chunk(&chunk).expect("second run continues");
+
+        assert_eq!(*pause_count.borrow(), 2);
     }
 
     #[test]

@@ -50,12 +50,10 @@ impl Parser {
         if let Some(method) = self.try_parse_method()? {
             return Ok(Item::Method(method));
         }
-        let start = self.current_span().start;
-        let expr = self.parse_expr_item()?;
-        let end = self.previous_span().end;
+        let expression = self.parse_expr_item()?;
         Ok(Item::Expr {
-            expr,
-            span: Span { start, end },
+            expr: expression.expr,
+            span: expression.span,
         })
     }
 
@@ -168,7 +166,7 @@ impl Parser {
         }))
     }
 
-    fn parse_expr_body_until_end(&mut self) -> Result<Vec<Expr>, ParseError> {
+    fn parse_expr_body_until_end(&mut self) -> Result<Vec<SpannedExpr>, ParseError> {
         let mut body = Vec::new();
         loop {
             self.skip_newlines();
@@ -188,7 +186,7 @@ impl Parser {
         Ok(body)
     }
 
-    fn parse_expr_item(&mut self) -> Result<Expr, ParseError> {
+    fn parse_expr_item(&mut self) -> Result<SpannedExpr, ParseError> {
         let mut exprs = vec![self.parse_expr()?];
         while !matches!(
             self.peek_kind(),
@@ -200,29 +198,37 @@ impl Parser {
         if exprs.len() == 1 {
             Ok(exprs.remove(0))
         } else {
-            Ok(Expr::Sequence(exprs))
+            let span = Span {
+                start: exprs.first().expect("expression sequence is non-empty").span.start,
+                end: exprs.last().expect("expression sequence is non-empty").span.end,
+            };
+            Ok(SpannedExpr {
+                expr: Expr::Sequence(exprs),
+                span,
+            })
         }
     }
 
-    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
+    fn parse_expr(&mut self) -> Result<SpannedExpr, ParseError> {
         self.skip_newlines();
         let token = self.advance();
-        match token.kind {
-            TokenKind::Symbol(s) if s == "if" => self.parse_if_expr(),
-            TokenKind::Symbol(s) => Ok(Expr::Symbol(s)),
-            TokenKind::BangWord(s) => Ok(Expr::BangWord(s)),
-            TokenKind::DotWord(s) => Ok(Expr::DotWord(s)),
-            TokenKind::String(s) => Ok(Expr::String(s)),
-            TokenKind::Number(n) => n
-                .parse()
-                .map(Expr::Number)
-                .map_err(|_| ParseError::InvalidNumber {
+        let start = token.span.start;
+        let expr = match token.kind {
+            TokenKind::Symbol(s) if s == "if" => self.parse_if_expr()?,
+            TokenKind::Symbol(s) => Expr::Symbol(s),
+            TokenKind::BangWord(s) => Expr::BangWord(s),
+            TokenKind::DotWord(s) => Expr::DotWord(s),
+            TokenKind::String(s) => Expr::String(s),
+            TokenKind::Number(n) => {
+                let value = n.parse().map_err(|_| ParseError::InvalidNumber {
                     literal: n,
                     span: token.span,
-                }),
+                })?;
+                Expr::Number(value)
+            }
             TokenKind::LeftParen => {
                 self.pos = self.pos.saturating_sub(1);
-                Ok(Expr::Args(self.parse_args()?))
+                Expr::Args(self.parse_args()?)
             }
             TokenKind::LeftBracket => {
                 let mut exprs = Vec::new();
@@ -234,13 +240,23 @@ impl Parser {
                     exprs.push(self.parse_expr()?);
                 }
                 self.expect_right_bracket()?;
-                Ok(Expr::Block(exprs))
+                Expr::Block(exprs)
             }
-            other => Err(ParseError::Unexpected {
-                found: other,
-                span: token.span,
-            }),
-        }
+            other => {
+                return Err(ParseError::Unexpected {
+                    found: other,
+                    span: token.span,
+                });
+            }
+        };
+
+        Ok(SpannedExpr {
+            expr,
+            span: Span {
+                start,
+                end: self.previous_span().end,
+            },
+        })
     }
 
     fn parse_if_expr(&mut self) -> Result<Expr, ParseError> {
@@ -258,7 +274,7 @@ impl Parser {
         })
     }
 
-    fn parse_exprs_until(&mut self, stop_symbols: &[&str]) -> Result<Vec<Expr>, ParseError> {
+    fn parse_exprs_until(&mut self, stop_symbols: &[&str]) -> Result<Vec<SpannedExpr>, ParseError> {
         let mut body = Vec::new();
         loop {
             self.skip_newlines();
@@ -400,6 +416,13 @@ mod tests {
     use super::*;
     use crate::ast::{Expr, Item};
 
+    fn unspan(expressions: &[SpannedExpr]) -> Vec<Expr> {
+        expressions
+            .iter()
+            .map(|expression| expression.expr.clone())
+            .collect()
+    }
+
     #[test]
     fn parses_class_with_field_and_method() {
         let src = r#"
@@ -424,7 +447,7 @@ mod tests {
                     Item::Expr {
                         expr: Expr::Sequence(exprs),
                         ..
-                    } if exprs == &vec![
+                    } if unspan(exprs) == vec![
                         Expr::Symbol("users".to_string()),
                         Expr::Symbol("table".to_string()),
                     ]
@@ -434,7 +457,7 @@ mod tests {
                     Item::Expr {
                         expr: Expr::Sequence(exprs),
                         ..
-                    } if exprs == &vec![
+                    } if unspan(exprs) == vec![
                         Expr::Symbol("email".to_string()),
                         Expr::Symbol("field".to_string()),
                     ]
@@ -443,7 +466,7 @@ mod tests {
                     Item::Method(method) => {
                         assert_eq!(method.name, "displayName");
                         assert_eq!(
-                            method.body,
+                            unspan(&method.body),
                             vec![
                                 Expr::Symbol("self".to_string()),
                                 Expr::DotWord(".email".to_string()),
@@ -469,9 +492,9 @@ mod tests {
                 ..
             } => {
                 assert_eq!(exprs.len(), 3);
-                assert_eq!(exprs[0], Expr::String("index".to_string()));
-                assert!(matches!(exprs[1], Expr::Block(_)));
-                assert_eq!(exprs[2], Expr::BangWord("!method".to_string()));
+                assert_eq!(exprs[0].expr, Expr::String("index".to_string()));
+                assert!(matches!(exprs[1].expr, Expr::Block(_)));
+                assert_eq!(exprs[2].expr, Expr::BangWord("!method".to_string()));
             }
             other => panic!("expected expression sequence, got {other:?}"),
         }
@@ -492,11 +515,11 @@ mod tests {
             Item::Expr {
                 expr: Expr::Sequence(exprs),
                 ..
-            } => match &exprs[1] {
+            } => match &exprs[1].expr {
                 Expr::Block(block) => {
                     assert_eq!(
-                        block,
-                        &vec![
+                        unspan(block),
+                        vec![
                             Expr::Symbol("ctx".to_string()),
                             Expr::Symbol("get".to_string()),
                         ]
@@ -536,19 +559,23 @@ mod tests {
         let src = r#"true if "yes" else "no" end"#;
         let module = parse_module(src).expect("parse succeeds");
 
-        assert!(matches!(
-            module.items.as_slice(),
-            [Item::Expr {
-                expr: Expr::Sequence(exprs),
-                ..
-            }] if exprs == &vec![
-                Expr::Symbol("true".to_string()),
-                Expr::If {
-                    then_body: vec![Expr::String("yes".to_string())],
-                    else_body: vec![Expr::String("no".to_string())],
-                },
-            ]
-        ));
+        let Item::Expr {
+            expr: Expr::Sequence(exprs),
+            ..
+        } = &module.items[0]
+        else {
+            panic!("expected expression sequence");
+        };
+        assert_eq!(exprs[0].expr, Expr::Symbol("true".to_string()));
+        let Expr::If {
+            then_body,
+            else_body,
+        } = &exprs[1].expr
+        else {
+            panic!("expected if expression");
+        };
+        assert_eq!(unspan(then_body), vec![Expr::String("yes".to_string())]);
+        assert_eq!(unspan(else_body), vec![Expr::String("no".to_string())]);
     }
 
     #[test]
@@ -566,7 +593,10 @@ mod tests {
             Item::Function(function) => {
                 assert_eq!(function.name, "hello");
                 assert_eq!(function.args, None);
-                assert_eq!(function.body, vec![Expr::String("hi".to_string())]);
+                assert_eq!(
+                    unspan(&function.body),
+                    vec![Expr::String("hi".to_string())]
+                );
             }
             other => panic!("expected function, got {other:?}"),
         }

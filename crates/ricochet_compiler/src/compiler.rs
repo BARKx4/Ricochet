@@ -1,6 +1,7 @@
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_syntax::{
     parse_module, ArgsDecl, ClassDecl, Expr, Item, MethodDecl, Module, ParseError, Span,
+    SpannedExpr,
 };
 use thiserror::Error;
 
@@ -183,10 +184,18 @@ impl Compiler {
         }
     }
 
+    fn compile_spanned_expr(&mut self, expression: &SpannedExpr) -> Result<(), CompileError> {
+        let previous = self.default_span;
+        self.default_span = expression.span;
+        let result = self.compile_expr(&expression.expr);
+        self.default_span = previous;
+        result
+    }
+
     fn compile_if(
         &mut self,
-        then_body: &[Expr],
-        else_body: &[Expr],
+        then_body: &[SpannedExpr],
+        else_body: &[SpannedExpr],
     ) -> Result<(), CompileError> {
         let jump_if_false = self.chunk.instructions.len();
         self.push(Op::JumpIfFalse(usize::MAX))?;
@@ -206,15 +215,15 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_exprs(&mut self, exprs: &[Expr]) -> Result<(), CompileError> {
+    fn compile_exprs(&mut self, exprs: &[SpannedExpr]) -> Result<(), CompileError> {
         let mut index = 0;
         while index < exprs.len() {
             if let Some((name, operator)) = variable_binding_pair(exprs, index) {
-                self.push(Op::PushString(name))?;
-                self.push(Op::CallWord(operator))?;
+                self.push_at(Op::PushString(name), exprs[index].span);
+                self.push_at(Op::CallWord(operator), exprs[index + 1].span);
                 index += 2;
             } else {
-                self.compile_expr(&exprs[index])?;
+                self.compile_spanned_expr(&exprs[index])?;
                 index += 1;
             }
         }
@@ -233,7 +242,7 @@ impl Compiler {
 
     fn compile_block_chunk(
         &self,
-        exprs: &[Expr],
+        exprs: &[SpannedExpr],
         default_span: Span,
     ) -> Result<Chunk, CompileError> {
         let mut compiler = Compiler {
@@ -253,6 +262,10 @@ impl Compiler {
         Ok(())
     }
 
+    fn push_at(&mut self, op: Op, span: Span) {
+        self.chunk.push(op, self.source_span(span));
+    }
+
     fn default_span(&self) -> SourceSpan {
         self.source_span(self.default_span)
     }
@@ -269,36 +282,44 @@ impl Compiler {
     }
 }
 
-fn is_field_declaration(exprs: &[Expr]) -> bool {
+fn is_field_declaration(exprs: &[SpannedExpr]) -> bool {
     exprs.len() == 2
         && declaration_name(&exprs[0]).is_some()
-        && matches!(&exprs[1], Expr::Symbol(word) if word == "field")
+        && matches!(&exprs[1].expr, Expr::Symbol(word) if word == "field")
 }
 
-fn block_method_declaration(exprs: &[Expr]) -> Option<(Option<&ArgsDecl>, String, &[Expr])> {
+fn block_method_declaration(
+    exprs: &[SpannedExpr],
+) -> Option<(Option<&ArgsDecl>, String, &[SpannedExpr])> {
     match exprs {
-        [name, Expr::Block(body), Expr::BangWord(word)] if word == "!method" => {
-            Some((None, declaration_name(name)?, body.as_slice()))
-        }
-        [Expr::Args(args), name, Expr::Block(body), Expr::BangWord(word)] if word == "!method" => {
-            Some((Some(args), declaration_name(name)?, body.as_slice()))
-        }
+        [name, block, bang] => match (&block.expr, &bang.expr) {
+            (Expr::Block(body), Expr::BangWord(word)) if word == "!method" => {
+                Some((None, declaration_name(name)?, body.as_slice()))
+            }
+            _ => None,
+        },
+        [args, name, block, bang] => match (&args.expr, &block.expr, &bang.expr) {
+            (Expr::Args(args), Expr::Block(body), Expr::BangWord(word)) if word == "!method" => {
+                Some((Some(args), declaration_name(name)?, body.as_slice()))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
 
-fn declaration_name(expr: &Expr) -> Option<String> {
-    match expr {
+fn declaration_name(expression: &SpannedExpr) -> Option<String> {
+    match &expression.expr {
         Expr::Symbol(name) | Expr::String(name) => Some(name.clone()),
         _ => None,
     }
 }
 
-fn variable_binding_pair(exprs: &[Expr], index: usize) -> Option<(String, String)> {
-    let Expr::Symbol(name) = exprs.get(index)? else {
+fn variable_binding_pair(exprs: &[SpannedExpr], index: usize) -> Option<(String, String)> {
+    let Expr::Symbol(name) = &exprs.get(index)?.expr else {
         return None;
     };
-    let Expr::Symbol(operator) = exprs.get(index + 1)? else {
+    let Expr::Symbol(operator) = &exprs.get(index + 1)?.expr else {
         return None;
     };
 
@@ -340,6 +361,13 @@ fn line_column(line_starts: &[usize], offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use ricochet_bytecode::{ArgsSpec, Op};
+
+    fn spanned(expr: Expr) -> SpannedExpr {
+        SpannedExpr {
+            expr,
+            span: Span { start: 0, end: 0 },
+        }
+    }
 
     #[test]
     fn compiles_ordinary_postfix_sequence() {
@@ -512,11 +540,13 @@ mod tests {
     }
 
     #[test]
-    fn method_block_debug_spans_inherit_declaration_span() {
+    fn method_block_debug_spans_follow_each_expression_line() {
         let source = r#"
           User Model subclass
             displayName method
-              self .email get
+              self
+              .email
+              get
             end
           end
         "#;
@@ -531,7 +561,7 @@ mod tests {
                 .debug()
                 .map(|span| span.line)
                 .collect::<Vec<_>>(),
-            vec![3, 3, 3, 3]
+            vec![4, 5, 6, 3]
         );
     }
 
@@ -696,17 +726,44 @@ mod tests {
     }
 
     #[test]
+    fn block_debug_spans_follow_nested_expression_lines() {
+        let chunk = compile_source("test.rco", "[\n  2\n  3\n  +\n]\n").expect("compile succeeds");
+
+        assert_eq!(
+            chunk.blocks[0]
+                .debug()
+                .map(|span| span.line)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4, 1]
+        );
+    }
+
+    #[test]
+    fn if_branch_debug_spans_follow_nested_expression_lines() {
+        let chunk = compile_source(
+            "test.rco",
+            "true if\n  \"yes\"\nelse\n  \"no\"\nend\n",
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.debug().map(|span| span.line).collect::<Vec<_>>(),
+            vec![1, 1, 2, 1, 4]
+        );
+    }
+
+    #[test]
     fn flattens_nested_expression_sequences_in_source_order() {
         let mut compiler = Compiler::new("test.rco");
         compiler
             .compile_expr(&Expr::Sequence(vec![
-                Expr::Number(1),
-                Expr::Sequence(vec![
-                    Expr::Number(2),
-                    Expr::String("done".to_string()),
-                    Expr::Symbol("finish".to_string()),
-                ]),
-                Expr::BangWord("!push".to_string()),
+                spanned(Expr::Number(1)),
+                spanned(Expr::Sequence(vec![
+                    spanned(Expr::Number(2)),
+                    spanned(Expr::String("done".to_string())),
+                    spanned(Expr::Symbol("finish".to_string())),
+                ])),
+                spanned(Expr::BangWord("!push".to_string())),
             ]))
             .expect("compile succeeds");
 
