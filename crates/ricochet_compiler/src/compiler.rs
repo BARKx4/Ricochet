@@ -121,6 +121,14 @@ impl Compiler {
     }
 
     fn compile_method_decl(&mut self, method: &MethodDecl) -> Result<(), CompileError> {
+        if let Some(args) = &method.args {
+            return Err(CompileError::Unsupported(format!(
+                "method {} argument declarations are not supported by compiler lowering yet: {}",
+                method.name,
+                format_args_decl(args)
+            )));
+        }
+
         let block = self.compile_block_chunk(&method.body)?;
         let block = self.chunk.push_block(block);
         self.chunk.push(
@@ -220,6 +228,20 @@ fn declaration_name(expr: &Expr) -> Option<String> {
     }
 }
 
+fn format_args_decl(args: &ricochet_syntax::ArgsDecl) -> String {
+    let inputs = if args.inputs.is_empty() {
+        "none".to_string()
+    } else {
+        args.inputs.join(" ")
+    };
+    let outputs = if args.outputs.is_empty() {
+        "none".to_string()
+    } else {
+        args.outputs.join(" ")
+    };
+    format!("inputs=({inputs}) outputs=({outputs})")
+}
+
 fn method_name(word: &str) -> String {
     word.strip_prefix('.').unwrap_or(word).to_string()
 }
@@ -297,6 +319,78 @@ mod tests {
                 Op::CallWord("get".to_string()),
                 Op::Return,
             ]
+        );
+    }
+
+    #[test]
+    fn rejects_class_methods_with_args_until_bytecode_can_preserve_them() {
+        let source = r#"
+          Transfer Service subclass
+            ( amount target -> Result ) transfer method
+              amount target send
+            end
+          end
+        "#;
+
+        let err = compile_source("services/transfer.rco", source).expect_err("compile fails");
+
+        match err {
+            CompileError::Unsupported(message) => {
+                assert!(message.contains("transfer"));
+                assert!(message.contains("argument declarations"));
+            }
+            other => panic!("expected unsupported method args, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compiles_class_method_declarations_to_add_method_blocks() {
+        let source = r#"
+          User Model subclass
+            displayName method
+              self .email get
+            end
+          end
+        "#;
+
+        let chunk = compile_source("models/user.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "User".to_string(),
+                    superclass: "Model".to_string(),
+                },
+                Op::AddMethod {
+                    name: "displayName".to_string(),
+                    block: 0,
+                },
+                Op::EndClass,
+            ]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::CallWord("self".to_string()),
+                Op::CallMethod("email".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::Return,
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_top_level_block_literals_to_push_block() {
+        let chunk = compile_source("test.rco", r#"[ "ok" ]"#).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![Op::PushBlock(0)]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![Op::PushString("ok".to_string()), Op::Return]
         );
     }
 
