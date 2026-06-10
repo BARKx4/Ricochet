@@ -130,6 +130,31 @@ end
     assert_eq!(result, ActionResult::Text("pong".to_string()));
 }
 
+#[test]
+fn ricochet_controller_reads_query_params() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+SearchController Controller subclass
+  "index" [
+    ctx get .query get .q get text
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("SearchController", "index", "SearchController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    ctx.query.insert("q".to_string(), "ricochet".to_string());
+
+    let result = controllers
+        .call("SearchController", "index", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::Text("ricochet".to_string()));
+}
+
 #[tokio::test]
 async fn serves_minimal_mvc_home_page() {
     let app = ricochet_web::server::build_test_app().expect("build app");
@@ -299,6 +324,70 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body, "pong");
+}
+
+#[tokio::test]
+async fn serves_query_params_to_ricochet_controller() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "query_params"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/search" SearchController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/SearchController.rco"),
+        r#"
+SearchController Controller subclass
+  "index" [
+    ctx get .query get .q get text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=ricochet")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "ricochet");
 }
 
 fn temp_project_path() -> PathBuf {

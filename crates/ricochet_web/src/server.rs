@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use axum::{
-    extract::{Path as AxumPath, State},
+    extract::{Path as AxumPath, Query as AxumQuery, State},
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
@@ -72,13 +72,17 @@ pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
         app = app.route(
             &route.path,
             get(move |State(state): State<AppState>,
-                      path_params: Option<AxumPath<HashMap<String, String>>>| {
+                      path_params: Option<AxumPath<HashMap<String, String>>>,
+                      AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
                 let controller = controller.clone();
                 let action = action.clone();
                 let path_params = path_params
                     .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                     .unwrap_or_default();
-                async move { render_route(state, controller, action, path_params).await }
+                let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                async move {
+                    render_route(state, controller, action, path_params, query_params).await
+                }
             }),
         );
     }
@@ -119,10 +123,18 @@ async fn render_route(
     controller: String,
     action: String,
     path_params: BTreeMap<String, String>,
+    query_params: BTreeMap<String, String>,
 ) -> impl IntoResponse {
     let revision = state.revisions.current();
 
-    match render_action(&state.runtime, revision, &controller, &action, path_params) {
+    match render_action(
+        &state.runtime,
+        revision,
+        &controller,
+        &action,
+        path_params,
+        query_params,
+    ) {
         Ok(body) => Html(body).into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -138,9 +150,11 @@ fn render_action(
     controller: &str,
     action: &str,
     path_params: BTreeMap<String, String>,
+    query_params: BTreeMap<String, String>,
 ) -> Result<String> {
     let mut ctx = RequestContext {
         params: path_params,
+        query: query_params,
         ..RequestContext::default()
     };
     ctx.view_data

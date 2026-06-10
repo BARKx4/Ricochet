@@ -7,6 +7,7 @@ use ricochet_vm::{Value, Vm};
 #[derive(Debug, Default)]
 pub struct RequestContext {
     pub params: BTreeMap<String, String>,
+    pub query: BTreeMap<String, String>,
     pub view_data: BTreeMap<String, String>,
 }
 
@@ -88,7 +89,13 @@ fn context_value(ctx: &RequestContext) -> Value {
         .iter()
         .map(|(key, value)| (key.clone(), Value::String(value.clone())))
         .collect::<BTreeMap<_, _>>();
+    let query = ctx
+        .query
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
     context.insert("params".to_string(), Value::Map(params));
+    context.insert("query".to_string(), Value::Map(query));
     Value::Map(context)
 }
 
