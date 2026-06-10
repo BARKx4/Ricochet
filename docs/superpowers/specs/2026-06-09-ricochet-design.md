@@ -227,6 +227,20 @@ User open-class
 end
 ```
 
+The same mutation is available as a pure stack operation without a lexical
+class body. This is the dynamic form that enables names from variables:
+
+```forth
+"User" className var
+"displayName" methodName var
+
+className get methodName get [ self .email get ] !method
+className get new .displayName
+```
+
+The target may be a class value such as `User` or a class-name string. Runtime
+declaration faults preserve their operands on the stack for debugger inspection.
+
 Subclass instances include fields declared by their ancestors. Method lookup
 walks from the concrete class toward its ancestors, so the nearest declaration
 wins even when an override changes between bytecode and a native method.

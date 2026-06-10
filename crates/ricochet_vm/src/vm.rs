@@ -639,6 +639,7 @@ impl Vm {
             }
             "!push" => self.call_push(word),
             "!put" => self.call_put(word),
+            "!method" => self.call_install_method(word),
             predicate if predicate.ends_with('?') => self.call_predicate(predicate),
             _ => self.call_function(word),
         }
@@ -1109,12 +1110,12 @@ impl Vm {
     fn call_new(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let class_name = match self.pop(word)? {
-            Value::String(class_name) => class_name,
+            Value::String(class_name) | Value::Class(class_name) => class_name,
             value => {
                 self.stack = stack_before;
                 return Err(VmError::TypeError {
                     word: word.to_string(),
-                    expected: "class name string".to_string(),
+                    expected: "class or class name string".to_string(),
                     actual: value_kind(&value).to_string(),
                 });
             }
@@ -1128,6 +1129,55 @@ impl Vm {
             Err(error) => {
                 self.stack = stack_before;
                 Err(error)
+            }
+        }
+    }
+
+    fn call_install_method(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 3)?;
+        let stack_before = self.stack.clone();
+        let method = match self.pop_unchecked() {
+            Value::Block(method) => method,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "method block".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let method_name = match self.pop_unchecked() {
+            Value::String(method_name) => method_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "method name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let class_name = match self.pop_unchecked() {
+            Value::Class(class_name) | Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class or class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.classes.get_mut(&class_name) {
+            Some(class) => {
+                class.add_bytecode_method(method_name, method, None);
+                Ok(())
+            }
+            None => {
+                self.stack = stack_before;
+                Err(VmError::UnknownClass(class_name))
             }
         }
     }
@@ -2295,6 +2345,69 @@ mod tests {
                 .expect("native method is called"),
             Value::String("new label".to_string())
         );
+    }
+
+    #[test]
+    fn class_value_constructs_an_instance_with_new() {
+        let mut vm = Vm::default();
+        vm.define_class("Widget", "Object").expect("class opens");
+        vm.end_class();
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::CallWord("Widget".to_string()), span());
+        chunk.push(Op::CallWord("new".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("class value constructs instance");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Instance(instance)] if instance.class_name == "Widget"
+        ));
+    }
+
+    #[test]
+    fn bang_method_installs_a_runtime_bytecode_method() {
+        let mut vm = Vm::default();
+        vm.define_class("Widget", "Object").expect("class opens");
+        vm.end_class();
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::PushString("dynamic".to_string()), span());
+        method.push(Op::Return, span());
+        let mut chunk = Chunk::new("test.rco");
+        let method_block = chunk.push_block(method);
+        chunk.push(Op::CallWord("Widget".to_string()), span());
+        chunk.push(Op::PushString("label".to_string()), span());
+        chunk.push(Op::PushBlock(method_block), span());
+        chunk.push(Op::CallWord("!method".to_string()), span());
+        chunk.push(Op::CallWord("Widget".to_string()), span());
+        chunk.push(Op::CallWord("new".to_string()), span());
+        chunk.push(Op::CallMethod("label".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("runtime method installs and runs");
+
+        assert_eq!(vm.stack(), &[Value::String("dynamic".to_string())]);
+    }
+
+    #[test]
+    fn bang_method_preserves_the_stack_when_the_class_is_unknown() {
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::PushString("dynamic".to_string()), span());
+        let mut chunk = Chunk::new("test.rco");
+        let method_block = chunk.push_block(method);
+        chunk.push(Op::PushString("Missing".to_string()), span());
+        chunk.push(Op::PushString("label".to_string()), span());
+        chunk.push(Op::PushBlock(method_block), span());
+        chunk.push(Op::CallWord("!method".to_string()), span());
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownClass("Missing".to_string()))
+        );
+        assert!(matches!(
+            vm.stack(),
+            [Value::String(class_name), Value::String(method_name), Value::Block(_)]
+                if class_name == "Missing" && method_name == "label"
+        ));
     }
 
     #[test]

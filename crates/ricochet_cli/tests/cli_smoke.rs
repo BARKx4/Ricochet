@@ -883,6 +883,44 @@ end
     );
 }
 
+#[test]
+fn run_installs_a_method_from_runtime_class_and_method_names() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+Widget Object subclass
+end
+
+"Widget" className var
+"label" methodName var
+className get methodName get [ "dynamic" ] !method
+className get new .label
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("String(\"dynamic\")"),
+        "stdout should show the dynamically installed method result, got:\n{stdout}"
+    );
+}
+
 fn temp_source_path() -> PathBuf {
     let base = std::env::var_os("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
