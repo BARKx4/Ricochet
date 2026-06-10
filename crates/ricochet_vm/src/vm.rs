@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
@@ -47,7 +48,9 @@ pub enum VmError {
     InvalidJump { target: usize, available: usize },
 }
 
-#[derive(Debug, Clone, Default)]
+type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
+
+#[derive(Clone, Default)]
 pub struct Vm {
     stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
@@ -57,6 +60,7 @@ pub struct Vm {
     self_stack: Vec<Value>,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
+    debug_sink: Option<DebugSink>,
     breakpoints: BTreeSet<(String, usize)>,
 }
 
@@ -90,6 +94,13 @@ impl Vm {
 
     pub fn enable_debug(&mut self) {
         self.debug_enabled = true;
+    }
+
+    pub fn set_debug_sink<F>(&mut self, sink: F)
+    where
+        F: FnMut(&DebugEvent) + 'static,
+    {
+        self.debug_sink = Some(Rc::new(RefCell::new(sink)));
     }
 
     pub fn debug_events(&self) -> &[DebugEvent] {
@@ -278,7 +289,7 @@ impl Vm {
             if let (Some(stack_before), Some(source), Some(opcode)) =
                 (stack_before, source, opcode)
             {
-                self.debug_events.push(DebugEvent::Instruction {
+                self.record_debug_event(DebugEvent::Instruction {
                     frame: frame.to_string(),
                     source,
                     opcode,
@@ -293,7 +304,7 @@ impl Vm {
                 Ok(ExecutionSignal::Return) => return Ok(ExecutionSignal::Return),
                 Err(error) => {
                     if self.debug_enabled {
-                        self.debug_events.push(DebugEvent::Fault {
+                        self.record_debug_event(DebugEvent::Fault {
                             frame: frame.to_string(),
                             message: error.to_string(),
                             stack: self.stack.clone(),
@@ -305,6 +316,13 @@ impl Vm {
         }
 
         Ok(ExecutionSignal::Continue)
+    }
+
+    fn record_debug_event(&mut self, event: DebugEvent) {
+        if let Some(sink) = self.debug_sink.clone() {
+            (sink.borrow_mut())(&event);
+        }
+        self.debug_events.push(event);
     }
 
     fn execute_instruction(
@@ -1109,6 +1127,8 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use super::*;
     use crate::{debug::DebugEvent, value::Value};
     use ricochet_bytecode::{Chunk, Op, SourceSpan};
@@ -1159,6 +1179,34 @@ mod tests {
                 stack_after: vec![Value::Number(5)],
             }
         );
+    }
+
+    #[test]
+    fn debug_sink_receives_events_as_vm_runs() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink_seen = Rc::clone(&seen);
+
+        let mut vm = Vm::default();
+        vm.enable_debug();
+        vm.set_debug_sink(move |event| sink_seen.borrow_mut().push(event.clone()));
+        vm.run_chunk(&chunk).expect("vm succeeds");
+
+        let seen = seen.borrow();
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen.as_slice(), vm.debug_events());
+        assert!(matches!(
+            seen.last(),
+            Some(DebugEvent::Instruction {
+                opcode,
+                stack_after,
+                ..
+            }) if opcode == "CallWord(\"+\")" && stack_after == &[Value::Number(5)]
+        ));
     }
 
     #[test]

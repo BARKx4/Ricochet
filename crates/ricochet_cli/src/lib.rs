@@ -50,14 +50,10 @@ fn run_file(path: &str, debug: bool) -> Result<()> {
     let mut vm = Vm::default();
     if debug {
         vm.enable_debug();
+        vm.set_debug_sink(print_debug_event);
     }
 
     let result = vm.run_chunk(&chunk);
-    if debug {
-        for event in vm.debug_events() {
-            print_debug_event(event);
-        }
-    }
     result?;
 
     println!("{:?}", vm.stack());
