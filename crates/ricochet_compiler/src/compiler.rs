@@ -54,7 +54,7 @@ impl Compiler {
     fn compile_item(&mut self, item: &Item) -> Result<(), CompileError> {
         match item {
             Item::Class(class) => self.compile_class(class),
-            Item::Expr(expr) => self.compile_expr(expr),
+            Item::Expr { expr, span } => self.compile_expr_item(expr, *span),
             Item::Function(function) => self.compile_function_decl(function),
             Item::Method(method) => Err(CompileError::Unsupported(format!(
                 "top-level method declaration {}",
@@ -74,7 +74,7 @@ impl Compiler {
         );
 
         for item in &class.body {
-            self.compile_class_body_item(item, class.span)?;
+            self.compile_class_body_item(item)?;
         }
 
         self.chunk.push(Op::EndClass, span);
@@ -98,23 +98,25 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_class_body_item(
-        &mut self,
-        item: &Item,
-        fallback_span: Span,
-    ) -> Result<(), CompileError> {
+    fn compile_class_body_item(&mut self, item: &Item) -> Result<(), CompileError> {
         match item {
             Item::Method(method) => self.compile_method_decl(method),
-            Item::Expr(Expr::Sequence(exprs)) if is_field_declaration(exprs) => {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                span,
+            } if is_field_declaration(exprs) => {
                 let name = declaration_name(&exprs[0]).expect("field declaration checked");
                 self.chunk
-                    .push(Op::AddField(name), self.source_span(fallback_span));
+                    .push(Op::AddField(name), self.source_span(*span));
                 Ok(())
             }
-            Item::Expr(Expr::Sequence(exprs)) if block_method_declaration(exprs).is_some() => {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                span,
+            } if block_method_declaration(exprs).is_some() => {
                 let (args, name, body) =
                     block_method_declaration(exprs).expect("method declaration checked");
-                let block = self.compile_block_chunk(body, fallback_span)?;
+                let block = self.compile_block_chunk(body, *span)?;
                 let block = self.chunk.push_block(block);
                 self.chunk.push(
                     Op::AddMethod {
@@ -122,11 +124,11 @@ impl Compiler {
                         block,
                         args: args.map(args_spec),
                     },
-                    self.source_span(fallback_span),
+                    self.source_span(*span),
                 );
                 Ok(())
             }
-            Item::Expr(expr) => self.compile_expr(expr),
+            Item::Expr { expr, span } => self.compile_expr_item(expr, *span),
             Item::Class(class) => Err(CompileError::Unsupported(format!(
                 "nested class declaration {}",
                 class.name
@@ -150,6 +152,14 @@ impl Compiler {
             self.source_span(method.span),
         );
         Ok(())
+    }
+
+    fn compile_expr_item(&mut self, expr: &Expr, span: Span) -> Result<(), CompileError> {
+        let previous = self.default_span;
+        self.default_span = span;
+        let result = self.compile_expr(expr);
+        self.default_span = previous;
+        result
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), CompileError> {
@@ -342,6 +352,16 @@ mod tests {
                 Op::PushNumber(3),
                 Op::CallWord("+".to_string())
             ]
+        );
+    }
+
+    #[test]
+    fn top_level_expression_debug_spans_follow_source_lines() {
+        let chunk = compile_source("test.rco", "2\n3\n+\n").expect("compile succeeds");
+
+        assert_eq!(
+            chunk.debug().map(|span| span.line).collect::<Vec<_>>(),
+            vec![1, 2, 3]
         );
     }
 

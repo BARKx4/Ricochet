@@ -50,7 +50,13 @@ impl Parser {
         if let Some(method) = self.try_parse_method()? {
             return Ok(Item::Method(method));
         }
-        Ok(Item::Expr(self.parse_expr_item()?))
+        let start = self.current_span().start;
+        let expr = self.parse_expr_item()?;
+        let end = self.previous_span().end;
+        Ok(Item::Expr {
+            expr,
+            span: Span { start, end },
+        })
     }
 
     fn try_parse_class(&mut self) -> Result<Option<ClassDecl>, ParseError> {
@@ -413,20 +419,26 @@ mod tests {
                 assert_eq!(class.name, "User");
                 assert_eq!(class.superclass, "Model");
                 assert_eq!(class.body.len(), 3);
-                assert_eq!(
-                    class.body[0],
-                    Item::Expr(Expr::Sequence(vec![
+                assert!(matches!(
+                    &class.body[0],
+                    Item::Expr {
+                        expr: Expr::Sequence(exprs),
+                        ..
+                    } if exprs == &vec![
                         Expr::Symbol("users".to_string()),
                         Expr::Symbol("table".to_string()),
-                    ]))
-                );
-                assert_eq!(
-                    class.body[1],
-                    Item::Expr(Expr::Sequence(vec![
+                    ]
+                ));
+                assert!(matches!(
+                    &class.body[1],
+                    Item::Expr {
+                        expr: Expr::Sequence(exprs),
+                        ..
+                    } if exprs == &vec![
                         Expr::Symbol("email".to_string()),
                         Expr::Symbol("field".to_string()),
-                    ]))
-                );
+                    ]
+                ));
                 match &class.body[2] {
                     Item::Method(method) => {
                         assert_eq!(method.name, "displayName");
@@ -452,7 +464,10 @@ mod tests {
         let module = parse_module(src).expect("parse succeeds");
         assert_eq!(module.items.len(), 1);
         match &module.items[0] {
-            Item::Expr(Expr::Sequence(exprs)) => {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
                 assert_eq!(exprs.len(), 3);
                 assert_eq!(exprs[0], Expr::String("index".to_string()));
                 assert!(matches!(exprs[1], Expr::Block(_)));
@@ -474,7 +489,10 @@ mod tests {
         let module = parse_module(src).expect("parse succeeds");
         assert_eq!(module.items.len(), 1);
         match &module.items[0] {
-            Item::Expr(Expr::Sequence(exprs)) => match &exprs[1] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => match &exprs[1] {
                 Expr::Block(block) => {
                     assert_eq!(
                         block,
@@ -518,16 +536,19 @@ mod tests {
         let src = r#"true if "yes" else "no" end"#;
         let module = parse_module(src).expect("parse succeeds");
 
-        assert_eq!(
-            module.items,
-            vec![Item::Expr(Expr::Sequence(vec![
+        assert!(matches!(
+            module.items.as_slice(),
+            [Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            }] if exprs == &vec![
                 Expr::Symbol("true".to_string()),
                 Expr::If {
                     then_body: vec![Expr::String("yes".to_string())],
                     else_body: vec![Expr::String("no".to_string())],
                 },
-            ]))]
-        );
+            ]
+        ));
     }
 
     #[test]

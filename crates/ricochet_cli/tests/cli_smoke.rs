@@ -542,6 +542,93 @@ fn run_debug_prints_fault_trace_before_error() {
 }
 
 #[test]
+fn run_debug_step_can_abort_before_execution() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "2 3 +\n").expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--debug")
+        .arg("--step")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"abort\n")
+        .expect("debugger command should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "debugger abort should fail run\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("PAUSE step"),
+        "stdout should include step pause, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("execution aborted"),
+        "stderr should include abort error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_debug_breakpoint_can_continue_to_completion() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "2\n3\n+\n").expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--debug")
+        .arg("--breakpoint")
+        .arg("2")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"continue\n")
+        .expect("debugger command should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "breakpoint continue should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("PAUSE breakpoint"),
+        "stdout should include breakpoint pause, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[Number(5)]"),
+        "stdout should include final stack, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_runs_testcase_methods() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

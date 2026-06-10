@@ -6,7 +6,7 @@ use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
 
 use crate::class::{BytecodeCallable, Class, NativeMethod};
-use crate::debug::DebugEvent;
+use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
 use crate::value::Value;
 
@@ -48,9 +48,15 @@ pub enum VmError {
     InvalidJump { target: usize, available: usize },
     #[error("assert-equals failed: expected {expected}, got {actual}")]
     AssertionFailed { expected: String, actual: String },
+    #[error("execution aborted in {frame} at {location}")]
+    ExecutionAborted {
+        frame: String,
+        location: String,
+    },
 }
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
+type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
 
 #[derive(Clone, Default)]
 pub struct Vm {
@@ -64,6 +70,8 @@ pub struct Vm {
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     debug_sink: Option<DebugSink>,
+    debug_controller: Option<DebugController>,
+    step_mode: bool,
     breakpoints: BTreeSet<(String, usize)>,
 }
 
@@ -136,11 +144,23 @@ impl Vm {
         self.debug_enabled = true;
     }
 
+    pub fn enable_step_debugging(&mut self) {
+        self.debug_enabled = true;
+        self.step_mode = true;
+    }
+
     pub fn set_debug_sink<F>(&mut self, sink: F)
     where
         F: FnMut(&DebugEvent) + 'static,
     {
         self.debug_sink = Some(Rc::new(RefCell::new(sink)));
+    }
+
+    pub fn set_debug_controller<F>(&mut self, controller: F)
+    where
+        F: FnMut(&DebugPause) -> DebugAction + 'static,
+    {
+        self.debug_controller = Some(Rc::new(RefCell::new(controller)));
     }
 
     pub fn debug_events(&self) -> &[DebugEvent] {
@@ -152,6 +172,7 @@ impl Vm {
     }
 
     pub fn add_line_breakpoint(&mut self, file: impl Into<String>, line: usize) {
+        self.debug_enabled = true;
         self.breakpoints.insert((file.into(), line));
     }
 
@@ -340,6 +361,7 @@ impl Vm {
         let mut ip = 0;
         while ip < chunk.instructions.len() {
             let instruction = &chunk.instructions[ip];
+            self.pause_before_instruction(frame, instruction)?;
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
             let source = self
                 .debug_enabled
@@ -380,6 +402,53 @@ impl Vm {
         }
 
         Ok(ExecutionSignal::Continue)
+    }
+
+    fn pause_before_instruction(
+        &mut self,
+        frame: &str,
+        instruction: &ricochet_bytecode::Instruction,
+    ) -> Result<(), VmError> {
+        let breakpoint_hit = self
+            .breakpoints
+            .contains(&(instruction.span.file.clone(), instruction.span.line));
+        if !self.step_mode && !breakpoint_hit {
+            return Ok(());
+        }
+
+        let pause = DebugPause {
+            reason: if breakpoint_hit {
+                DebugPauseReason::Breakpoint
+            } else {
+                DebugPauseReason::Step
+            },
+            frame: frame.to_string(),
+            source: source_label(&instruction.span),
+            opcode: format!("{:?}", instruction.op),
+            stack: self.stack.clone(),
+        };
+        self.record_debug_event(DebugEvent::Paused(pause.clone()));
+
+        let action = self
+            .debug_controller
+            .clone()
+            .map(|controller| (controller.borrow_mut())(&pause))
+            .unwrap_or(DebugAction::Continue);
+
+        match action {
+            DebugAction::Step => {
+                self.step_mode = true;
+                Ok(())
+            }
+            DebugAction::Continue => {
+                self.step_mode = false;
+                Ok(())
+            }
+            DebugAction::Abort => Err(VmError::ExecutionAborted {
+                frame: pause.frame,
+                location: pause.source,
+            }),
+        }
     }
 
     fn record_debug_event(&mut self, event: DebugEvent) {
@@ -1388,6 +1457,100 @@ mod tests {
                 ..
             }) if opcode == "CallWord(\"+\")" && stack_after == &[Value::Number(5)]
         ));
+    }
+
+    #[test]
+    fn step_debugger_can_abort_before_first_instruction() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let pauses = Rc::new(RefCell::new(Vec::new()));
+        let seen = pauses.clone();
+        let mut vm = Vm::default();
+        vm.enable_step_debugging();
+        vm.set_debug_controller(move |pause| {
+            seen.borrow_mut().push(pause.clone());
+            DebugAction::Abort
+        });
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::ExecutionAborted {
+                frame: "<main>".to_string(),
+                location: "test.rco:1".to_string(),
+            })
+        );
+        assert_eq!(vm.stack(), &[]);
+        assert_eq!(pauses.borrow().len(), 1);
+        assert_eq!(pauses.borrow()[0].reason, DebugPauseReason::Step);
+    }
+
+    #[test]
+    fn line_breakpoint_pauses_before_matching_instruction() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(
+            Op::PushNumber(2),
+            SourceSpan {
+                line: 1,
+                ..span()
+            },
+        );
+        chunk.push(
+            Op::PushNumber(3),
+            SourceSpan {
+                line: 2,
+                ..span()
+            },
+        );
+        chunk.push(
+            Op::CallWord("+".to_string()),
+            SourceSpan {
+                line: 3,
+                ..span()
+            },
+        );
+
+        let pauses = Rc::new(RefCell::new(Vec::new()));
+        let seen = pauses.clone();
+        let mut vm = Vm::default();
+        vm.enable_debug();
+        vm.add_line_breakpoint("test.rco", 2);
+        vm.set_debug_controller(move |pause| {
+            seen.borrow_mut().push(pause.clone());
+            DebugAction::Continue
+        });
+
+        vm.run_chunk(&chunk).expect("breakpoint continues");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert_eq!(pauses.borrow().len(), 1);
+        assert_eq!(pauses.borrow()[0].reason, DebugPauseReason::Breakpoint);
+        assert_eq!(pauses.borrow()[0].source, "test.rco:2");
+        assert_eq!(pauses.borrow()[0].stack, vec![Value::Number(2)]);
+    }
+
+    #[test]
+    fn step_action_pauses_before_each_instruction() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+
+        let pause_count = Rc::new(RefCell::new(0usize));
+        let seen = pause_count.clone();
+        let mut vm = Vm::default();
+        vm.enable_step_debugging();
+        vm.set_debug_controller(move |_| {
+            *seen.borrow_mut() += 1;
+            DebugAction::Step
+        });
+
+        vm.run_chunk(&chunk).expect("step debugger continues");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert_eq!(*pause_count.borrow(), 3);
     }
 
     #[test]

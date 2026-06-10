@@ -10,7 +10,7 @@ pub enum Item {
     Class(ClassDecl),
     Method(MethodDecl),
     Function(FunctionDecl),
-    Expr(Expr),
+    Expr { expr: Expr, span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq)]

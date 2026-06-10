@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use ricochet_compiler::{compile_source, CompileError};
 use ricochet_syntax::{LexError, ParseError, TokenKind};
-use ricochet_vm::{DebugEvent, Vm};
+use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, Vm};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
@@ -30,6 +30,10 @@ enum Command {
     Run {
         #[arg(long)]
         debug: bool,
+        #[arg(long)]
+        step: bool,
+        #[arg(long = "breakpoint", value_name = "LINE")]
+        breakpoints: Vec<usize>,
         path: String,
     },
     Build { path: Option<String> },
@@ -56,7 +60,12 @@ pub async fn run_cli() -> Result<()> {
             let stdout = io::stdout();
             run_repl(stdin.lock(), stdout.lock(), debug, interactive)?;
         }
-        Command::Run { debug, path } => run_file(&path, debug)?,
+        Command::Run {
+            debug,
+            step,
+            breakpoints,
+            path,
+        } => run_file(&path, debug, step, &breakpoints)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
         Command::Test { debug, path } => {
@@ -315,13 +324,26 @@ fn project_name(path: &Path) -> String {
     }
 }
 
-fn run_file(path: &str, debug: bool) -> Result<()> {
+fn run_file(path: &str, debug: bool, step: bool, breakpoints: &[usize]) -> Result<()> {
     let (file, source) = read_source(path)?;
     let chunk = compile_source(&file, &source)?;
     let mut vm = Vm::default();
-    if debug {
+    let debugger_enabled = debug || step || !breakpoints.is_empty();
+    if debugger_enabled {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
+    }
+    if step {
+        vm.enable_step_debugging();
+    }
+    for &line in breakpoints {
+        if line == 0 {
+            bail!("breakpoint lines are 1-based");
+        }
+        vm.add_line_breakpoint(file.clone(), line);
+    }
+    if step || !breakpoints.is_empty() {
+        vm.set_debug_controller(|_| read_terminal_debug_action());
     }
 
     let result = vm.run_chunk(&chunk);
@@ -333,6 +355,26 @@ fn run_file(path: &str, debug: bool) -> Result<()> {
     println!("{:?}", vm.stack());
 
     Ok(())
+}
+
+fn read_terminal_debug_action() -> DebugAction {
+    loop {
+        print!("debug> ");
+        if io::stdout().flush().is_err() {
+            return DebugAction::Abort;
+        }
+
+        let mut command = String::new();
+        match io::stdin().read_line(&mut command) {
+            Ok(0) | Err(_) => return DebugAction::Abort,
+            Ok(_) => match command.trim().to_ascii_lowercase().as_str() {
+                "" | "s" | "step" => return DebugAction::Step,
+                "c" | "continue" => return DebugAction::Continue,
+                "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
+                _ => println!("commands: step, continue, abort"),
+            },
+        }
+    }
 }
 
 fn run_tests(path: &str, debug: bool) -> Result<()> {
@@ -382,6 +424,17 @@ fn run_tests(path: &str, debug: bool) -> Result<()> {
 
 fn print_debug_event(event: &DebugEvent) {
     match event {
+        DebugEvent::Paused(pause) => {
+            let reason = match pause.reason {
+                DebugPauseReason::Step => "step",
+                DebugPauseReason::Breakpoint => "breakpoint",
+            };
+            println!(
+                "PAUSE {reason} {} [{}] {}",
+                pause.source, pause.frame, pause.opcode
+            );
+            println!("  stack:  {:?}", pause.stack);
+        }
         DebugEvent::Instruction {
             frame,
             source,

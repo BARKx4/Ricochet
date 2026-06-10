@@ -6,7 +6,7 @@ pub mod value;
 pub mod vm;
 
 pub use class::{BytecodeCallable, Class, NativeMethod};
-pub use debug::DebugEvent;
+pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 pub use object::Instance;
 pub use result::{RicochetError, RicochetResult};
 pub use value::{TruthinessError, Value};
