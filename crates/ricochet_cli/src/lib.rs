@@ -20,6 +20,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     New { path: String },
+    Check { path: Option<String> },
     Run {
         #[arg(long)]
         debug: bool,
@@ -42,6 +43,7 @@ pub async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::New { path } => new_project(Path::new(&path))?,
+        Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
         Command::Run { debug, path } => run_file(&path, debug)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
@@ -49,6 +51,43 @@ pub async fn run_cli() -> Result<()> {
             run_tests(path.as_deref().unwrap_or("tests"), debug)?;
         }
     }
+    Ok(())
+}
+
+fn check(path: &str) -> Result<()> {
+    let path = Path::new(path);
+    if path.is_file() {
+        check_source_file(path)?;
+        println!("checked {}", path.display());
+        return Ok(());
+    }
+
+    if !path.is_dir() {
+        bail!("check path does not exist: {}", path.display());
+    }
+
+    if path.join("ricochet.toml").is_file() {
+        let _app = ricochet_web::server::build_app_from_dir(path)
+            .with_context(|| format!("failed to check MVC app {}", path.display()))?;
+        println!("checked {}", path.display());
+        return Ok(());
+    }
+
+    let mut files = Vec::new();
+    collect_rco_files(path, &mut files)?;
+    files.sort();
+    for file in &files {
+        check_source_file(file)?;
+    }
+
+    println!("checked {} Ricochet files in {}", files.len(), path.display());
+    Ok(())
+}
+
+fn check_source_file(path: &Path) -> Result<()> {
+    let (file, source) = read_source_path(path)?;
+    compile_source(&file, &source)
+        .with_context(|| format!("failed to compile {}", path.display()))?;
     Ok(())
 }
 

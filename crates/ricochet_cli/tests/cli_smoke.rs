@@ -117,6 +117,71 @@ fn new_refuses_non_empty_directory() {
 }
 
 #[test]
+fn check_validates_scaffolded_mvc_project() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("checked_app");
+
+    let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+    assert!(
+        new_output.status.success(),
+        "rco new should succeed before check\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&new_output.stdout),
+        String::from_utf8_lossy(&new_output.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg(&project_path)
+        .output()
+        .expect("rco check should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco check failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("checked"),
+        "stdout should mention checked project, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn check_reports_invalid_source_file() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "9223372036854775808").expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg(&source_path)
+        .output()
+        .expect("rco check should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco check should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("invalid number literal"),
+        "stderr should include parser error, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_prints_final_stack_for_source_file() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
