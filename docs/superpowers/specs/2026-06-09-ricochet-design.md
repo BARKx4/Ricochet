@@ -212,12 +212,15 @@ Dynamic class creation is available from v1 and is central to the language's ide
 
 ```forth
 className get "Model" subclass
+className get "dynamic_table" table
+className get "name" field
 className get "displayName" [ self .name get ] !method
 ```
 
 The runtime `subclass` operator consumes a string class name and a superclass
 class value or string. It creates or reopens the class without requiring a
-compile-time declaration.
+compile-time declaration. Outside a lexical class body, `table` and `field`
+accept an explicit class target before the declaration name.
 
 Open classes can add or freely replace methods at runtime.
 

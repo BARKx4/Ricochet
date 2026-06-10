@@ -894,8 +894,11 @@ fn run_installs_a_method_from_runtime_class_and_method_names() {
 "Widget" className var
 "label" methodName var
 className get "Object" subclass
-className get methodName get [ "dynamic" ] !method
-className get new .label
+className get "name" field
+className get methodName get [ self .name get ] !method
+className get new
+"dynamic" swap .name set
+.label
 "#,
     )
     .expect("temp source should be written");

@@ -614,6 +614,7 @@ impl Vm {
             "get" => self.call_get(word),
             "set" => self.call_set(word),
             "var" => self.call_var(word),
+            "field" => self.call_field_declaration(word),
             "table" => self.call_table(word),
             "subclass" => self.call_subclass(word),
             "new" => self.call_new(word),
@@ -734,6 +735,10 @@ impl Vm {
     }
 
     fn call_table(&mut self, word: &str) -> Result<(), VmError> {
+        if self.current_class.is_none() {
+            return self.call_targeted_table(word);
+        }
+
         let stack_before = self.stack.clone();
         let table_name = match self.pop(word)? {
             Value::String(table_name) => table_name,
@@ -755,6 +760,82 @@ impl Vm {
             Err(error) => {
                 self.stack = stack_before;
                 Err(error)
+            }
+        }
+    }
+
+    fn call_targeted_table(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let table_name = match self.pop_unchecked() {
+            Value::String(table_name) => table_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "table name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let class_name = match self.pop_unchecked() {
+            Value::Class(class_name) | Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class or class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.classes.get_mut(&class_name) {
+            Some(class) => {
+                class.set_table(table_name);
+                Ok(())
+            }
+            None => {
+                self.stack = stack_before;
+                Err(VmError::UnknownClass(class_name))
+            }
+        }
+    }
+
+    fn call_field_declaration(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let field_name = match self.pop_unchecked() {
+            Value::String(field_name) => field_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "field name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let class_name = match self.pop_unchecked() {
+            Value::Class(class_name) | Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class or class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.classes.get_mut(&class_name) {
+            Some(class) => {
+                class.add_field(field_name);
+                Ok(())
+            }
+            None => {
+                self.stack = stack_before;
+                Err(VmError::UnknownClass(class_name))
             }
         }
     }
@@ -2726,6 +2807,49 @@ mod tests {
         vm.end_class();
 
         assert_eq!(vm.class_table("User"), Some("users"));
+    }
+
+    #[test]
+    fn targeted_table_and_field_words_mutate_a_runtime_class() {
+        let mut vm = Vm::default();
+        vm.define_class("User", "Model").expect("class begins");
+        vm.end_class();
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("User".to_string()), span());
+        chunk.push(Op::PushString("users".to_string()), span());
+        chunk.push(Op::CallWord("table".to_string()), span());
+        chunk.push(Op::PushString("User".to_string()), span());
+        chunk.push(Op::PushString("email".to_string()), span());
+        chunk.push(Op::CallWord("field".to_string()), span());
+
+        vm.run_chunk(&chunk)
+            .expect("targeted declarations mutate class");
+
+        assert_eq!(vm.class_table("User"), Some("users"));
+        assert_eq!(vm.class_fields("User"), Some(["email".to_string()].as_slice()));
+        let user = vm.new_instance("User").expect("instance created");
+        assert_eq!(vm.get_field(&user, "email").expect("field reads"), Value::Nil);
+    }
+
+    #[test]
+    fn targeted_field_preserves_the_stack_for_an_unknown_class() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Missing".to_string()), span());
+        chunk.push(Op::PushString("name".to_string()), span());
+        chunk.push(Op::CallWord("field".to_string()), span());
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownClass("Missing".to_string()))
+        );
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::String("Missing".to_string()),
+                Value::String("name".to_string())
+            ]
+        );
     }
 
     #[test]
