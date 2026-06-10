@@ -1,9 +1,11 @@
 use std::fs;
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use ricochet_compiler::compile_source;
+use ricochet_compiler::{compile_source, CompileError};
+use ricochet_syntax::{LexError, ParseError, TokenKind};
 use ricochet_vm::{DebugEvent, Vm};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
@@ -21,6 +23,10 @@ struct Cli {
 enum Command {
     New { path: String },
     Check { path: Option<String> },
+    Repl {
+        #[arg(long)]
+        debug: bool,
+    },
     Run {
         #[arg(long)]
         debug: bool,
@@ -44,6 +50,12 @@ pub async fn run_cli() -> Result<()> {
     match cli.command {
         Command::New { path } => new_project(Path::new(&path))?,
         Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
+        Command::Repl { debug } => {
+            let stdin = io::stdin();
+            let interactive = stdin.is_terminal();
+            let stdout = io::stdout();
+            run_repl(stdin.lock(), stdout.lock(), debug, interactive)?;
+        }
         Command::Run { debug, path } => run_file(&path, debug)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
@@ -52,6 +64,103 @@ pub async fn run_cli() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn run_repl<R: BufRead, W: Write>(
+    mut input: R,
+    mut output: W,
+    debug: bool,
+    interactive: bool,
+) -> Result<()> {
+    let mut vm = Vm::default();
+    if debug {
+        vm.enable_debug();
+        vm.set_debug_sink(print_debug_event);
+    }
+
+    let mut source = String::new();
+    let mut line = String::new();
+    let mut output_cursor = 0usize;
+
+    loop {
+        if interactive {
+            let prompt = if source.is_empty() { "rco> " } else { "...> " };
+            write!(output, "{prompt}")?;
+            output.flush()?;
+        }
+
+        line.clear();
+        let bytes_read = input.read_line(&mut line)?;
+        if bytes_read == 0 {
+            if source.trim().is_empty() {
+                return Ok(());
+            }
+
+            return match compile_source("<repl>", &source) {
+                Err(error) if is_incomplete_compile_error(&error) => {
+                    bail!("incomplete Ricochet input: {error}")
+                }
+                Err(error) => Err(error.into()),
+                Ok(chunk) => {
+                    vm.run_chunk(&chunk)?;
+                    write_repl_result(&vm, &mut output, &mut output_cursor)?;
+                    Ok(())
+                }
+            };
+        }
+
+        source.push_str(&line);
+        if source.trim().is_empty() {
+            source.clear();
+            continue;
+        }
+
+        match compile_source("<repl>", &source) {
+            Ok(chunk) => {
+                match vm.run_chunk(&chunk) {
+                    Ok(()) => write_repl_result(&vm, &mut output, &mut output_cursor)?,
+                    Err(error) => writeln!(output, "ERROR {error}")?,
+                }
+                source.clear();
+            }
+            Err(error) if is_incomplete_compile_error(&error) => {}
+            Err(error) => {
+                writeln!(output, "ERROR {error}")?;
+                source.clear();
+            }
+        }
+    }
+}
+
+fn write_repl_result<W: Write>(
+    vm: &Vm,
+    output: &mut W,
+    output_cursor: &mut usize,
+) -> Result<()> {
+    for line in &vm.output_lines()[*output_cursor..] {
+        writeln!(output, "{line}")?;
+    }
+    *output_cursor = vm.output_lines().len();
+    writeln!(output, "{:?}", vm.stack())?;
+    output.flush()?;
+    Ok(())
+}
+
+fn is_incomplete_compile_error(error: &CompileError) -> bool {
+    match error {
+        CompileError::Parse(ParseError::Expected {
+            found: TokenKind::Eof,
+            ..
+        })
+        | CompileError::Parse(ParseError::Unexpected {
+            found: TokenKind::Eof,
+            ..
+        })
+        | CompileError::Parse(ParseError::Lex(
+            LexError::UnterminatedString(_) | LexError::UnterminatedComment(_),
+        )) => true,
+        _ => false,
+    }
 }
 
 fn check(path: &str) -> Result<()> {

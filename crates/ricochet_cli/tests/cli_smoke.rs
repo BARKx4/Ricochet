@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
@@ -178,6 +179,106 @@ fn check_reports_invalid_source_file() {
     assert!(
         stderr.contains("invalid number literal"),
         "stderr should include parser error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn repl_preserves_stack_between_submissions() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("repl")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco repl should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("repl stdin should be piped")
+        .write_all(b"2\n3\n+\n")
+        .expect("repl input should write");
+
+    let output = child.wait_with_output().expect("repl should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco repl failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("[Number(5)]"),
+        "repl should preserve stack across submissions, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn repl_accepts_multiline_class_declarations() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("repl")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco repl should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("repl stdin should be piped")
+        .write_all(
+            br#"User Model subclass
+  email field
+end
+"User" new
+"#,
+        )
+        .expect("repl input should write");
+
+    let output = child.wait_with_output().expect("repl should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco repl failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("class_name: \"User\""),
+        "repl should instantiate class defined by multiline submission, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn repl_debug_streams_instruction_events() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("repl")
+        .arg("--debug")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco repl should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("repl stdin should be piped")
+        .write_all(b"2 3 +\n")
+        .expect("repl input should write");
+
+    let output = child.wait_with_output().expect("repl should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco repl failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("TRACE <repl>:1 [<main>]"),
+        "debug repl should stream trace events, got:\n{stdout}"
     );
 }
 
