@@ -1,8 +1,10 @@
+pub mod active_record;
 pub mod manifest;
 pub mod router;
 pub mod server;
 pub mod template;
 
+pub use active_record::ModelMapping;
 pub use manifest::{Database, DatabaseDefault, Manifest, Package, Views, Web};
 pub use router::{parse_routes, Route};
 pub use server::serve_current_dir;
