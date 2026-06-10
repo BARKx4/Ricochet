@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use ricochet_bytecode::{Chunk, Op, SourceSpan};
+use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
 
-use crate::class::{Class, NativeMethod};
+use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::debug::DebugEvent;
 use crate::object::Instance;
 use crate::value::Value;
@@ -56,7 +56,7 @@ type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 pub struct Vm {
     stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
-    functions: BTreeMap<String, Chunk>,
+    functions: BTreeMap<String, BytecodeCallable>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
@@ -95,8 +95,25 @@ impl Vm {
         self.variables.insert(name.into(), value);
     }
 
-    pub fn add_function(&mut self, name: impl Into<String>, function: Chunk) {
-        self.functions.insert(name.into(), function);
+    pub fn add_function(
+        &mut self,
+        name: impl Into<String>,
+        function: Chunk,
+        args: Option<ArgsSpec>,
+    ) {
+        self.functions
+            .insert(name.into(), BytecodeCallable::new(function, args));
+    }
+
+    pub fn function_args(&self, name: &str) -> Option<&ArgsSpec> {
+        self.functions.get(name).and_then(|function| function.args.as_ref())
+    }
+
+    pub fn method_args(&self, class_name: &str, method_name: &str) -> Option<&ArgsSpec> {
+        self.classes
+            .get(class_name)
+            .and_then(|class| class.bytecode_methods.get(method_name))
+            .and_then(|method| method.args.as_ref())
     }
 
     pub fn test_methods(&self) -> Vec<(String, String)> {
@@ -184,9 +201,10 @@ impl Vm {
         &mut self,
         name: impl Into<String>,
         method: Chunk,
+        args: Option<ArgsSpec>,
     ) -> Result<(), VmError> {
         self.current_class_mut("add_bytecode_method")?
-            .add_bytecode_method(name, method);
+            .add_bytecode_method(name, method, args);
         Ok(())
     }
 
@@ -270,7 +288,7 @@ impl Vm {
 
                 if let Some(method) = bytecode_method {
                     let frame = format!("{class_name}.{method_name}");
-                    return self.call_bytecode_method(receiver, &frame, &method);
+                    return self.call_bytecode_method(receiver, &frame, &method.chunk);
                 }
 
                 Err(VmError::UnknownMethod {
@@ -377,7 +395,7 @@ impl Vm {
             }
             Op::EndClass => self.end_class(),
             Op::AddField(name) => self.add_field(name.clone())?,
-            Op::AddMethod { name, block, .. } => {
+            Op::AddMethod { name, block, args } => {
                 let method = chunk
                     .blocks
                     .get(*block)
@@ -386,9 +404,9 @@ impl Vm {
                         index: *block,
                         available: chunk.blocks.len(),
                     })?;
-                self.add_bytecode_method(name.clone(), method)?;
+                self.add_bytecode_method(name.clone(), method, args.clone())?;
             }
-            Op::AddFunction { name, block, .. } => {
+            Op::AddFunction { name, block, args } => {
                 let function =
                     chunk
                         .blocks
@@ -398,7 +416,7 @@ impl Vm {
                             index: *block,
                             available: chunk.blocks.len(),
                         })?;
-                self.add_function(name.clone(), function);
+                self.add_function(name.clone(), function, args.clone());
             }
             Op::Return if allow_return => return Ok(ExecutionSignal::Return),
             Op::JumpIfFalse(target) => {
@@ -484,7 +502,7 @@ impl Vm {
             .get(name)
             .cloned()
             .ok_or_else(|| VmError::UnknownWord(name.to_string()))?;
-        let result = self.call_bytecode_function(name, &function)?;
+        let result = self.call_bytecode_function(name, &function.chunk)?;
         self.stack.push(result);
         Ok(())
     }
@@ -1189,7 +1207,7 @@ mod tests {
 
     use super::*;
     use crate::{debug::DebugEvent, value::Value};
-    use ricochet_bytecode::{Chunk, Op, SourceSpan};
+    use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 
     fn span() -> SourceSpan {
         SourceSpan {
@@ -2135,6 +2153,66 @@ mod tests {
         vm.run_chunk(&chunk).expect("function call runs");
 
         assert_eq!(vm.stack(), &[Value::String("hi".to_string())]);
+    }
+
+    #[test]
+    fn run_chunk_preserves_function_args_metadata() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::Return, span());
+
+        let args = ArgsSpec {
+            inputs: vec!["user".to_string(), "request".to_string()],
+            outputs: vec!["response".to_string()],
+        };
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "render".to_string(),
+                block,
+                args: Some(args.clone()),
+            },
+            span(),
+        );
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function definition loads");
+
+        assert_eq!(vm.function_args("render"), Some(&args));
+    }
+
+    #[test]
+    fn run_chunk_preserves_method_args_metadata() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::Return, span());
+
+        let args = ArgsSpec {
+            inputs: vec!["ctx".to_string()],
+            outputs: vec!["response".to_string()],
+        };
+        let block = chunk.push_block(method);
+        chunk.push(
+            Op::BeginClass {
+                name: "HomeController".to_string(),
+                superclass: "Controller".to_string(),
+            },
+            span(),
+        );
+        chunk.push(
+            Op::AddMethod {
+                name: "index".to_string(),
+                block,
+                args: Some(args.clone()),
+            },
+            span(),
+        );
+        chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("class definition loads");
+
+        assert_eq!(vm.method_args("HomeController", "index"), Some(&args));
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 
-use ricochet_bytecode::Chunk;
+use ricochet_bytecode::{ArgsSpec, Chunk};
 
 use crate::value::Value;
 use crate::vm::VmError;
@@ -10,12 +10,24 @@ use crate::vm::VmError;
 pub type NativeMethod = Rc<dyn Fn(Vec<Value>) -> Result<Value, VmError>>;
 
 #[derive(Clone)]
+pub struct BytecodeCallable {
+    pub chunk: Chunk,
+    pub args: Option<ArgsSpec>,
+}
+
+impl BytecodeCallable {
+    pub fn new(chunk: Chunk, args: Option<ArgsSpec>) -> Self {
+        Self { chunk, args }
+    }
+}
+
+#[derive(Clone)]
 pub struct Class {
     pub name: String,
     pub superclass: String,
     pub fields: Vec<String>,
     pub native_methods: BTreeMap<String, NativeMethod>,
-    pub bytecode_methods: BTreeMap<String, Chunk>,
+    pub bytecode_methods: BTreeMap<String, BytecodeCallable>,
     pub revision: u64,
 }
 
@@ -49,10 +61,16 @@ impl Class {
         self.revision += 1;
     }
 
-    pub fn add_bytecode_method(&mut self, name: impl Into<String>, method: Chunk) {
+    pub fn add_bytecode_method(
+        &mut self,
+        name: impl Into<String>,
+        method: Chunk,
+        args: Option<ArgsSpec>,
+    ) {
         let name = name.into();
         self.native_methods.remove(&name);
-        self.bytecode_methods.insert(name, method);
+        self.bytecode_methods
+            .insert(name, BytecodeCallable::new(method, args));
         self.revision += 1;
     }
 }
