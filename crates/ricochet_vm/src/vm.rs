@@ -389,6 +389,15 @@ impl Vm {
         match word {
             "+" | "add" => self.call_add(word),
             "equals" | "=" => self.call_equals(word),
+            "not-equals?" | "!=" => self.call_not_equals(word),
+            "less-than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
+            "greater-than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
+            "less-or-equals?" | "<=" => {
+                self.call_number_comparison(word, |left, right| left <= right)
+            }
+            "greater-or-equals?" | ">=" => {
+                self.call_number_comparison(word, |left, right| left >= right)
+            }
             "self" => self.call_self(word),
             "get" => self.call_get(word),
             "set" => self.call_set(word),
@@ -865,6 +874,42 @@ impl Vm {
         Ok(())
     }
 
+    fn call_not_equals(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let right = self.pop_unchecked();
+        let left = self.pop_unchecked();
+        self.stack.push(Value::Bool(left != right));
+
+        Ok(())
+    }
+
+    fn call_number_comparison(
+        &mut self,
+        word: &str,
+        compare: impl FnOnce(i64, i64) -> bool,
+    ) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let right = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let left = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        self.stack.push(Value::Bool(compare(left, right)));
+
+        Ok(())
+    }
+
     fn call_push(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let array = self.stack[self.stack.len() - 2].clone();
@@ -1157,6 +1202,58 @@ mod tests {
         let mut symbol_vm = Vm::default();
         symbol_vm.run_chunk(&symbol_chunk).expect("= succeeds");
         assert_eq!(symbol_vm.stack(), &[Value::Bool(false)]);
+    }
+
+    #[test]
+    fn executes_comparison_words() {
+        let cases = [
+            (2, 3, "less-than?", true),
+            (2, 3, "<", true),
+            (3, 2, "greater-than?", true),
+            (3, 2, ">", true),
+            (3, 3, "less-or-equals?", true),
+            (3, 3, "<=", true),
+            (3, 3, "greater-or-equals?", true),
+            (3, 3, ">=", true),
+            (3, 3, "not-equals?", false),
+            (3, 4, "!=", true),
+        ];
+
+        for (left, right, word, expected) in cases {
+            let mut chunk = Chunk::new("test.rco");
+            chunk.push(Op::PushNumber(left), span());
+            chunk.push(Op::PushNumber(right), span());
+            chunk.push(Op::CallWord(word.to_string()), span());
+
+            let mut vm = Vm::default();
+            vm.run_chunk(&chunk)
+                .unwrap_or_else(|err| panic!("{word} should succeed: {err}"));
+            assert_eq!(
+                vm.stack(),
+                &[Value::Bool(expected)],
+                "{left} {right} {word} should be {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn comparison_type_errors_preserve_stack() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::String("Ada".to_string()));
+        vm.stack.push(Value::Number(3));
+
+        assert_eq!(
+            vm.call_word("less-than?"),
+            Err(VmError::TypeError {
+                word: "less-than?".to_string(),
+                expected: "number".to_string(),
+                actual: "string".to_string(),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[Value::String("Ada".to_string()), Value::Number(3)]
+        );
     }
 
     #[test]

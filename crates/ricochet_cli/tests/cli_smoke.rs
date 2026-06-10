@@ -96,6 +96,33 @@ fn run_executes_postfix_if_else_script() {
 }
 
 #[test]
+fn run_executes_comparison_condition_script() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, r#"2 3 < if "lt" else "ge" end"#)
+        .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("String(\"lt\")"),
+        "stdout should show final stack with comparison branch result, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_executes_top_level_function_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
