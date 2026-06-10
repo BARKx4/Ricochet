@@ -150,6 +150,88 @@ fn run_executes_map_put_script() {
 }
 
 #[test]
+fn run_debug_prints_readable_stack_trace() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "2 3 +\n").expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--debug")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("TRACE "),
+        "stdout should include trace lines, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("CallWord(\"+\")"),
+        "stdout should include opcode, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("before: [Number(2), Number(3)]"),
+        "stdout should include stack before +, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("after:  [Number(5)]"),
+        "stdout should include stack after +, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("DebugEvent"),
+        "stdout should not expose raw Rust debug event names, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_debug_prints_fault_trace_before_error() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "1 +\n").expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--debug")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("FAULT "),
+        "stdout should include a fault trace, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("stack underflow in +"),
+        "stdout should include the VM fault message, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("stack:  [Number(1)]"),
+        "stdout should include preserved fault stack, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("Error: stack underflow in +"),
+        "stderr should include anyhow error, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_executes_top_level_function_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

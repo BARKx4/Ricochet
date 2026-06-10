@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ricochet_compiler::compile_source;
-use ricochet_vm::Vm;
+use ricochet_vm::{DebugEvent, Vm};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
@@ -55,7 +55,7 @@ fn run_file(path: &str, debug: bool) -> Result<()> {
     let result = vm.run_chunk(&chunk);
     if debug {
         for event in vm.debug_events() {
-            println!("{event:?}");
+            print_debug_event(event);
         }
     }
     result?;
@@ -63,6 +63,30 @@ fn run_file(path: &str, debug: bool) -> Result<()> {
     println!("{:?}", vm.stack());
 
     Ok(())
+}
+
+fn print_debug_event(event: &DebugEvent) {
+    match event {
+        DebugEvent::Instruction {
+            frame,
+            source,
+            opcode,
+            stack_before,
+            stack_after,
+        } => {
+            println!("TRACE {source} [{frame}] {opcode}");
+            println!("  before: {stack_before:?}");
+            println!("  after:  {stack_after:?}");
+        }
+        DebugEvent::Fault {
+            frame,
+            message,
+            stack,
+        } => {
+            println!("FAULT [{frame}] {message}");
+            println!("  stack:  {stack:?}");
+        }
+    }
 }
 
 fn build(path: &str) -> Result<()> {
