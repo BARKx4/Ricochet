@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use ricochet_bytecode::Chunk;
 use thiserror::Error;
 
 use crate::object::Instance;
@@ -15,6 +16,7 @@ pub enum Value {
     Map(BTreeMap<String, Value>),
     Instance(Instance),
     Member(String),
+    Block(Chunk),
     Result(RicochetResult),
 }
 
@@ -35,6 +37,7 @@ impl Value {
             Value::Map(v) => !v.is_empty(),
             Value::Instance(_) => true,
             Value::Member(_) => true,
+            Value::Block(_) => true,
             Value::Result(_) => true,
         }
     }

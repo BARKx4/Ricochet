@@ -317,6 +317,17 @@ impl Vm {
             Op::PushBool(value) => self.stack.push(Value::Bool(*value)),
             Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
             Op::PushString(value) => self.stack.push(Value::String(value.clone())),
+            Op::PushBlock(block) => {
+                let block = chunk
+                    .blocks
+                    .get(*block)
+                    .cloned()
+                    .ok_or(VmError::InvalidBlock {
+                        index: *block,
+                        available: chunk.blocks.len(),
+                    })?;
+                self.stack.push(Value::Block(block));
+            }
             Op::CallMethod(name) => self.call_method_or_member(name)?,
             Op::CallWord(word) => self.call_word(word)?,
             Op::BeginClass { name, superclass } => {
@@ -385,6 +396,8 @@ impl Vm {
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
+            "call" => self.call_block(word),
+            "send" => self.call_send(word),
             "view" => self.call_view(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
@@ -437,6 +450,90 @@ impl Vm {
             }),
             Err(error) => {
                 self.stack.truncate(base);
+                Err(error)
+            }
+        }
+    }
+
+    fn call_block(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let block = match self.pop(word)? {
+            Value::Block(block) => block,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "block".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.call_bytecode_block("<block>", &block) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {
+        let base = self.stack.len();
+        let run_result = self.run_chunk_with_frame(block, frame, true);
+
+        match run_result {
+            Ok(ExecutionSignal::Continue | ExecutionSignal::Return) => {
+                let result = if self.stack.len() > base {
+                    self.pop_unchecked()
+                } else {
+                    Value::Nil
+                };
+                self.stack.truncate(base);
+                Ok(result)
+            }
+            Ok(ExecutionSignal::Jump(target)) => Err(VmError::InvalidJump {
+                target,
+                available: block.instructions.len(),
+            }),
+            Err(error) => {
+                self.stack.truncate(base);
+                Err(error)
+            }
+        }
+    }
+
+    fn call_send(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let method_name = match self.pop(word)? {
+            Value::String(method_name) => method_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "method name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let receiver = match self.pop(word) {
+            Ok(receiver) => receiver,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        match self.call_method_value(receiver, &method_name) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
                 Err(error)
             }
         }
@@ -874,6 +971,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Map(_) => "map",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member selector",
+        Value::Block(_) => "block",
         Value::Result(_) => "result",
     }
 }
@@ -1626,6 +1724,86 @@ mod tests {
         vm.run_chunk(&chunk).expect("function call runs");
 
         assert_eq!(vm.stack(), &[Value::String("hi".to_string())]);
+    }
+
+    #[test]
+    fn push_block_pushes_first_class_block_value() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut block = Chunk::new("test.rco");
+        block.push(Op::PushString("ok".to_string()), span());
+        block.push(Op::Return, span());
+
+        let block_index = chunk.push_block(block.clone());
+        chunk.push(Op::PushBlock(block_index), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("block literal runs");
+
+        assert_eq!(vm.stack(), &[Value::Block(block)]);
+    }
+
+    #[test]
+    fn call_word_executes_first_class_block() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut block = Chunk::new("test.rco");
+        block.push(Op::PushString("ok".to_string()), span());
+        block.push(Op::Return, span());
+
+        let block_index = chunk.push_block(block);
+        chunk.push(Op::PushBlock(block_index), span());
+        chunk.push(Op::CallWord("call".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("block call runs");
+
+        assert_eq!(vm.stack(), &[Value::String("ok".to_string())]);
+    }
+
+    #[test]
+    fn send_word_dispatches_dynamic_method_name() {
+        let mut class_chunk = Chunk::new("test.rco");
+        let mut display_name = Chunk::new("test.rco");
+        display_name.push(Op::CallWord("self".to_string()), span());
+        display_name.push(Op::CallMethod("email".to_string()), span());
+        display_name.push(Op::CallWord("get".to_string()), span());
+        display_name.push(Op::Return, span());
+
+        let display_name_block = class_chunk.push_block(display_name);
+        class_chunk.push(
+            Op::BeginClass {
+                name: "User".to_string(),
+                superclass: "Model".to_string(),
+            },
+            span(),
+        );
+        class_chunk.push(Op::AddField("email".to_string()), span());
+        class_chunk.push(
+            Op::AddMethod {
+                name: "displayName".to_string(),
+                block: display_name_block,
+            },
+            span(),
+        );
+        class_chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&class_chunk).expect("class opcodes run");
+        let user = vm.new_instance("User").expect("instance is created");
+        let user = vm
+            .set_field(
+                user,
+                "email",
+                Value::String("ada@example.com".to_string()),
+            )
+            .expect("field writes");
+
+        let mut call_chunk = Chunk::new("test.rco");
+        call_chunk.push(Op::PushString("displayName".to_string()), span());
+        call_chunk.push(Op::CallWord("send".to_string()), span());
+        vm.stack.push(user);
+        vm.run_chunk(&call_chunk).expect("send runs");
+
+        assert_eq!(vm.stack(), &[Value::String("ada@example.com".to_string())]);
     }
 
     #[test]
