@@ -489,6 +489,9 @@ impl Vm {
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
+            "drop" => self.call_drop(word),
+            "over" => self.call_over(word),
+            "rot" => self.call_rot(word),
             "call" => self.call_block(word),
             "send" => self.call_send(word),
             "println" => self.call_println(word),
@@ -908,6 +911,26 @@ impl Vm {
         Ok(())
     }
 
+    fn call_drop(&mut self, word: &str) -> Result<(), VmError> {
+        self.pop(word)?;
+        Ok(())
+    }
+
+    fn call_over(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let value = self.stack[self.stack.len() - 2].clone();
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn call_rot(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 3)?;
+        let third = self.stack.len() - 3;
+        let value = self.stack.remove(third);
+        self.stack.push(value);
+        Ok(())
+    }
+
     fn call_println(&mut self, word: &str) -> Result<(), VmError> {
         let value = self.pop(word)?;
         self.output_lines.push(output_string(&value));
@@ -1267,6 +1290,41 @@ mod tests {
         vm.run_chunk(&chunk).expect("vm succeeds");
 
         assert_eq!(vm.stack(), &[Value::Number(5)]);
+    }
+
+    #[test]
+    fn executes_core_stack_manipulation_words() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(1), span());
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::CallWord("over".to_string()), span());
+        chunk.push(Op::CallWord("drop".to_string()), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("rot".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("stack words run");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Number(2), Value::Number(3), Value::Number(1)]
+        );
+    }
+
+    #[test]
+    fn stack_manipulation_words_report_underflow() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Number(1));
+
+        assert_eq!(
+            vm.call_word("rot"),
+            Err(VmError::StackUnderflow {
+                word: "rot".to_string(),
+                needed: 3,
+                available: 1,
+            })
+        );
+        assert_eq!(vm.stack(), &[Value::Number(1)]);
     }
 
     #[test]
