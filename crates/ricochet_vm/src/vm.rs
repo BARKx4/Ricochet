@@ -39,11 +39,14 @@ pub enum VmError {
     InvalidBlock { index: usize, available: usize },
     #[error("no current self for {0}")]
     NoCurrentSelf(String),
+    #[error("unknown variable: {0}")]
+    UnknownVariable(String),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Vm {
     stack: Vec<Value>,
+    variables: BTreeMap<String, Value>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
@@ -61,6 +64,18 @@ enum ExecutionSignal {
 impl Vm {
     pub fn stack(&self) -> &[Value] {
         &self.stack
+    }
+
+    pub fn variables(&self) -> &BTreeMap<String, Value> {
+        &self.variables
+    }
+
+    pub fn variable(&self, name: &str) -> Option<&Value> {
+        self.variables.get(name)
+    }
+
+    pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
+        self.variables.insert(name.into(), value);
     }
 
     pub fn enable_debug(&mut self) {
@@ -324,9 +339,11 @@ impl Vm {
             "self" => self.call_self(word),
             "get" => self.call_get(word),
             "set" => self.call_set(word),
+            "var" => self.call_var(word),
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
+            "view" => self.call_view(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
@@ -412,17 +429,37 @@ impl Vm {
     fn call_get(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let selector = self.pop(word)?;
-        let field = match selector {
-            Value::Member(field) => field,
+        match selector {
+            Value::Member(field) => self.call_field_get(word, stack_before, field),
+            Value::String(name) => {
+                match self.variables.get(&name).cloned() {
+                    Some(value) => {
+                        self.stack.push(value);
+                        Ok(())
+                    }
+                    None => {
+                        self.stack = stack_before;
+                        Err(VmError::UnknownVariable(name))
+                    }
+                }
+            }
             value => {
                 self.stack = stack_before;
-                return Err(VmError::TypeError {
+                Err(VmError::TypeError {
                     word: word.to_string(),
-                    expected: "member selector".to_string(),
+                    expected: "member selector or variable name string".to_string(),
                     actual: value_kind(&value).to_string(),
-                });
+                })
             }
-        };
+        }
+    }
+
+    fn call_field_get(
+        &mut self,
+        word: &str,
+        stack_before: Vec<Value>,
+        field: String,
+    ) -> Result<(), VmError> {
         let receiver = match self.pop(word) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -446,17 +483,40 @@ impl Vm {
     fn call_set(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let selector = self.pop(word)?;
-        let field = match selector {
-            Value::Member(field) => field,
+        match selector {
+            Value::Member(field) => self.call_field_set(word, stack_before, field),
+            Value::String(name) => {
+                if !self.variables.contains_key(&name) {
+                    self.stack = stack_before;
+                    return Err(VmError::UnknownVariable(name));
+                }
+                let value = match self.pop(word) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        self.stack = stack_before;
+                        return Err(error);
+                    }
+                };
+                self.variables.insert(name, value);
+                Ok(())
+            }
             value => {
                 self.stack = stack_before;
-                return Err(VmError::TypeError {
+                Err(VmError::TypeError {
                     word: word.to_string(),
-                    expected: "member selector".to_string(),
+                    expected: "member selector or variable name string".to_string(),
                     actual: value_kind(&value).to_string(),
-                });
+                })
             }
-        };
+        }
+    }
+
+    fn call_field_set(
+        &mut self,
+        word: &str,
+        stack_before: Vec<Value>,
+        field: String,
+    ) -> Result<(), VmError> {
         let receiver = match self.pop(word) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -482,6 +542,23 @@ impl Vm {
                 Err(error)
             }
         }
+    }
+
+    fn call_var(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let name = match self.pop(word)? {
+            Value::String(name) => name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "variable name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        self.variables.entry(name).or_insert(Value::Nil);
+        Ok(())
     }
 
     fn call_new(&mut self, word: &str) -> Result<(), VmError> {
@@ -525,6 +602,35 @@ impl Vm {
             .expect("stack length checked before dup")
             .clone();
         self.stack.push(value);
+        Ok(())
+    }
+
+    fn call_view(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let top = self.pop(word)?;
+        let view_name = match top {
+            Value::String(view_name) => view_name,
+            _context => match self.pop(word) {
+                Ok(Value::String(view_name)) => view_name,
+                Ok(value) => {
+                    self.stack = stack_before;
+                    return Err(VmError::TypeError {
+                        word: word.to_string(),
+                        expected: "view name string".to_string(),
+                        actual: value_kind(&value).to_string(),
+                    });
+                }
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            },
+        };
+
+        let mut action = BTreeMap::new();
+        action.insert("type".to_string(), Value::String("view".to_string()));
+        action.insert("name".to_string(), Value::String(view_name));
+        self.stack.push(Value::Map(action));
         Ok(())
     }
 
@@ -1269,6 +1375,97 @@ mod tests {
         vm.run_chunk(&chunk).expect("object field words run");
 
         assert!(matches!(vm.stack(), [Value::Instance(_), Value::String(email)] if email == "ada@example.com"));
+    }
+
+    #[test]
+    fn variable_words_declare_set_and_get_named_values() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("amount".to_string()), span());
+        chunk.push(Op::CallWord("var".to_string()), span());
+        chunk.push(Op::PushNumber(100), span());
+        chunk.push(Op::PushString("amount".to_string()), span());
+        chunk.push(Op::CallWord("set".to_string()), span());
+        chunk.push(Op::PushString("amount".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("variable words run");
+
+        assert_eq!(vm.stack(), &[Value::Number(100)]);
+        assert_eq!(vm.variable("amount"), Some(&Value::Number(100)));
+    }
+
+    #[test]
+    fn view_word_returns_view_action_map() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("title".to_string()), span());
+        chunk.push(Op::CallWord("var".to_string()), span());
+        chunk.push(Op::PushString("Hello Ricochet".to_string()), span());
+        chunk.push(Op::PushString("title".to_string()), span());
+        chunk.push(Op::CallWord("set".to_string()), span());
+        chunk.push(Op::PushString("ctx".to_string()), span());
+        chunk.push(Op::CallWord("var".to_string()), span());
+        chunk.push(Op::PushString("ctx".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+        chunk.push(Op::PushString("home/index".to_string()), span());
+        chunk.push(Op::CallWord("swap".to_string()), span());
+        chunk.push(Op::CallWord("view".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("view word runs");
+
+        let [Value::Map(action)] = vm.stack() else {
+            panic!("expected one action map on stack, got {:?}", vm.stack());
+        };
+        assert_eq!(
+            vm.variable("title"),
+            Some(&Value::String("Hello Ricochet".to_string()))
+        );
+        assert_eq!(
+            action.get("type"),
+            Some(&Value::String("view".to_string()))
+        );
+        assert_eq!(
+            action.get("name"),
+            Some(&Value::String("home/index".to_string()))
+        );
+    }
+
+    #[test]
+    fn get_fails_loudly_for_unknown_variables() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("typo".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownVariable("typo".to_string()))
+        );
+        assert_eq!(vm.stack(), &[Value::String("typo".to_string())]);
+    }
+
+    #[test]
+    fn set_fails_loudly_for_unknown_variables_and_preserves_stack() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("value".to_string()), span());
+        chunk.push(Op::PushString("typo".to_string()), span());
+        chunk.push(Op::CallWord("set".to_string()), span());
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownVariable("typo".to_string()))
+        );
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::String("value".to_string()),
+                Value::String("typo".to_string())
+            ]
+        );
     }
 
     #[test]

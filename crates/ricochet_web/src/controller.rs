@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use ricochet_compiler::compile_source;
+use ricochet_vm::{Value, Vm};
 
 #[derive(Debug, Default)]
 pub struct RequestContext {
@@ -32,6 +34,38 @@ impl ControllerRegistry {
         );
     }
 
+    pub fn register_ricochet_source(
+        &mut self,
+        controller: &str,
+        action: &str,
+        file: &str,
+        source: &str,
+    ) -> Result<()> {
+        let chunk = compile_source(file, source)
+            .with_context(|| format!("failed to compile controller {controller} from {file}"))?;
+        let controller_name = controller.to_string();
+        let action_name = action.to_string();
+
+        self.register_static(controller, action, move |ctx| {
+            let mut vm = Vm::default();
+            vm.run_chunk(&chunk)
+                .with_context(|| format!("failed to load controller {controller_name}"))?;
+            vm.set_variable("ctx", context_value(ctx));
+
+            let instance = vm
+                .new_instance(&controller_name)
+                .with_context(|| format!("failed to instantiate controller {controller_name}"))?;
+            let result = vm
+                .call_method_value(instance, &action_name)
+                .with_context(|| format!("failed to call {controller_name}.{action_name}"))?;
+
+            copy_view_data(&vm, ctx);
+            action_result_from_value(result)
+        });
+
+        Ok(())
+    }
+
     pub fn call(
         &self,
         controller: &str,
@@ -44,6 +78,64 @@ impl ControllerRegistry {
         };
 
         action_fn(ctx)
+    }
+}
+
+fn context_value(ctx: &RequestContext) -> Value {
+    let mut context = BTreeMap::new();
+    let params = ctx
+        .params
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
+    context.insert("params".to_string(), Value::Map(params));
+    Value::Map(context)
+}
+
+fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
+    for (name, value) in vm.variables() {
+        if name == "ctx" {
+            continue;
+        }
+
+        if let Some(value) = view_data_string(value) {
+            ctx.view_data.insert(name.clone(), value);
+        }
+    }
+}
+
+fn view_data_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Nil => Some(String::new()),
+        _ => None,
+    }
+}
+
+fn action_result_from_value(value: Value) -> Result<ActionResult> {
+    match value {
+        Value::Map(mut map) => {
+            let action_type = match map.remove("type") {
+                Some(Value::String(action_type)) => action_type,
+                _ => bail!("Ricochet action result map is missing string type"),
+            };
+
+            match action_type.as_str() {
+                "view" => match map.remove("name") {
+                    Some(Value::String(view)) => Ok(ActionResult::View(view)),
+                    _ => bail!("Ricochet view action is missing string name"),
+                },
+                "text" => match map.remove("body") {
+                    Some(Value::String(text)) => Ok(ActionResult::Text(text)),
+                    _ => bail!("Ricochet text action is missing string body"),
+                },
+                _ => bail!("unsupported Ricochet action result type {action_type}"),
+            }
+        }
+        Value::String(text) => Ok(ActionResult::Text(text)),
+        value => bail!("Ricochet controller returned unsupported value {value:?}"),
     }
 }
 

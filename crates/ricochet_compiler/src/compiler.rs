@@ -155,15 +155,26 @@ impl Compiler {
                 let block = self.chunk.push_block(block);
                 self.push(Op::PushBlock(block))
             }
-            Expr::Sequence(exprs) => {
-                for expr in exprs {
-                    self.compile_expr(expr)?;
-                }
-                Ok(())
-            }
+            Expr::Sequence(exprs) => self.compile_exprs(exprs),
             Expr::Args(_) => Err(CompileError::Unsupported("argument declarations".to_string())),
             Expr::If { .. } => Err(CompileError::Unsupported("if expressions".to_string())),
         }
+    }
+
+    fn compile_exprs(&mut self, exprs: &[Expr]) -> Result<(), CompileError> {
+        let mut index = 0;
+        while index < exprs.len() {
+            if let Some((name, operator)) = variable_binding_pair(exprs, index) {
+                self.push(Op::PushString(name))?;
+                self.push(Op::CallWord(operator))?;
+                index += 2;
+            } else {
+                self.compile_expr(&exprs[index])?;
+                index += 1;
+            }
+        }
+
+        Ok(())
     }
 
     fn compile_symbol(&mut self, word: &str) -> Result<(), CompileError> {
@@ -186,9 +197,7 @@ impl Compiler {
             default_span,
         };
 
-        for expr in exprs {
-            compiler.compile_expr(expr)?;
-        }
+        compiler.compile_exprs(exprs)?;
 
         compiler.chunk.push(Op::Return, compiler.default_span());
         Ok(compiler.finish())
@@ -233,6 +242,18 @@ fn declaration_name(expr: &Expr) -> Option<String> {
         Expr::Symbol(name) | Expr::String(name) => Some(name.clone()),
         _ => None,
     }
+}
+
+fn variable_binding_pair(exprs: &[Expr], index: usize) -> Option<(String, String)> {
+    let Expr::Symbol(name) = exprs.get(index)? else {
+        return None;
+    };
+    let Expr::Symbol(operator) = exprs.get(index + 1)? else {
+        return None;
+    };
+
+    matches!(operator.as_str(), "get" | "set" | "var")
+        .then(|| (name.clone(), operator.clone()))
 }
 
 fn format_args_decl(args: &ricochet_syntax::ArgsDecl) -> String {
@@ -408,6 +429,90 @@ mod tests {
                 .map(|span| span.line)
                 .collect::<Vec<_>>(),
             vec![3, 3, 3, 3]
+        );
+    }
+
+    #[test]
+    fn compiles_variable_names_before_get_set_and_var_as_strings() {
+        let chunk = compile_source(
+            "controllers/home.rco",
+            r#"amount var 100 amount set amount get"#,
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("amount".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::PushNumber(100),
+                Op::PushString("amount".to_string()),
+                Op::CallWord("set".to_string()),
+                Op::PushString("amount".to_string()),
+                Op::CallWord("get".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_controller_context_binding_words_as_variable_names() {
+        let chunk = compile_source(
+            "controllers/home.rco",
+            r#"ctx get "home/index" swap view"#,
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("ctx".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushString("home/index".to_string()),
+                Op::CallWord("swap".to_string()),
+                Op::CallWord("view".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_fixture_home_controller_for_mvc_dispatch() {
+        let source = include_str!("../../../tests/fixtures/web_minimal/app/Controllers/HomeController.rco");
+
+        let chunk = compile_source(
+            "tests/fixtures/web_minimal/app/Controllers/HomeController.rco",
+            source,
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "HomeController".to_string(),
+                    superclass: "Controller".to_string(),
+                },
+                Op::AddMethod {
+                    name: "index".to_string(),
+                    block: 0,
+                },
+                Op::EndClass,
+            ]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("title".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::PushString("Hello Ricochet".to_string()),
+                Op::PushString("title".to_string()),
+                Op::CallWord("set".to_string()),
+                Op::PushString("ctx".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushString("home/index".to_string()),
+                Op::CallWord("swap".to_string()),
+                Op::CallWord("view".to_string()),
+                Op::Return,
+            ]
         );
     }
 
