@@ -58,6 +58,7 @@ pub struct Vm {
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
+    output_lines: Vec<String>,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     debug_sink: Option<DebugSink>,
@@ -82,6 +83,10 @@ impl Vm {
 
     pub fn variable(&self, name: &str) -> Option<&Value> {
         self.variables.get(name)
+    }
+
+    pub fn output_lines(&self) -> &[String] {
+        &self.output_lines
     }
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
@@ -426,6 +431,7 @@ impl Vm {
             "dup" => self.call_dup(word),
             "call" => self.call_block(word),
             "send" => self.call_send(word),
+            "println" => self.call_println(word),
             "view" => self.call_view(word),
             "text" => self.call_text(word),
             "array" => {
@@ -828,6 +834,12 @@ impl Vm {
         Ok(())
     }
 
+    fn call_println(&mut self, word: &str) -> Result<(), VmError> {
+        let value = self.pop(word)?;
+        self.output_lines.push(output_string(&value));
+        Ok(())
+    }
+
     fn call_view(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let top = self.pop(word)?;
@@ -1105,6 +1117,16 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Member(_) => "member selector",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+    }
+}
+
+fn output_string(value: &Value) -> String {
+    match value {
+        Value::Nil => "nil".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => value.clone(),
+        value => format!("{value:?}"),
     }
 }
 
@@ -1860,6 +1882,19 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::Number(100)]);
         assert_eq!(vm.variable("amount"), Some(&Value::Number(100)));
+    }
+
+    #[test]
+    fn println_word_records_output_and_consumes_value() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Hello Ricochet".to_string()), span());
+        chunk.push(Op::CallWord("println".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("println runs");
+
+        assert_eq!(vm.stack(), &[]);
+        assert_eq!(vm.output_lines(), &["Hello Ricochet".to_string()]);
     }
 
     #[test]

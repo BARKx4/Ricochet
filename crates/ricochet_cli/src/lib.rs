@@ -54,6 +54,9 @@ fn run_file(path: &str, debug: bool) -> Result<()> {
     }
 
     let result = vm.run_chunk(&chunk);
+    for line in vm.output_lines() {
+        println!("{line}");
+    }
     result?;
 
     println!("{:?}", vm.stack());
