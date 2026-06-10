@@ -414,7 +414,12 @@ impl Vm {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
             }
+            "map" => {
+                self.stack.push(Value::Map(BTreeMap::new()));
+                Ok(())
+            }
             "!push" => self.call_push(word),
+            "!put" => self.call_put(word),
             predicate if predicate.ends_with('?') => self.call_predicate(predicate),
             _ => self.call_function(word),
         }
@@ -961,6 +966,39 @@ impl Vm {
         }
     }
 
+    fn call_put(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 3)?;
+        let stack_before = self.stack.clone();
+        let value = self.pop_unchecked();
+        let key = match self.pop_unchecked() {
+            Value::String(key) => key,
+            key => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "map key string".to_string(),
+                    actual: value_kind(&key).to_string(),
+                });
+            }
+        };
+        let map = match self.pop_unchecked() {
+            Value::Map(map) => map,
+            map => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "map".to_string(),
+                    actual: value_kind(&map).to_string(),
+                });
+            }
+        };
+
+        let mut map = map;
+        map.insert(key, value);
+        self.stack.push(Value::Map(map));
+        Ok(())
+    }
+
     fn call_predicate(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 1)?;
         let value = self
@@ -1298,6 +1336,47 @@ mod tests {
         vm.run_chunk(&chunk).expect("array push succeeds");
 
         assert_eq!(vm.stack(), &[Value::Array(vec![Value::Number(42)])]);
+    }
+
+    #[test]
+    fn executes_map_put_word() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::CallWord("map".to_string()), span());
+        chunk.push(Op::PushString("name".to_string()), span());
+        chunk.push(Op::PushString("Ada".to_string()), span());
+        chunk.push(Op::CallWord("!put".to_string()), span());
+        chunk.push(Op::CallMethod("name".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("map put succeeds");
+
+        assert_eq!(vm.stack(), &[Value::String("Ada".to_string())]);
+    }
+
+    #[test]
+    fn map_put_type_errors_preserve_stack() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Array(Vec::new()));
+        vm.stack.push(Value::String("name".to_string()));
+        vm.stack.push(Value::String("Ada".to_string()));
+
+        assert_eq!(
+            vm.call_word("!put"),
+            Err(VmError::TypeError {
+                word: "!put".to_string(),
+                expected: "map".to_string(),
+                actual: "array".to_string(),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::Array(Vec::new()),
+                Value::String("name".to_string()),
+                Value::String("Ada".to_string())
+            ]
+        );
     }
 
     #[test]
