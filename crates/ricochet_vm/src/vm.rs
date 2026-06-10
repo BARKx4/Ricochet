@@ -41,6 +41,10 @@ pub enum VmError {
     NoCurrentSelf(String),
     #[error("unknown variable: {0}")]
     UnknownVariable(String),
+    #[error("result values require ok? before they can be used as conditions")]
+    UncheckedResultCondition,
+    #[error("invalid jump target {target}: chunk has {available} instructions")]
+    InvalidJump { target: usize, available: usize },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -58,6 +62,7 @@ pub struct Vm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExecutionSignal {
     Continue,
+    Jump(usize),
     Return,
 }
 
@@ -251,7 +256,9 @@ impl Vm {
         frame: &str,
         allow_return: bool,
     ) -> Result<ExecutionSignal, VmError> {
-        for instruction in &chunk.instructions {
+        let mut ip = 0;
+        while ip < chunk.instructions.len() {
+            let instruction = &chunk.instructions[ip];
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
             let source = self
                 .debug_enabled
@@ -275,7 +282,8 @@ impl Vm {
             }
 
             match result {
-                Ok(ExecutionSignal::Continue) => {}
+                Ok(ExecutionSignal::Continue) => ip += 1,
+                Ok(ExecutionSignal::Jump(target)) => ip = target,
                 Ok(ExecutionSignal::Return) => return Ok(ExecutionSignal::Return),
                 Err(error) => {
                     if self.debug_enabled {
@@ -323,6 +331,23 @@ impl Vm {
                 self.add_bytecode_method(name.clone(), method)?;
             }
             Op::Return if allow_return => return Ok(ExecutionSignal::Return),
+            Op::JumpIfFalse(target) => {
+                self.validate_jump(*target, chunk)?;
+                let stack_before = self.stack.clone();
+                let condition = self.pop("if")?;
+                match condition.truthy_for_condition() {
+                    Ok(false) => return Ok(ExecutionSignal::Jump(*target)),
+                    Ok(true) => {}
+                    Err(_) => {
+                        self.stack = stack_before;
+                        return Err(VmError::UncheckedResultCondition);
+                    }
+                }
+            }
+            Op::Jump(target) => {
+                self.validate_jump(*target, chunk)?;
+                return Ok(ExecutionSignal::Jump(*target));
+            }
             Op::Pop => {
                 self.pop("pop")?;
             }
@@ -352,6 +377,16 @@ impl Vm {
             predicate if predicate.ends_with('?') => self.call_predicate(predicate),
             _ => Err(VmError::UnknownWord(word.to_string())),
         }
+    }
+
+    fn validate_jump(&self, target: usize, chunk: &Chunk) -> Result<(), VmError> {
+        if target > chunk.instructions.len() {
+            return Err(VmError::InvalidJump {
+                target,
+                available: chunk.instructions.len(),
+            });
+        }
+        Ok(())
     }
 
     fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
@@ -409,6 +444,10 @@ impl Vm {
                 self.stack.truncate(base);
                 Ok(result)
             }
+            Ok(ExecutionSignal::Jump(target)) => Err(VmError::InvalidJump {
+                target,
+                available: method.instructions.len(),
+            }),
             Err(error) => {
                 self.stack.truncate(base);
                 Err(error)
@@ -1465,6 +1504,51 @@ mod tests {
                 Value::String("value".to_string()),
                 Value::String("typo".to_string())
             ]
+        );
+    }
+
+    #[test]
+    fn jump_if_false_executes_then_branch_for_truthy_condition() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushBool(true), span());
+        chunk.push(Op::JumpIfFalse(4), span());
+        chunk.push(Op::PushString("yes".to_string()), span());
+        chunk.push(Op::Jump(5), span());
+        chunk.push(Op::PushString("no".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("if runs");
+
+        assert_eq!(vm.stack(), &[Value::String("yes".to_string())]);
+    }
+
+    #[test]
+    fn jump_if_false_executes_else_branch_for_falsey_condition() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushBool(false), span());
+        chunk.push(Op::JumpIfFalse(4), span());
+        chunk.push(Op::PushString("yes".to_string()), span());
+        chunk.push(Op::Jump(5), span());
+        chunk.push(Op::PushString("no".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("if runs");
+
+        assert_eq!(vm.stack(), &[Value::String("no".to_string())]);
+    }
+
+    #[test]
+    fn result_values_cannot_be_used_as_conditions() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::JumpIfFalse(1), span());
+
+        let mut vm = Vm::default();
+        vm.stack
+            .push(Value::result_ok(Value::String("ok".to_string())));
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UncheckedResultCondition)
         );
     }
 

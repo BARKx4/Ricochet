@@ -152,7 +152,7 @@ impl Parser {
         while !matches!(
             self.peek_kind(),
             TokenKind::Newline | TokenKind::DocComment(_) | TokenKind::Eof | TokenKind::RightBracket
-        ) && !matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "end")
+        ) && !matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "else" || s == "end")
         {
             exprs.push(self.parse_expr()?);
         }
@@ -167,6 +167,7 @@ impl Parser {
         self.skip_newlines();
         let token = self.advance();
         match token.kind {
+            TokenKind::Symbol(s) if s == "if" => self.parse_if_expr(),
             TokenKind::Symbol(s) => Ok(Expr::Symbol(s)),
             TokenKind::BangWord(s) => Ok(Expr::BangWord(s)),
             TokenKind::DotWord(s) => Ok(Expr::DotWord(s)),
@@ -199,6 +200,42 @@ impl Parser {
                 span: token.span,
             }),
         }
+    }
+
+    fn parse_if_expr(&mut self) -> Result<Expr, ParseError> {
+        let then_body = self.parse_exprs_until(&["else", "end"])?;
+        let else_body = if self.consume_symbol("else") {
+            self.parse_exprs_until(&["end"])?
+        } else {
+            Vec::new()
+        };
+        self.expect_symbol("end")?;
+
+        Ok(Expr::If {
+            then_body,
+            else_body,
+        })
+    }
+
+    fn parse_exprs_until(&mut self, stop_symbols: &[&str]) -> Result<Vec<Expr>, ParseError> {
+        let mut body = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek_kind(), TokenKind::Symbol(s) if stop_symbols.contains(&s.as_str()))
+            {
+                break;
+            }
+            if self.at_eof() {
+                let token = self.current_token().clone();
+                return Err(ParseError::Expected {
+                    expected: "if terminator",
+                    found: token.kind,
+                    span: token.span,
+                });
+            }
+            body.push(self.parse_expr()?);
+        }
+        Ok(body)
     }
 
     fn parse_args(&mut self) -> Result<ArgsDecl, ParseError> {
@@ -240,6 +277,12 @@ impl Parser {
         } else {
             false
         }
+    }
+
+    fn expect_symbol(&mut self, expected: &'static str) -> Result<(), ParseError> {
+        self.expect_kind(expected, |kind| {
+            matches!(kind, TokenKind::Symbol(s) if s == expected)
+        })
     }
 
     fn expect_left_paren(&mut self) -> Result<(), ParseError> {
@@ -433,6 +476,23 @@ mod tests {
             }
             other => panic!("expected method, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_postfix_if_else_expression() {
+        let src = r#"true if "yes" else "no" end"#;
+        let module = parse_module(src).expect("parse succeeds");
+
+        assert_eq!(
+            module.items,
+            vec![Item::Expr(Expr::Sequence(vec![
+                Expr::Symbol("true".to_string()),
+                Expr::If {
+                    then_body: vec![Expr::String("yes".to_string())],
+                    else_body: vec![Expr::String("no".to_string())],
+                },
+            ]))]
+        );
     }
 
     #[test]

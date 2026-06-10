@@ -157,8 +157,34 @@ impl Compiler {
             }
             Expr::Sequence(exprs) => self.compile_exprs(exprs),
             Expr::Args(_) => Err(CompileError::Unsupported("argument declarations".to_string())),
-            Expr::If { .. } => Err(CompileError::Unsupported("if expressions".to_string())),
+            Expr::If {
+                then_body,
+                else_body,
+            } => self.compile_if(then_body, else_body),
         }
+    }
+
+    fn compile_if(
+        &mut self,
+        then_body: &[Expr],
+        else_body: &[Expr],
+    ) -> Result<(), CompileError> {
+        let jump_if_false = self.chunk.instructions.len();
+        self.push(Op::JumpIfFalse(usize::MAX))?;
+
+        self.compile_exprs(then_body)?;
+
+        let jump_over_else = self.chunk.instructions.len();
+        self.push(Op::Jump(usize::MAX))?;
+
+        let else_start = self.chunk.instructions.len();
+        self.compile_exprs(else_body)?;
+
+        let end = self.chunk.instructions.len();
+        self.chunk.instructions[jump_if_false].op = Op::JumpIfFalse(else_start);
+        self.chunk.instructions[jump_over_else].op = Op::Jump(end);
+
+        Ok(())
     }
 
     fn compile_exprs(&mut self, exprs: &[Expr]) -> Result<(), CompileError> {
@@ -512,6 +538,23 @@ mod tests {
                 Op::CallWord("swap".to_string()),
                 Op::CallWord("view".to_string()),
                 Op::Return,
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_postfix_if_else_to_jump_opcodes() {
+        let chunk = compile_source("test.rco", r#"true if "yes" else "no" end"#)
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushBool(true),
+                Op::JumpIfFalse(4),
+                Op::PushString("yes".to_string()),
+                Op::Jump(5),
+                Op::PushString("no".to_string()),
             ]
         );
     }
