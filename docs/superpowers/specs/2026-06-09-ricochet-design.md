@@ -237,6 +237,16 @@ user .displayName
 user "displayName" send
 ```
 
+Loaded class names are also runtime values. This gives class-level APIs the same
+postfix dispatch shape as instance APIs:
+
+```forth
+User .all
+42 User .find
+```
+
+Global functions take precedence when a function and class share a name.
+
 Inside methods, the receiver remains on the runtime stack and is also bound to implicit `self`.
 
 Object field storage is hybrid:
@@ -250,7 +260,7 @@ Object field storage is hybrid:
 Expected application failures use a single `Result` object on the stack.
 
 ```forth
-User find
+42 User .find
 dup ok? if
   value
 else
@@ -432,7 +442,19 @@ users table
 tableName get table
 ```
 
-Active Record v1 should support connection configuration, basic table mapping, `find`, `all`, `where`, and `save`, returning `Result` objects for expected database failures.
+Active Record operations are class methods with ordinary postfix arguments:
+
+```forth
+User .all
+42 User .find
+"email" "ada@example.com" User .where
+map "email" "ada@example.com" !put User .insert
+42 map "email" "grace@example.com" !put User .update
+```
+
+Active Record v1 supports connection configuration, basic table mapping, `find`,
+`all`, `where`, `insert`, and `update`. Every operation returns one `Result`
+object so expected database failures stay in the normal stack flow.
 
 ## Capabilities
 

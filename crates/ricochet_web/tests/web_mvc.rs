@@ -148,7 +148,7 @@ end
         r#"
 UserController Controller subclass
   index method
-    "User" ctx get .db get .all
+    User .all
     dup ok? if
       value json
     else

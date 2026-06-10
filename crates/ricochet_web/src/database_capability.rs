@@ -87,6 +87,7 @@ pub fn install_database_capability(
     backend: Arc<dyn DatabaseBackend>,
     mappings: BTreeMap<String, ModelMapping>,
 ) -> Result<Value, VmError> {
+    install_model_active_record_methods(vm, backend.clone(), &mappings)?;
     let mappings = Arc::new(mappings);
     vm.define_class("DatabaseCapability", "Capability")?;
 
@@ -171,6 +172,87 @@ pub fn install_database_capability(
 
     vm.end_class();
     vm.new_instance("DatabaseCapability")
+}
+
+fn install_model_active_record_methods(
+    vm: &mut Vm,
+    backend: Arc<dyn DatabaseBackend>,
+    mappings: &BTreeMap<String, ModelMapping>,
+) -> Result<(), VmError> {
+    for mapping in mappings.values() {
+        vm.define_class(mapping.class_name.clone(), "Model")?;
+        let install_result = (|| {
+            let all_backend = backend.clone();
+            let all_mapping = mapping.clone();
+            vm.add_native_method_with_arity("all", 0, move |_| {
+                Ok(match all_backend.all(&all_mapping) {
+                    Ok(values) => Value::result_ok(Value::Array(values)),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let find_backend = backend.clone();
+            let find_mapping = mapping.clone();
+            let find_method = format!("{}.find", mapping.class_name);
+            vm.add_native_method_with_arity("find", 1, move |arguments| {
+                let id = arguments.get(0).ok_or_else(|| {
+                    missing_native_argument(&find_method, 1, arguments.len())
+                })?;
+                Ok(match find_backend.find(&find_mapping, id) {
+                    Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let where_backend = backend.clone();
+            let where_mapping = mapping.clone();
+            let where_method = format!("{}.where", mapping.class_name);
+            vm.add_native_method_with_arity("where", 2, move |arguments| {
+                let field =
+                    string_argument(&arguments, 0, &where_method, "field name")?;
+                let value = arguments.get(1).ok_or_else(|| {
+                    missing_native_argument(&where_method, 2, arguments.len())
+                })?;
+                Ok(match where_backend.where_eq(&where_mapping, field, value) {
+                    Ok(values) => Value::result_ok(Value::Array(values)),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let insert_backend = backend.clone();
+            let insert_mapping = mapping.clone();
+            let insert_method = format!("{}.insert", mapping.class_name);
+            vm.add_native_method_with_arity("insert", 1, move |arguments| {
+                let attributes =
+                    map_argument(&arguments, 0, &insert_method, "attributes map")?;
+                Ok(match insert_backend.insert(&insert_mapping, attributes) {
+                    Ok(value) => Value::result_ok(value),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let update_backend = backend.clone();
+            let update_mapping = mapping.clone();
+            let update_method = format!("{}.update", mapping.class_name);
+            vm.add_native_method_with_arity("update", 2, move |arguments| {
+                let id = arguments.get(0).cloned().ok_or_else(|| {
+                    missing_native_argument(&update_method, 2, arguments.len())
+                })?;
+                let attributes =
+                    map_argument(&arguments, 1, &update_method, "attributes map")?;
+                Ok(match update_backend.update_by_id(&update_mapping, id, attributes) {
+                    Ok(value) => Value::result_ok(value),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            Ok(())
+        })();
+        vm.end_class();
+        install_result?;
+    }
+
+    Ok(())
 }
 
 fn block_on_postgres<F, T>(
@@ -259,6 +341,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Map(_) => "map",
+        Value::Class(_) => "class",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member",
         Value::Block(_) => "block",
@@ -320,6 +403,23 @@ mod tests {
         ModelMapping::try_new("User", "users", ["id", "email"]).expect("mapping is valid")
     }
 
+    fn vm_with_active_record() -> Vm {
+        let mut vm = Vm::default();
+        let model = ricochet_compiler::compile_source(
+            "app/Models/User.rco",
+            "User Model subclass\n  users table\n  id field\n  email field\nend\n",
+        )
+        .expect("model compiles");
+        vm.run_chunk(&model).expect("model loads");
+        install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm
+    }
+
     #[test]
     fn database_all_is_callable_from_ricochet_code() {
         let mut vm = Vm::default();
@@ -343,6 +443,100 @@ mod tests {
             [Value::Result(RicochetResult::Ok(value))]
                 if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
         ));
+    }
+
+    #[test]
+    fn active_record_all_is_callable_on_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "User .all")
+                .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn active_record_find_accepts_an_id_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "42 User .find")
+                .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Nil)))]
+        );
+    }
+
+    #[test]
+    fn active_record_where_accepts_field_and_value_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"email\" \"ada@example.com\" User .where",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Array(
+                Vec::new()
+            ))))]
+        );
+    }
+
+    #[test]
+    fn active_record_insert_accepts_an_attributes_map_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "map \"email\" \"ada@example.com\" !put User .insert",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Map(
+                BTreeMap::from([(
+                    "email".to_string(),
+                    Value::String("ada@example.com".to_string())
+                )])
+            ))))]
+        );
+    }
+
+    #[test]
+    fn active_record_update_accepts_id_and_attributes_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "42 map \"email\" \"grace@example.com\" !put User .update",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Map(
+                BTreeMap::from([(
+                    "email".to_string(),
+                    Value::String("grace@example.com".to_string())
+                )])
+            ))))]
+        );
     }
 
     #[test]

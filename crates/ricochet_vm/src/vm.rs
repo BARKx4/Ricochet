@@ -316,6 +316,21 @@ impl Vm {
         method_name: &str,
     ) -> Result<Value, VmError> {
         match receiver {
+            Value::Class(class_name) => {
+                let method = self
+                    .classes
+                    .get(&class_name)
+                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
+                    .native_methods
+                    .get(method_name)
+                    .cloned()
+                    .ok_or_else(|| VmError::UnknownMethod {
+                        class_name: class_name.clone(),
+                        method: method_name.to_string(),
+                    })?;
+                let frame = format!("{class_name}.{method_name}");
+                self.call_native_method(Value::Class(class_name), &frame, &method)
+            }
             Value::Instance(instance) => {
                 let class_name = instance.class_name.clone();
                 let receiver = Value::Instance(instance);
@@ -357,7 +372,7 @@ impl Vm {
             }
             value => Err(VmError::TypeError {
                 word: format!("call_method {method_name}"),
-                expected: "instance".to_string(),
+                expected: "class or instance".to_string(),
                 actual: value_kind(&value).to_string(),
             }),
         }
@@ -649,19 +664,23 @@ impl Vm {
     }
 
     fn call_function(&mut self, name: &str) -> Result<(), VmError> {
-        let function = self
-            .functions
-            .get(name)
-            .cloned()
-            .ok_or_else(|| VmError::UnknownWord(name.to_string()))?;
-        let input_count = function
-            .args
-            .as_ref()
-            .map(|args| args.inputs.len())
-            .unwrap_or(0);
-        let result = self.call_bytecode_function(name, &function.chunk, input_count)?;
-        self.stack.push(result);
-        Ok(())
+        if let Some(function) = self.functions.get(name).cloned() {
+            let input_count = function
+                .args
+                .as_ref()
+                .map(|args| args.inputs.len())
+                .unwrap_or(0);
+            let result = self.call_bytecode_function(name, &function.chunk, input_count)?;
+            self.stack.push(result);
+            return Ok(());
+        }
+
+        if self.classes.contains_key(name) {
+            self.stack.push(Value::Class(name.to_string()));
+            return Ok(());
+        }
+
+        Err(VmError::UnknownWord(name.to_string()))
     }
 
     fn call_result_value(&mut self, word: &str) -> Result<(), VmError> {
@@ -864,6 +883,12 @@ impl Vm {
 
     fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
         let should_dispatch = match self.stack.last() {
+            Some(Value::Class(class_name)) => self
+                .classes
+                .get(class_name)
+                .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
+                .native_methods
+                .contains_key(name),
             Some(Value::Instance(instance)) => {
                 let class = self
                     .classes
@@ -1466,6 +1491,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Map(_) => "map",
+        Value::Class(_) => "class",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member selector",
         Value::Block(_) => "block",
@@ -2275,6 +2301,28 @@ mod tests {
             Err(VmError::UnknownWord("native failure".to_string()))
         );
         assert_eq!(vm.stack(), &[Value::Number(7)]);
+    }
+
+    #[test]
+    fn class_name_word_pushes_class_value_for_static_native_method() {
+        let mut vm = Vm::default();
+        vm.define_class("Clock", "Object").expect("class begins");
+        vm.add_native_method("name", |arguments| {
+            assert!(matches!(
+                arguments.as_slice(),
+                [Value::Class(class_name)] if class_name == "Clock"
+            ));
+            Ok(Value::String("Clock".to_string()))
+        })
+        .expect("native method added");
+        vm.end_class();
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::CallWord("Clock".to_string()), span());
+        chunk.push(Op::CallMethod("name".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("class method runs");
+
+        assert_eq!(vm.stack(), &[Value::String("Clock".to_string())]);
     }
 
     #[test]
