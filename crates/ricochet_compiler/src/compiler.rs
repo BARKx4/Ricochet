@@ -11,6 +11,8 @@ pub enum CompileError {
     Parse(#[from] ParseError),
     #[error("unsupported compiler feature: {0}")]
     Unsupported(String),
+    #[error("{0} can only be used inside a loop")]
+    LoopControlOutsideLoop(String),
 }
 
 pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
@@ -24,6 +26,12 @@ struct Compiler {
     chunk: Chunk,
     line_starts: Vec<usize>,
     default_span: Span,
+    loop_stack: Vec<LoopContext>,
+}
+
+struct LoopContext {
+    continue_target: usize,
+    break_jumps: Vec<usize>,
 }
 
 impl Compiler {
@@ -32,6 +40,7 @@ impl Compiler {
             chunk: Chunk::new(file),
             line_starts: vec![0],
             default_span: Span { start: 0, end: 0 },
+            loop_stack: Vec::new(),
         }
     }
 
@@ -190,6 +199,7 @@ impl Compiler {
                 then_body,
                 else_body,
             } => self.compile_if(then_body, else_body),
+            Expr::While { condition, body } => self.compile_while(condition, body),
         }
     }
 
@@ -224,6 +234,38 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_while(
+        &mut self,
+        condition: &[SpannedExpr],
+        body: &[SpannedExpr],
+    ) -> Result<(), CompileError> {
+        let condition_start = self.chunk.instructions.len();
+        self.compile_exprs(condition)?;
+
+        let exit_jump = self.chunk.instructions.len();
+        self.push(Op::JumpIfFalse(usize::MAX))?;
+
+        self.loop_stack.push(LoopContext {
+            continue_target: condition_start,
+            break_jumps: Vec::new(),
+        });
+        let body_result = self.compile_exprs(body);
+        let loop_context = self
+            .loop_stack
+            .pop()
+            .expect("loop context is present while compiling loop body");
+        body_result?;
+
+        self.push(Op::Jump(condition_start))?;
+        let loop_end = self.chunk.instructions.len();
+        self.chunk.instructions[exit_jump].op = Op::JumpIfFalse(loop_end);
+        for break_jump in loop_context.break_jumps {
+            self.chunk.instructions[break_jump].op = Op::Jump(loop_end);
+        }
+
+        Ok(())
+    }
+
     fn compile_exprs(&mut self, exprs: &[SpannedExpr]) -> Result<(), CompileError> {
         let mut index = 0;
         while index < exprs.len() {
@@ -246,6 +288,27 @@ impl Compiler {
             "true" => self.push(Op::PushBool(true)),
             "false" => self.push(Op::PushBool(false)),
             "return" => self.push(Op::Return),
+            "break" => {
+                if self.loop_stack.is_empty() {
+                    return Err(CompileError::LoopControlOutsideLoop(word.to_string()));
+                }
+                let jump = self.chunk.instructions.len();
+                self.push(Op::Jump(usize::MAX))?;
+                self.loop_stack
+                    .last_mut()
+                    .expect("loop context checked before break")
+                    .break_jumps
+                    .push(jump);
+                Ok(())
+            }
+            "continue" => {
+                let target = self
+                    .loop_stack
+                    .last()
+                    .map(|context| context.continue_target)
+                    .ok_or_else(|| CompileError::LoopControlOutsideLoop(word.to_string()))?;
+                self.push(Op::Jump(target))
+            }
             word => self.push(Op::CallWord(word.to_string())),
         }
     }
@@ -259,6 +322,7 @@ impl Compiler {
             chunk: Chunk::new(self.chunk.file.clone()),
             line_starts: self.line_starts.clone(),
             default_span,
+            loop_stack: Vec::new(),
         };
 
         compiler.compile_exprs(exprs)?;
@@ -695,6 +759,54 @@ mod tests {
                 Op::PushString("no".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn compiles_postfix_while_to_backward_jump() {
+        let chunk = compile_source(
+            "test.rco",
+            r#"
+              0 count var
+              count get 3 < while
+                count get 1 + count set
+              end
+              count get
+            "#,
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushNumber(0),
+                Op::PushString("count".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::PushString("count".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushNumber(3),
+                Op::CallWord("<".to_string()),
+                Op::JumpIfFalse(15),
+                Op::PushString("count".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushNumber(1),
+                Op::CallWord("+".to_string()),
+                Op::PushString("count".to_string()),
+                Op::CallWord("set".to_string()),
+                Op::Jump(3),
+                Op::PushString("count".to_string()),
+                Op::CallWord("get".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_break_and_continue_outside_a_loop() {
+        for word in ["break", "continue"] {
+            assert_eq!(
+                compile_source("test.rco", word),
+                Err(CompileError::LoopControlOutsideLoop(word.to_string()))
+            );
+        }
     }
 
     #[test]

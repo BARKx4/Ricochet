@@ -63,4 +63,8 @@ pub enum Expr {
         then_body: Vec<SpannedExpr>,
         else_body: Vec<SpannedExpr>,
     },
+    While {
+        condition: Vec<SpannedExpr>,
+        body: Vec<SpannedExpr>,
+    },
 }

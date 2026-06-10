@@ -599,6 +599,7 @@ impl Vm {
     fn call_word(&mut self, word: &str) -> Result<(), VmError> {
         match word {
             "+" | "add" => self.call_add(word),
+            "-" | "subtract" => self.call_subtract(word),
             "equals" | "=" => self.call_equals(word),
             "not-equals?" | "!=" => self.call_not_equals(word),
             "assert-equals" => self.call_assert_equals(word),
@@ -1443,6 +1444,38 @@ impl Vm {
 
         self.stack.push(Value::Number(value));
 
+        Ok(())
+    }
+
+    fn call_subtract(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let right = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let left = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        let value = match left.checked_sub(right) {
+            Some(value) => value,
+            None => {
+                self.stack = stack_before;
+                return Err(VmError::ArithmeticOverflow {
+                    word: word.to_string(),
+                });
+            }
+        };
+
+        self.stack.push(Value::Number(value));
         Ok(())
     }
 
@@ -2361,6 +2394,34 @@ mod tests {
             })
         );
         assert_eq!(vm.stack(), &[Value::Number(i64::MAX), Value::Number(1)]);
+    }
+
+    #[test]
+    fn executes_subtraction_words_and_preserves_stack_on_overflow() {
+        for word in ["subtract", "-"] {
+            let mut chunk = Chunk::new("test.rco");
+            chunk.push(Op::PushNumber(10), span());
+            chunk.push(Op::PushNumber(3), span());
+            chunk.push(Op::CallWord(word.to_string()), span());
+
+            let mut vm = Vm::default();
+            vm.run_chunk(&chunk).expect("subtraction succeeds");
+            assert_eq!(vm.stack(), &[Value::Number(7)]);
+        }
+
+        let mut overflow = Chunk::new("test.rco");
+        overflow.push(Op::PushNumber(i64::MIN), span());
+        overflow.push(Op::PushNumber(1), span());
+        overflow.push(Op::CallWord("-".to_string()), span());
+
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.run_chunk(&overflow),
+            Err(VmError::ArithmeticOverflow {
+                word: "-".to_string(),
+            })
+        );
+        assert_eq!(vm.stack(), &[Value::Number(i64::MIN), Value::Number(1)]);
     }
 
     #[test]

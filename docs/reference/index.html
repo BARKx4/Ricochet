@@ -141,6 +141,13 @@ end</code></pre>
             <p>`if else end` is postfix: the condition is already on the stack before `if`.</p>
           </article>
           <article>
+            <h3>Loops</h3>
+            <pre><code>count get 10 &lt; while
+  count get 1 + count set
+end</code></pre>
+            <p>The condition expression before `while` is re-executed before every iteration. `break` exits and `continue` rechecks the condition.</p>
+          </article>
+          <article>
             <h3>Members</h3>
             <pre><code>user .email get
 "ada@example.com" user .email set</code></pre>
@@ -344,6 +351,57 @@ end</code></pre>
         </div>
       </section>
 
+      <section id="turing-complete" class="section-band">
+        <div class="section-heading">
+          <p class="eyebrow">Unbounded computation model</p>
+          <h2>Loops And Computational Completeness</h2>
+        </div>
+        <div class="example-grid">
+          <article class="example-panel wide">
+            <h3>Counter-Machine Multiplication</h3>
+            <p>Mutable counters, conditional branching, decrement, and backward jumps provide the core WHILE-machine model. This program computes `6 * 7` without a multiplication word.</p>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy counter machine example" title="Copy">copy</button><code>0 product var
+6 multiplicand var
+7 multiplier var
+
+multiplier get 0 &gt; while
+  product get multiplicand get + product set
+  multiplier get 1 - multiplier set
+end
+
+product get println</code></pre>
+          </article>
+
+          <article class="example-panel">
+            <h3>Loop Control</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy loop control example" title="Copy">copy</button><code>0 count var
+
+count get 10 &lt; while
+  count get 1 + count set
+  count get 3 = if continue end
+  count get 6 = if break end
+  count get println
+end</code></pre>
+          </article>
+
+          <article class="example-panel">
+            <h3>Unary Counter Shape</h3>
+            <p>For an abstract unbounded counter, object chains can represent Peano-style natural numbers independently of the fixed-width integer convenience type.</p>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy unary counter example" title="Copy">copy</button><code>Counter Object subclass
+  previous field
+end
+
+nil counter var
+
+counter get Counter new .previous set counter set
+counter get Counter new .previous set counter set
+counter get nil? false = while
+  counter get .previous get counter set
+end</code></pre>
+          </article>
+        </div>
+      </section>
+
       <section id="debugging" class="section-band">
         <div class="section-heading">
           <p class="eyebrow">Watch the stack move</p>
@@ -405,7 +463,8 @@ end</code></pre>
         </div>
         <ul class="limit-list">
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>Addition exists; subtraction, multiplication, division, loops, async, packages, and AI package words are not implemented yet.</li>
+          <li>Addition and subtraction exist. Multiplication and division remain library-level work; they can already be expressed with loops.</li>
+          <li>Async, packages, and AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
           <li>Active Record targets existing PostgreSQL schemas in v1. Schema migrations are a later branch.</li>

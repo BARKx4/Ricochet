@@ -324,6 +324,13 @@ end
 
 `return`, `break`, and `continue` are v1 features.
 
+The expression sequence immediately before `while` is the loop condition and is
+re-executed before every iteration. `continue` jumps to that condition and
+`break` exits the nearest enclosing loop. Both are compile errors outside a
+loop. Core numeric words include checked `add`/`+` and `subtract`/`-`, which,
+together with mutable variables and conditionals, provide a counter-machine
+execution model.
+
 Ricochet supports async from v1. Futures/tasks are real stack values, and `await` is explicit.
 
 ```forth

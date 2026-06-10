@@ -1,0 +1,12 @@
+(( Counter-machine multiplication using mutable state and a backward jump. ))
+
+0 product var
+6 multiplicand var
+7 multiplier var
+
+multiplier get 0 > while
+  product get multiplicand get + product set
+  multiplier get 1 - multiplier set
+end
+
+product get println

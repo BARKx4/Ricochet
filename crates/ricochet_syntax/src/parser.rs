@@ -17,6 +17,8 @@ pub enum ParseError {
     },
     #[error("invalid number literal {literal:?} at {span:?}")]
     InvalidNumber { literal: String, span: Span },
+    #[error("while requires a condition before it at {span:?}")]
+    MissingWhileCondition { span: Span },
 }
 
 pub fn parse_module(source: &str) -> Result<Module, ParseError> {
@@ -167,34 +169,48 @@ impl Parser {
     }
 
     fn parse_expr_body_until_end(&mut self) -> Result<Vec<SpannedExpr>, ParseError> {
-        let mut body = Vec::new();
-        loop {
-            self.skip_newlines();
-            if self.consume_symbol("end") {
-                break;
-            }
-            if self.at_eof() {
-                let token = self.current_token().clone();
-                return Err(ParseError::Expected {
-                    expected: "end",
-                    found: token.kind,
-                    span: token.span,
-                });
-            }
-            body.push(self.parse_expr()?);
-        }
+        let body = self.parse_exprs_until(&["end"], "end")?;
+        self.expect_symbol("end")?;
         Ok(body)
     }
 
     fn parse_expr_item(&mut self) -> Result<SpannedExpr, ParseError> {
         let mut exprs = vec![self.parse_expr()?];
-        while !matches!(
-            self.peek_kind(),
-            TokenKind::Newline | TokenKind::DocComment(_) | TokenKind::Eof | TokenKind::RightBracket
-        ) && !matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "else" || s == "end")
-        {
+        loop {
+            if self.consume_symbol("while") {
+                let body = self.parse_exprs_until(&["end"], "while terminator")?;
+                self.expect_symbol("end")?;
+                let span = Span {
+                    start: exprs
+                        .first()
+                        .expect("while condition is non-empty")
+                        .span
+                        .start,
+                    end: self.previous_span().end,
+                };
+                return Ok(SpannedExpr {
+                    expr: Expr::While {
+                        condition: exprs,
+                        body,
+                    },
+                    span,
+                });
+            }
+
+            if matches!(
+                self.peek_kind(),
+                TokenKind::Newline
+                    | TokenKind::DocComment(_)
+                    | TokenKind::Eof
+                    | TokenKind::RightBracket
+            ) || matches!(self.peek_kind(), TokenKind::Symbol(s) if s == "else" || s == "end")
+            {
+                break;
+            }
+
             exprs.push(self.parse_expr()?);
         }
+
         if exprs.len() == 1 {
             Ok(exprs.remove(0))
         } else {
@@ -215,6 +231,9 @@ impl Parser {
         let start = token.span.start;
         let expr = match token.kind {
             TokenKind::Symbol(s) if s == "if" => self.parse_if_expr()?,
+            TokenKind::Symbol(s) if s == "while" => {
+                return Err(ParseError::MissingWhileCondition { span: token.span });
+            }
             TokenKind::Symbol(s) => Expr::Symbol(s),
             TokenKind::BangWord(s) => Expr::BangWord(s),
             TokenKind::DotWord(s) => Expr::DotWord(s),
@@ -231,14 +250,7 @@ impl Parser {
                 Expr::Args(self.parse_args()?)
             }
             TokenKind::LeftBracket => {
-                let mut exprs = Vec::new();
-                loop {
-                    self.skip_newlines();
-                    if matches!(self.peek_kind(), TokenKind::RightBracket | TokenKind::Eof) {
-                        break;
-                    }
-                    exprs.push(self.parse_expr()?);
-                }
+                let exprs = self.parse_block_exprs()?;
                 self.expect_right_bracket()?;
                 Expr::Block(exprs)
             }
@@ -260,9 +272,9 @@ impl Parser {
     }
 
     fn parse_if_expr(&mut self) -> Result<Expr, ParseError> {
-        let then_body = self.parse_exprs_until(&["else", "end"])?;
+        let then_body = self.parse_exprs_until(&["else", "end"], "if terminator")?;
         let else_body = if self.consume_symbol("else") {
-            self.parse_exprs_until(&["end"])?
+            self.parse_exprs_until(&["end"], "if terminator")?
         } else {
             Vec::new()
         };
@@ -274,7 +286,11 @@ impl Parser {
         })
     }
 
-    fn parse_exprs_until(&mut self, stop_symbols: &[&str]) -> Result<Vec<SpannedExpr>, ParseError> {
+    fn parse_exprs_until(
+        &mut self,
+        stop_symbols: &[&str],
+        expected: &'static str,
+    ) -> Result<Vec<SpannedExpr>, ParseError> {
         let mut body = Vec::new();
         loop {
             self.skip_newlines();
@@ -285,12 +301,32 @@ impl Parser {
             if self.at_eof() {
                 let token = self.current_token().clone();
                 return Err(ParseError::Expected {
-                    expected: "if terminator",
+                    expected,
                     found: token.kind,
                     span: token.span,
                 });
             }
-            body.push(self.parse_expr()?);
+            push_statement(&mut body, self.parse_expr_item()?);
+        }
+        Ok(body)
+    }
+
+    fn parse_block_exprs(&mut self) -> Result<Vec<SpannedExpr>, ParseError> {
+        let mut body = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek_kind(), TokenKind::RightBracket) {
+                break;
+            }
+            if self.at_eof() {
+                let token = self.current_token().clone();
+                return Err(ParseError::Expected {
+                    expected: "right bracket",
+                    found: token.kind,
+                    span: token.span,
+                });
+            }
+            push_statement(&mut body, self.parse_expr_item()?);
         }
         Ok(body)
     }
@@ -408,6 +444,16 @@ impl Parser {
 
     fn previous_span(&self) -> Span {
         self.tokens[self.pos.saturating_sub(1).min(self.tokens.len() - 1)].span
+    }
+}
+
+fn push_statement(body: &mut Vec<SpannedExpr>, statement: SpannedExpr) {
+    match statement {
+        SpannedExpr {
+            expr: Expr::Sequence(expressions),
+            ..
+        } => body.extend(expressions),
+        expression => body.push(expression),
     }
 }
 
@@ -576,6 +622,63 @@ mod tests {
         };
         assert_eq!(unspan(then_body), vec![Expr::String("yes".to_string())]);
         assert_eq!(unspan(else_body), vec![Expr::String("no".to_string())]);
+    }
+
+    #[test]
+    fn parses_postfix_while_with_loop_control() {
+        let src = r#"
+          count get 10 < while
+            count get 1 + count set
+            count get 5 = if
+              continue
+            end
+            break
+          end
+        "#;
+        let module = parse_module(src).expect("parse succeeds");
+
+        let Item::Expr {
+            expr:
+                Expr::While {
+                    condition,
+                    body,
+                },
+            ..
+        } = &module.items[0]
+        else {
+            panic!("expected while expression");
+        };
+
+        assert_eq!(
+            unspan(condition),
+            vec![
+                Expr::Symbol("count".to_string()),
+                Expr::Symbol("get".to_string()),
+                Expr::Number(10),
+                Expr::Symbol("<".to_string()),
+            ]
+        );
+        let continue_if = body.iter().find_map(|expression| match &expression.expr {
+            Expr::If { then_body, .. }
+                if then_body
+                    .iter()
+                    .any(|item| item.expr == Expr::Symbol("continue".to_string())) =>
+            {
+                Some(())
+            }
+            _ => None,
+        });
+        assert_eq!(continue_if, Some(()));
+        assert_eq!(
+            body.last().map(|expression| &expression.expr),
+            Some(&Expr::Symbol("break".to_string()))
+        );
+    }
+
+    #[test]
+    fn rejects_while_without_a_condition() {
+        let err = parse_module("while\n  true\nend").expect_err("parse fails");
+        assert!(matches!(err, ParseError::MissingWhileCondition { .. }));
     }
 
     #[test]

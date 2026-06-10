@@ -819,6 +819,237 @@ fn run_honors_explicit_early_return() {
 }
 
 #[test]
+fn run_executes_counter_machine_loop() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+0 product var
+6 multiplicand var
+7 multiplier var
+
+multiplier get 0 > while
+  product get multiplicand get + product set
+  multiplier get 1 - multiplier set
+end
+
+product get
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(42)"),
+        "stdout should show the counter-machine product, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_executes_break_and_continue_inside_while() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+0 count var
+0 total var
+
+count get 10 < while
+  count get 1 + count set
+  count get 3 = if
+    continue
+  end
+  count get 6 = if
+    break
+  end
+  total get count get + total set
+end
+
+total get
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(12)"),
+        "stdout should show continue/break total, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_targets_break_to_the_nearest_nested_loop() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+0 outer var
+0 inner var
+0 hits var
+
+outer get 3 < while
+  outer get 1 + outer set
+  0 inner set
+
+  inner get 5 < while
+    inner get 1 + inner set
+    inner get 2 = if
+      break
+    end
+    hits get 1 + hits set
+  end
+end
+
+hits get
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(3)"),
+        "stdout should show one inner-loop hit per outer iteration, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_executes_while_inside_a_bytecode_method() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+Counter Object subclass
+  ( limit ) "sumTo" [
+    limit var
+    0 current var
+    0 total var
+
+    current get limit get < while
+      current get 1 + current set
+      total get current get + total set
+    end
+
+    total get
+  ] !method
+end
+
+5 Counter new .sumTo
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(15)"),
+        "stdout should show method loop result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_executes_heap_allocated_unary_counter() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+Counter Object subclass
+  previous field
+end
+
+nil counter var
+0 steps var
+
+counter get Counter new .previous set counter set
+counter get Counter new .previous set counter set
+counter get Counter new .previous set counter set
+
+counter get nil? false = while
+  counter get .previous get counter set
+  steps get 1 + steps set
+end
+
+steps get
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Number(3)"),
+        "stdout should show the number of heap counter nodes, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_executes_first_class_block_call_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

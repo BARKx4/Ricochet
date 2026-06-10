@@ -11,10 +11,15 @@ use std::{
     collections::BTreeMap,
     fs,
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 use tower::ServiceExt;
+
+static NEXT_TEMP_PROJECT: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn active_record_database_url_smoke_allows_unset_or_postgres_url() {
@@ -889,7 +894,11 @@ fn temp_project_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after Unix epoch")
         .as_nanos();
+    let sequence = NEXT_TEMP_PROJECT.fetch_add(1, Ordering::Relaxed);
 
     base.join("web-mvc")
-        .join(format!("project-{}-{nanos}", std::process::id()))
+        .join(format!(
+            "project-{}-{nanos}-{sequence}",
+            std::process::id()
+        ))
 }

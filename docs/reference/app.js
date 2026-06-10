@@ -16,6 +16,22 @@ const WORDS = [
     "example": "20 22 add"
   },
   {
+    "word": "-",
+    "aliases": ["subtract"],
+    "group": "math",
+    "stack": "left:number right:number -> difference:number",
+    "body": "Subtracts the right number from the left number. The VM checks integer overflow and preserves operands on failure.",
+    "example": "10 3 -"
+  },
+  {
+    "word": "subtract",
+    "aliases": ["-"],
+    "group": "math",
+    "stack": "left:number right:number -> difference:number",
+    "body": "Readable alias for `-`.",
+    "example": "10 3 subtract"
+  },
+  {
     "word": "equals",
     "aliases": ["="],
     "group": "math",
@@ -358,6 +374,30 @@ const WORDS = [
     "stack": "block -> result",
     "body": "Executes a first-class block value.",
     "example": "[ \"ok\" ] call"
+  },
+  {
+    "word": "while",
+    "aliases": ["end"],
+    "group": "control",
+    "stack": "conditionExpression -> repeated body",
+    "body": "Re-executes the condition expression before every iteration and runs the body while it remains truthy.",
+    "example": "count get 10 < while\n  count get 1 + count set\nend"
+  },
+  {
+    "word": "break",
+    "aliases": [],
+    "group": "control",
+    "stack": "-> exits nearest loop",
+    "body": "Exits the nearest enclosing `while`. Using it outside a loop is a compile error.",
+    "example": "done? if break end"
+  },
+  {
+    "word": "continue",
+    "aliases": [],
+    "group": "control",
+    "stack": "-> rechecks nearest loop",
+    "body": "Jumps to the condition of the nearest enclosing `while`. Using it outside a loop is a compile error.",
+    "example": "skip? if continue end"
   },
   {
     "word": "println",

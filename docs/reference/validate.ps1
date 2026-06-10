@@ -33,6 +33,7 @@ if ($failures.Count -eq 0) {
         "id=""oop""",
         "id=""mvc""",
         "id=""active-record""",
+        "id=""turing-complete""",
         "id=""debugging""",
         "id=""cli""",
         "id=""limits"""
@@ -47,6 +48,8 @@ if ($failures.Count -eq 0) {
     $requiredWords = @(
         '"+"',
         '"add"',
+        '"-"',
+        '"subtract"',
         '"equals"',
         '"not-equals?"',
         '"assert-equals"',
@@ -68,6 +71,9 @@ if ($failures.Count -eq 0) {
         '"over"',
         '"rot"',
         '"call"',
+        '"while"',
+        '"break"',
+        '"continue"',
         '"send"',
         '"println"',
         '"view"',
@@ -97,6 +103,7 @@ if ($failures.Count -eq 0) {
         'GET "/" HomeController "index" route',
         "User .all",
         "className get `"Object`" subclass",
+        "multiplier get 0 &gt; while",
         "rco run --debug --step app.rco",
         "{ user get .name get }"
     )
