@@ -35,6 +35,14 @@ impl Chunk {
         index
     }
 
+    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(self)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(bytes)
+    }
+
     pub fn ops(&self) -> impl Iterator<Item = &Op> {
         self.instructions
             .iter()
@@ -130,5 +138,25 @@ mod tests {
         assert_eq!(decoded.file, chunk.file);
         assert_eq!(decoded.instructions, chunk.instructions);
         assert_eq!(decoded.blocks, vec![block]);
+    }
+
+    #[test]
+    fn byte_roundtrip_preserves_chunk_contents() {
+        let mut chunk = Chunk::new("test.rco");
+        let span = SourceSpan {
+            file: chunk.file.clone(),
+            start: 0,
+            end: 5,
+            line: 1,
+            column: 1,
+        };
+        chunk.push(Op::PushNumber(2), span.clone());
+        chunk.push(Op::PushNumber(3), span.clone());
+        chunk.push(Op::CallWord("+".to_string()), span);
+
+        let bytes = chunk.to_bytes().expect("chunk should encode");
+        let decoded = Chunk::from_bytes(&bytes).expect("chunk should decode");
+
+        assert_eq!(decoded, chunk);
     }
 }
