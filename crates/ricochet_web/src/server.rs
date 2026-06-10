@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use axum::{
-    extract::{Path as AxumPath, Query as AxumQuery, State},
+    extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 
@@ -63,28 +63,65 @@ pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
 
     let mut app = Router::new();
     for route in routes {
-        if route.method != "GET" {
-            bail!("unsupported HTTP method {} for {}", route.method, route.path);
-        }
-
         let controller = route.controller.clone();
         let action = route.action.clone();
-        app = app.route(
-            &route.path,
-            get(move |State(state): State<AppState>,
-                      path_params: Option<AxumPath<HashMap<String, String>>>,
-                      AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
-                let controller = controller.clone();
-                let action = action.clone();
-                let path_params = path_params
-                    .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
-                    .unwrap_or_default();
-                let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
-                async move {
-                    render_route(state, controller, action, path_params, query_params).await
-                }
-            }),
-        );
+        match route.method.as_str() {
+            "GET" => {
+                app = app.route(
+                    &route.path,
+                    get(move |State(state): State<AppState>,
+                              path_params: Option<AxumPath<HashMap<String, String>>>,
+                              AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
+                        let controller = controller.clone();
+                        let action = action.clone();
+                        let path_params = path_params
+                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                            .unwrap_or_default();
+                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                        async move {
+                            render_route(
+                                state,
+                                controller,
+                                action,
+                                path_params,
+                                query_params,
+                                BTreeMap::new(),
+                            )
+                            .await
+                        }
+                    }),
+                );
+            }
+            "POST" => {
+                app = app.route(
+                    &route.path,
+                    post(move |State(state): State<AppState>,
+                               path_params: Option<AxumPath<HashMap<String, String>>>,
+                               AxumQuery(query_params): AxumQuery<HashMap<String, String>>,
+                               AxumForm(form_params): AxumForm<HashMap<String, String>>| {
+                        let controller = controller.clone();
+                        let action = action.clone();
+                        let path_params = path_params
+                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                            .unwrap_or_default();
+                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                        let form_params = form_params.into_iter().collect::<BTreeMap<_, _>>();
+                        async move {
+                            render_route(
+                                state,
+                                controller,
+                                action,
+                                path_params,
+                                query_params,
+                                form_params,
+                            )
+                            .await
+                        }
+                    }),
+                );
+            }
+            _ => bail!("unsupported HTTP method {} for {}", route.method, route.path),
+        }
     }
 
     Ok(app.with_state(state))
@@ -124,6 +161,7 @@ async fn render_route(
     action: String,
     path_params: BTreeMap<String, String>,
     query_params: BTreeMap<String, String>,
+    form_params: BTreeMap<String, String>,
 ) -> impl IntoResponse {
     let revision = state.revisions.current();
 
@@ -134,6 +172,7 @@ async fn render_route(
         &action,
         path_params,
         query_params,
+        form_params,
     ) {
         Ok(body) => Html(body).into_response(),
         Err(err) => (
@@ -151,10 +190,12 @@ fn render_action(
     action: &str,
     path_params: BTreeMap<String, String>,
     query_params: BTreeMap<String, String>,
+    form_params: BTreeMap<String, String>,
 ) -> Result<String> {
     let mut ctx = RequestContext {
         params: path_params,
         query: query_params,
+        form: form_params,
         ..RequestContext::default()
     };
     ctx.view_data

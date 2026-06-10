@@ -8,6 +8,7 @@ use ricochet_vm::{Value, Vm};
 pub struct RequestContext {
     pub params: BTreeMap<String, String>,
     pub query: BTreeMap<String, String>,
+    pub form: BTreeMap<String, String>,
     pub view_data: BTreeMap<String, String>,
 }
 
@@ -95,8 +96,14 @@ fn context_value(ctx: &RequestContext) -> Value {
         .iter()
         .map(|(key, value)| (key.clone(), Value::String(value.clone())))
         .collect::<BTreeMap<_, _>>();
+    let form = ctx
+        .form
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
     context.insert("params".to_string(), Value::Map(params));
     context.insert("query".to_string(), Value::Map(query));
+    context.insert("form".to_string(), Value::Map(form));
     Value::Map(context)
 }
 
@@ -122,6 +129,10 @@ fn controller_arg_value(name: &str, ctx: &RequestContext) -> Value {
     }
 
     if let Some(value) = ctx.params.get(name) {
+        return Value::String(value.clone());
+    }
+
+    if let Some(value) = ctx.form.get(name) {
         return Value::String(value.clone());
     }
 

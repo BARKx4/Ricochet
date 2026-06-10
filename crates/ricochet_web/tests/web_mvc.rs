@@ -212,6 +212,32 @@ end
     assert_eq!(result, ActionResult::Text("ricochet".to_string()));
 }
 
+#[test]
+fn ricochet_controller_reads_form_params() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+ContactController Controller subclass
+  "create" [
+    ctx get .form get .email get text
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("ContactController", "create", "ContactController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    ctx.form
+        .insert("email".to_string(), "ada@example.com".to_string());
+
+    let result = controllers
+        .call("ContactController", "create", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::Text("ada@example.com".to_string()));
+}
+
 #[tokio::test]
 async fn serves_minimal_mvc_home_page() {
     let app = ricochet_web::server::build_test_app().expect("build app");
@@ -518,6 +544,73 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body, "ricochet");
+}
+
+#[tokio::test]
+async fn serves_post_form_args_to_ricochet_controller() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "post_form"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/contact" ContactController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/ContactController.rco"),
+        r#"
+ContactController Controller subclass
+  ( email ) "create" [
+    email var
+    email get text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/contact")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("email=ada%40example.com"))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "ada@example.com");
 }
 
 fn temp_project_path() -> PathBuf {
