@@ -10,6 +10,7 @@ ricochet_syntax = { path = "../ricochet_syntax" }
 ricochet_vm = { path = "../ricochet_vm" }
 anyhow.workspace = true
 axum.workspace = true
+bytes.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

@@ -2,7 +2,7 @@ use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
 };
-use ricochet_web::{ActionResult, ControllerRegistry, RequestContext};
+use ricochet_web::{ActionResult, ControllerRegistry, PostgresDatabase, RequestContext};
 use std::{
     fs,
     path::PathBuf,
@@ -26,6 +26,28 @@ fn active_record_database_url_smoke_allows_unset_or_postgres_url() {
             panic!("DATABASE_URL must be valid Unicode");
         }
     }
+}
+
+#[tokio::test]
+async fn active_record_pings_live_postgres_when_database_url_is_set() {
+    let url = match std::env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(std::env::VarError::NotPresent) => {
+            println!("DATABASE_URL unset; skipping live PostgreSQL ping");
+            return;
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("DATABASE_URL must be valid Unicode");
+        }
+    };
+
+    let database = PostgresDatabase::connect(&url)
+        .await
+        .expect("PostgreSQL connection should succeed");
+    database
+        .ping()
+        .await
+        .expect("PostgreSQL select 1 should succeed");
 }
 
 #[test]

@@ -1,4 +1,13 @@
+use std::collections::BTreeMap;
+use std::error::Error;
 use std::fmt;
+use std::io;
+use std::sync::Arc;
+
+use bytes::BytesMut;
+use ricochet_vm::Value;
+use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
+use tokio_postgres::{Client, NoTls, Row};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelMapping {
@@ -17,6 +26,22 @@ pub enum ActiveRecordError {
         class_name: String,
         field: String,
     },
+    MissingField {
+        class_name: String,
+        field: String,
+    },
+    UnsupportedValue {
+        operation: &'static str,
+        actual: String,
+    },
+    UnsupportedColumnType {
+        field: String,
+        postgres_type: String,
+    },
+    Database {
+        operation: &'static str,
+        message: String,
+    },
 }
 
 impl fmt::Display for ActiveRecordError {
@@ -27,6 +52,22 @@ impl fmt::Display for ActiveRecordError {
             }
             ActiveRecordError::UnknownField { class_name, field } => {
                 write!(f, "unknown field {field:?} on model {class_name}")
+            }
+            ActiveRecordError::MissingField { class_name, field } => {
+                write!(f, "missing field {field:?} for model {class_name}")
+            }
+            ActiveRecordError::UnsupportedValue { operation, actual } => {
+                write!(f, "{operation} does not support Ricochet {actual} values")
+            }
+            ActiveRecordError::UnsupportedColumnType {
+                field,
+                postgres_type,
+            } => write!(
+                f,
+                "PostgreSQL field {field:?} has unsupported type {postgres_type}"
+            ),
+            ActiveRecordError::Database { operation, message } => {
+                write!(f, "PostgreSQL {operation} failed: {message}")
             }
         }
     }
@@ -112,6 +153,23 @@ impl ModelMapping {
         )
     }
 
+    pub fn insert_values(
+        &self,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.values_for_fields(&self.non_id_fields(), attributes)
+    }
+
+    pub fn update_values(
+        &self,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let mut values = self.values_for_fields(&self.non_id_fields(), attributes)?;
+        values.push(id);
+        Ok(values)
+    }
+
     fn require_field(&self, field: &str) -> Result<(), ActiveRecordError> {
         validate_field_identifier(field)?;
         if self.fields.iter().any(|known| known == field) {
@@ -130,6 +188,328 @@ impl ModelMapping {
             .filter(|field| field.as_str() != "id")
             .cloned()
             .collect()
+    }
+
+    fn values_for_fields(
+        &self,
+        fields: &[String],
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        fields
+            .iter()
+            .map(|field| {
+                attributes
+                    .get(field)
+                    .cloned()
+                    .ok_or_else(|| ActiveRecordError::MissingField {
+                        class_name: self.class_name.clone(),
+                        field: field.clone(),
+                    })
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct PostgresDatabase {
+    client: Arc<Client>,
+}
+
+impl fmt::Debug for PostgresDatabase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostgresDatabase").finish_non_exhaustive()
+    }
+}
+
+impl PostgresDatabase {
+    pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
+        let (client, connection) = tokio_postgres::connect(url, NoTls)
+            .await
+            .map_err(|error| database_error("connect", error))?;
+
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                eprintln!("Ricochet PostgreSQL connection failed: {error}");
+            }
+        });
+
+        Ok(Self {
+            client: Arc::new(client),
+        })
+    }
+
+    pub async fn ping(&self) -> Result<(), ActiveRecordError> {
+        self.client
+            .simple_query("select 1")
+            .await
+            .map_err(|error| database_error("ping", error))?;
+        Ok(())
+    }
+
+    pub async fn find(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        let parameter = PostgresParameter::try_from(id)?;
+        let rows = self
+            .client
+            .query(mapping.select_by_id_sql().as_str(), &[parameter.as_sql()])
+            .await
+            .map_err(|error| database_error("find", error))?;
+
+        rows.first()
+            .map(|row| row_to_value(row, mapping))
+            .transpose()
+    }
+
+    pub async fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        let rows = self
+            .client
+            .query(mapping.select_all_sql().as_str(), &[])
+            .await
+            .map_err(|error| database_error("all", error))?;
+
+        rows.iter()
+            .map(|row| row_to_value(row, mapping))
+            .collect()
+    }
+
+    pub async fn where_eq(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_sql(field)?;
+        let parameter = PostgresParameter::try_from(value)?;
+        let rows = self
+            .client
+            .query(sql.as_str(), &[parameter.as_sql()])
+            .await
+            .map_err(|error| database_error("where", error))?;
+
+        rows.iter()
+            .map(|row| row_to_value(row, mapping))
+            .collect()
+    }
+
+    pub async fn insert(
+        &self,
+        mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.insert_values(attributes)?;
+        self.query_one(mapping, "insert", mapping.insert_sql(), values)
+            .await
+    }
+
+    pub async fn update_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.update_values(id, attributes)?;
+        self.query_one(mapping, "update", mapping.update_by_id_sql(), values)
+            .await
+    }
+
+    async fn query_one(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let parameters = values
+            .iter()
+            .map(PostgresParameter::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let references = parameters
+            .iter()
+            .map(PostgresParameter::as_sql)
+            .collect::<Vec<_>>();
+        let row = self
+            .client
+            .query_one(sql.as_str(), &references)
+            .await
+            .map_err(|error| database_error(operation, error))?;
+        row_to_value(&row, mapping)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PostgresParameter {
+    Null,
+    Bool(bool),
+    Number(i64),
+    String(String),
+}
+
+impl PostgresParameter {
+    fn as_sql(&self) -> &(dyn ToSql + Sync) {
+        self
+    }
+}
+
+impl ToSql for PostgresParameter {
+    fn to_sql(
+        &self,
+        postgres_type: &Type,
+        output: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        match self {
+            PostgresParameter::Null => Ok(IsNull::Yes),
+            PostgresParameter::Bool(value) if *postgres_type == Type::BOOL => {
+                value.to_sql(postgres_type, output)
+            }
+            PostgresParameter::Number(value) if *postgres_type == Type::INT2 => {
+                i16::try_from(*value)
+                    .map_err(|_| parameter_range_error(*value, postgres_type))?
+                    .to_sql(postgres_type, output)
+            }
+            PostgresParameter::Number(value) if *postgres_type == Type::INT4 => {
+                i32::try_from(*value)
+                    .map_err(|_| parameter_range_error(*value, postgres_type))?
+                    .to_sql(postgres_type, output)
+            }
+            PostgresParameter::Number(value) if *postgres_type == Type::INT8 => {
+                value.to_sql(postgres_type, output)
+            }
+            PostgresParameter::String(value)
+                if matches!(
+                    *postgres_type,
+                    Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::UNKNOWN
+                ) =>
+            {
+                value.as_str().to_sql(postgres_type, output)
+            }
+            value => Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "cannot encode Ricochet {} as PostgreSQL {}",
+                    value.parameter_kind(),
+                    postgres_type.name()
+                ),
+            ))),
+        }
+    }
+
+    fn accepts(_postgres_type: &Type) -> bool {
+        true
+    }
+
+    to_sql_checked!();
+}
+
+impl PostgresParameter {
+    fn parameter_kind(&self) -> &'static str {
+        match self {
+            PostgresParameter::Null => "nil",
+            PostgresParameter::Bool(_) => "bool",
+            PostgresParameter::Number(_) => "number",
+            PostgresParameter::String(_) => "string",
+        }
+    }
+}
+
+impl TryFrom<&Value> for PostgresParameter {
+    type Error = ActiveRecordError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Nil => Ok(PostgresParameter::Null),
+            Value::Bool(value) => Ok(PostgresParameter::Bool(*value)),
+            Value::Number(value) => Ok(PostgresParameter::Number(*value)),
+            Value::String(value) => Ok(PostgresParameter::String(value.clone())),
+            value => Err(ActiveRecordError::UnsupportedValue {
+                operation: "PostgreSQL parameter",
+                actual: value_kind(value).to_string(),
+            }),
+        }
+    }
+}
+
+fn parameter_range_error(value: i64, postgres_type: &Type) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "Ricochet number {value} is outside PostgreSQL {} range",
+            postgres_type.name()
+        ),
+    )
+}
+
+fn row_to_value(row: &Row, mapping: &ModelMapping) -> Result<Value, ActiveRecordError> {
+    let mut values = BTreeMap::new();
+
+    for (index, field) in mapping.fields.iter().enumerate() {
+        let column = row.columns().get(index).ok_or_else(|| {
+            ActiveRecordError::Database {
+                operation: "decode row",
+                message: format!("query did not return mapped field {field:?}"),
+            }
+        })?;
+        let value = column_value(row, index, field, column.type_())?;
+        values.insert(field.clone(), value);
+    }
+
+    Ok(Value::Map(values))
+}
+
+fn column_value(
+    row: &Row,
+    index: usize,
+    field: &str,
+    postgres_type: &Type,
+) -> Result<Value, ActiveRecordError> {
+    let result = match *postgres_type {
+        Type::BOOL => row
+            .try_get::<_, Option<bool>>(index)
+            .map(|value| value.map(Value::Bool).unwrap_or(Value::Nil)),
+        Type::INT2 => row
+            .try_get::<_, Option<i16>>(index)
+            .map(|value| value.map(|value| Value::Number(value.into())).unwrap_or(Value::Nil)),
+        Type::INT4 => row
+            .try_get::<_, Option<i32>>(index)
+            .map(|value| value.map(|value| Value::Number(value.into())).unwrap_or(Value::Nil)),
+        Type::INT8 => row
+            .try_get::<_, Option<i64>>(index)
+            .map(|value| value.map(Value::Number).unwrap_or(Value::Nil)),
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => row
+            .try_get::<_, Option<String>>(index)
+            .map(|value| value.map(Value::String).unwrap_or(Value::Nil)),
+        _ => {
+            return Err(ActiveRecordError::UnsupportedColumnType {
+                field: field.to_string(),
+                postgres_type: postgres_type.name().to_string(),
+            });
+        }
+    };
+
+    result.map_err(|error| database_error("decode row", error))
+}
+
+fn database_error(operation: &'static str, error: tokio_postgres::Error) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation,
+        message: error.to_string(),
+    }
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Nil => "nil",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Map(_) => "map",
+        Value::Instance(_) => "instance",
+        Value::Member(_) => "member",
+        Value::Block(_) => "block",
+        Value::Result(_) => "result",
     }
 }
 
@@ -164,6 +544,8 @@ fn is_postgres_identifier(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ricochet_vm::Value;
+    use std::collections::BTreeMap;
 
     #[test]
     fn select_by_id_sql_uses_existing_table_and_fields() {
@@ -239,5 +621,83 @@ mod tests {
             mapping.update_by_id_sql(),
             "update users set email = $1, name = $2 where id = $3 returning id, email, name"
         );
+    }
+
+    #[test]
+    fn insert_values_follow_model_field_order() {
+        let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
+            .expect("mapping is valid");
+        let attributes = BTreeMap::from([
+            ("name".to_string(), Value::String("Ada".to_string())),
+            (
+                "email".to_string(),
+                Value::String("ada@example.com".to_string()),
+            ),
+        ]);
+
+        assert_eq!(
+            mapping.insert_values(&attributes),
+            Ok(vec![
+                Value::String("ada@example.com".to_string()),
+                Value::String("Ada".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn insert_values_require_every_mapped_non_id_field() {
+        let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
+            .expect("mapping is valid");
+        let attributes = BTreeMap::from([(
+            "email".to_string(),
+            Value::String("ada@example.com".to_string()),
+        )]);
+
+        assert_eq!(
+            mapping.insert_values(&attributes),
+            Err(ActiveRecordError::MissingField {
+                class_name: "User".to_string(),
+                field: "name".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn postgres_parameters_reject_non_scalar_values() {
+        assert_eq!(
+            PostgresParameter::try_from(&Value::Array(Vec::new())),
+            Err(ActiveRecordError::UnsupportedValue {
+                operation: "PostgreSQL parameter",
+                actual: "array".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn postgres_number_parameter_encodes_for_integer_columns() {
+        let parameter = PostgresParameter::try_from(&Value::Number(42))
+            .expect("number parameter should convert");
+        let mut output = bytes::BytesMut::new();
+
+        let null = parameter
+            .to_sql(&Type::INT4, &mut output)
+            .expect("number should encode as int4");
+
+        assert!(matches!(null, tokio_postgres::types::IsNull::No));
+        assert_eq!(output.as_ref(), &[0, 0, 0, 42]);
+    }
+
+    #[test]
+    fn postgres_nil_parameter_encodes_as_sql_null() {
+        let parameter =
+            PostgresParameter::try_from(&Value::Nil).expect("nil parameter should convert");
+        let mut output = bytes::BytesMut::new();
+
+        let null = parameter
+            .to_sql(&Type::TEXT, &mut output)
+            .expect("nil should encode");
+
+        assert!(matches!(null, tokio_postgres::types::IsNull::Yes));
+        assert!(output.is_empty());
     }
 }

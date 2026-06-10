@@ -6,7 +6,7 @@ pub mod router;
 pub mod server;
 pub mod template;
 
-pub use active_record::{ActiveRecordError, ModelMapping};
+pub use active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};
 pub use manifest::{Database, DatabaseDefault, Manifest, Package, Views, Web};
 pub use revision::{AppRevision, RevisionManager};
