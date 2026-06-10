@@ -46,6 +46,8 @@ pub enum VmError {
     UncheckedResultCondition,
     #[error("invalid jump target {target}: chunk has {available} instructions")]
     InvalidJump { target: usize, available: usize },
+    #[error("assert-equals failed: expected {expected}, got {actual}")]
+    AssertionFailed { expected: String, actual: String },
 }
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
@@ -95,6 +97,22 @@ impl Vm {
 
     pub fn add_function(&mut self, name: impl Into<String>, function: Chunk) {
         self.functions.insert(name.into(), function);
+    }
+
+    pub fn test_methods(&self) -> Vec<(String, String)> {
+        let mut tests = Vec::new();
+        for class in self.classes.values() {
+            if class.superclass != "TestCase" {
+                continue;
+            }
+
+            for method in class.bytecode_methods.keys() {
+                if method.starts_with("test") {
+                    tests.push((class.name.clone(), method.clone()));
+                }
+            }
+        }
+        tests
     }
 
     pub fn enable_debug(&mut self) {
@@ -414,6 +432,7 @@ impl Vm {
             "+" | "add" => self.call_add(word),
             "equals" | "=" => self.call_equals(word),
             "not-equals?" | "!=" => self.call_not_equals(word),
+            "assert-equals" => self.call_assert_equals(word),
             "less-than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
             "greater-than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
             "less-or-equals?" | "<=" => {
@@ -949,6 +968,23 @@ impl Vm {
         Ok(())
     }
 
+    fn call_assert_equals(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let expected = self.pop_unchecked();
+        let actual = self.pop_unchecked();
+
+        if actual == expected {
+            return Ok(());
+        }
+
+        self.stack = stack_before;
+        Err(VmError::AssertionFailed {
+            expected: format!("{expected:?}"),
+            actual: format!("{actual:?}"),
+        })
+    }
+
     fn call_number_comparison(
         &mut self,
         word: &str,
@@ -1341,6 +1377,41 @@ mod tests {
         let mut symbol_vm = Vm::default();
         symbol_vm.run_chunk(&symbol_chunk).expect("= succeeds");
         assert_eq!(symbol_vm.stack(), &[Value::Bool(false)]);
+    }
+
+    #[test]
+    fn assert_equals_consumes_matching_values() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Ada".to_string()), span());
+        chunk.push(Op::PushString("Ada".to_string()), span());
+        chunk.push(Op::CallWord("assert-equals".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("matching assertion succeeds");
+
+        assert_eq!(vm.stack(), &[]);
+    }
+
+    #[test]
+    fn assert_equals_reports_mismatch_and_preserves_stack() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::String("Ada".to_string()));
+        vm.stack.push(Value::String("Grace".to_string()));
+
+        assert_eq!(
+            vm.call_word("assert-equals"),
+            Err(VmError::AssertionFailed {
+                expected: "String(\"Grace\")".to_string(),
+                actual: "String(\"Ada\")".to_string(),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::String("Ada".to_string()),
+                Value::String("Grace".to_string())
+            ]
+        );
     }
 
     #[test]

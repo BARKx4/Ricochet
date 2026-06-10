@@ -263,6 +263,92 @@ fn run_debug_prints_fault_trace_before_error() {
 }
 
 #[test]
+fn test_runs_testcase_methods() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+UserTest TestCase subclass
+  "testDisplayName" [
+    "ada@example.com"
+    "ada@example.com" assert-equals
+  ] !method
+end
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(&source_path)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("PASS UserTest.testDisplayName"),
+        "stdout should include passed test, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 tests, 0 failed"),
+        "stdout should include summary, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_reports_assertion_failures() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+UserTest TestCase subclass
+  "testDisplayName" [
+    "ada@example.com"
+    "grace@example.com" assert-equals
+  ] !method
+end
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(&source_path)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco test should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("FAIL UserTest.testDisplayName"),
+        "stdout should include failed test, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 tests, 1 failed"),
+        "stdout should include failure summary, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("Error: 1 Ricochet test failed"),
+        "stderr should include failure count error, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_executes_top_level_function_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
