@@ -191,8 +191,10 @@ end
 fn home_controller_index_sets_title_and_returns_view() {
     let mut controllers = ControllerRegistry::default();
     controllers.register_static("HomeController", "index", |ctx| {
-        ctx.view_data
-            .insert("title".to_string(), "Hello Ricochet".to_string());
+        ctx.view_data.insert(
+            "title".to_string(),
+            Value::String("Hello Ricochet".to_string()),
+        );
         Ok(ActionResult::View("home/index".to_string()))
     });
 
@@ -204,7 +206,7 @@ fn home_controller_index_sets_title_and_returns_view() {
     assert_eq!(result, ActionResult::View("home/index".to_string()));
     assert_eq!(
         ctx.view_data.get("title"),
-        Some(&"Hello Ricochet".to_string())
+        Some(&Value::String("Hello Ricochet".to_string()))
     );
 }
 
@@ -232,7 +234,7 @@ fn ricochet_home_controller_source_sets_title_and_returns_view() {
     assert_eq!(result, ActionResult::View("home/index".to_string()));
     assert_eq!(
         ctx.view_data.get("title"),
-        Some(&"Hello Ricochet".to_string())
+        Some(&Value::String("Hello Ricochet".to_string()))
     );
 }
 
@@ -262,7 +264,10 @@ end
         .expect("action should dispatch");
 
     assert_eq!(result, ActionResult::View("home/show".to_string()));
-    assert_eq!(ctx.view_data.get("title"), Some(&"42".to_string()));
+    assert_eq!(
+        ctx.view_data.get("title"),
+        Some(&Value::String("42".to_string()))
+    );
 }
 
 #[test]
@@ -293,7 +298,10 @@ end
         .expect("action should dispatch");
 
     assert_eq!(result, ActionResult::View("home/show".to_string()));
-    assert_eq!(ctx.view_data.get("title"), Some(&"42".to_string()));
+    assert_eq!(
+        ctx.view_data.get("title"),
+        Some(&Value::String("42".to_string()))
+    );
 }
 
 #[test]
@@ -459,7 +467,10 @@ async fn serves_minimal_mvc_home_page_from_project_files() {
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
-    assert_eq!(body.trim(), "<h1>Hello Ricochet</h1>");
+    assert_eq!(
+        body.trim(),
+        "<h1>Hello Ricochet</h1>\n<p>Ada &lt;Lovelace&gt;</p>\n<small>42</small>"
+    );
 }
 
 #[tokio::test]

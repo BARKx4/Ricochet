@@ -414,7 +414,13 @@ Views are plain HTML templates by default, with interpolation that runs Ricochet
 ```html
 <h1>{ title get }</h1>
 <p>{ user get .displayName }</p>
+<small>{ 20 22 + }</small>
 ```
+
+Controller variables retain their Ricochet values when passed to a view, so
+template expressions can navigate maps and objects rather than receiving only
+pre-rendered strings. Interpolation is compiled to ordinary bytecode, and VM
+faults or extra stack results fail the request loudly.
 
 Escaping is configurable per project. Generated web apps should default to safe HTML escaping, with an explicit raw-output word for trusted HTML.
 

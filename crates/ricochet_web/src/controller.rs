@@ -11,7 +11,7 @@ pub struct RequestContext {
     pub params: BTreeMap<String, String>,
     pub query: BTreeMap<String, String>,
     pub form: BTreeMap<String, String>,
-    pub view_data: BTreeMap<String, String>,
+    pub view_data: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,19 +171,7 @@ fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
             continue;
         }
 
-        if let Some(value) = view_data_string(value) {
-            ctx.view_data.insert(name.clone(), value);
-        }
-    }
-}
-
-fn view_data_string(value: &Value) -> Option<String> {
-    match value {
-        Value::String(value) => Some(value.clone()),
-        Value::Number(value) => Some(value.to_string()),
-        Value::Bool(value) => Some(value.to_string()),
-        Value::Nil => Some(String::new()),
-        _ => None,
+        ctx.view_data.insert(name.clone(), value.clone());
     }
 }
 
@@ -248,8 +236,10 @@ mod tests {
     fn home_controller_index_sets_title_and_returns_view() {
         let mut controllers = ControllerRegistry::default();
         controllers.register_static("HomeController", "index", |ctx| {
-            ctx.view_data
-                .insert("title".to_string(), "Hello Ricochet".to_string());
+            ctx.view_data.insert(
+                "title".to_string(),
+                Value::String("Hello Ricochet".to_string()),
+            );
             Ok(ActionResult::View("home/index".to_string()))
         });
 
@@ -261,7 +251,7 @@ mod tests {
         assert_eq!(result, ActionResult::View("home/index".to_string()));
         assert_eq!(
             ctx.view_data.get("title"),
-            Some(&"Hello Ricochet".to_string())
+            Some(&Value::String("Hello Ricochet".to_string()))
         );
     }
 

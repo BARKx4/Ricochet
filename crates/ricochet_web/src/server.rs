@@ -294,7 +294,7 @@ fn render_action(
         ..RequestContext::default()
     };
     ctx.view_data
-        .insert("revision".to_string(), revision.id.to_string());
+        .insert("revision".to_string(), Value::Number(revision.id as i64));
 
     match runtime.controllers.call(controller, action, &mut ctx)? {
         ActionResult::View(view) => render_view(runtime, &view, &ctx).map(RenderedAction::Html),

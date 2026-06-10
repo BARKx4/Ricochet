@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use ricochet_compiler::compile_source;
+use ricochet_vm::{Value, Vm};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -12,7 +14,7 @@ pub enum EscapeMode {
 
 pub fn render_template(
     template: &str,
-    data: &BTreeMap<String, String>,
+    data: &BTreeMap<String, Value>,
     escape: EscapeMode,
 ) -> Result<String> {
     let mut rendered = String::new();
@@ -54,27 +56,48 @@ pub fn render_template(
 
 fn evaluate_expression(
     expression: &str,
-    data: &BTreeMap<String, String>,
+    data: &BTreeMap<String, Value>,
     escape: EscapeMode,
 ) -> Result<String> {
     if expression.is_empty() || expression.contains('{') {
         bail!("unsupported template expression: {expression:?}");
     }
 
-    let tokens = expression.split_whitespace().collect::<Vec<_>>();
-    if tokens.len() != 2 || tokens[1] != "get" {
-        bail!("unsupported template expression: {expression:?}");
+    let chunk = compile_source("<template>", expression)
+        .with_context(|| format!("failed to compile template expression {expression:?}"))?;
+    let mut vm = Vm::default();
+    for (name, value) in data {
+        vm.set_variable(name.clone(), value.clone());
     }
+    vm.run_chunk(&chunk)
+        .with_context(|| format!("failed to execute template expression {expression:?}"))?;
 
-    let key = tokens[0];
-    let value = data
-        .get(key)
-        .ok_or_else(|| anyhow!("missing template value for {key:?}"))?;
+    if vm.stack().len() != 1 {
+        bail!(
+            "template expression {expression:?} must leave exactly one value, left {}",
+            vm.stack().len()
+        );
+    }
+    let value = vm
+        .stack()
+        .last()
+        .expect("template stack length checked before reading");
+    let value = render_value(value)?;
 
     Ok(match escape {
-        EscapeMode::Html => escape_html(value),
-        EscapeMode::None => value.clone(),
+        EscapeMode::Html => escape_html(&value),
+        EscapeMode::None => value,
     })
+}
+
+fn render_value(value: &Value) -> Result<String> {
+    match value {
+        Value::Nil => Ok(String::new()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Number(value) => Ok(value.to_string()),
+        Value::String(value) => Ok(value.clone()),
+        value => bail!("template expression returned non-renderable value {value:?}"),
+    }
 }
 
 fn escape_html(input: &str) -> String {
@@ -103,7 +126,10 @@ mod tests {
     #[test]
     fn template_get_expression_escapes_html_by_default() {
         let mut data = BTreeMap::new();
-        data.insert("title".to_string(), "Hello <Ricochet>".to_string());
+        data.insert(
+            "title".to_string(),
+            Value::String("Hello <Ricochet>".to_string()),
+        );
 
         let rendered = render_template("<h1>{ title get }</h1>", &data, EscapeMode::Html)
             .expect("template should render");
@@ -114,12 +140,55 @@ mod tests {
     #[test]
     fn template_get_expression_can_render_without_escaping() {
         let mut data = BTreeMap::new();
-        data.insert("title".to_string(), "Hello <Ricochet>".to_string());
+        data.insert(
+            "title".to_string(),
+            Value::String("Hello <Ricochet>".to_string()),
+        );
 
         let rendered = render_template("<h1>{ title get }</h1>", &data, EscapeMode::None)
             .expect("template should render");
 
         assert_eq!(rendered, "<h1>Hello <Ricochet></h1>");
+    }
+
+    #[test]
+    fn template_executes_postfix_ricochet_expressions() {
+        let data = BTreeMap::new();
+
+        let rendered = render_template("<p>{ 20 22 + }</p>", &data, EscapeMode::Html)
+            .expect("template should execute Ricochet");
+
+        assert_eq!(rendered, "<p>42</p>");
+    }
+
+    #[test]
+    fn template_expressions_can_navigate_nested_values() {
+        let data = BTreeMap::from([(
+            "user".to_string(),
+            Value::Map(BTreeMap::from([(
+                "name".to_string(),
+                Value::String("Ada <Lovelace>".to_string()),
+            )])),
+        )]);
+
+        let rendered = render_template(
+            "<strong>{ user get .name get }</strong>",
+            &data,
+            EscapeMode::Html,
+        )
+        .expect("template should navigate map values");
+
+        assert_eq!(rendered, "<strong>Ada &lt;Lovelace&gt;</strong>");
+    }
+
+    #[test]
+    fn template_expression_requires_exactly_one_stack_result() {
+        let data = BTreeMap::new();
+
+        let err = render_template("{ 1 2 }", &data, EscapeMode::Html)
+            .expect_err("extra stack values should fail");
+
+        assert!(err.to_string().contains("exactly one value"));
     }
 
     #[test]
@@ -133,12 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn template_fails_on_unsupported_expression() {
+    fn template_fails_when_ricochet_expression_faults() {
         let data = BTreeMap::new();
 
         let err = render_template("{ title unknown }", &data, EscapeMode::Html)
-            .expect_err("unsupported expression should fail");
+            .expect_err("faulting expression should fail");
 
-        assert!(err.to_string().contains("unsupported"));
+        assert!(err.to_string().contains("failed to execute"));
     }
 }
