@@ -1,0 +1,6 @@
+HomeController Controller subclass
+  "index" [
+    "Hello Ricochet" title set
+    ctx get "home/index" swap view
+  ] !method
+end
