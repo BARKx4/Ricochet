@@ -1,0 +1,13 @@
+[package]
+name = "web_minimal"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "postgres://localhost/ricochet_development"
