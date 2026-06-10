@@ -497,6 +497,7 @@ impl Vm {
             "println" => self.call_println(word),
             "view" => self.call_view(word),
             "text" => self.call_text(word),
+            "json" => self.call_json(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
@@ -991,6 +992,15 @@ impl Vm {
         let mut action = BTreeMap::new();
         action.insert("type".to_string(), Value::String("text".to_string()));
         action.insert("body".to_string(), Value::String(body));
+        self.stack.push(Value::Map(action));
+        Ok(())
+    }
+
+    fn call_json(&mut self, word: &str) -> Result<(), VmError> {
+        let body = self.pop(word)?;
+        let mut action = BTreeMap::new();
+        action.insert("type".to_string(), Value::String("json".to_string()));
+        action.insert("body".to_string(), body);
         self.stack.push(Value::Map(action));
         Ok(())
     }
@@ -2158,6 +2168,25 @@ mod tests {
             action.get("body"),
             Some(&Value::String("pong".to_string()))
         );
+    }
+
+    #[test]
+    fn json_word_returns_json_action_map() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("ok".to_string()), span());
+        chunk.push(Op::CallWord("json".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("json word runs");
+
+        let [Value::Map(action)] = vm.stack() else {
+            panic!("expected one action map on stack, got {:?}", vm.stack());
+        };
+        assert_eq!(
+            action.get("type"),
+            Some(&Value::String("json".to_string()))
+        );
+        assert_eq!(action.get("body"), Some(&Value::String("ok".to_string())));
     }
 
     #[test]

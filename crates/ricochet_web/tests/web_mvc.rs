@@ -1,6 +1,6 @@
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
 };
 use ricochet_web::{ActionResult, ControllerRegistry, RequestContext};
 use std::{
@@ -159,6 +159,31 @@ end
         .expect("action should dispatch");
 
     assert_eq!(result, ActionResult::Text("pong".to_string()));
+}
+
+#[test]
+fn ricochet_controller_returns_json_response() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+ApiController Controller subclass
+  "show" [
+    map
+    "name" "Ada" !put
+    json
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("ApiController", "show", "ApiController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    let result = controllers
+        .call("ApiController", "show", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::Json(r#"{"name":"Ada"}"#.to_string()));
 }
 
 #[test]
@@ -480,6 +505,79 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body, "pong");
+}
+
+#[tokio::test]
+async fn serves_ricochet_json_response() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "json_response"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/api/user" ApiController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/ApiController.rco"),
+        r#"
+ApiController Controller subclass
+  "show" [
+    map
+    "name" "Ada" !put
+    json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/user")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, r#"{"name":"Ada"}"#);
 }
 
 #[tokio::test]

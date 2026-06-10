@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use anyhow::{bail, Context, Result};
 use ricochet_compiler::compile_source;
 use ricochet_vm::{Value, Vm};
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Default)]
 pub struct RequestContext {
@@ -16,6 +17,7 @@ pub struct RequestContext {
 pub enum ActionResult {
     View(String),
     Text(String),
+    Json(String),
 }
 
 type Action = Box<dyn Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync>;
@@ -182,11 +184,39 @@ fn action_result_from_value(value: Value) -> Result<ActionResult> {
                     Some(Value::String(text)) => Ok(ActionResult::Text(text)),
                     _ => bail!("Ricochet text action is missing string body"),
                 },
+                "json" => match map.remove("body") {
+                    Some(body) => Ok(ActionResult::Json(json_string_from_value(body)?)),
+                    None => bail!("Ricochet json action is missing body"),
+                },
                 _ => bail!("unsupported Ricochet action result type {action_type}"),
             }
         }
         Value::String(text) => Ok(ActionResult::Text(text)),
         value => bail!("Ricochet controller returned unsupported value {value:?}"),
+    }
+}
+
+fn json_string_from_value(value: Value) -> Result<String> {
+    Ok(serde_json::to_string(&json_value_from_value(value)?)?)
+}
+
+fn json_value_from_value(value: Value) -> Result<JsonValue> {
+    match value {
+        Value::Nil => Ok(JsonValue::Null),
+        Value::Bool(value) => Ok(JsonValue::Bool(value)),
+        Value::Number(value) => Ok(JsonValue::Number(value.into())),
+        Value::String(value) => Ok(JsonValue::String(value)),
+        Value::Array(values) => values
+            .into_iter()
+            .map(json_value_from_value)
+            .collect::<Result<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::Map(values) => values
+            .into_iter()
+            .map(|(key, value)| Ok((key, json_value_from_value(value)?)))
+            .collect::<Result<serde_json::Map<_, _>>>()
+            .map(JsonValue::Object),
+        value => bail!("Ricochet json action cannot serialize {value:?}"),
     }
 }
 

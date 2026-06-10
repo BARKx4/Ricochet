@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use axum::{
     extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{Html, IntoResponse},
     routing::{get, post},
     Router,
@@ -28,6 +28,12 @@ struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
     controllers: ControllerRegistry,
+}
+
+enum RenderedAction {
+    Html(String),
+    Text(String),
+    Json(String),
 }
 
 pub fn build_test_app() -> Result<Router> {
@@ -174,7 +180,11 @@ async fn render_route(
         query_params,
         form_params,
     ) {
-        Ok(body) => Html(body).into_response(),
+        Ok(RenderedAction::Html(body)) => Html(body).into_response(),
+        Ok(RenderedAction::Text(body)) => body.into_response(),
+        Ok(RenderedAction::Json(body)) => {
+            ([(header::CONTENT_TYPE, "application/json")], body).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("ricochet MVC error: {err}"),
@@ -191,7 +201,7 @@ fn render_action(
     path_params: BTreeMap<String, String>,
     query_params: BTreeMap<String, String>,
     form_params: BTreeMap<String, String>,
-) -> Result<String> {
+) -> Result<RenderedAction> {
     let mut ctx = RequestContext {
         params: path_params,
         query: query_params,
@@ -202,8 +212,9 @@ fn render_action(
         .insert("revision".to_string(), revision.id.to_string());
 
     match runtime.controllers.call(controller, action, &mut ctx)? {
-        ActionResult::View(view) => render_view(runtime, &view, &ctx),
-        ActionResult::Text(text) => Ok(text),
+        ActionResult::View(view) => render_view(runtime, &view, &ctx).map(RenderedAction::Html),
+        ActionResult::Text(text) => Ok(RenderedAction::Text(text)),
+        ActionResult::Json(json) => Ok(RenderedAction::Json(json)),
     }
 }
 
