@@ -37,6 +37,8 @@ pub enum VmError {
     UnknownClass(String),
     #[error("unknown method {method} on class {class_name}")]
     UnknownMethod { class_name: String, method: String },
+    #[error("inheritance cycle involving class: {0}")]
+    InheritanceCycle(String),
     #[error("invalid block index {index}: chunk has {available} blocks")]
     InvalidBlock { index: usize, available: usize },
     #[error("no current self for {0}")]
@@ -88,6 +90,18 @@ enum ExecutionSignal {
     Continue,
     Jump(usize),
     Return,
+}
+
+#[derive(Clone)]
+enum ResolvedMethod {
+    Native {
+        owner: String,
+        method: NativeMethod,
+    },
+    Bytecode {
+        owner: String,
+        method: BytecodeCallable,
+    },
 }
 
 impl Vm {
@@ -262,17 +276,15 @@ impl Vm {
     }
 
     pub fn new_instance(&self, class_name: &str) -> Result<Value, VmError> {
-        let class = self
-            .classes
-            .get(class_name)
-            .ok_or_else(|| VmError::UnknownClass(class_name.to_string()))?;
-        let fields = class
-            .fields
-            .iter()
-            .map(|field| (field.clone(), Value::Nil))
-            .collect();
+        let classes = self.inheritance_chain(class_name)?;
+        let mut fields = BTreeMap::new();
+        for class in classes.iter().rev() {
+            for field in &class.fields {
+                fields.insert(field.clone(), Value::Nil);
+            }
+        }
 
-        Ok(Value::Instance(Instance::new(class.name.clone(), fields)))
+        Ok(Value::Instance(Instance::new(class_name, fields)))
     }
 
     pub fn set_field(
@@ -317,58 +329,37 @@ impl Vm {
     ) -> Result<Value, VmError> {
         match receiver {
             Value::Class(class_name) => {
-                let method = self
-                    .classes
-                    .get(&class_name)
-                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
-                    .native_methods
-                    .get(method_name)
-                    .cloned()
+                let (owner, method) = self
+                    .resolve_native_method(&class_name, method_name)?
                     .ok_or_else(|| VmError::UnknownMethod {
                         class_name: class_name.clone(),
                         method: method_name.to_string(),
                     })?;
-                let frame = format!("{class_name}.{method_name}");
+                let frame = format!("{owner}.{method_name}");
                 self.call_native_method(Value::Class(class_name), &frame, &method)
             }
             Value::Instance(instance) => {
                 let class_name = instance.class_name.clone();
                 let receiver = Value::Instance(instance);
-                let native_method = self
-                    .classes
-                    .get(&class_name)
-                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
-                    .native_methods
-                    .get(method_name)
-                    .cloned();
-
-                if let Some(method) = native_method {
-                    let frame = format!("{class_name}.{method_name}");
-                    return self.call_native_method(receiver, &frame, &method);
-                }
-
-                let bytecode_method = self
-                    .classes
-                    .get(&class_name)
-                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
-                    .bytecode_methods
-                    .get(method_name)
-                    .cloned();
-
-                if let Some(method) = bytecode_method {
-                    let frame = format!("{class_name}.{method_name}");
-                    let input_count = method
-                        .args
-                        .as_ref()
-                        .map(|args| args.inputs.len())
-                        .unwrap_or(0);
-                    return self.call_bytecode_method(receiver, &frame, &method.chunk, input_count);
-                }
-
-                Err(VmError::UnknownMethod {
-                        class_name: class_name.clone(),
+                match self.resolve_instance_method(&class_name, method_name)? {
+                    Some(ResolvedMethod::Native { owner, method }) => {
+                        let frame = format!("{owner}.{method_name}");
+                        self.call_native_method(receiver, &frame, &method)
+                    }
+                    Some(ResolvedMethod::Bytecode { owner, method }) => {
+                        let frame = format!("{owner}.{method_name}");
+                        let input_count = method
+                            .args
+                            .as_ref()
+                            .map(|args| args.inputs.len())
+                            .unwrap_or(0);
+                        self.call_bytecode_method(receiver, &frame, &method.chunk, input_count)
+                    }
+                    None => Err(VmError::UnknownMethod {
+                        class_name,
                         method: method_name.to_string(),
-                })
+                    }),
+                }
             }
             value => Err(VmError::TypeError {
                 word: format!("call_method {method_name}"),
@@ -883,19 +874,12 @@ impl Vm {
 
     fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
         let should_dispatch = match self.stack.last() {
-            Some(Value::Class(class_name)) => self
-                .classes
-                .get(class_name)
-                .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
-                .native_methods
-                .contains_key(name),
-            Some(Value::Instance(instance)) => {
-                let class = self
-                    .classes
-                    .get(&instance.class_name)
-                    .ok_or_else(|| VmError::UnknownClass(instance.class_name.clone()))?;
-                class.native_methods.contains_key(name) || class.bytecode_methods.contains_key(name)
+            Some(Value::Class(class_name)) => {
+                self.resolve_native_method(class_name, name)?.is_some()
             }
+            Some(Value::Instance(instance)) => self
+                .resolve_instance_method(&instance.class_name, name)?
+                .is_some(),
             _ => false,
         };
 
@@ -1480,6 +1464,68 @@ impl Vm {
         self.classes
             .get_mut(&class_name)
             .ok_or(VmError::UnknownClass(class_name))
+    }
+
+    fn inheritance_chain(&self, class_name: &str) -> Result<Vec<&Class>, VmError> {
+        let mut chain = Vec::new();
+        let mut visited = BTreeSet::new();
+        let mut current_name = class_name;
+
+        loop {
+            if !visited.insert(current_name.to_string()) {
+                return Err(VmError::InheritanceCycle(current_name.to_string()));
+            }
+
+            let Some(class) = self.classes.get(current_name) else {
+                if chain.is_empty() {
+                    return Err(VmError::UnknownClass(class_name.to_string()));
+                }
+                break;
+            };
+            chain.push(class);
+
+            if class.superclass.is_empty() {
+                break;
+            }
+            current_name = &class.superclass;
+        }
+
+        Ok(chain)
+    }
+
+    fn resolve_native_method(
+        &self,
+        class_name: &str,
+        method_name: &str,
+    ) -> Result<Option<(String, NativeMethod)>, VmError> {
+        for class in self.inheritance_chain(class_name)? {
+            if let Some(method) = class.native_methods.get(method_name) {
+                return Ok(Some((class.name.clone(), method.clone())));
+            }
+        }
+        Ok(None)
+    }
+
+    fn resolve_instance_method(
+        &self,
+        class_name: &str,
+        method_name: &str,
+    ) -> Result<Option<ResolvedMethod>, VmError> {
+        for class in self.inheritance_chain(class_name)? {
+            if let Some(method) = class.native_methods.get(method_name) {
+                return Ok(Some(ResolvedMethod::Native {
+                    owner: class.name.clone(),
+                    method: method.clone(),
+                }));
+            }
+            if let Some(method) = class.bytecode_methods.get(method_name) {
+                return Ok(Some(ResolvedMethod::Bytecode {
+                    owner: class.name.clone(),
+                    method: method.clone(),
+                }));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -2323,6 +2369,132 @@ mod tests {
         vm.run_chunk(&chunk).expect("class method runs");
 
         assert_eq!(vm.stack(), &[Value::String("Clock".to_string())]);
+    }
+
+    #[test]
+    fn subclass_instances_include_inherited_fields() {
+        let mut vm = Vm::default();
+        vm.define_class("Record", "Object").expect("base class begins");
+        vm.add_field("id").expect("base field added");
+        vm.end_class();
+        vm.define_class("User", "Record").expect("subclass begins");
+        vm.add_field("email").expect("child field added");
+        vm.end_class();
+
+        let user = vm.new_instance("User").expect("subclass instance created");
+
+        assert_eq!(vm.get_field(&user, "id").expect("base field reads"), Value::Nil);
+        assert_eq!(
+            vm.get_field(&user, "email").expect("child field reads"),
+            Value::Nil
+        );
+    }
+
+    #[test]
+    fn subclass_uses_nearest_native_method_override() {
+        let mut vm = Vm::default();
+        vm.define_class("Record", "Object").expect("base class begins");
+        vm.add_native_method("kind", |_| Ok(Value::String("record".to_string())))
+            .expect("base method added");
+        vm.end_class();
+        vm.define_class("User", "Record").expect("subclass begins");
+        vm.add_native_method("kind", |_| Ok(Value::String("user".to_string())))
+            .expect("override added");
+        vm.end_class();
+        vm.define_class("Admin", "User").expect("leaf class begins");
+        vm.end_class();
+
+        let user = vm.new_instance("User").expect("user instance created");
+        let admin = vm.new_instance("Admin").expect("admin instance created");
+
+        assert_eq!(
+            vm.call_method_value(user, "kind").expect("override runs"),
+            Value::String("user".to_string())
+        );
+        assert_eq!(
+            vm.call_method_value(admin, "kind")
+                .expect("inherited override runs"),
+            Value::String("user".to_string())
+        );
+    }
+
+    #[test]
+    fn subclass_inherits_bytecode_methods() {
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::PushString("record".to_string()), span());
+        method.push(Op::Return, span());
+        let mut vm = Vm::default();
+        vm.define_class("Record", "Object").expect("base class begins");
+        vm.add_bytecode_method("kind", method, None)
+            .expect("base method added");
+        vm.end_class();
+        vm.define_class("User", "Record").expect("subclass begins");
+        vm.end_class();
+        let user = vm.new_instance("User").expect("user instance created");
+
+        assert_eq!(
+            vm.call_method_value(user, "kind")
+                .expect("inherited bytecode method runs"),
+            Value::String("record".to_string())
+        );
+    }
+
+    #[test]
+    fn child_bytecode_method_overrides_parent_native_method() {
+        let mut child_method = Chunk::new("test.rco");
+        child_method.push(Op::PushString("user".to_string()), span());
+        child_method.push(Op::Return, span());
+        let mut vm = Vm::default();
+        vm.define_class("Record", "Object").expect("base class begins");
+        vm.add_native_method("kind", |_| Ok(Value::String("record".to_string())))
+            .expect("base method added");
+        vm.end_class();
+        vm.define_class("User", "Record").expect("subclass begins");
+        vm.add_bytecode_method("kind", child_method, None)
+            .expect("override added");
+        vm.end_class();
+        let user = vm.new_instance("User").expect("user instance created");
+
+        assert_eq!(
+            vm.call_method_value(user, "kind").expect("override runs"),
+            Value::String("user".to_string())
+        );
+    }
+
+    #[test]
+    fn class_values_inherit_native_methods_with_the_child_receiver() {
+        let mut vm = Vm::default();
+        vm.define_class("Record", "Object").expect("base class begins");
+        vm.add_native_method("className", |arguments| {
+            Ok(arguments
+                .last()
+                .cloned()
+                .expect("native method receives class receiver"))
+        })
+        .expect("base class method added");
+        vm.end_class();
+        vm.define_class("User", "Record").expect("subclass begins");
+        vm.end_class();
+
+        assert_eq!(
+            vm.call_method_value(Value::Class("User".to_string()), "className")
+                .expect("inherited class method runs"),
+            Value::Class("User".to_string())
+        );
+    }
+
+    #[test]
+    fn inheritance_cycles_fail_loudly() {
+        let mut vm = Vm::default();
+        vm.define_class("First", "Second").expect("first class begins");
+        vm.end_class();
+        vm.define_class("Second", "First").expect("second class begins");
+        vm.end_class();
+
+        assert_eq!(
+            vm.new_instance("First"),
+            Err(VmError::InheritanceCycle("First".to_string()))
+        );
     }
 
     #[test]

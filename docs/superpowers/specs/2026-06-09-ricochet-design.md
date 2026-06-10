@@ -227,6 +227,12 @@ User open-class
 end
 ```
 
+Subclass instances include fields declared by their ancestors. Method lookup
+walks from the concrete class toward its ancestors, so the nearest declaration
+wins even when an override changes between bytecode and a native method.
+Class-level native methods are inherited as well, while retaining the concrete
+child class as their receiver. Inheritance cycles are VM faults.
+
 Method replacement is allowed without warnings, but the VM records replacement metadata for debugging and hot reload traces.
 
 Method calls use an explicit dot form to avoid ambiguity with global words:
