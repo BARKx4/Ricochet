@@ -26,6 +26,12 @@ pub enum ActiveRecordError {
         class_name: String,
         field: String,
     },
+    UnknownModel {
+        class_name: String,
+    },
+    MissingTable {
+        class_name: String,
+    },
     MissingField {
         class_name: String,
         field: String,
@@ -53,6 +59,12 @@ impl fmt::Display for ActiveRecordError {
             ActiveRecordError::UnknownField { class_name, field } => {
                 write!(f, "unknown field {field:?} on model {class_name}")
             }
+            ActiveRecordError::UnknownModel { class_name } => {
+                write!(f, "unknown Ricochet model class {class_name}")
+            }
+            ActiveRecordError::MissingTable { class_name } => {
+                write!(f, "Ricochet model class {class_name} has no table declaration")
+            }
             ActiveRecordError::MissingField { class_name, field } => {
                 write!(f, "missing field {field:?} for model {class_name}")
             }
@@ -76,6 +88,24 @@ impl fmt::Display for ActiveRecordError {
 impl std::error::Error for ActiveRecordError {}
 
 impl ModelMapping {
+    pub fn from_vm(
+        vm: &ricochet_vm::Vm,
+        class_name: &str,
+    ) -> Result<Self, ActiveRecordError> {
+        let fields = vm
+            .class_fields(class_name)
+            .ok_or_else(|| ActiveRecordError::UnknownModel {
+                class_name: class_name.to_string(),
+            })?;
+        let table_name =
+            vm.class_table(class_name)
+                .ok_or_else(|| ActiveRecordError::MissingTable {
+                    class_name: class_name.to_string(),
+                })?;
+
+        Self::try_new(class_name, table_name, fields.iter().cloned())
+    }
+
     pub fn try_new(
         class_name: impl Into<String>,
         table_name: impl Into<String>,
@@ -699,5 +729,27 @@ mod tests {
 
         assert!(matches!(null, tokio_postgres::types::IsNull::Yes));
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn model_mapping_comes_from_loaded_ricochet_model_class() {
+        let chunk = ricochet_compiler::compile_source(
+            "app/Models/User.rco",
+            "User Model subclass\n  users table\n  id field\n  email field\nend\n",
+        )
+        .expect("model compiles");
+        let mut vm = ricochet_vm::Vm::default();
+        vm.run_chunk(&chunk).expect("model loads");
+
+        let mapping = ModelMapping::from_vm(&vm, "User").expect("mapping should derive");
+
+        assert_eq!(
+            mapping,
+            ModelMapping {
+                class_name: "User".to_string(),
+                table_name: "users".to_string(),
+                fields: vec!["id".to_string(), "email".to_string()],
+            }
+        );
     }
 }

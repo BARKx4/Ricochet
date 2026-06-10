@@ -2,10 +2,16 @@ use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
 };
-use ricochet_web::{ActionResult, ControllerRegistry, PostgresDatabase, RequestContext};
+use ricochet_vm::Value;
+use ricochet_web::{
+    ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping,
+    PostgresDatabase, RequestContext,
+};
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tower::ServiceExt;
@@ -48,6 +54,137 @@ async fn active_record_pings_live_postgres_when_database_url_is_set() {
         .ping()
         .await
         .expect("PostgreSQL select 1 should succeed");
+}
+
+struct FixtureDatabase;
+
+impl DatabaseBackend for FixtureDatabase {
+    fn find(
+        &self,
+        _mapping: &ModelMapping,
+        _id: &Value,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        Ok(None)
+    }
+
+    fn all(&self, _mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        Ok(vec![Value::Map(BTreeMap::from([
+            ("id".to_string(), Value::Number(1)),
+            (
+                "email".to_string(),
+                Value::String("ada@example.com".to_string()),
+            ),
+        ]))])
+    }
+
+    fn where_eq(
+        &self,
+        _mapping: &ModelMapping,
+        _field: &str,
+        _value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        Ok(Vec::new())
+    }
+
+    fn insert(
+        &self,
+        _mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        Ok(Value::Map(attributes.clone()))
+    }
+
+    fn update_by_id(
+        &self,
+        _mapping: &ModelMapping,
+        _id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        Ok(Value::Map(attributes.clone()))
+    }
+}
+
+#[tokio::test]
+async fn serves_database_capability_results_from_ricochet_controller() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Models"))
+        .expect("model directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "database_capability"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/users" UserController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Models/User.rco"),
+        r#"
+User Model subclass
+  users table
+  id field
+  email field
+end
+"#,
+    )
+    .expect("model should be written");
+    fs::write(
+        project_root.join("app/Controllers/UserController.rco"),
+        r#"
+UserController Controller subclass
+  index method
+    "User" ctx get .db get .all
+    dup ok? if
+      value json
+    else
+      error .message get text
+    end
+  end
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir_with_database(
+        &project_root,
+        Arc::new(FixtureDatabase),
+    )
+    .expect("build app with database capability");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/users")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE),
+        Some(&header::HeaderValue::from_static("application/json"))
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(body.contains("ada@example.com"));
 }
 
 #[test]

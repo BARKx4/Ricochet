@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use ricochet_compiler::compile_source;
@@ -21,13 +22,23 @@ pub enum ActionResult {
 }
 
 type Action = Box<dyn Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync>;
+type VmSetup =
+    Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
 
 #[derive(Default)]
 pub struct ControllerRegistry {
     actions: BTreeMap<(String, String), Action>,
+    vm_setup: Option<VmSetup>,
 }
 
 impl ControllerRegistry {
+    pub fn set_vm_setup<F>(&mut self, setup: F)
+    where
+        F: Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync + 'static,
+    {
+        self.vm_setup = Some(Arc::new(setup));
+    }
+
     pub fn register_static<F>(&mut self, controller: &str, action: &str, f: F)
     where
         F: Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync + 'static,
@@ -49,13 +60,20 @@ impl ControllerRegistry {
             .with_context(|| format!("failed to compile controller {controller} from {file}"))?;
         let controller_name = controller.to_string();
         let action_name = action.to_string();
+        let vm_setup = self.vm_setup.clone();
 
         self.register_static(controller, action, move |ctx| {
             let mut vm = Vm::default();
+            let capabilities = match &vm_setup {
+                Some(setup) => setup(&mut vm)?,
+                None => BTreeMap::new(),
+            };
             vm.run_chunk(&chunk)
                 .with_context(|| format!("failed to load controller {controller_name}"))?;
-            vm.set_variable("ctx", context_value(ctx));
-            let arg_values = controller_arg_values(&vm, &controller_name, &action_name, ctx);
+            let context = context_value(ctx, &capabilities);
+            vm.set_variable("ctx", context.clone());
+            let arg_values =
+                controller_arg_values(&vm, &controller_name, &action_name, ctx, &context);
 
             let instance = vm
                 .new_instance(&controller_name)
@@ -86,7 +104,7 @@ impl ControllerRegistry {
     }
 }
 
-fn context_value(ctx: &RequestContext) -> Value {
+fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -> Value {
     let mut context = BTreeMap::new();
     let params = ctx
         .params
@@ -106,6 +124,7 @@ fn context_value(ctx: &RequestContext) -> Value {
     context.insert("params".to_string(), Value::Map(params));
     context.insert("query".to_string(), Value::Map(query));
     context.insert("form".to_string(), Value::Map(form));
+    context.extend(capabilities.clone());
     Value::Map(context)
 }
 
@@ -114,6 +133,7 @@ fn controller_arg_values(
     controller: &str,
     action: &str,
     ctx: &RequestContext,
+    context: &Value,
 ) -> Vec<Value> {
     let Some(args) = vm.method_args(controller, action) else {
         return Vec::new();
@@ -121,13 +141,13 @@ fn controller_arg_values(
 
     args.inputs
         .iter()
-        .map(|name| controller_arg_value(name, ctx))
+        .map(|name| controller_arg_value(name, ctx, context))
         .collect()
 }
 
-fn controller_arg_value(name: &str, ctx: &RequestContext) -> Value {
+fn controller_arg_value(name: &str, ctx: &RequestContext, context: &Value) -> Value {
     if name == "ctx" {
-        return context_value(ctx);
+        return context.clone();
     }
 
     if let Some(value) = ctx.params.get(name) {
@@ -255,5 +275,43 @@ mod tests {
             .expect_err("unknown action should fail");
 
         assert!(err.to_string().contains("unknown action HomeController.missing"));
+    }
+
+    #[test]
+    fn ricochet_controller_receives_setup_capabilities_in_context() {
+        let mut controllers = ControllerRegistry::default();
+        controllers.set_vm_setup(|vm| {
+            vm.define_class("GreetingCapability", "Capability")?;
+            vm.add_native_method("hello", |_| {
+                Ok(Value::String("hello from capability".to_string()))
+            })?;
+            vm.end_class();
+            let capability = vm.new_instance("GreetingCapability")?;
+            Ok(BTreeMap::from([("greeter".to_string(), capability)]))
+        });
+        controllers
+            .register_ricochet_source(
+                "HomeController",
+                "index",
+                "HomeController.rco",
+                r#"
+HomeController Controller subclass
+  index method
+    ctx get .greeter get .hello text
+  end
+end
+"#,
+            )
+            .expect("controller registers");
+
+        let mut ctx = RequestContext::default();
+        let result = controllers
+            .call("HomeController", "index", &mut ctx)
+            .expect("controller dispatches");
+
+        assert_eq!(
+            result,
+            ActionResult::Text("hello from capability".to_string())
+        );
     }
 }

@@ -11,8 +11,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use ricochet_bytecode::Chunk;
+use ricochet_vm::{Value, Vm};
 
+use crate::active_record::{ModelMapping, PostgresDatabase};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
+use crate::database_capability::{install_database_capability, DatabaseBackend};
 use crate::manifest::Manifest;
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
@@ -36,6 +40,8 @@ enum RenderedAction {
     Json(String),
 }
 
+type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
+
 pub fn build_test_app() -> Result<Router> {
     let fixture_root =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
@@ -44,19 +50,27 @@ pub fn build_test_app() -> Result<Router> {
 
 pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
     let project_root = project_root.as_ref();
-    let manifest_path = project_root.join("ricochet.toml");
-    let manifest_source = fs::read_to_string(&manifest_path)
-        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let manifest: Manifest = toml::from_str(&manifest_source)
-        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    build_app_from_dir_internal(project_root, None)
+}
 
+pub fn build_app_from_dir_with_database(
+    project_root: impl AsRef<Path>,
+    backend: Arc<dyn DatabaseBackend>,
+) -> Result<Router> {
+    let project_root = project_root.as_ref();
+    let vm_setup = database_vm_setup(project_root, backend)?;
+    build_app_from_dir_internal(project_root, Some(vm_setup))
+}
+
+fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
+    let manifest = load_manifest(project_root)?;
     let routes_path = project_root.join(&manifest.web.routes);
     let routes_source = fs::read_to_string(&routes_path)
         .with_context(|| format!("failed to read {}", routes_path.display()))?;
     let routes = parse_routes(&routes_source)
         .with_context(|| format!("failed to parse {}", routes_path.display()))?;
 
-    let controllers = build_controller_registry(project_root, &routes)?;
+    let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
     let runtime = Arc::new(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
@@ -133,8 +147,23 @@ pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
     Ok(app.with_state(state))
 }
 
-fn build_controller_registry(project_root: &Path, routes: &[Route]) -> Result<ControllerRegistry> {
+fn load_manifest(project_root: &Path) -> Result<Manifest> {
+    let manifest_path = project_root.join("ricochet.toml");
+    let manifest_source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    toml::from_str(&manifest_source)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))
+}
+
+fn build_controller_registry(
+    project_root: &Path,
+    routes: &[Route],
+    vm_setup: Option<VmSetup>,
+) -> Result<ControllerRegistry> {
     let mut registry = ControllerRegistry::default();
+    if let Some(setup) = vm_setup {
+        registry.set_vm_setup(move |vm| setup(vm));
+    }
     let mut registered = BTreeSet::new();
 
     for route in routes {
@@ -159,6 +188,62 @@ fn build_controller_registry(project_root: &Path, routes: &[Route]) -> Result<Co
     }
 
     Ok(registry)
+}
+
+fn database_vm_setup(
+    project_root: &Path,
+    backend: Arc<dyn DatabaseBackend>,
+) -> Result<VmSetup> {
+    let (model_chunks, mappings) = load_model_runtime(project_root)?;
+    let model_chunks = Arc::new(model_chunks);
+
+    Ok(Arc::new(move |vm| {
+        for chunk in model_chunks.iter() {
+            vm.run_chunk(chunk)?;
+        }
+        let database =
+            install_database_capability(vm, backend.clone(), mappings.clone())?;
+        Ok(BTreeMap::from([("db".to_string(), database)]))
+    }))
+}
+
+fn load_model_runtime(
+    project_root: &Path,
+) -> Result<(Vec<Chunk>, BTreeMap<String, ModelMapping>)> {
+    let models_path = project_root.join("app").join("Models");
+    if !models_path.exists() {
+        return Ok((Vec::new(), BTreeMap::new()));
+    }
+
+    let mut paths = fs::read_dir(&models_path)
+        .with_context(|| format!("failed to read {}", models_path.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("rco"));
+    paths.sort();
+
+    let mut vm = Vm::default();
+    let mut chunks = Vec::new();
+    let mut mappings = BTreeMap::new();
+    for path in paths {
+        let class_name = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .with_context(|| format!("model filename must be valid Unicode: {}", path.display()))?;
+        let source = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let file = path.to_string_lossy();
+        let chunk = ricochet_compiler::compile_source(&file, &source)
+            .with_context(|| format!("failed to compile model {}", path.display()))?;
+        vm.run_chunk(&chunk)
+            .with_context(|| format!("failed to load model {}", path.display()))?;
+        let mapping = ModelMapping::from_vm(&vm, class_name)
+            .with_context(|| format!("failed to map model {}", path.display()))?;
+        mappings.insert(class_name.to_string(), mapping);
+        chunks.push(chunk);
+    }
+
+    Ok((chunks, mappings))
 }
 
 async fn render_route(
@@ -230,7 +315,19 @@ fn render_view(runtime: &AppRuntime, view: &str, ctx: &RequestContext) -> Result
 }
 
 pub async fn serve_current_dir(debug: bool, watch: bool) -> Result<()> {
-    let app = build_app_from_dir(".")?;
+    let project_root = Path::new(".");
+    let manifest = load_manifest(project_root)?;
+    let app = match manifest.database.default {
+        Some(database) => {
+            if database.adapter != "postgres" {
+                bail!("unsupported database adapter {}", database.adapter);
+            }
+            let url = database.resolved_url()?;
+            let backend = PostgresDatabase::connect(&url).await?;
+            build_app_from_dir_with_database(project_root, Arc::new(backend))?
+        }
+        None => build_app_from_dir(project_root)?,
+    };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 
     println!("Ricochet web server listening on http://127.0.0.1:3000 debug={debug} watch={watch}");

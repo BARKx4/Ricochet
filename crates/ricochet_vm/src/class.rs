@@ -7,7 +7,29 @@ use ricochet_bytecode::{ArgsSpec, Chunk};
 use crate::value::Value;
 use crate::vm::VmError;
 
-pub type NativeMethod = Rc<dyn Fn(Vec<Value>) -> Result<Value, VmError>>;
+type NativeMethodFunction = Rc<dyn Fn(Vec<Value>) -> Result<Value, VmError>>;
+
+#[derive(Clone)]
+pub struct NativeMethod {
+    pub input_count: usize,
+    function: NativeMethodFunction,
+}
+
+impl NativeMethod {
+    pub fn new<F>(input_count: usize, function: F) -> Self
+    where
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+    {
+        Self {
+            input_count,
+            function: Rc::new(function),
+        }
+    }
+
+    pub fn call(&self, arguments: Vec<Value>) -> Result<Value, VmError> {
+        (self.function)(arguments)
+    }
+}
 
 #[derive(Clone)]
 pub struct BytecodeCallable {
@@ -25,6 +47,7 @@ impl BytecodeCallable {
 pub struct Class {
     pub name: String,
     pub superclass: String,
+    pub table_name: Option<String>,
     pub fields: Vec<String>,
     pub native_methods: BTreeMap<String, NativeMethod>,
     pub bytecode_methods: BTreeMap<String, BytecodeCallable>,
@@ -36,6 +59,7 @@ impl Class {
         Self {
             name: name.into(),
             superclass: superclass.into(),
+            table_name: None,
             fields: Vec::new(),
             native_methods: BTreeMap::new(),
             bytecode_methods: BTreeMap::new(),
@@ -52,6 +76,11 @@ impl Class {
         self.fields.push(name);
         self.revision += 1;
         true
+    }
+
+    pub fn set_table(&mut self, name: impl Into<String>) {
+        self.table_name = Some(name.into());
+        self.revision += 1;
     }
 
     pub fn add_native_method(&mut self, name: impl Into<String>, method: NativeMethod) {
@@ -80,6 +109,7 @@ impl fmt::Debug for Class {
         f.debug_struct("Class")
             .field("name", &self.name)
             .field("superclass", &self.superclass)
+            .field("table_name", &self.table_name)
             .field("fields", &self.fields)
             .field("native_method_count", &self.native_methods.len())
             .field("bytecode_method_count", &self.bytecode_methods.len())

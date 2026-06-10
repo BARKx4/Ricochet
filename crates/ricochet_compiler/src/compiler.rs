@@ -104,6 +104,15 @@ impl Compiler {
             Item::Method(method) => self.compile_method_decl(method),
             Item::Expr {
                 expr: Expr::Sequence(exprs),
+                ..
+            } if table_declaration(exprs).is_some() => {
+                let name = table_declaration(exprs).expect("table declaration checked");
+                self.push_at(Op::PushString(name), exprs[0].span);
+                self.push_at(Op::CallWord("table".to_string()), exprs[1].span);
+                Ok(())
+            }
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
                 span,
             } if is_field_declaration(exprs) => {
                 let name = declaration_name(&exprs[0]).expect("field declaration checked");
@@ -288,6 +297,15 @@ fn is_field_declaration(exprs: &[SpannedExpr]) -> bool {
         && matches!(&exprs[1].expr, Expr::Symbol(word) if word == "field")
 }
 
+fn table_declaration(exprs: &[SpannedExpr]) -> Option<String> {
+    match exprs {
+        [name, operator] if matches!(&operator.expr, Expr::Symbol(word) if word == "table") => {
+            declaration_name(name)
+        }
+        _ => None,
+    }
+}
+
 fn block_method_declaration(
     exprs: &[SpannedExpr],
 ) -> Option<(Option<&ArgsDecl>, String, &[SpannedExpr])> {
@@ -397,6 +415,7 @@ mod tests {
     fn compiles_class_fields_and_block_method_mutations() {
         let source = r#"
           User Model subclass
+            users table
             email field
             "displayName" [ self .email get ] !method
           end
@@ -411,6 +430,8 @@ mod tests {
                     name: "User".to_string(),
                     superclass: "Model".to_string(),
                 },
+                Op::PushString("users".to_string()),
+                Op::CallWord("table".to_string()),
                 Op::AddField("email".to_string()),
                 Op::AddMethod {
                     name: "displayName".to_string(),

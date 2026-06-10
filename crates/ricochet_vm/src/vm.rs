@@ -8,6 +8,7 @@ use thiserror::Error;
 use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
+use crate::result::RicochetResult;
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -44,6 +45,12 @@ pub enum VmError {
     UnknownVariable(String),
     #[error("result values require ok? before they can be used as conditions")]
     UncheckedResultCondition,
+    #[error("cannot use {word} on {actual} result; expected {expected} result")]
+    ResultUnwrap {
+        word: String,
+        expected: String,
+        actual: String,
+    },
     #[error("invalid jump target {target}: chunk has {available} instructions")]
     InvalidJump { target: usize, available: usize },
     #[error("assert-equals failed: expected {expected}, got {actual}")]
@@ -123,6 +130,18 @@ impl Vm {
             .get(class_name)
             .and_then(|class| class.bytecode_methods.get(method_name))
             .and_then(|method| method.args.as_ref())
+    }
+
+    pub fn class_table(&self, class_name: &str) -> Option<&str> {
+        self.classes
+            .get(class_name)
+            .and_then(|class| class.table_name.as_deref())
+    }
+
+    pub fn class_fields(&self, class_name: &str) -> Option<&[String]> {
+        self.classes
+            .get(class_name)
+            .map(|class| class.fields.as_slice())
     }
 
     pub fn test_methods(&self) -> Vec<(String, String)> {
@@ -213,7 +232,19 @@ impl Vm {
     where
         F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
     {
-        let method: NativeMethod = Rc::new(method);
+        self.add_native_method_with_arity(name, 0, method)
+    }
+
+    pub fn add_native_method_with_arity<F>(
+        &mut self,
+        name: impl Into<String>,
+        input_count: usize,
+        method: F,
+    ) -> Result<(), VmError>
+    where
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+    {
+        let method = NativeMethod::new(input_count, method);
         self.current_class_mut("add_native_method")?
             .add_native_method(name, method);
         Ok(())
@@ -297,7 +328,8 @@ impl Vm {
                     .cloned();
 
                 if let Some(method) = native_method {
-                    return method(vec![receiver]);
+                    let frame = format!("{class_name}.{method_name}");
+                    return self.call_native_method(receiver, &frame, &method);
                 }
 
                 let bytecode_method = self
@@ -576,6 +608,7 @@ impl Vm {
             "get" => self.call_get(word),
             "set" => self.call_set(word),
             "var" => self.call_var(word),
+            "table" => self.call_table(word),
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
@@ -588,6 +621,8 @@ impl Vm {
             "view" => self.call_view(word),
             "text" => self.call_text(word),
             "json" => self.call_json(word),
+            "value" => self.call_result_value(word),
+            "error" => self.call_result_error(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
@@ -627,6 +662,89 @@ impl Vm {
         let result = self.call_bytecode_function(name, &function.chunk, input_count)?;
         self.stack.push(result);
         Ok(())
+    }
+
+    fn call_result_value(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let result = self.pop(word)?;
+        match result {
+            Value::Result(RicochetResult::Ok(value)) => {
+                self.stack.push(*value);
+                Ok(())
+            }
+            Value::Result(RicochetResult::Err(_)) => {
+                self.stack = stack_before;
+                Err(VmError::ResultUnwrap {
+                    word: word.to_string(),
+                    expected: "ok".to_string(),
+                    actual: "error".to_string(),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "result".to_string(),
+                    actual: value_kind(&value).to_string(),
+                })
+            }
+        }
+    }
+
+    fn call_result_error(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let result = self.pop(word)?;
+        match result {
+            Value::Result(RicochetResult::Err(error)) => {
+                self.stack.push(Value::Map(BTreeMap::from([
+                    ("kind".to_string(), Value::String(error.kind)),
+                    ("message".to_string(), Value::String(error.message)),
+                ])));
+                Ok(())
+            }
+            Value::Result(RicochetResult::Ok(_)) => {
+                self.stack = stack_before;
+                Err(VmError::ResultUnwrap {
+                    word: word.to_string(),
+                    expected: "error".to_string(),
+                    actual: "ok".to_string(),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "result".to_string(),
+                    actual: value_kind(&value).to_string(),
+                })
+            }
+        }
+    }
+
+    fn call_table(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let table_name = match self.pop(word)? {
+            Value::String(table_name) => table_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "table name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.current_class_mut(word) {
+            Ok(class) => {
+                class.set_table(table_name);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
     }
 
     fn call_bytecode_function(
@@ -807,6 +925,27 @@ impl Vm {
             }),
             Err(error) => {
                 self.stack.truncate(base);
+                Err(error)
+            }
+        }
+    }
+
+    fn call_native_method(
+        &mut self,
+        receiver: Value,
+        frame: &str,
+        method: &NativeMethod,
+    ) -> Result<Value, VmError> {
+        self.ensure_stack(frame, method.input_count)?;
+        let base = self.stack.len() - method.input_count;
+        let stack_arguments = self.stack.split_off(base);
+        let mut arguments = stack_arguments.clone();
+        arguments.push(receiver);
+
+        match method.call(arguments) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.stack.extend(stack_arguments);
                 Err(error)
             }
         }
@@ -1676,6 +1815,57 @@ mod tests {
     }
 
     #[test]
+    fn value_word_unwraps_successful_result() {
+        let mut vm = Vm::default();
+        vm.stack
+            .push(Value::result_ok(Value::String("saved".to_string())));
+
+        vm.call_word("value").expect("value unwraps ok result");
+
+        assert_eq!(vm.stack(), &[Value::String("saved".to_string())]);
+    }
+
+    #[test]
+    fn error_word_unwraps_failed_result_as_map() {
+        let mut vm = Vm::default();
+        vm.stack
+            .push(Value::result_err("DatabaseError", "connection failed"));
+
+        vm.call_word("error").expect("error unwraps failed result");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Map(BTreeMap::from([
+                (
+                    "kind".to_string(),
+                    Value::String("DatabaseError".to_string()),
+                ),
+                (
+                    "message".to_string(),
+                    Value::String("connection failed".to_string()),
+                ),
+            ]))]
+        );
+    }
+
+    #[test]
+    fn value_word_preserves_failed_result_when_unwrap_is_invalid() {
+        let result = Value::result_err("DatabaseError", "connection failed");
+        let mut vm = Vm::default();
+        vm.stack.push(result.clone());
+
+        assert_eq!(
+            vm.call_word("value"),
+            Err(VmError::ResultUnwrap {
+                word: "value".to_string(),
+                expected: "ok".to_string(),
+                actual: "error".to_string(),
+            })
+        );
+        assert_eq!(vm.stack(), &[result]);
+    }
+
+    #[test]
     fn pop_reports_stack_underflow() {
         let mut vm = Vm::default();
 
@@ -2036,6 +2226,58 @@ mod tests {
     }
 
     #[test]
+    fn native_method_with_arity_consumes_stack_arguments_in_order() {
+        let mut vm = Vm::default();
+        vm.define_class("Calculator", "Object")
+            .expect("class begins");
+        vm.add_native_method_with_arity("sum", 2, |args| {
+            assert_eq!(args.len(), 3);
+            assert_eq!(args[0], Value::Number(2));
+            assert_eq!(args[1], Value::Number(3));
+            assert!(matches!(&args[2], Value::Instance(instance) if instance.class_name == "Calculator"));
+            Ok(Value::Number(5))
+        })
+        .expect("native method added");
+        vm.end_class();
+
+        vm.stack.push(Value::Number(2));
+        vm.stack.push(Value::Number(3));
+        let calculator = vm
+            .new_instance("Calculator")
+            .expect("calculator instance");
+
+        let result = vm
+            .call_method_value(calculator, "sum")
+            .expect("native method succeeds");
+
+        assert_eq!(result, Value::Number(5));
+        assert!(vm.stack().is_empty());
+    }
+
+    #[test]
+    fn native_method_with_arity_preserves_stack_on_failure() {
+        let mut vm = Vm::default();
+        vm.define_class("Calculator", "Object")
+            .expect("class begins");
+        vm.add_native_method_with_arity("fail", 1, |_| {
+            Err(VmError::UnknownWord("native failure".to_string()))
+        })
+        .expect("native method added");
+        vm.end_class();
+
+        vm.stack.push(Value::Number(7));
+        let calculator = vm
+            .new_instance("Calculator")
+            .expect("calculator instance");
+
+        assert_eq!(
+            vm.call_method_value(calculator, "fail"),
+            Err(VmError::UnknownWord("native failure".to_string()))
+        );
+        assert_eq!(vm.stack(), &[Value::Number(7)]);
+    }
+
+    #[test]
     fn class_field_get_and_set_are_postfix_words_api() {
         let mut vm = Vm::default();
         vm.define_class("Article", "").expect("class opens");
@@ -2060,6 +2302,18 @@ mod tests {
             vm.get_field(&updated, "missing").expect("missing field is nil"),
             Value::Nil
         );
+    }
+
+    #[test]
+    fn table_word_records_model_table_on_current_class() {
+        let mut vm = Vm::default();
+        vm.define_class("User", "Model").expect("class begins");
+        vm.stack.push(Value::String("users".to_string()));
+
+        vm.call_word("table").expect("table word succeeds");
+        vm.end_class();
+
+        assert_eq!(vm.class_table("User"), Some("users"));
     }
 
     #[test]

@@ -5,6 +5,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }
 ricochet_syntax = { path = "../ricochet_syntax" }
 ricochet_vm = { path = "../ricochet_vm" }
