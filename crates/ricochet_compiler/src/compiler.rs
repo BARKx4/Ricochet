@@ -111,18 +111,16 @@ impl Compiler {
                     .push(Op::AddField(name), self.source_span(fallback_span));
                 Ok(())
             }
-            Item::Expr(Expr::Sequence(exprs)) if is_block_method_declaration(exprs) => {
-                let name = declaration_name(&exprs[0]).expect("method declaration checked");
-                let Expr::Block(body) = &exprs[1] else {
-                    unreachable!("method declaration checked");
-                };
+            Item::Expr(Expr::Sequence(exprs)) if block_method_declaration(exprs).is_some() => {
+                let (args, name, body) =
+                    block_method_declaration(exprs).expect("method declaration checked");
                 let block = self.compile_block_chunk(body, fallback_span)?;
                 let block = self.chunk.push_block(block);
                 self.chunk.push(
                     Op::AddMethod {
                         name,
                         block,
-                        args: None,
+                        args: args.map(args_spec),
                     },
                     self.source_span(fallback_span),
                 );
@@ -267,11 +265,16 @@ fn is_field_declaration(exprs: &[Expr]) -> bool {
         && matches!(&exprs[1], Expr::Symbol(word) if word == "field")
 }
 
-fn is_block_method_declaration(exprs: &[Expr]) -> bool {
-    exprs.len() == 3
-        && declaration_name(&exprs[0]).is_some()
-        && matches!(&exprs[1], Expr::Block(_))
-        && matches!(&exprs[2], Expr::BangWord(word) if word == "!method")
+fn block_method_declaration(exprs: &[Expr]) -> Option<(Option<&ArgsDecl>, String, &[Expr])> {
+    match exprs {
+        [name, Expr::Block(body), Expr::BangWord(word)] if word == "!method" => {
+            Some((None, declaration_name(name)?, body.as_slice()))
+        }
+        [Expr::Args(args), name, Expr::Block(body), Expr::BangWord(word)] if word == "!method" => {
+            Some((Some(args), declaration_name(name)?, body.as_slice()))
+        }
+        _ => None,
+    }
 }
 
 fn declaration_name(expr: &Expr) -> Option<String> {
@@ -406,6 +409,43 @@ mod tests {
                     args: Some(ArgsSpec {
                         inputs: vec!["amount".to_string(), "target".to_string()],
                         outputs: vec!["Result".to_string()],
+                    }),
+                },
+                Op::EndClass,
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_block_method_declarations_with_args_metadata() {
+        let source = r#"
+          HomeController Controller subclass
+            ( id ctx ) "show" [
+              nil title var
+              ctx var
+              id var
+              id get title set
+              ctx get
+              "home/show" swap view
+            ] !method
+          end
+        "#;
+
+        let chunk = compile_source("controllers/home.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "HomeController".to_string(),
+                    superclass: "Controller".to_string(),
+                },
+                Op::AddMethod {
+                    name: "show".to_string(),
+                    block: 0,
+                    args: Some(ArgsSpec {
+                        inputs: vec!["id".to_string(), "ctx".to_string()],
+                        outputs: Vec::new(),
                     }),
                 },
                 Op::EndClass,

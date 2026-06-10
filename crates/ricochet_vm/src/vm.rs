@@ -288,7 +288,12 @@ impl Vm {
 
                 if let Some(method) = bytecode_method {
                     let frame = format!("{class_name}.{method_name}");
-                    return self.call_bytecode_method(receiver, &frame, &method.chunk);
+                    let input_count = method
+                        .args
+                        .as_ref()
+                        .map(|args| args.inputs.len())
+                        .unwrap_or(0);
+                    return self.call_bytecode_method(receiver, &frame, &method.chunk, input_count);
                 }
 
                 Err(VmError::UnknownMethod {
@@ -301,6 +306,24 @@ impl Vm {
                 expected: "instance".to_string(),
                 actual: value_kind(&value).to_string(),
             }),
+        }
+    }
+
+    pub fn call_method_value_with_args(
+        &mut self,
+        receiver: Value,
+        method_name: &str,
+        args: Vec<Value>,
+    ) -> Result<Value, VmError> {
+        let stack_before = self.stack.clone();
+        self.stack.extend(args);
+
+        match self.call_method_value(receiver, method_name) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
         }
     }
 
@@ -502,13 +525,24 @@ impl Vm {
             .get(name)
             .cloned()
             .ok_or_else(|| VmError::UnknownWord(name.to_string()))?;
-        let result = self.call_bytecode_function(name, &function.chunk)?;
+        let input_count = function
+            .args
+            .as_ref()
+            .map(|args| args.inputs.len())
+            .unwrap_or(0);
+        let result = self.call_bytecode_function(name, &function.chunk, input_count)?;
         self.stack.push(result);
         Ok(())
     }
 
-    fn call_bytecode_function(&mut self, name: &str, function: &Chunk) -> Result<Value, VmError> {
-        let base = self.stack.len();
+    fn call_bytecode_function(
+        &mut self,
+        name: &str,
+        function: &Chunk,
+        input_count: usize,
+    ) -> Result<Value, VmError> {
+        self.ensure_stack(name, input_count)?;
+        let base = self.stack.len() - input_count;
         let run_result = self.run_chunk_with_frame(function, name, true);
 
         match run_result {
@@ -652,8 +686,10 @@ impl Vm {
         receiver: Value,
         frame: &str,
         method: &Chunk,
+        input_count: usize,
     ) -> Result<Value, VmError> {
-        let base = self.stack.len();
+        self.ensure_stack(frame, input_count)?;
+        let base = self.stack.len() - input_count;
         self.self_stack.push(receiver);
 
         let run_result = self.run_chunk_with_frame(method, frame, true);
@@ -823,7 +859,8 @@ impl Vm {
                 });
             }
         };
-        self.variables.entry(name).or_insert(Value::Nil);
+        let value = self.stack.pop().unwrap_or(Value::Nil);
+        self.variables.entry(name).or_insert(value);
         Ok(())
     }
 
@@ -1974,6 +2011,22 @@ mod tests {
     }
 
     #[test]
+    fn var_word_captures_top_stack_value_when_available() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Ada".to_string()), span());
+        chunk.push(Op::PushString("name".to_string()), span());
+        chunk.push(Op::CallWord("var".to_string()), span());
+        chunk.push(Op::PushString("name".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("var captures stack value");
+
+        assert_eq!(vm.stack(), &[Value::String("Ada".to_string())]);
+        assert_eq!(vm.variable("name"), Some(&Value::String("Ada".to_string())));
+    }
+
+    #[test]
     fn println_word_records_output_and_consumes_value() {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Hello Ricochet".to_string()), span());
@@ -2182,6 +2235,35 @@ mod tests {
     }
 
     #[test]
+    fn declared_arg_function_uses_args_as_call_frame_inputs() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::CallWord("+".to_string()), span());
+        function.push(Op::Return, span());
+
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "sum".to_string(),
+                block,
+                args: Some(ArgsSpec {
+                    inputs: vec!["left".to_string(), "right".to_string()],
+                    outputs: vec!["Number".to_string()],
+                }),
+            },
+            span(),
+        );
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(Op::CallWord("sum".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function call runs");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+    }
+
+    #[test]
     fn run_chunk_preserves_method_args_metadata() {
         let mut chunk = Chunk::new("test.rco");
         let mut method = Chunk::new("test.rco");
@@ -2213,6 +2295,48 @@ mod tests {
         vm.run_chunk(&chunk).expect("class definition loads");
 
         assert_eq!(vm.method_args("HomeController", "index"), Some(&args));
+    }
+
+    #[test]
+    fn declared_arg_method_uses_args_as_call_frame_inputs() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::CallWord("+".to_string()), span());
+        method.push(Op::Return, span());
+
+        let block = chunk.push_block(method);
+        chunk.push(
+            Op::BeginClass {
+                name: "Calculator".to_string(),
+                superclass: "Object".to_string(),
+            },
+            span(),
+        );
+        chunk.push(
+            Op::AddMethod {
+                name: "sum".to_string(),
+                block,
+                args: Some(ArgsSpec {
+                    inputs: vec!["left".to_string(), "right".to_string()],
+                    outputs: vec!["Number".to_string()],
+                }),
+            },
+            span(),
+        );
+        chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("class definition loads");
+        let calculator = vm.new_instance("Calculator").expect("instance is created");
+
+        let mut call_chunk = Chunk::new("test.rco");
+        call_chunk.push(Op::CallMethod("sum".to_string()), span());
+        vm.stack.push(Value::Number(2));
+        vm.stack.push(Value::Number(3));
+        vm.stack.push(calculator);
+        vm.run_chunk(&call_chunk).expect("method call runs");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
     }
 
     #[test]

@@ -52,12 +52,13 @@ impl ControllerRegistry {
             vm.run_chunk(&chunk)
                 .with_context(|| format!("failed to load controller {controller_name}"))?;
             vm.set_variable("ctx", context_value(ctx));
+            let arg_values = controller_arg_values(&vm, &controller_name, &action_name, ctx);
 
             let instance = vm
                 .new_instance(&controller_name)
                 .with_context(|| format!("failed to instantiate controller {controller_name}"))?;
             let result = vm
-                .call_method_value(instance, &action_name)
+                .call_method_value_with_args(instance, &action_name, arg_values)
                 .with_context(|| format!("failed to call {controller_name}.{action_name}"))?;
 
             copy_view_data(&vm, ctx);
@@ -97,6 +98,38 @@ fn context_value(ctx: &RequestContext) -> Value {
     context.insert("params".to_string(), Value::Map(params));
     context.insert("query".to_string(), Value::Map(query));
     Value::Map(context)
+}
+
+fn controller_arg_values(
+    vm: &Vm,
+    controller: &str,
+    action: &str,
+    ctx: &RequestContext,
+) -> Vec<Value> {
+    let Some(args) = vm.method_args(controller, action) else {
+        return Vec::new();
+    };
+
+    args.inputs
+        .iter()
+        .map(|name| controller_arg_value(name, ctx))
+        .collect()
+}
+
+fn controller_arg_value(name: &str, ctx: &RequestContext) -> Value {
+    if name == "ctx" {
+        return context_value(ctx);
+    }
+
+    if let Some(value) = ctx.params.get(name) {
+        return Value::String(value.clone());
+    }
+
+    if let Some(value) = ctx.query.get(name) {
+        return Value::String(value.clone());
+    }
+
+    Value::Nil
 }
 
 fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {

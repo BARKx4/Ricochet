@@ -107,6 +107,37 @@ end
 }
 
 #[test]
+fn ricochet_controller_receives_declared_request_args() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+HomeController Controller subclass
+  ( id ctx ) "show" [
+    nil title var
+    ctx var
+    id var
+    id get title set
+    ctx get
+    "home/show" swap view
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("HomeController", "show", "HomeController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    ctx.params.insert("id".to_string(), "42".to_string());
+
+    let result = controllers
+        .call("HomeController", "show", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::View("home/show".to_string()));
+    assert_eq!(ctx.view_data.get("title"), Some(&"42".to_string()));
+}
+
+#[test]
 fn ricochet_controller_returns_text_response() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
@@ -137,6 +168,32 @@ fn ricochet_controller_reads_query_params() {
 SearchController Controller subclass
   "index" [
     ctx get .query get .q get text
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("SearchController", "index", "SearchController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    ctx.query.insert("q".to_string(), "ricochet".to_string());
+
+    let result = controllers
+        .call("SearchController", "index", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(result, ActionResult::Text("ricochet".to_string()));
+}
+
+#[test]
+fn ricochet_controller_receives_declared_query_args() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+SearchController Controller subclass
+  ( q ) "index" [
+    q var
+    q get text
   ] !method
 end
 "#;
@@ -234,6 +291,79 @@ HomeController Controller subclass
   "show" [
     title var
     ctx get .params get .id get title set
+    ctx get
+    "home/show" swap view
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+    fs::write(project_root.join("app/Views/home/show.html"), "<h1>{ title get }</h1>")
+        .expect("view should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/users/42")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body.trim(), "<h1>42</h1>");
+}
+
+#[tokio::test]
+async fn serves_declared_route_args_to_ricochet_controller() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Views/home"))
+        .expect("view directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "route_arg_dispatch"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/users/:id" HomeController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  ( id ctx ) "show" [
+    nil title var
+    ctx var
+    id var
+    id get title set
     ctx get
     "home/show" swap view
   ] !method
