@@ -3,14 +3,15 @@ name = "ricochet_cli"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+autobins = false
 
 [[bin]]
 name = "rco"
-path = "src/main.rs"
+path = "src/bin/rco.rs"
 
 [[bin]]
 name = "ricochet"
-path = "src/main.rs"
+path = "src/bin/ricochet.rs"
 
 [dependencies]
 ricochet_compiler = { path = "../ricochet_compiler" }

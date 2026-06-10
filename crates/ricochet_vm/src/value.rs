@@ -14,6 +14,7 @@ pub enum Value {
     Array(Vec<Value>),
     Map(BTreeMap<String, Value>),
     Instance(Instance),
+    Member(String),
     Result(RicochetResult),
 }
 
@@ -33,6 +34,7 @@ impl Value {
             Value::Array(v) => !v.is_empty(),
             Value::Map(v) => !v.is_empty(),
             Value::Instance(_) => true,
+            Value::Member(_) => true,
             Value::Result(_) => true,
         }
     }

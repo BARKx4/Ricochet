@@ -71,6 +71,6 @@ mod tests {
 
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
-        build_test_app().expect("server test app should build");
+        let _ = build_test_app().expect("server test app should build");
     }
 }

@@ -1,4 +1,5 @@
-/target/
+target/
+.serena/
 **/*.rs.bk
 *.pdb
 *.profraw

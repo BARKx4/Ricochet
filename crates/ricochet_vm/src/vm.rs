@@ -35,6 +35,10 @@ pub enum VmError {
     UnknownClass(String),
     #[error("unknown method {method} on class {class_name}")]
     UnknownMethod { class_name: String, method: String },
+    #[error("invalid block index {index}: chunk has {available} blocks")]
+    InvalidBlock { index: usize, available: usize },
+    #[error("no current self for {0}")]
+    NoCurrentSelf(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,9 +46,16 @@ pub struct Vm {
     stack: Vec<Value>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
+    self_stack: Vec<Value>,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     breakpoints: BTreeSet<(String, usize)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutionSignal {
+    Continue,
+    Return,
 }
 
 impl Vm {
@@ -110,6 +121,16 @@ impl Vm {
         Ok(())
     }
 
+    pub fn add_bytecode_method(
+        &mut self,
+        name: impl Into<String>,
+        method: Chunk,
+    ) -> Result<(), VmError> {
+        self.current_class_mut("add_bytecode_method")?
+            .add_bytecode_method(name, method);
+        Ok(())
+    }
+
     pub fn new_instance(&self, class_name: &str) -> Result<Value, VmError> {
         let class = self
             .classes
@@ -159,25 +180,43 @@ impl Vm {
     }
 
     pub fn call_method_value(
-        &self,
+        &mut self,
         receiver: Value,
         method_name: &str,
     ) -> Result<Value, VmError> {
         match receiver {
             Value::Instance(instance) => {
                 let class_name = instance.class_name.clone();
-                let class = self
+                let receiver = Value::Instance(instance);
+                let native_method = self
                     .classes
                     .get(&class_name)
-                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?;
-                let method = class.native_methods.get(method_name).ok_or_else(|| {
-                    VmError::UnknownMethod {
+                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
+                    .native_methods
+                    .get(method_name)
+                    .cloned();
+
+                if let Some(method) = native_method {
+                    return method(vec![receiver]);
+                }
+
+                let bytecode_method = self
+                    .classes
+                    .get(&class_name)
+                    .ok_or_else(|| VmError::UnknownClass(class_name.clone()))?
+                    .bytecode_methods
+                    .get(method_name)
+                    .cloned();
+
+                if let Some(method) = bytecode_method {
+                    let frame = format!("{class_name}.{method_name}");
+                    return self.call_bytecode_method(receiver, &frame, &method);
+                }
+
+                Err(VmError::UnknownMethod {
                         class_name: class_name.clone(),
                         method: method_name.to_string(),
-                    }
-                })?;
-
-                method(vec![Value::Instance(instance)])
+                })
             }
             value => Err(VmError::TypeError {
                 word: format!("call_method {method_name}"),
@@ -188,6 +227,15 @@ impl Vm {
     }
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
+        self.run_chunk_with_frame(chunk, "<main>", false).map(|_| ())
+    }
+
+    fn run_chunk_with_frame(
+        &mut self,
+        chunk: &Chunk,
+        frame: &str,
+        allow_return: bool,
+    ) -> Result<ExecutionSignal, VmError> {
         for instruction in &chunk.instructions {
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
             let source = self
@@ -197,13 +245,13 @@ impl Vm {
                 .debug_enabled
                 .then(|| format!("{:?}", &instruction.op));
 
-            let result = self.execute_instruction(&instruction.op);
+            let result = self.execute_instruction(&instruction.op, chunk, allow_return);
 
             if let (Some(stack_before), Some(source), Some(opcode)) =
                 (stack_before, source, opcode)
             {
                 self.debug_events.push(DebugEvent::Instruction {
-                    frame: "<main>".to_string(),
+                    frame: frame.to_string(),
                     source,
                     opcode,
                     stack_before,
@@ -211,46 +259,74 @@ impl Vm {
                 });
             }
 
-            if let Err(error) = result {
-                if self.debug_enabled {
-                    self.debug_events.push(DebugEvent::Fault {
-                        frame: "<main>".to_string(),
-                        message: error.to_string(),
-                        stack: self.stack.clone(),
-                    });
+            match result {
+                Ok(ExecutionSignal::Continue) => {}
+                Ok(ExecutionSignal::Return) => return Ok(ExecutionSignal::Return),
+                Err(error) => {
+                    if self.debug_enabled {
+                        self.debug_events.push(DebugEvent::Fault {
+                            frame: frame.to_string(),
+                            message: error.to_string(),
+                            stack: self.stack.clone(),
+                        });
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
         }
 
-        Ok(())
+        Ok(ExecutionSignal::Continue)
     }
 
-    fn execute_instruction(&mut self, op: &Op) -> Result<(), VmError> {
+    fn execute_instruction(
+        &mut self,
+        op: &Op,
+        chunk: &Chunk,
+        allow_return: bool,
+    ) -> Result<ExecutionSignal, VmError> {
         match op {
             Op::PushNil => self.stack.push(Value::Nil),
             Op::PushBool(value) => self.stack.push(Value::Bool(*value)),
             Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
             Op::PushString(value) => self.stack.push(Value::String(value.clone())),
+            Op::CallMethod(name) => self.call_method_or_member(name)?,
             Op::CallWord(word) => self.call_word(word)?,
             Op::BeginClass { name, superclass } => {
                 self.define_class(name.clone(), superclass.clone())?
             }
             Op::EndClass => self.end_class(),
             Op::AddField(name) => self.add_field(name.clone())?,
-            Op::AddMethod { .. } => {
-                return Err(VmError::UnsupportedOpcode(format!("{op:?}")));
+            Op::AddMethod { name, block } => {
+                let method = chunk
+                    .blocks
+                    .get(*block)
+                    .cloned()
+                    .ok_or(VmError::InvalidBlock {
+                        index: *block,
+                        available: chunk.blocks.len(),
+                    })?;
+                self.add_bytecode_method(name.clone(), method)?;
+            }
+            Op::Return if allow_return => return Ok(ExecutionSignal::Return),
+            Op::Pop => {
+                self.pop("pop")?;
             }
             op => return Err(VmError::UnsupportedOpcode(format!("{op:?}"))),
         }
 
-        Ok(())
+        Ok(ExecutionSignal::Continue)
     }
 
     fn call_word(&mut self, word: &str) -> Result<(), VmError> {
         match word {
             "+" | "add" => self.call_add(word),
             "equals" | "=" => self.call_equals(word),
+            "self" => self.call_self(word),
+            "get" => self.call_get(word),
+            "set" => self.call_set(word),
+            "new" => self.call_new(word),
+            "swap" => self.call_swap(word),
+            "dup" => self.call_dup(word),
             "array" => {
                 self.stack.push(Value::Array(Vec::new()));
                 Ok(())
@@ -259,6 +335,197 @@ impl Vm {
             predicate if predicate.ends_with('?') => self.call_predicate(predicate),
             _ => Err(VmError::UnknownWord(word.to_string())),
         }
+    }
+
+    fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
+        let should_dispatch = match self.stack.last() {
+            Some(Value::Instance(instance)) => {
+                let class = self
+                    .classes
+                    .get(&instance.class_name)
+                    .ok_or_else(|| VmError::UnknownClass(instance.class_name.clone()))?;
+                class.native_methods.contains_key(name) || class.bytecode_methods.contains_key(name)
+            }
+            _ => false,
+        };
+
+        if should_dispatch {
+            let stack_before = self.stack.clone();
+            let receiver = self.pop_unchecked();
+            match self.call_method_value(receiver, name) {
+                Ok(value) => {
+                    self.stack.push(value);
+                    Ok(())
+                }
+                Err(error) => {
+                    self.stack = stack_before;
+                    Err(error)
+                }
+            }
+        } else {
+            self.stack.push(Value::Member(name.to_string()));
+            Ok(())
+        }
+    }
+
+    fn call_bytecode_method(
+        &mut self,
+        receiver: Value,
+        frame: &str,
+        method: &Chunk,
+    ) -> Result<Value, VmError> {
+        let base = self.stack.len();
+        self.self_stack.push(receiver);
+
+        let run_result = self.run_chunk_with_frame(method, frame, true);
+        self.self_stack
+            .pop()
+            .expect("method call pushed self before running");
+
+        match run_result {
+            Ok(ExecutionSignal::Continue | ExecutionSignal::Return) => {
+                let result = if self.stack.len() > base {
+                    self.pop_unchecked()
+                } else {
+                    Value::Nil
+                };
+                self.stack.truncate(base);
+                Ok(result)
+            }
+            Err(error) => {
+                self.stack.truncate(base);
+                Err(error)
+            }
+        }
+    }
+
+    fn call_self(&mut self, word: &str) -> Result<(), VmError> {
+        let value = self
+            .self_stack
+            .last()
+            .cloned()
+            .ok_or_else(|| VmError::NoCurrentSelf(word.to_string()))?;
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn call_get(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let selector = self.pop(word)?;
+        let field = match selector {
+            Value::Member(field) => field,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "member selector".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let receiver = match self.pop(word) {
+            Ok(receiver) => receiver,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        match self.get_field(&receiver, &field) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_set(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let selector = self.pop(word)?;
+        let field = match selector {
+            Value::Member(field) => field,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "member selector".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let receiver = match self.pop(word) {
+            Ok(receiver) => receiver,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let value = match self.pop(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        match self.set_field(receiver, &field, value) {
+            Ok(updated) => {
+                self.stack.push(updated);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_new(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let class_name = match self.pop(word)? {
+            Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.new_instance(&class_name) {
+            Ok(instance) => {
+                self.stack.push(instance);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_swap(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let top = self.stack.len() - 1;
+        self.stack.swap(top, top - 1);
+        Ok(())
+    }
+
+    fn call_dup(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 1)?;
+        let value = self
+            .stack
+            .last()
+            .expect("stack length checked before dup")
+            .clone();
+        self.stack.push(value);
+        Ok(())
     }
 
     fn call_add(&mut self, word: &str) -> Result<(), VmError> {
@@ -408,6 +675,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Array(_) => "array",
         Value::Map(_) => "map",
         Value::Instance(_) => "instance",
+        Value::Member(_) => "member selector",
         Value::Result(_) => "result",
     }
 }
@@ -825,7 +1093,186 @@ mod tests {
     }
 
     #[test]
-    fn class_add_method_opcode_is_explicitly_unsupported() {
+    fn bytecode_method_reads_field_through_self_and_get() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut display_name = Chunk::new("test.rco");
+        display_name.push(Op::CallWord("self".to_string()), span());
+        display_name.push(Op::CallMethod("email".to_string()), span());
+        display_name.push(Op::CallWord("get".to_string()), span());
+        display_name.push(Op::Return, span());
+
+        let display_name_block = chunk.push_block(display_name);
+        chunk.push(
+            Op::BeginClass {
+                name: "User".to_string(),
+                superclass: "Model".to_string(),
+            },
+            span(),
+        );
+        chunk.push(Op::AddField("email".to_string()), span());
+        chunk.push(
+            Op::AddMethod {
+                name: "displayName".to_string(),
+                block: display_name_block,
+            },
+            span(),
+        );
+        chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("class opcodes run");
+
+        let user = vm.new_instance("User").expect("instance is created");
+        let user = vm
+            .set_field(
+                user,
+                "email",
+                Value::String("ada@example.com".to_string()),
+            )
+            .expect("field writes");
+
+        assert_eq!(
+            vm.call_method_value(user, "displayName")
+                .expect("bytecode method is called"),
+            Value::String("ada@example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn call_method_opcode_dispatches_bytecode_method_from_stack() {
+        let mut class_chunk = Chunk::new("test.rco");
+        let mut display_name = Chunk::new("test.rco");
+        display_name.push(Op::CallWord("self".to_string()), span());
+        display_name.push(Op::CallMethod("email".to_string()), span());
+        display_name.push(Op::CallWord("get".to_string()), span());
+        display_name.push(Op::Return, span());
+
+        let display_name_block = class_chunk.push_block(display_name);
+        class_chunk.push(
+            Op::BeginClass {
+                name: "User".to_string(),
+                superclass: "Model".to_string(),
+            },
+            span(),
+        );
+        class_chunk.push(Op::AddField("email".to_string()), span());
+        class_chunk.push(
+            Op::AddMethod {
+                name: "displayName".to_string(),
+                block: display_name_block,
+            },
+            span(),
+        );
+        class_chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&class_chunk).expect("class opcodes run");
+        let user = vm.new_instance("User").expect("instance is created");
+        let user = vm
+            .set_field(
+                user,
+                "email",
+                Value::String("ada@example.com".to_string()),
+            )
+            .expect("field writes");
+
+        let mut call_chunk = Chunk::new("test.rco");
+        call_chunk.push(Op::CallMethod("displayName".to_string()), span());
+        vm.stack.push(user);
+        vm.run_chunk(&call_chunk).expect("method call opcode runs");
+
+        assert_eq!(vm.stack(), &[Value::String("ada@example.com".to_string())]);
+    }
+
+    #[test]
+    fn debug_trace_records_bytecode_method_frame_events() {
+        let mut class_chunk = Chunk::new("test.rco");
+        let mut display_name = Chunk::new("test.rco");
+        display_name.push(Op::CallWord("self".to_string()), span());
+        display_name.push(Op::CallMethod("email".to_string()), span());
+        display_name.push(Op::CallWord("get".to_string()), span());
+        display_name.push(Op::Return, span());
+
+        let display_name_block = class_chunk.push_block(display_name);
+        class_chunk.push(
+            Op::BeginClass {
+                name: "User".to_string(),
+                superclass: "Model".to_string(),
+            },
+            span(),
+        );
+        class_chunk.push(Op::AddField("email".to_string()), span());
+        class_chunk.push(
+            Op::AddMethod {
+                name: "displayName".to_string(),
+                block: display_name_block,
+            },
+            span(),
+        );
+        class_chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.enable_debug();
+        vm.run_chunk(&class_chunk).expect("class opcodes run");
+        vm.clear_debug_events();
+
+        let user = vm.new_instance("User").expect("instance is created");
+        let user = vm
+            .set_field(
+                user,
+                "email",
+                Value::String("ada@example.com".to_string()),
+            )
+            .expect("field writes");
+
+        let mut call_chunk = Chunk::new("test.rco");
+        call_chunk.push(Op::CallMethod("displayName".to_string()), span());
+        vm.stack.push(user);
+        vm.run_chunk(&call_chunk).expect("method call opcode runs");
+
+        assert!(vm.debug_events().iter().any(|event| {
+            matches!(
+                event,
+                DebugEvent::Instruction { frame, opcode, .. }
+                    if frame == "User.displayName" && opcode == "CallWord(\"self\")"
+            )
+        }));
+    }
+
+    #[test]
+    fn new_get_and_set_are_postfix_words_for_instances() {
+        let mut class_chunk = Chunk::new("test.rco");
+        class_chunk.push(
+            Op::BeginClass {
+                name: "User".to_string(),
+                superclass: "Model".to_string(),
+            },
+            span(),
+        );
+        class_chunk.push(Op::AddField("email".to_string()), span());
+        class_chunk.push(Op::EndClass, span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&class_chunk).expect("class opcodes run");
+
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("User".to_string()), span());
+        chunk.push(Op::CallWord("new".to_string()), span());
+        chunk.push(Op::PushString("ada@example.com".to_string()), span());
+        chunk.push(Op::CallWord("swap".to_string()), span());
+        chunk.push(Op::CallMethod("email".to_string()), span());
+        chunk.push(Op::CallWord("set".to_string()), span());
+        chunk.push(Op::CallWord("dup".to_string()), span());
+        chunk.push(Op::CallMethod("email".to_string()), span());
+        chunk.push(Op::CallWord("get".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("object field words run");
+
+        assert!(matches!(vm.stack(), [Value::Instance(_), Value::String(email)] if email == "ada@example.com"));
+    }
+
+    #[test]
+    fn class_add_method_reports_invalid_block_index() {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(
             Op::AddMethod {
@@ -839,9 +1286,10 @@ mod tests {
 
         assert_eq!(
             vm.run_chunk(&chunk),
-            Err(VmError::UnsupportedOpcode(
-                "AddMethod { name: \"render\", block: 0 }".to_string()
-            ))
+            Err(VmError::InvalidBlock {
+                index: 0,
+                available: 0,
+            })
         );
     }
 }

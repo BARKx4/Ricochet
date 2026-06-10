@@ -22,6 +22,7 @@ pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
 struct Compiler {
     chunk: Chunk,
     line_starts: Vec<usize>,
+    default_span: Span,
 }
 
 impl Compiler {
@@ -29,6 +30,7 @@ impl Compiler {
         Self {
             chunk: Chunk::new(file),
             line_starts: vec![0],
+            default_span: Span { start: 0, end: 0 },
         }
     }
 
@@ -100,7 +102,7 @@ impl Compiler {
                 let Expr::Block(body) = &exprs[1] else {
                     unreachable!("method declaration checked");
                 };
-                let block = self.compile_block_chunk(body)?;
+                let block = self.compile_block_chunk(body, fallback_span)?;
                 let block = self.chunk.push_block(block);
                 self.chunk.push(
                     Op::AddMethod { name, block },
@@ -129,7 +131,7 @@ impl Compiler {
             )));
         }
 
-        let block = self.compile_block_chunk(&method.body)?;
+        let block = self.compile_block_chunk(&method.body, method.span)?;
         let block = self.chunk.push_block(block);
         self.chunk.push(
             Op::AddMethod {
@@ -149,7 +151,7 @@ impl Compiler {
             Expr::String(value) => self.push(Op::PushString(value.clone())),
             Expr::Number(value) => self.push(Op::PushNumber(*value)),
             Expr::Block(body) => {
-                let block = self.compile_block_chunk(body)?;
+                let block = self.compile_block_chunk(body, self.default_span)?;
                 let block = self.chunk.push_block(block);
                 self.push(Op::PushBlock(block))
             }
@@ -173,17 +175,22 @@ impl Compiler {
         }
     }
 
-    fn compile_block_chunk(&self, exprs: &[Expr]) -> Result<Chunk, CompileError> {
+    fn compile_block_chunk(
+        &self,
+        exprs: &[Expr],
+        default_span: Span,
+    ) -> Result<Chunk, CompileError> {
         let mut compiler = Compiler {
             chunk: Chunk::new(self.chunk.file.clone()),
             line_starts: self.line_starts.clone(),
+            default_span,
         };
 
         for expr in exprs {
             compiler.compile_expr(expr)?;
         }
 
-        compiler.chunk.push(Op::Return, self.default_span());
+        compiler.chunk.push(Op::Return, compiler.default_span());
         Ok(compiler.finish())
     }
 
@@ -193,7 +200,7 @@ impl Compiler {
     }
 
     fn default_span(&self) -> SourceSpan {
-        self.source_span(Span { start: 0, end: 0 })
+        self.source_span(self.default_span)
     }
 
     fn source_span(&self, span: Span) -> SourceSpan {
@@ -377,6 +384,30 @@ mod tests {
                 Op::CallWord("get".to_string()),
                 Op::Return,
             ]
+        );
+    }
+
+    #[test]
+    fn method_block_debug_spans_inherit_declaration_span() {
+        let source = r#"
+          User Model subclass
+            displayName method
+              self .email get
+            end
+          end
+        "#;
+
+        let chunk = compile_source("models/user.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk
+                .blocks
+                .first()
+                .expect("method block should be present")
+                .debug()
+                .map(|span| span.line)
+                .collect::<Vec<_>>(),
+            vec![3, 3, 3, 3]
         );
     }
 

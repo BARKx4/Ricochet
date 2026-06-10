@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 
+use ricochet_bytecode::Chunk;
+
 use crate::value::Value;
 use crate::vm::VmError;
 
@@ -13,6 +15,7 @@ pub struct Class {
     pub superclass: String,
     pub fields: Vec<String>,
     pub native_methods: BTreeMap<String, NativeMethod>,
+    pub bytecode_methods: BTreeMap<String, Chunk>,
     pub revision: u64,
 }
 
@@ -23,6 +26,7 @@ impl Class {
             superclass: superclass.into(),
             fields: Vec::new(),
             native_methods: BTreeMap::new(),
+            bytecode_methods: BTreeMap::new(),
             revision: 0,
         }
     }
@@ -39,7 +43,16 @@ impl Class {
     }
 
     pub fn add_native_method(&mut self, name: impl Into<String>, method: NativeMethod) {
-        self.native_methods.insert(name.into(), method);
+        let name = name.into();
+        self.bytecode_methods.remove(&name);
+        self.native_methods.insert(name, method);
+        self.revision += 1;
+    }
+
+    pub fn add_bytecode_method(&mut self, name: impl Into<String>, method: Chunk) {
+        let name = name.into();
+        self.native_methods.remove(&name);
+        self.bytecode_methods.insert(name, method);
         self.revision += 1;
     }
 }
@@ -51,6 +64,7 @@ impl fmt::Debug for Class {
             .field("superclass", &self.superclass)
             .field("fields", &self.fields)
             .field("native_method_count", &self.native_methods.len())
+            .field("bytecode_method_count", &self.bytecode_methods.len())
             .field("revision", &self.revision)
             .finish()
     }
