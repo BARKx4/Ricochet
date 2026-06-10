@@ -51,6 +51,7 @@ pub enum VmError {
 pub struct Vm {
     stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
+    functions: BTreeMap<String, Chunk>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
@@ -81,6 +82,10 @@ impl Vm {
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
+    }
+
+    pub fn add_function(&mut self, name: impl Into<String>, function: Chunk) {
+        self.functions.insert(name.into(), function);
     }
 
     pub fn enable_debug(&mut self) {
@@ -330,6 +335,18 @@ impl Vm {
                     })?;
                 self.add_bytecode_method(name.clone(), method)?;
             }
+            Op::AddFunction { name, block } => {
+                let function =
+                    chunk
+                        .blocks
+                        .get(*block)
+                        .cloned()
+                        .ok_or(VmError::InvalidBlock {
+                            index: *block,
+                            available: chunk.blocks.len(),
+                        })?;
+                self.add_function(name.clone(), function);
+            }
             Op::Return if allow_return => return Ok(ExecutionSignal::Return),
             Op::JumpIfFalse(target) => {
                 self.validate_jump(*target, chunk)?;
@@ -375,7 +392,7 @@ impl Vm {
             }
             "!push" => self.call_push(word),
             predicate if predicate.ends_with('?') => self.call_predicate(predicate),
-            _ => Err(VmError::UnknownWord(word.to_string())),
+            _ => self.call_function(word),
         }
     }
 
@@ -387,6 +404,42 @@ impl Vm {
             });
         }
         Ok(())
+    }
+
+    fn call_function(&mut self, name: &str) -> Result<(), VmError> {
+        let function = self
+            .functions
+            .get(name)
+            .cloned()
+            .ok_or_else(|| VmError::UnknownWord(name.to_string()))?;
+        let result = self.call_bytecode_function(name, &function)?;
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn call_bytecode_function(&mut self, name: &str, function: &Chunk) -> Result<Value, VmError> {
+        let base = self.stack.len();
+        let run_result = self.run_chunk_with_frame(function, name, true);
+
+        match run_result {
+            Ok(ExecutionSignal::Continue | ExecutionSignal::Return) => {
+                let result = if self.stack.len() > base {
+                    self.pop_unchecked()
+                } else {
+                    Value::Nil
+                };
+                self.stack.truncate(base);
+                Ok(result)
+            }
+            Ok(ExecutionSignal::Jump(target)) => Err(VmError::InvalidJump {
+                target,
+                available: function.instructions.len(),
+            }),
+            Err(error) => {
+                self.stack.truncate(base);
+                Err(error)
+            }
+        }
     }
 
     fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
@@ -1550,6 +1603,29 @@ mod tests {
             vm.run_chunk(&chunk),
             Err(VmError::UncheckedResultCondition)
         );
+    }
+
+    #[test]
+    fn call_word_dispatches_bytecode_function() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushString("hi".to_string()), span());
+        function.push(Op::Return, span());
+
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "hello".to_string(),
+                block,
+            },
+            span(),
+        );
+        chunk.push(Op::CallWord("hello".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function call runs");
+
+        assert_eq!(vm.stack(), &[Value::String("hi".to_string())]);
     }
 
     #[test]

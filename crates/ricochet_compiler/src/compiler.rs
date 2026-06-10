@@ -55,10 +55,7 @@ impl Compiler {
         match item {
             Item::Class(class) => self.compile_class(class),
             Item::Expr(expr) => self.compile_expr(expr),
-            Item::Function(function) => Err(CompileError::Unsupported(format!(
-                "function declaration {}",
-                function.name
-            ))),
+            Item::Function(function) => self.compile_function_decl(function),
             Item::Method(method) => Err(CompileError::Unsupported(format!(
                 "top-level method declaration {}",
                 method.name
@@ -81,6 +78,30 @@ impl Compiler {
         }
 
         self.chunk.push(Op::EndClass, span);
+        Ok(())
+    }
+
+    fn compile_function_decl(
+        &mut self,
+        function: &ricochet_syntax::FunctionDecl,
+    ) -> Result<(), CompileError> {
+        if let Some(args) = &function.args {
+            return Err(CompileError::Unsupported(format!(
+                "function {} argument declarations are not supported by compiler lowering yet: {}",
+                function.name,
+                format_args_decl(args)
+            )));
+        }
+
+        let block = self.compile_block_chunk(&function.body, function.span)?;
+        let block = self.chunk.push_block(block);
+        self.chunk.push(
+            Op::AddFunction {
+                name: function.name.clone(),
+                block,
+            },
+            self.source_span(function.span),
+        );
         Ok(())
     }
 
@@ -556,6 +577,27 @@ mod tests {
                 Op::Jump(5),
                 Op::PushString("no".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn compiles_top_level_function_declaration() {
+        let chunk = compile_source("test.rco", r#"hello function "hi" end hello"#)
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::AddFunction {
+                    name: "hello".to_string(),
+                    block: 0,
+                },
+                Op::CallWord("hello".to_string()),
+            ]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![Op::PushString("hi".to_string()), Op::Return]
         );
     }
 

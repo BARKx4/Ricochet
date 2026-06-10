@@ -44,6 +44,9 @@ impl Parser {
         if let Some(class) = self.try_parse_class()? {
             return Ok(Item::Class(class));
         }
+        if let Some(function) = self.try_parse_function()? {
+            return Ok(Item::Function(function));
+        }
         if let Some(method) = self.try_parse_method()? {
             return Ok(Item::Method(method));
         }
@@ -93,6 +96,38 @@ impl Parser {
             }
             body.push(self.parse_item()?);
         }
+    }
+
+    fn try_parse_function(&mut self) -> Result<Option<FunctionDecl>, ParseError> {
+        self.skip_newlines();
+        let checkpoint = self.pos;
+        let start = self.current_span();
+        let args = if matches!(self.peek_kind(), TokenKind::LeftParen) {
+            Some(self.parse_args()?)
+        } else {
+            None
+        };
+        let Some(name) = self.peek_symbol_like() else {
+            self.pos = checkpoint;
+            return Ok(None);
+        };
+        self.advance();
+        if !self.consume_symbol("function") {
+            self.pos = checkpoint;
+            return Ok(None);
+        }
+
+        let body = self.parse_expr_body_until_end()?;
+        let end = self.previous_span().end;
+        Ok(Some(FunctionDecl {
+            name,
+            args,
+            body,
+            span: Span {
+                start: start.start,
+                end,
+            },
+        }))
     }
 
     fn try_parse_method(&mut self) -> Result<Option<MethodDecl>, ParseError> {
@@ -493,6 +528,27 @@ mod tests {
                 },
             ]))]
         );
+    }
+
+    #[test]
+    fn parses_top_level_function_declaration() {
+        let src = r#"
+          hello function
+            "hi"
+          end
+        "#;
+
+        let module = parse_module(src).expect("parse succeeds");
+
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Function(function) => {
+                assert_eq!(function.name, "hello");
+                assert_eq!(function.args, None);
+                assert_eq!(function.body, vec![Expr::String("hi".to_string())]);
+            }
+            other => panic!("expected function, got {other:?}"),
+        }
     }
 
     #[test]

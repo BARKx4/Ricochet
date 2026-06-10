@@ -17,6 +17,7 @@ pub enum Op {
     EndClass,
     AddField(String),
     AddMethod { name: String, block: usize },
+    AddFunction { name: String, block: usize },
     Return,
     JumpIfFalse(usize),
     Jump(usize),
