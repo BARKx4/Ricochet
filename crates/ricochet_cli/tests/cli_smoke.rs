@@ -4,6 +4,119 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
+fn new_creates_mvc_project_skeleton() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("hello_app");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco new failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("created"),
+        "stdout should mention created project, got:\n{stdout}"
+    );
+
+    let manifest =
+        fs::read_to_string(project_path.join("ricochet.toml")).expect("manifest should exist");
+    let routes =
+        fs::read_to_string(project_path.join("config/routes.rco")).expect("routes should exist");
+    let controller = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("HomeController.rco"),
+    )
+    .expect("controller should exist");
+    let view = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Views")
+            .join("home")
+            .join("index.html"),
+    )
+    .expect("view should exist");
+    let test = fs::read_to_string(
+        project_path
+            .join("tests")
+            .join("HomeControllerTest.rco"),
+    )
+    .expect("test should exist");
+
+    assert!(manifest.contains("routes = \"config/routes.rco\""));
+    assert!(routes.contains("GET \"/\" HomeController \"index\" route"));
+    assert!(controller.contains("HomeController Controller subclass"));
+    assert!(view.contains("{ title get }"));
+    assert!(test.contains("HomeControllerTest TestCase subclass"));
+
+    let _app = ricochet_web::server::build_app_from_dir(&project_path)
+        .expect("scaffolded MVC app should build");
+
+    let test_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(project_path.join("tests"))
+        .output()
+        .expect("rco test should launch");
+    let test_stdout = String::from_utf8_lossy(&test_output.stdout);
+    let test_stderr = String::from_utf8_lossy(&test_output.stderr);
+
+    assert!(
+        test_output.status.success(),
+        "scaffolded tests should pass\nstdout:\n{test_stdout}\nstderr:\n{test_stderr}"
+    );
+    assert!(
+        test_stdout.contains("1 tests, 0 failed"),
+        "scaffolded test summary should pass, got:\n{test_stdout}"
+    );
+}
+
+#[test]
+fn new_refuses_non_empty_directory() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("existing_app");
+    fs::create_dir_all(&project_path).expect("project dir should be created");
+    fs::write(project_path.join("keep.txt"), "do not overwrite")
+        .expect("sentinel should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco new should fail for non-empty dir\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("already exists and is not empty"),
+        "stderr should explain non-empty dir refusal, got:\n{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(project_path.join("keep.txt")).expect("sentinel should remain"),
+        "do not overwrite"
+    );
+}
+
+#[test]
 fn run_prints_final_stack_for_source_file() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
