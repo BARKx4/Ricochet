@@ -85,6 +85,12 @@ impl DatabaseBackend for FixtureDatabase {
         )])
     }
 
+    fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
+        let mut rows = self.all(mapping)?;
+        rows.truncate(limit as usize);
+        Ok(rows)
+    }
+
     fn where_eq(
         &self,
         _mapping: &ModelMapping,

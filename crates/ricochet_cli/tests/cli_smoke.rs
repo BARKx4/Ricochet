@@ -860,6 +860,70 @@ end
 }
 
 #[test]
+fn test_filter_skips_nonmatching_test_files_before_top_level_effects() {
+    let root = temp_source_path()
+        .parent()
+        .expect("source path has parent")
+        .join("filtered-tests");
+    let tests_dir = root.join("tests");
+    fs::create_dir_all(&tests_dir).expect("tests directory should be created");
+    let sentinel = root.join("side-effect.txt");
+    let sentinel_source = escape_ricochet_string(&sentinel.to_string_lossy());
+
+    fs::write(
+        tests_dir.join("MatchingTest.rco"),
+        r#"
+MatchingTest TestCase subclass
+  "testOnlyThisRuns" [
+    1 1 assert-equals
+  ] !method
+end
+"#,
+    )
+    .expect("matching test should be written");
+    fs::write(
+        tests_dir.join("IgnoredTest.rco"),
+        format!(
+            r#"
+"{sentinel_source}" "side effect" fs .write-text! drop
+
+IgnoredTest TestCase subclass
+  "testIgnored" [
+    1 1 assert-equals
+  ] !method
+end
+"#
+        ),
+    )
+    .expect("ignored test should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg("--filter")
+        .arg("OnlyThis")
+        .arg(&tests_dir)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "filtered rco test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("PASS MatchingTest.testOnlyThisRuns"),
+        "stdout should include matching passed test, got:\n{stdout}"
+    );
+    assert!(
+        !sentinel.exists(),
+        "filtered-out test file executed top-level side effect at {}",
+        sentinel.display()
+    );
+}
+
+#[test]
 fn test_reports_assertion_failures() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

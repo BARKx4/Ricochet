@@ -10,6 +10,7 @@ use crate::active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
 pub trait DatabaseBackend: Send + Sync {
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
     fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError>;
+    fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError>;
     fn where_eq(
         &self,
         mapping: &ModelMapping,
@@ -36,6 +37,10 @@ impl DatabaseBackend for PostgresDatabase {
 
     fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres("all", PostgresDatabase::all(self, mapping))
+    }
+
+    fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres("limit", PostgresDatabase::limit(self, mapping, limit))
     }
 
     fn where_eq(
@@ -92,6 +97,20 @@ pub fn install_database_capability(
             Ok(values) => Value::result_ok(Value::Array(values.into())),
             Err(error) => database_result_error(error),
         })
+    })?;
+
+    let limit_backend = backend.clone();
+    let limit_mappings = mappings.clone();
+    vm.add_native_method_with_arity("limit", 2, move |arguments| {
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.limit", "model name")?;
+        let limit = limit_argument(&arguments, 1, "DatabaseCapability.limit")?;
+        let mapping = model_mapping(&limit_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| limit_backend.limit(mapping, limit)) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
     })?;
 
     let find_backend = backend.clone();
@@ -177,6 +196,17 @@ fn install_model_active_record_methods(
             let all_mapping = mapping.clone();
             vm.add_native_method_with_arity("all", 0, move |_| {
                 Ok(match all_backend.all(&all_mapping) {
+                    Ok(values) => Value::result_ok(Value::Array(values.into())),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let limit_backend = backend.clone();
+            let limit_mapping = mapping.clone();
+            let limit_method = format!("{}.limit", mapping.class_name);
+            vm.add_native_method_with_arity("limit", 1, move |arguments| {
+                let limit = limit_argument(&arguments, 0, &limit_method)?;
+                Ok(match limit_backend.limit(&limit_mapping, limit) {
                     Ok(values) => Value::result_ok(Value::Array(values.into())),
                     Err(error) => database_result_error(error),
                 })
@@ -313,6 +343,22 @@ fn map_argument(
     }
 }
 
+fn limit_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64, VmError> {
+    match arguments.get(index) {
+        Some(Value::Number(value)) if *value >= 0 => Ok(*value),
+        Some(Value::Number(value)) => Err(VmError::InvalidArgument {
+            word: method.to_string(),
+            message: format!("limit must be non-negative, got {value}"),
+        }),
+        Some(value) => Err(VmError::TypeError {
+            word: method.to_string(),
+            expected: "non-negative number".to_string(),
+            actual: value_kind(value).to_string(),
+        }),
+        None => Err(missing_native_argument(method, index + 1, arguments.len())),
+    }
+}
+
 fn missing_native_argument(method: &str, needed: usize, available: usize) -> VmError {
     VmError::StackUnderflow {
         word: method.to_string(),
@@ -367,6 +413,16 @@ mod tests {
                 ])
                 .into(),
             )])
+        }
+
+        fn limit(
+            &self,
+            mapping: &ModelMapping,
+            limit: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            let mut rows = self.all(mapping)?;
+            rows.truncate(limit as usize);
+            Ok(rows)
         }
 
         fn where_eq(
@@ -446,6 +502,44 @@ mod tests {
             ricochet_compiler::compile_source("test.rco", "User .all").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn active_record_limit_accepts_a_count_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source("test.rco", "1 User .limit")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn database_capability_limit_accepts_model_name_and_count() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 db get .limit")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability limit method runs");
 
         assert!(matches!(
             vm.stack(),

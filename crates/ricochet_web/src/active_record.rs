@@ -142,6 +142,14 @@ impl ModelMapping {
         format!("select {} from {}", self.fields.join(", "), self.table_name)
     }
 
+    pub fn select_limit_sql(&self) -> String {
+        format!(
+            "select {} from {} limit $1",
+            self.fields.join(", "),
+            self.table_name
+        )
+    }
+
     pub fn select_where_eq_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
         self.require_field(field)?;
         Ok(format!(
@@ -299,6 +307,22 @@ impl PostgresDatabase {
             .query(mapping.select_all_sql().as_str(), &[])
             .await
             .map_err(|error| database_error("all", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
+    pub async fn limit(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let limit = Value::Number(limit);
+        let parameter = PostgresParameter::try_from(&limit)?;
+        let rows = self
+            .client
+            .query(mapping.select_limit_sql().as_str(), &[parameter.as_sql()])
+            .await
+            .map_err(|error| database_error("limit", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -605,6 +629,20 @@ mod tests {
         };
 
         assert_eq!(mapping.select_all_sql(), "select id, email from users");
+    }
+
+    #[test]
+    fn select_limit_sql_uses_existing_table_and_fields() {
+        let mapping = ModelMapping {
+            class_name: "User".to_string(),
+            table_name: "users".to_string(),
+            fields: vec!["id".to_string(), "email".to_string()],
+        };
+
+        assert_eq!(
+            mapping.select_limit_sql(),
+            "select id, email from users limit $1"
+        );
     }
 
     #[test]

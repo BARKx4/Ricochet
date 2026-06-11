@@ -63,15 +63,17 @@ Implemented after this review:
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at
   1 MiB.
+- `rco test --filter` now pre-skips test files that cannot match the filter
+  before running top-level code.
+- Active Record now has a parameterized `.limit` class method for bounded reads.
 - A root `README.md`, `rust-toolchain.toml`, and GitHub Actions CI workflow were
   added for repeatable verification.
 
 Still open:
 
 - Filesystem capability sandboxing remains a larger trust-model decision.
-- `rco test --filter` still loads top-level test-file code before method
-  filtering.
-- PostgreSQL TLS configuration and Active Record pagination are still backlog.
+- PostgreSQL TLS configuration and richer Active Record pagination beyond
+  `.limit` are still backlog.
 - Full hot reload is still planned, not implemented.
 
 ## Critical / High Findings
@@ -183,6 +185,9 @@ Add `DELETE` next, then `PUT` and `PATCH`, with route-listing and request tests.
 
 ### 5. `rco test --filter` still executes top-level code in nonmatching files
 
+Status: mitigated. The CLI now skips files whose source text cannot match the
+requested filter before compiling and loading the test file.
+
 Evidence:
 
 - Test files are compiled and loaded with `vm.run_chunk(&chunk)` before methods
@@ -219,6 +224,9 @@ Recommendation:
   only until TLS support lands.
 
 ### 7. Active Record reads are unbounded
+
+Status: partially fixed. `.limit` is now available as a parameterized model
+class method; offset/default pagination remain backlog.
 
 Evidence:
 

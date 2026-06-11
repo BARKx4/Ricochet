@@ -525,6 +525,9 @@ fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
 
     for file in files {
         let (file_name, source) = read_source_path(&file)?;
+        if filter.is_some_and(|filter| !test_file_may_match_filter(&source, filter)) {
+            continue;
+        }
         let chunk = compile_source(&file_name, &source)?;
         let mut vm = Vm::default();
         vm.enable_cli_capabilities();
@@ -573,6 +576,16 @@ fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn test_file_may_match_filter(source: &str, filter: &str) -> bool {
+    source.contains(filter)
+        || filter.split_once('.').is_some_and(|(class, method)| {
+            !class.is_empty()
+                && source.contains(class)
+                && !method.is_empty()
+                && source.contains(method)
+        })
 }
 
 fn find_project_root_for_tests(path: &Path) -> Option<PathBuf> {

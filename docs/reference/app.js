@@ -488,6 +488,14 @@ const WORDS = [
     "example": "\"email\" \"ada@example.com\" User .where"
   },
   {
+    "word": ".limit",
+    "aliases": ["Active Record"],
+    "group": "web",
+    "stack": "count:number ModelClass -> result(array)",
+    "body": "Loads at most `count` rows from a mapped model class.",
+    "example": "10 User .limit"
+  },
+  {
     "word": ".insert",
     "aliases": ["Active Record"],
     "group": "web",
