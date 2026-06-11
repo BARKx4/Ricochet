@@ -51,25 +51,59 @@ fn new_creates_mvc_project_skeleton() {
             .join("index.html"),
     )
     .expect("view should exist");
+    let model = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Models")
+            .join("User.rco"),
+    )
+    .expect("model should exist");
+    let user_controller = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("UserController.rco"),
+    )
+    .expect("user controller should exist");
+    let users_view = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Views")
+            .join("users")
+            .join("index.html"),
+    )
+    .expect("users view should exist");
     let test = fs::read_to_string(
         project_path
             .join("tests")
-            .join("HomeControllerTest.rco"),
+            .join("ApplicationSmokeTest.rco"),
     )
     .expect("test should exist");
 
     assert!(manifest.contains("routes = \"config/routes.rco\""));
     assert!(routes.contains("GET \"/\" HomeController \"index\" route"));
+    assert!(routes.contains("GET \"/users\" UserController \"index\" route"));
     assert!(controller.contains("HomeController Controller subclass"));
     assert!(view.contains("{ title get }"));
-    assert!(test.contains("HomeControllerTest TestCase subclass"));
+    assert!(model.contains("User Model subclass"));
+    assert!(model.contains("\"displayName\""));
+    assert!(user_controller.contains("UserController Controller subclass"));
+    assert!(user_controller.contains("users array"));
+    assert!(user_controller.contains(".push!"));
+    assert!(user_controller.contains("userCount var"));
+    assert!(users_view.contains("{ userCount get }"));
+    assert!(test.contains("ApplicationSmokeTest TestCase subclass"));
+    assert!(test.contains("User new"));
+    assert!(test.contains(".displayName"));
+    assert!(test.contains("users array"));
+    assert!(test.contains(".push!"));
 
     let _app = ricochet_web::server::build_app_from_dir(&project_path)
         .expect("scaffolded MVC app should build");
 
     let test_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("test")
-        .arg(project_path.join("tests"))
+        .arg(&project_path)
         .output()
         .expect("rco test should launch");
     let test_stdout = String::from_utf8_lossy(&test_output.stdout);
@@ -80,8 +114,25 @@ fn new_creates_mvc_project_skeleton() {
         "scaffolded tests should pass\nstdout:\n{test_stdout}\nstderr:\n{test_stderr}"
     );
     assert!(
-        test_stdout.contains("1 tests, 0 failed"),
+        test_stdout.contains("2 tests, 0 failed"),
         "scaffolded test summary should pass, got:\n{test_stdout}"
+    );
+
+    let nested_test_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(project_path.join("tests"))
+        .output()
+        .expect("rco test should launch for tests directory");
+    let nested_test_stdout = String::from_utf8_lossy(&nested_test_output.stdout);
+    let nested_test_stderr = String::from_utf8_lossy(&nested_test_output.stderr);
+
+    assert!(
+        nested_test_output.status.success(),
+        "scaffolded tests directory should pass\nstdout:\n{nested_test_stdout}\nstderr:\n{nested_test_stderr}"
+    );
+    assert!(
+        nested_test_stdout.contains("2 tests, 0 failed"),
+        "scaffolded tests directory summary should pass, got:\n{nested_test_stdout}"
     );
 }
 
@@ -1256,6 +1307,37 @@ tags get .count
 }
 
 #[test]
+fn examples_are_runnable_acceptance_suite() {
+    for example in [
+        "basic-oop.rco",
+        "collections.rco",
+        "loop_control.rco",
+        "turing_complete.rco",
+        "unary_counter.rco",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("run")
+            .arg(example_path(example))
+            .output()
+            .unwrap_or_else(|error| panic!("rco run should launch for {example}: {error}"));
+
+        assert_run_success_for("rco run example", example, &output);
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(example_path("cli_system.rco"))
+        .arg("--")
+        .arg("alpha")
+        .arg("beta")
+        .env("RICOCHET_EXAMPLE_TEST", "present")
+        .output()
+        .expect("rco run should launch for cli_system.rco");
+
+    assert_run_success_for("rco run example", "cli_system.rco", &output);
+}
+
+#[test]
 fn run_supports_everyday_arithmetic_and_boolean_words() {
     let output = run_source(
         r#"
@@ -1607,12 +1689,23 @@ fn escape_ricochet_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+fn example_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("examples")
+        .join(name)
+}
+
 fn assert_run_success(output: &std::process::Output) {
+    assert_run_success_for("rco run", "source", output);
+}
+
+fn assert_run_success_for(command: &str, name: &str, output: &std::process::Output) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "{command} failed for {name}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
 

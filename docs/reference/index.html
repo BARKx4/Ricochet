@@ -32,6 +32,7 @@
           </p>
           <div class="command-strip" aria-label="Quick commands">
             <code>rco new my_app</code>
+            <code>rco test my_app</code>
             <code>rco run --debug --step app.rco</code>
             <code>rco serve --debug --watch</code>
           </div>
@@ -301,10 +302,45 @@ POST "/users" UserController "create" route</code></pre>
             <h3>Controller</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy controller example" title="Copy">copy</button><code>(( app/Controllers/HomeController.rco ))
 HomeController Controller subclass
-  ( ctx -> Response ) "index" [
+  "index" [
     "Hello Ricochet" title var
     ctx get
     "home/index" swap view
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
+            <h3>Model Used By MVC</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy MVC model example" title="Copy">copy</button><code>(( app/Models/User.rco ))
+User Model subclass
+  email field
+  name field
+
+  "displayName" [
+    self .name get nil? if
+      self .email get
+    else
+      self .name get
+    end
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
+            <h3>Controller With Collection</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy collection controller example" title="Copy">copy</button><code>(( app/Controllers/UserController.rco ))
+UserController Controller subclass
+  "index" [
+    users array
+    User new
+    "ada@example.com" swap .email set
+    "Ada Lovelace" swap .name set
+    users get .push! drop
+    users get .count userCount var
+    "Users" title var
+    ctx get
+    "users/index" swap view
   ] !method
 end</code></pre>
           </article>
@@ -464,13 +500,13 @@ end</code></pre>
           <h2>CLI Reference</h2>
         </div>
         <div class="cli-list">
-          <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app skeleton.</span></div>
+          <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app with routes, controllers, a model, views, and smoke tests.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco repl [--debug]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco serve [--debug] [--watch]</code><span>Run the current directory as an MVC web app.</span></div>
-          <div><code>rco test [--debug] [path]</code><span>Run `TestCase` subclasses from `tests` by default.</span></div>
+          <div><code>rco test [--debug] [path]</code><span>Run `TestCase` subclasses. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
           <article class="example-panel">
@@ -486,6 +522,11 @@ now println
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy capability example" title="Copy">copy</button><code>"README.md" fs .read-text value .count println
 "https://example.com" http .get value response var
 "status" response get .at println</code></pre>
+          </article>
+          <article class="example-panel wide">
+            <h3>Acceptance Suite</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy acceptance suite commands" title="Copy">copy</button><code>cargo build -p ricochet_cli --bin rco
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</code></pre>
           </article>
         </div>
       </section>

@@ -479,6 +479,92 @@ async fn serves_minimal_mvc_home_page_from_project_files() {
 }
 
 #[tokio::test]
+async fn serves_mvc_controller_that_uses_project_model_without_database() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Models"))
+        .expect("model directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Views/users"))
+        .expect("view directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "model_controller"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/users" UserController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Models/User.rco"),
+        r#"
+User Model subclass
+  email field
+  name field
+
+  "displayName" [
+    self .name get nil? if
+      self .email get
+    else
+      self .name get
+    end
+  ] !method
+end
+"#,
+    )
+    .expect("model should be written");
+    fs::write(
+        project_root.join("app/Controllers/UserController.rco"),
+        r#"
+UserController Controller subclass
+  "index" [
+    User new
+    "ada@example.com" swap .email set
+    .displayName title var
+    ctx get
+    "users/index" swap view
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+    fs::write(
+        project_root.join("app/Views/users/index.html"),
+        "<h1>{ title get }</h1>",
+    )
+    .expect("view should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/users").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body.trim(), "<h1>ada@example.com</h1>");
+}
+
+#[tokio::test]
 async fn serves_route_params_to_ricochet_controller() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

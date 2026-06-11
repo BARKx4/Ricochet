@@ -70,6 +70,10 @@ fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -
     let routes = parse_routes(&routes_source)
         .with_context(|| format!("failed to parse {}", routes_path.display()))?;
 
+    let vm_setup = match vm_setup {
+        Some(setup) => Some(setup),
+        None => model_vm_setup(project_root)?,
+    };
     let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
     let runtime = Arc::new(AppRuntime {
         root: project_root.to_path_buf(),
@@ -207,12 +211,54 @@ fn database_vm_setup(
     }))
 }
 
+fn model_vm_setup(project_root: &Path) -> Result<Option<VmSetup>> {
+    let model_chunks = load_model_chunks(project_root)?
+        .into_iter()
+        .map(|model| model.chunk)
+        .collect::<Vec<_>>();
+    if model_chunks.is_empty() {
+        return Ok(None);
+    }
+
+    let model_chunks = Arc::new(model_chunks);
+    Ok(Some(Arc::new(move |vm| {
+        for chunk in model_chunks.iter() {
+            vm.run_chunk(chunk)?;
+        }
+        Ok(BTreeMap::new())
+    })))
+}
+
 fn load_model_runtime(
     project_root: &Path,
 ) -> Result<(Vec<Chunk>, BTreeMap<String, ModelMapping>)> {
+    let model_chunks = load_model_chunks(project_root)?;
+
+    let mut vm = Vm::default();
+    let mut chunks = Vec::with_capacity(model_chunks.len());
+    let mut mappings = BTreeMap::new();
+    for model in model_chunks {
+        vm.run_chunk(&model.chunk)
+            .with_context(|| format!("failed to load model {}", model.path.display()))?;
+        let mapping = ModelMapping::from_vm(&vm, &model.class_name)
+            .with_context(|| format!("failed to map model {}", model.path.display()))?;
+        mappings.insert(model.class_name, mapping);
+        chunks.push(model.chunk);
+    }
+
+    Ok((chunks, mappings))
+}
+
+struct ModelChunk {
+    class_name: String,
+    path: PathBuf,
+    chunk: Chunk,
+}
+
+fn load_model_chunks(project_root: &Path) -> Result<Vec<ModelChunk>> {
     let models_path = project_root.join("app").join("Models");
     if !models_path.exists() {
-        return Ok((Vec::new(), BTreeMap::new()));
+        return Ok(Vec::new());
     }
 
     let mut paths = fs::read_dir(&models_path)
@@ -222,28 +268,28 @@ fn load_model_runtime(
     paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("rco"));
     paths.sort();
 
-    let mut vm = Vm::default();
-    let mut chunks = Vec::new();
-    let mut mappings = BTreeMap::new();
-    for path in paths {
-        let class_name = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .with_context(|| format!("model filename must be valid Unicode: {}", path.display()))?;
-        let source = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let file = path.to_string_lossy();
-        let chunk = ricochet_compiler::compile_source(&file, &source)
-            .with_context(|| format!("failed to compile model {}", path.display()))?;
-        vm.run_chunk(&chunk)
-            .with_context(|| format!("failed to load model {}", path.display()))?;
-        let mapping = ModelMapping::from_vm(&vm, class_name)
-            .with_context(|| format!("failed to map model {}", path.display()))?;
-        mappings.insert(class_name.to_string(), mapping);
-        chunks.push(chunk);
-    }
-
-    Ok((chunks, mappings))
+    paths
+        .into_iter()
+        .map(|path| {
+            let class_name = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .with_context(|| {
+                    format!("model filename must be valid Unicode: {}", path.display())
+                })?
+                .to_string();
+            let source = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let file = path.to_string_lossy();
+            let chunk = ricochet_compiler::compile_source(&file, &source)
+                .with_context(|| format!("failed to compile model {}", path.display()))?;
+            Ok(ModelChunk {
+                class_name,
+                path,
+                chunk,
+            })
+        })
+        .collect()
 }
 
 async fn render_route(

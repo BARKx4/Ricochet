@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -216,8 +217,12 @@ fn new_project(path: &Path) -> Result<()> {
 
     fs::create_dir_all(path.join("app").join("Controllers"))
         .with_context(|| format!("failed to create app/Controllers in {}", path.display()))?;
+    fs::create_dir_all(path.join("app").join("Models"))
+        .with_context(|| format!("failed to create app/Models in {}", path.display()))?;
     fs::create_dir_all(path.join("app").join("Views").join("home"))
         .with_context(|| format!("failed to create app/Views/home in {}", path.display()))?;
+    fs::create_dir_all(path.join("app").join("Views").join("users"))
+        .with_context(|| format!("failed to create app/Views/users in {}", path.display()))?;
     fs::create_dir_all(path.join("config"))
         .with_context(|| format!("failed to create config in {}", path.display()))?;
     fs::create_dir_all(path.join("tests"))
@@ -230,16 +235,49 @@ fn new_project(path: &Path) -> Result<()> {
     write_project_file(
         path.join("config").join("routes.rco"),
         r#"GET "/" HomeController "index" route
+GET "/users" UserController "index" route
 "#,
     )?;
     write_project_file(
         path.join("app").join("Controllers").join("HomeController.rco"),
         r#"HomeController Controller subclass
   "index" [
-    title var
-    "Hello Ricochet" title set
+    "Hello Ricochet" title var
     ctx get
     "home/index" swap view
+  ] !method
+end
+"#,
+    )?;
+    write_project_file(
+        path.join("app").join("Models").join("User.rco"),
+        r#"User Model subclass
+  email field
+  name field
+
+  "displayName" [
+    self .name get nil? if
+      self .email get
+    else
+      self .name get
+    end
+  ] !method
+end
+"#,
+    )?;
+    write_project_file(
+        path.join("app").join("Controllers").join("UserController.rco"),
+        r#"UserController Controller subclass
+  "index" [
+    users array
+    User new
+    "ada@example.com" swap .email set
+    "Ada Lovelace" swap .name set
+    users get .push! drop
+    users get .count userCount var
+    "Users" title var
+    ctx get
+    "users/index" swap view
   ] !method
 end
 "#,
@@ -249,11 +287,26 @@ end
         "<h1>{ title get }</h1>\n",
     )?;
     write_project_file(
-        path.join("tests").join("HomeControllerTest.rco"),
-        r#"HomeControllerTest TestCase subclass
-  "testHomeTitle" [
-    "Hello Ricochet"
-    "Hello Ricochet" assert-equals
+        path.join("app").join("Views").join("users").join("index.html"),
+        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n",
+    )?;
+    write_project_file(
+        path.join("tests").join("ApplicationSmokeTest.rco"),
+        r#"ApplicationSmokeTest TestCase subclass
+  "testUserDisplayNameFallsBackToEmail" [
+    User new
+    "ada@example.com" swap .email set
+    .displayName
+    "ada@example.com" assert-equals
+  ] !method
+
+  "testCollectionsCanHoldModels" [
+    users array
+    User new
+    "grace@example.com" swap .email set
+    users get .push! drop
+    users get .count
+    1 assert-equals
   ] !method
 end
 "#,
@@ -397,7 +450,9 @@ fn read_terminal_debug_action() -> DebugAction {
 }
 
 fn run_tests(path: &str, debug: bool) -> Result<()> {
-    let files = collect_test_files(Path::new(path))?;
+    let path = Path::new(path);
+    let project_root = find_project_root_for_tests(path);
+    let files = collect_test_files_for_path(path, project_root.as_deref())?;
     let mut total = 0usize;
     let mut failed = 0usize;
 
@@ -409,6 +464,10 @@ fn run_tests(path: &str, debug: bool) -> Result<()> {
         if debug {
             vm.enable_debug();
             vm.set_debug_sink(print_debug_event);
+        }
+
+        if let Some(project_root) = project_root.as_deref() {
+            load_app_sources(&mut vm, project_root)?;
         }
 
         vm.run_chunk(&chunk)
@@ -437,6 +496,89 @@ fn run_tests(path: &str, debug: bool) -> Result<()> {
             failed,
             if failed == 1 { "" } else { "s" }
         );
+    }
+
+    Ok(())
+}
+
+fn find_project_root_for_tests(path: &Path) -> Option<PathBuf> {
+    let canonical = fs::canonicalize(path).ok()?;
+    let start: &Path = if canonical.is_file() {
+        canonical.parent()?
+    } else {
+        &canonical
+    };
+
+    start
+        .ancestors()
+        .find(|ancestor| ancestor.join("ricochet.toml").is_file())
+        .map(Path::to_path_buf)
+}
+
+fn collect_test_files_for_path(path: &Path, project_root: Option<&Path>) -> Result<Vec<PathBuf>> {
+    if let Some(project_root) = project_root {
+        if paths_point_to_same_location(path, project_root) {
+            let tests_path = project_root.join("tests");
+            if !tests_path.exists() {
+                return Ok(Vec::new());
+            }
+            return collect_test_files(&tests_path);
+        }
+    }
+
+    collect_test_files(path)
+}
+
+fn paths_point_to_same_location(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn load_app_sources(vm: &mut Vm, project_root: &Path) -> Result<()> {
+    for file in collect_app_source_files(project_root)? {
+        let (file_name, source) = read_source_path(&file)?;
+        let chunk = compile_source(&file_name, &source)
+            .with_context(|| format!("failed to compile app source {}", file.display()))?;
+        vm.run_chunk(&chunk)
+            .with_context(|| format!("failed to load app source {}", file.display()))?;
+    }
+
+    Ok(())
+}
+
+fn collect_app_source_files(project_root: &Path) -> Result<Vec<PathBuf>> {
+    let app_path = project_root.join("app");
+    if !app_path.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut seen = BTreeSet::new();
+    for directory in ["Models", "Services", "Controllers"] {
+        let source_path = app_path.join(directory);
+        if source_path.is_dir() {
+            push_unique_rco_files(&source_path, &mut seen, &mut files)?;
+        }
+    }
+
+    push_unique_rco_files(&app_path, &mut seen, &mut files)?;
+    Ok(files)
+}
+
+fn push_unique_rco_files(
+    path: &Path,
+    seen: &mut BTreeSet<PathBuf>,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let mut source_files = Vec::new();
+    collect_rco_files(path, &mut source_files)?;
+    source_files.sort();
+    for file in source_files {
+        if seen.insert(file.clone()) {
+            files.push(file);
+        }
     }
 
     Ok(())
