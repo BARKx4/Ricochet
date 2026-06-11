@@ -32,6 +32,7 @@
           </p>
           <div class="command-strip" aria-label="Quick commands">
             <code>rco new my_app</code>
+            <code>rco routes my_app</code>
             <code>rco test my_app</code>
             <code>rco run --debug --step app.rco</code>
             <code>rco serve --debug --watch</code>
@@ -501,6 +502,7 @@ end</code></pre>
         </div>
         <div class="cli-list">
           <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app with routes, controllers, a model, views, and smoke tests.</span></div>
+          <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco repl [--debug]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>

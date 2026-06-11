@@ -62,13 +62,19 @@ pub fn build_app_from_dir_with_database(
     build_app_from_dir_internal(project_root, Some(vm_setup))
 }
 
-fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
+pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
+    let project_root = project_root.as_ref();
     let manifest = load_manifest(project_root)?;
     let routes_path = project_root.join(&manifest.web.routes);
     let routes_source = fs::read_to_string(&routes_path)
         .with_context(|| format!("failed to read {}", routes_path.display()))?;
-    let routes = parse_routes(&routes_source)
-        .with_context(|| format!("failed to parse {}", routes_path.display()))?;
+    parse_routes(&routes_source)
+        .with_context(|| format!("failed to parse {}", routes_path.display()))
+}
+
+fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
+    let manifest = load_manifest(project_root)?;
+    let routes = routes_from_dir(project_root)?;
 
     let vm_setup = match vm_setup {
         Some(setup) => Some(setup),

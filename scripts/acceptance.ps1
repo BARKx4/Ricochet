@@ -61,6 +61,7 @@ New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 $project = Join-Path $TempRoot "app"
 
 Invoke-Rco "scaffold app" @("new", $project)
+Invoke-Rco "list scaffold routes" @("routes", $project)
 Invoke-Rco "check scaffold" @("check", $project)
 Invoke-Rco "test scaffold" @("test", $project)
 Invoke-Rco "test scaffold tests directory" @("test", (Join-Path $project "tests"))

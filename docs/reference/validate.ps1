@@ -193,6 +193,7 @@ if ($failures.Count -eq 0) {
         "className get `"Object`" subclass",
         "multiplier get 0 &gt; while",
         "rco run --debug --step app.rco",
+        "rco routes [path]",
         "fs .read-text",
         "http .get",
         "{ user get .name get }"

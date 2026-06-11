@@ -41,6 +41,7 @@ enum Command {
     },
     Build { path: Option<String> },
     Serve { #[arg(long)] debug: bool, #[arg(long)] watch: bool },
+    Routes { path: Option<String> },
     Test {
         #[arg(long)]
         debug: bool,
@@ -72,6 +73,7 @@ pub async fn run_cli() -> Result<()> {
         } => run_file(&path, debug, step, &breakpoints, args)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
+        Command::Routes { path } => routes(path.as_deref().unwrap_or("."))?,
         Command::Test { debug, path } => {
             run_tests(path.as_deref().unwrap_or("tests"), debug)?;
         }
@@ -209,6 +211,22 @@ fn check_source_file(path: &Path) -> Result<()> {
     let (file, source) = read_source_path(path)?;
     compile_source(&file, &source)
         .with_context(|| format!("failed to compile {}", path.display()))?;
+    Ok(())
+}
+
+fn routes(path: &str) -> Result<()> {
+    let path = Path::new(path);
+    if !path.is_dir() {
+        bail!("routes path does not exist or is not a directory: {}", path.display());
+    }
+
+    for route in ricochet_web::routes_from_dir(path)? {
+        println!(
+            "{} {} {}#{}",
+            route.method, route.path, route.controller, route.action
+        );
+    }
+
     Ok(())
 }
 

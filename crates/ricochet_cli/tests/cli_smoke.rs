@@ -210,6 +210,49 @@ fn check_validates_scaffolded_mvc_project() {
 }
 
 #[test]
+fn routes_lists_scaffolded_mvc_routes() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("routes_app");
+
+    let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+    assert!(
+        new_output.status.success(),
+        "rco new should succeed before routes\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&new_output.stdout),
+        String::from_utf8_lossy(&new_output.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("routes")
+        .arg(&project_path)
+        .output()
+        .expect("rco routes should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco routes failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("GET / HomeController#index"),
+        "stdout should list home route, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("GET /users UserController#index"),
+        "stdout should list users route, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn check_reports_invalid_source_file() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

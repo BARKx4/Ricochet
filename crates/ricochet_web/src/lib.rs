@@ -16,7 +16,7 @@ pub use manifest::{Database, DatabaseDefault, Manifest, Package, Views, Web};
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{
-    build_app_from_dir_with_database, build_test_app, serve_current_dir,
+    build_app_from_dir_with_database, build_test_app, routes_from_dir, serve_current_dir,
 };
 pub use template::{render_template, EscapeMode};
 
