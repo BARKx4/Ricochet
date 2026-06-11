@@ -1,11 +1,11 @@
 use std::fs;
 use std::io::Write;
-use std::net::TcpListener;
+use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn new_creates_mvc_project_skeleton() {
@@ -2129,30 +2129,9 @@ fn run_exposes_filesystem_capability() {
 
 #[test]
 fn run_exposes_http_client_capability() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
-    let address = listener.local_addr().expect("listener should have address");
-    listener
-        .set_nonblocking(true)
-        .expect("listener should become nonblocking");
-    let server = thread::spawn(move || {
-        let mut stream = (0..500)
-            .find_map(|_| match listener.accept() {
-                Ok((stream, _)) => Some(stream),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(std::time::Duration::from_millis(10));
-                    None
-                }
-                Err(error) => panic!("HTTP accept failed: {error}"),
-            })
-            .expect("client should connect");
-        let mut request = [0_u8; 1024];
-        let _ = std::io::Read::read(&mut stream, &mut request);
-        std::io::Write::write_all(
-            &mut stream,
-            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong",
-        )
-        .expect("response should write");
-    });
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
+    );
     let output = run_source(&format!(
         r#"
 "http://{address}/ping" http .get value response var
@@ -2172,36 +2151,14 @@ fn run_exposes_http_client_capability() {
 
 #[test]
 fn run_limits_http_response_body_size() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
-    let address = listener.local_addr().expect("listener should have address");
-    listener
-        .set_nonblocking(true)
-        .expect("listener should become nonblocking");
-    let server = thread::spawn(move || {
-        let mut stream = (0..500)
-            .find_map(|_| match listener.accept() {
-                Ok((stream, _)) => Some(stream),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(std::time::Duration::from_millis(10));
-                    None
-                }
-                Err(error) => panic!("HTTP accept failed: {error}"),
-            })
-            .expect("client should connect");
-        let mut request = [0_u8; 1024];
-        let _ = std::io::Read::read(&mut stream, &mut request);
-        let body = vec![b'x'; 1_048_577];
-        std::io::Write::write_all(
-            &mut stream,
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            )
-            .as_bytes(),
-        )
-        .expect("response headers should write");
-        std::io::Write::write_all(&mut stream, &body).expect("response body should write");
-    });
+    let body = vec![b'x'; 1_048_577];
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(&body);
+    let (address, server) = spawn_single_response_http_server(response);
     let output = run_source(&format!(
         r#"
 "http://{address}/large" http .get error err var
@@ -2259,6 +2216,65 @@ fn write_source_at(root: &Path, relative_path: &str, source: &str) -> PathBuf {
         .expect("source directory should be created");
     fs::write(&source_path, source).expect("source should be written");
     source_path
+}
+
+fn spawn_single_response_http_server(
+    response: Vec<u8>,
+) -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+
+    let server = thread::spawn(move || {
+        let mut stream = (0..500)
+            .find_map(|_| match listener.accept() {
+                Ok((stream, _)) => Some(stream),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                    None
+                }
+                Err(error) => panic!("HTTP accept failed: {error}"),
+            })
+            .expect("client should connect");
+
+        stream
+            .set_nonblocking(false)
+            .expect("accepted HTTP stream should become blocking");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("accepted HTTP stream should set read timeout");
+
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            match std::io::Read::read(&mut stream, &mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("HTTP request read failed: {error}"),
+            }
+        }
+
+        std::io::Write::write_all(&mut stream, &response).expect("response should write");
+        std::io::Write::flush(&mut stream).expect("response should flush");
+        let _ = stream.shutdown(Shutdown::Write);
+    });
+
+    (address, server)
 }
 
 fn escape_ricochet_string(value: &str) -> String {
