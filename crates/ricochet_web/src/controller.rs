@@ -121,11 +121,11 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
         .iter()
         .map(|(key, value)| (key.clone(), Value::String(value.clone())))
         .collect::<BTreeMap<_, _>>();
-    context.insert("params".to_string(), Value::Map(params));
-    context.insert("query".to_string(), Value::Map(query));
-    context.insert("form".to_string(), Value::Map(form));
+    context.insert("params".to_string(), Value::Map(params.into()));
+    context.insert("query".to_string(), Value::Map(query.into()));
+    context.insert("form".to_string(), Value::Map(form.into()));
     context.extend(capabilities.clone());
-    Value::Map(context)
+    Value::Map(context.into())
 }
 
 fn controller_arg_values(
@@ -177,7 +177,7 @@ fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
 
 fn action_result_from_value(value: Value) -> Result<ActionResult> {
     match value {
-        Value::Map(mut map) => {
+        Value::Map(map) => {
             let action_type = match map.remove("type") {
                 Some(Value::String(action_type)) => action_type,
                 _ => bail!("Ricochet action result map is missing string type"),
@@ -215,11 +215,25 @@ fn json_value_from_value(value: Value) -> Result<JsonValue> {
         Value::Number(value) => Ok(JsonValue::Number(value.into())),
         Value::String(value) => Ok(JsonValue::String(value)),
         Value::Array(values) => values
+            .snapshot()
+            .into_iter()
+            .map(json_value_from_value)
+            .collect::<Result<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::List(values) => values
+            .snapshot()
+            .into_iter()
+            .map(json_value_from_value)
+            .collect::<Result<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::Set(values) => values
+            .snapshot()
             .into_iter()
             .map(json_value_from_value)
             .collect::<Result<Vec<_>>>()
             .map(JsonValue::Array),
         Value::Map(values) => values
+            .snapshot()
             .into_iter()
             .map(|(key, value)| Ok((key, json_value_from_value(value)?)))
             .collect::<Result<serde_json::Map<_, _>>>()

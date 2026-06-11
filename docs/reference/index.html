@@ -120,6 +120,14 @@ end</code></pre>
             <p>Declaration shape stays postfix: declaration name first, declaration operator last.</p>
           </article>
           <article>
+            <h3>Collection Declarations</h3>
+            <pre><code>users array
+settings map
+queue list
+tags Set</code></pre>
+            <p>Name-first collection declarations bind mutable shared collections. Use `Array new`, `Map new`, `List new`, or `Set new` for anonymous values.</p>
+          </article>
+          <article>
             <h3>Argument Lists</h3>
             <pre><code>( ctx -> Response ) "index" [
   ctx get "home/index" swap view
@@ -183,10 +191,14 @@ POST "/users" UserController "create" route</code></pre>
             <button type="button" class="filter-button" data-filter="stack">Stack</button>
             <button type="button" class="filter-button" data-filter="math">Math</button>
             <button type="button" class="filter-button" data-filter="data">Data</button>
+            <button type="button" class="filter-button" data-filter="collection">Collections</button>
+            <button type="button" class="filter-button" data-filter="string">Strings</button>
             <button type="button" class="filter-button" data-filter="oop">OOP</button>
             <button type="button" class="filter-button" data-filter="control">Control</button>
             <button type="button" class="filter-button" data-filter="web">Web</button>
             <button type="button" class="filter-button" data-filter="result">Results</button>
+            <button type="button" class="filter-button" data-filter="system">System</button>
+            <button type="button" class="filter-button" data-filter="inspect">Inspect</button>
           </div>
         </div>
         <div id="word-grid" class="word-grid" aria-live="polite"></div>
@@ -329,8 +341,14 @@ end</code></pre>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record calls example" title="Copy">copy</button><code>User .all
 42 User .find
 "email" "ada@example.com" User .where
-map "email" "ada@example.com" !put "name" "Ada" !put User .insert
-42 map "email" "grace@example.com" !put "name" "Grace" !put User .update</code></pre>
+attributes map
+"email" "ada@example.com" attributes get .put! drop
+"name" "Ada" attributes get .put! drop
+attributes get User .insert
+
+updates map
+"email" "grace@example.com" updates get .put! drop
+42 updates get User .update</code></pre>
           </article>
 
           <article class="example-panel wide">
@@ -449,10 +467,26 @@ end</code></pre>
           <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app skeleton.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco repl [--debug]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
-          <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt;</code><span>Compile and execute a script.</span></div>
+          <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco serve [--debug] [--watch]</code><span>Run the current directory as an MVC web app.</span></div>
           <div><code>rco test [--debug] [path]</code><span>Run `TestCase` subclasses from `tests` by default.</span></div>
+        </div>
+        <div class="example-grid compact-examples">
+          <article class="example-panel">
+            <h3>CLI Script Words</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy CLI words example" title="Copy">copy</button><code>args .count println
+"DATABASE_URL" env dup ok? if value println else error .message get eprint end
+cwd value println
+now println
+100 random println</code></pre>
+          </article>
+          <article class="example-panel">
+            <h3>Capabilities</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy capability example" title="Copy">copy</button><code>"README.md" fs .read-text value .count println
+"https://example.com" http .get value response var
+"status" response get .at println</code></pre>
+          </article>
         </div>
       </section>
 
@@ -463,7 +497,7 @@ end</code></pre>
         </div>
         <ul class="limit-list">
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>Addition and subtraction exist. Multiplication and division remain library-level work; they can already be expressed with loops.</li>
+          <li>HTTP and filesystem access are host capabilities. The CLI enables them; embedded hosts can leave them disabled.</li>
           <li>Async, packages, and AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>

@@ -21,6 +21,7 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tempfile = "3"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }

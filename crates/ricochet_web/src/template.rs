@@ -168,7 +168,7 @@ mod tests {
             Value::Map(BTreeMap::from([(
                 "name".to_string(),
                 Value::String("Ada <Lovelace>".to_string()),
-            )])),
+            )]).into()),
         )]);
 
         let rendered = render_template(

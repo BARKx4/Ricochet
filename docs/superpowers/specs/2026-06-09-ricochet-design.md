@@ -88,12 +88,16 @@ user .email get
 "a@example.com" user .email set
 ```
 
-Mutation is marked with prefix bang words:
+Collection mutation is marked with receiver-style bang methods. Mutators return
+the same collection reference so they can be chained or dropped explicitly:
 
 ```forth
-users get "a@example.com" !push users set
-config get "theme" "dark" !put config set
+"a@example.com" users get .push! drop
+"theme" "dark" config get .put! drop
 ```
+
+The older stack words `!push` and `!put` remain compatibility aliases, but
+`.push!` and `.put!` are canonical for new code.
 
 Predicate words conventionally end with `?`:
 
@@ -185,7 +189,31 @@ else
 end
 ```
 
-Collections are mutable by default. Core collection types include `array`, `list`, `map`, and `set` as constructor words. `array` and `list` are separate types. v1 does not need collection literal syntax.
+Collections are mutable by default. Core collection declarations follow the
+same name-first declaration pattern as classes, fields, methods, and variables:
+
+```forth
+users array
+settings map
+queue list
+tags Set
+```
+
+The lowercase `array`, `map`, and `list` words declare a named collection when
+a string/name is on the stack; otherwise they push an anonymous empty
+collection. `Set` is capitalized for name-first set declarations because
+lowercase `set` is the variable/member setter. Anonymous collection values are
+available through built-in classes:
+
+```forth
+Array new
+Map new
+List new
+Set new
+```
+
+`array` and `list` are separate types. v1 does not need collection literal
+syntax.
 
 ## OOP And Metaprogramming
 
@@ -486,8 +514,12 @@ Active Record operations are class methods with ordinary postfix arguments:
 User .all
 42 User .find
 "email" "ada@example.com" User .where
-map "email" "ada@example.com" !put User .insert
-42 map "email" "grace@example.com" !put User .update
+attributes map
+"email" "ada@example.com" attributes get .put! drop
+attributes get User .insert
+updates map
+"email" "grace@example.com" updates get .put! drop
+42 updates get User .update
 ```
 
 Active Record v1 supports connection configuration, basic table mapping, `find`,

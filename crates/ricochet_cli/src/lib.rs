@@ -35,6 +35,8 @@ enum Command {
         #[arg(long = "breakpoint", value_name = "LINE")]
         breakpoints: Vec<usize>,
         path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     Build { path: Option<String> },
     Serve { #[arg(long)] debug: bool, #[arg(long)] watch: bool },
@@ -65,7 +67,8 @@ pub async fn run_cli() -> Result<()> {
             step,
             breakpoints,
             path,
-        } => run_file(&path, debug, step, &breakpoints)?,
+            args,
+        } => run_file(&path, debug, step, &breakpoints, args)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
         Command::Test { debug, path } => {
@@ -82,6 +85,7 @@ fn run_repl<R: BufRead, W: Write>(
     interactive: bool,
 ) -> Result<()> {
     let mut vm = Vm::default();
+    vm.enable_cli_capabilities();
     if debug {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
@@ -146,10 +150,8 @@ fn write_repl_result<W: Write>(
     output: &mut W,
     output_cursor: &mut usize,
 ) -> Result<()> {
-    for line in &vm.output_lines()[*output_cursor..] {
-        writeln!(output, "{line}")?;
-    }
-    *output_cursor = vm.output_lines().len();
+    write!(output, "{}", &vm.stdout()[*output_cursor..])?;
+    *output_cursor = vm.stdout().len();
     writeln!(output, "{:?}", vm.stack())?;
     output.flush()?;
     Ok(())
@@ -324,10 +326,25 @@ fn project_name(path: &Path) -> String {
     }
 }
 
-fn run_file(path: &str, debug: bool, step: bool, breakpoints: &[usize]) -> Result<()> {
+fn run_file(
+    path: &str,
+    debug: bool,
+    step: bool,
+    breakpoints: &[usize],
+    args: Vec<String>,
+) -> Result<()> {
     let (file, source) = read_source(path)?;
     let chunk = compile_source(&file, &source)?;
     let mut vm = Vm::default();
+    vm.enable_cli_capabilities();
+    vm.set_program_args(args);
+    vm.set_input_reader(|| {
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())
+            .map(|read| (read > 0).then_some(line))
+    });
     let debugger_enabled = debug || step || !breakpoints.is_empty();
     if debugger_enabled {
         vm.enable_debug();
@@ -347,8 +364,10 @@ fn run_file(path: &str, debug: bool, step: bool, breakpoints: &[usize]) -> Resul
     }
 
     let result = vm.run_chunk(&chunk);
-    for line in vm.output_lines() {
-        println!("{line}");
+    print!("{}", vm.stdout());
+    eprint!("{}", vm.stderr());
+    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
+        std::process::exit(code);
     }
     result?;
 
@@ -386,6 +405,7 @@ fn run_tests(path: &str, debug: bool) -> Result<()> {
         let (file_name, source) = read_source_path(&file)?;
         let chunk = compile_source(&file_name, &source)?;
         let mut vm = Vm::default();
+        vm.enable_cli_capabilities();
         if debug {
             vm.enable_debug();
             vm.set_debug_sink(print_debug_event);

@@ -7,6 +7,8 @@ pub enum LexError {
     UnterminatedString(usize),
     #[error("unterminated comment at byte {0}")]
     UnterminatedComment(usize),
+    #[error("invalid string escape \\{escape} at byte {position}")]
+    InvalidStringEscape { escape: char, position: usize },
 }
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
@@ -89,7 +91,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 if i >= bytes.len() {
                     return Err(LexError::UnterminatedString(start));
                 }
-                let text = source[body_start..i].to_string();
+                let text = decode_string(&source[body_start..i], body_start)?;
                 i += 1;
                 tokens.push(Token {
                     kind: TokenKind::String(text),
@@ -145,6 +147,40 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     Ok(tokens)
 }
 
+fn decode_string(value: &str, offset: usize) -> Result<String, LexError> {
+    let mut decoded = String::new();
+    let mut characters = value.char_indices();
+
+    while let Some((index, character)) = characters.next() {
+        if character != '\\' {
+            decoded.push(character);
+            continue;
+        }
+
+        let Some((_, escape)) = characters.next() else {
+            return Err(LexError::InvalidStringEscape {
+                escape: '\\',
+                position: offset + index,
+            });
+        };
+        decoded.push(match escape {
+            '"' => '"',
+            '\\' => '\\',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            escape => {
+                return Err(LexError::InvalidStringEscape {
+                    escape,
+                    position: offset + index,
+                });
+            }
+        });
+    }
+
+    Ok(decoded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +217,15 @@ mod tests {
         assert_eq!(kinds[0], TokenKind::LeftParen);
         assert!(kinds.contains(&TokenKind::Arrow));
         assert!(kinds.contains(&TokenKind::RightParen));
+    }
+
+    #[test]
+    fn decodes_modern_string_escapes() {
+        let tokens = lex(r#""quote: \" slash: \\ line:\n tab:\t""#).expect("lexing succeeds");
+
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::String("quote: \" slash: \\ line:\n tab:\t".to_string())
+        );
     }
 }

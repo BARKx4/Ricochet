@@ -485,7 +485,7 @@ fn row_to_value(row: &Row, mapping: &ModelMapping) -> Result<Value, ActiveRecord
         values.insert(field.clone(), value);
     }
 
-    Ok(Value::Map(values))
+    Ok(Value::Map(values.into()))
 }
 
 fn column_value(
@@ -535,12 +535,15 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Number(_) => "number",
         Value::String(_) => "string",
         Value::Array(_) => "array",
+        Value::List(_) => "list",
         Value::Map(_) => "map",
+        Value::Set(_) => "set",
         Value::Class(_) => "class",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+        Value::Capability(_) => "capability",
     }
 }
 
@@ -696,7 +699,7 @@ mod tests {
     #[test]
     fn postgres_parameters_reject_non_scalar_values() {
         assert_eq!(
-            PostgresParameter::try_from(&Value::Array(Vec::new())),
+            PostgresParameter::try_from(&Value::Array(Vec::new().into())),
             Err(ActiveRecordError::UnsupportedValue {
                 operation: "PostgreSQL parameter",
                 actual: "array".to_string(),

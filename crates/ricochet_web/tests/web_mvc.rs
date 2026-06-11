@@ -79,7 +79,7 @@ impl DatabaseBackend for FixtureDatabase {
                 "email".to_string(),
                 Value::String("ada@example.com".to_string()),
             ),
-        ]))])
+        ]).into())])
     }
 
     fn where_eq(
@@ -96,7 +96,7 @@ impl DatabaseBackend for FixtureDatabase {
         _mapping: &ModelMapping,
         attributes: &BTreeMap<String, Value>,
     ) -> Result<Value, ActiveRecordError> {
-        Ok(Value::Map(attributes.clone()))
+        Ok(Value::Map(attributes.clone().into()))
     }
 
     fn update_by_id(
@@ -105,7 +105,7 @@ impl DatabaseBackend for FixtureDatabase {
         _id: Value,
         attributes: &BTreeMap<String, Value>,
     ) -> Result<Value, ActiveRecordError> {
-        Ok(Value::Map(attributes.clone()))
+        Ok(Value::Map(attributes.clone().into()))
     }
 }
 

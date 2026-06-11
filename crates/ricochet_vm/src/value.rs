@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
-
 use ricochet_bytecode::Chunk;
 use thiserror::Error;
 
+use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
+use crate::capability::Capability;
 use crate::object::Instance;
 use crate::result::{RicochetError, RicochetResult};
 
@@ -12,13 +12,16 @@ pub enum Value {
     Bool(bool),
     Number(i64),
     String(String),
-    Array(Vec<Value>),
-    Map(BTreeMap<String, Value>),
+    Array(ArrayValue),
+    List(ListValue),
+    Map(MapValue),
+    Set(SetValue),
     Class(String),
     Instance(Instance),
     Member(String),
     Block(Chunk),
     Result(RicochetResult),
+    Capability(Capability),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -35,12 +38,15 @@ impl Value {
             Value::Number(v) => *v != 0,
             Value::String(v) => !v.is_empty(),
             Value::Array(v) => !v.is_empty(),
+            Value::List(v) => !v.is_empty(),
             Value::Map(v) => !v.is_empty(),
+            Value::Set(v) => !v.is_empty(),
             Value::Class(_) => true,
             Value::Instance(_) => true,
             Value::Member(_) => true,
             Value::Block(_) => true,
             Value::Result(_) => true,
+            Value::Capability(_) => true,
         }
     }
 
@@ -70,7 +76,9 @@ impl Value {
             (_, "nil?") => Some(Value::Bool(false)),
             (Value::String(s), "empty?") => Some(Value::Bool(s.is_empty())),
             (Value::Array(a), "empty?") => Some(Value::Bool(a.is_empty())),
+            (Value::List(a), "empty?") => Some(Value::Bool(a.is_empty())),
             (Value::Map(m), "empty?") => Some(Value::Bool(m.is_empty())),
+            (Value::Set(s), "empty?") => Some(Value::Bool(s.is_empty())),
             _ => None,
         }
     }
@@ -80,6 +88,7 @@ impl Value {
 mod tests {
     use std::collections::BTreeMap;
 
+    use crate::collection::{ArrayValue, MapValue};
     use crate::object::Instance;
 
     use super::*;
@@ -108,10 +117,10 @@ mod tests {
             (Value::Number(1), true),
             (Value::String(String::new()), false),
             (Value::String("Ada".to_string()), true),
-            (Value::Array(Vec::new()), false),
-            (Value::Array(vec![Value::Nil]), true),
-            (Value::Map(BTreeMap::new()), false),
-            (Value::Map(populated_map), true),
+            (Value::Array(ArrayValue::default()), false),
+            (Value::Array(ArrayValue::from(vec![Value::Nil])), true),
+            (Value::Map(MapValue::default()), false),
+            (Value::Map(MapValue::from(populated_map)), true),
             (instance, true),
         ];
 

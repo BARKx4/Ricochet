@@ -97,7 +97,7 @@ pub fn install_database_capability(
         let model_name = string_argument(&arguments, 0, "DatabaseCapability.all", "model name")?;
         let mapping = model_mapping(&all_mappings, model_name);
         Ok(match mapping.and_then(|mapping| all_backend.all(mapping)) {
-            Ok(values) => Value::result_ok(Value::Array(values)),
+            Ok(values) => Value::result_ok(Value::Array(values.into())),
             Err(error) => database_result_error(error),
         })
     })?;
@@ -128,7 +128,7 @@ pub fn install_database_capability(
         let mapping = model_mapping(&where_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| where_backend.where_eq(mapping, field, value)) {
-                Ok(values) => Value::result_ok(Value::Array(values)),
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
                 Err(error) => database_result_error(error),
             },
         )
@@ -143,7 +143,7 @@ pub fn install_database_capability(
             map_argument(&arguments, 1, "DatabaseCapability.insert", "attributes map")?;
         let mapping = model_mapping(&insert_mappings, model_name);
         Ok(
-            match mapping.and_then(|mapping| insert_backend.insert(mapping, attributes)) {
+            match mapping.and_then(|mapping| insert_backend.insert(mapping, &attributes)) {
                 Ok(value) => Value::result_ok(value),
                 Err(error) => database_result_error(error),
             },
@@ -163,7 +163,7 @@ pub fn install_database_capability(
             map_argument(&arguments, 2, "DatabaseCapability.update", "attributes map")?;
         let mapping = model_mapping(&update_mappings, model_name);
         Ok(match mapping
-            .and_then(|mapping| update_backend.update_by_id(mapping, id, attributes))
+            .and_then(|mapping| update_backend.update_by_id(mapping, id, &attributes))
         {
             Ok(value) => Value::result_ok(value),
             Err(error) => database_result_error(error),
@@ -186,7 +186,7 @@ fn install_model_active_record_methods(
             let all_mapping = mapping.clone();
             vm.add_native_method_with_arity("all", 0, move |_| {
                 Ok(match all_backend.all(&all_mapping) {
-                    Ok(values) => Value::result_ok(Value::Array(values)),
+                    Ok(values) => Value::result_ok(Value::Array(values.into())),
                     Err(error) => database_result_error(error),
                 })
             })?;
@@ -214,7 +214,7 @@ fn install_model_active_record_methods(
                     missing_native_argument(&where_method, 2, arguments.len())
                 })?;
                 Ok(match where_backend.where_eq(&where_mapping, field, value) {
-                    Ok(values) => Value::result_ok(Value::Array(values)),
+                    Ok(values) => Value::result_ok(Value::Array(values.into())),
                     Err(error) => database_result_error(error),
                 })
             })?;
@@ -225,7 +225,7 @@ fn install_model_active_record_methods(
             vm.add_native_method_with_arity("insert", 1, move |arguments| {
                 let attributes =
                     map_argument(&arguments, 0, &insert_method, "attributes map")?;
-                Ok(match insert_backend.insert(&insert_mapping, attributes) {
+                Ok(match insert_backend.insert(&insert_mapping, &attributes) {
                     Ok(value) => Value::result_ok(value),
                     Err(error) => database_result_error(error),
                 })
@@ -240,7 +240,7 @@ fn install_model_active_record_methods(
                 })?;
                 let attributes =
                     map_argument(&arguments, 1, &update_method, "attributes map")?;
-                Ok(match update_backend.update_by_id(&update_mapping, id, attributes) {
+                Ok(match update_backend.update_by_id(&update_mapping, id, &attributes) {
                     Ok(value) => Value::result_ok(value),
                     Err(error) => database_result_error(error),
                 })
@@ -308,14 +308,14 @@ fn string_argument<'a>(
     }
 }
 
-fn map_argument<'a>(
-    arguments: &'a [Value],
+fn map_argument(
+    arguments: &[Value],
     index: usize,
     method: &str,
     expected: &str,
-) -> Result<&'a BTreeMap<String, Value>, VmError> {
+) -> Result<BTreeMap<String, Value>, VmError> {
     match arguments.get(index) {
-        Some(Value::Map(value)) => Ok(value),
+        Some(Value::Map(value)) => Ok(value.snapshot()),
         Some(value) => Err(VmError::TypeError {
             word: method.to_string(),
             expected: expected.to_string(),
@@ -340,12 +340,15 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Number(_) => "number",
         Value::String(_) => "string",
         Value::Array(_) => "array",
+        Value::List(_) => "list",
         Value::Map(_) => "map",
+        Value::Set(_) => "set",
         Value::Class(_) => "class",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+        Value::Capability(_) => "capability",
     }
 }
 
@@ -369,7 +372,7 @@ mod tests {
             Ok(vec![Value::Map(BTreeMap::from([
                 ("id".to_string(), Value::Number(1)),
                 ("email".to_string(), Value::String("ada@example.com".to_string())),
-            ]))])
+            ]).into())])
         }
 
         fn where_eq(
@@ -386,7 +389,7 @@ mod tests {
             _mapping: &ModelMapping,
             attributes: &BTreeMap<String, Value>,
         ) -> Result<Value, ActiveRecordError> {
-            Ok(Value::Map(attributes.clone()))
+            Ok(Value::Map(attributes.clone().into()))
         }
 
         fn update_by_id(
@@ -395,7 +398,7 @@ mod tests {
             _id: Value,
             attributes: &BTreeMap<String, Value>,
         ) -> Result<Value, ActiveRecordError> {
-            Ok(Value::Map(attributes.clone()))
+            Ok(Value::Map(attributes.clone().into()))
         }
     }
 
@@ -490,7 +493,7 @@ mod tests {
         assert_eq!(
             vm.stack(),
             &[Value::Result(RicochetResult::Ok(Box::new(Value::Array(
-                Vec::new()
+                Vec::new().into()
             ))))]
         );
     }
@@ -512,7 +515,7 @@ mod tests {
                 BTreeMap::from([(
                     "email".to_string(),
                     Value::String("ada@example.com".to_string())
-                )])
+                )]).into()
             ))))]
         );
     }
@@ -534,7 +537,7 @@ mod tests {
                 BTreeMap::from([(
                     "email".to_string(),
                     Value::String("grace@example.com".to_string())
-                )])
+                )]).into()
             ))))]
         );
     }

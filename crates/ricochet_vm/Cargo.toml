@@ -8,4 +8,5 @@ license.workspace = true
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 thiserror.workspace = true

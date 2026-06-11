@@ -6,6 +6,8 @@ use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
 
 use crate::class::{BytecodeCallable, Class, NativeMethod};
+use crate::capability::Capability;
+use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
 use crate::result::RicochetResult;
@@ -25,6 +27,20 @@ pub enum VmError {
     UnsupportedOpcode(String),
     #[error("arithmetic overflow in {word}")]
     ArithmeticOverflow { word: String },
+    #[error("division by zero in {word}")]
+    DivisionByZero { word: String },
+    #[error("index {index} is out of bounds in {word}; length is {length}")]
+    IndexOutOfBounds {
+        word: String,
+        index: usize,
+        length: usize,
+    },
+    #[error("invalid argument in {word}: {message}")]
+    InvalidArgument { word: String, message: String },
+    #[error("host operation failed in {word}: {message}")]
+    HostError { word: String, message: String },
+    #[error("process exit requested with status {code}")]
+    ExitRequested { code: i32 },
     #[error("type error in {word}: expected {expected}, got {actual}")]
     TypeError {
         word: String,
@@ -66,16 +82,23 @@ pub enum VmError {
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
+type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
 
 #[derive(Clone, Default)]
 pub struct Vm {
-    stack: Vec<Value>,
+    pub(super) stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
     functions: BTreeMap<String, BytecodeCallable>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
     output_lines: Vec<String>,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
+    pub(super) program_args: Vec<String>,
+    pub(super) input_reader: Option<InputReader>,
+    filesystem_enabled: bool,
+    http_enabled: bool,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     debug_sink: Option<DebugSink>,
@@ -93,7 +116,7 @@ enum ExecutionSignal {
 }
 
 #[derive(Clone)]
-enum ResolvedMethod {
+pub(super) enum ResolvedMethod {
     Native {
         owner: String,
         method: NativeMethod,
@@ -119,6 +142,30 @@ impl Vm {
 
     pub fn output_lines(&self) -> &[String] {
         &self.output_lines
+    }
+
+    pub fn stdout(&self) -> &str {
+        &self.stdout
+    }
+
+    pub fn stderr(&self) -> &str {
+        &self.stderr
+    }
+
+    pub fn set_program_args(&mut self, args: impl IntoIterator<Item = String>) {
+        self.program_args = args.into_iter().collect();
+    }
+
+    pub fn set_input_reader<F>(&mut self, reader: F)
+    where
+        F: FnMut() -> Result<Option<String>, String> + 'static,
+    {
+        self.input_reader = Some(Rc::new(RefCell::new(reader)));
+    }
+
+    pub fn enable_cli_capabilities(&mut self) {
+        self.filesystem_enabled = true;
+        self.http_enabled = true;
     }
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
@@ -313,7 +360,7 @@ impl Vm {
                 .get(field)
                 .cloned()
                 .unwrap_or(Value::Nil)),
-            Value::Map(map) => Ok(map.get(field).cloned().unwrap_or(Value::Nil)),
+            Value::Map(map) => Ok(map.get(field).unwrap_or(Value::Nil)),
             value => Err(VmError::TypeError {
                 word: format!("get_field {field}"),
                 expected: "instance or map".to_string(),
@@ -327,6 +374,10 @@ impl Vm {
         receiver: Value,
         method_name: &str,
     ) -> Result<Value, VmError> {
+        if self.builtin_method_exists(&receiver, method_name) {
+            return self.call_builtin_method(receiver, method_name);
+        }
+
         match receiver {
             Value::Class(class_name) => {
                 let (owner, method) = self
@@ -600,6 +651,17 @@ impl Vm {
         match word {
             "+" | "add" => self.call_add(word),
             "-" | "subtract" => self.call_subtract(word),
+            "*" | "multiply" => self.call_multiply(word),
+            "/" | "divide" => self.call_divide(word),
+            "%" | "modulo" => self.call_modulo(word),
+            "negate" => self.call_negate(word),
+            "abs" => self.call_abs(word),
+            "min" => self.call_min(word),
+            "max" => self.call_max(word),
+            "clamp" => self.call_clamp(word),
+            "not" => self.call_not(word),
+            "and" => self.call_boolean_binary(word, |left, right| left && right),
+            "or" => self.call_boolean_binary(word, |left, right| left || right),
             "equals" | "=" => self.call_equals(word),
             "not-equals?" | "!=" => self.call_not_equals(word),
             "assert-equals" => self.call_assert_equals(word),
@@ -624,22 +686,82 @@ impl Vm {
             "drop" => self.call_drop(word),
             "over" => self.call_over(word),
             "rot" => self.call_rot(word),
+            "nip" => self.call_nip(word),
+            "tuck" => self.call_tuck(word),
+            "pick" => self.call_pick(word),
+            "roll" => self.call_roll(word),
+            "depth" => {
+                self.stack.push(Value::Number(self.stack.len() as i64));
+                Ok(())
+            }
+            "clear" => {
+                self.stack.clear();
+                Ok(())
+            }
             "call" => self.call_block(word),
             "send" => self.call_send(word),
             "println" => self.call_println(word),
+            "print" => self.call_print(word),
+            "eprint" => self.call_eprint(word),
+            "read-line" => self.call_read_line(word),
+            "args" => self.call_args(),
+            "env" => self.call_env(word),
+            "cwd" => self.call_cwd(),
+            "now" => self.call_now(word),
+            "sleep" => self.call_sleep(word),
+            "random" => self.call_random(word),
+            "exit" => self.call_exit(word),
+            "fs" => {
+                if self.filesystem_enabled {
+                    self.stack
+                        .push(Value::Capability(Capability::FileSystem));
+                    Ok(())
+                } else {
+                    Err(VmError::HostError {
+                        word: word.to_string(),
+                        message: "filesystem capability is not enabled".to_string(),
+                    })
+                }
+            }
+            "http" => {
+                if self.http_enabled {
+                    self.stack.push(Value::Capability(Capability::Http));
+                    Ok(())
+                } else {
+                    Err(VmError::HostError {
+                        word: word.to_string(),
+                        message: "HTTP capability is not enabled".to_string(),
+                    })
+                }
+            }
             "view" => self.call_view(word),
             "text" => self.call_text(word),
             "json" => self.call_json(word),
             "value" => self.call_result_value(word),
             "error" => self.call_result_error(word),
-            "array" => {
-                self.stack.push(Value::Array(Vec::new()));
-                Ok(())
-            }
-            "map" => {
-                self.stack.push(Value::Map(BTreeMap::new()));
-                Ok(())
-            }
+            "ok" => self.call_ok(word),
+            "fail" => self.call_fail(word),
+            "range" => self.call_range(word),
+            "to-string" => self.call_to_string(word),
+            "json-encode" => self.call_json_encode(word),
+            "json-decode" => self.call_json_decode(word),
+            "type" => self.call_type(word),
+            "class-of" => self.call_class_of(word),
+            "instance-of?" => self.call_instance_of(word),
+            "responds-to?" => self.call_responds_to(word),
+            "fields" => self.call_fields(word),
+            "methods" => self.call_methods(word),
+            "callable?" => self.call_callable(word),
+            "Array" | "List" | "Map" | "Set" => self.call_collection_class_or_declaration(word),
+            "array" => self.call_collection_declaration_or_constructor(Value::Array(
+                ArrayValue::default(),
+            )),
+            "list" => self.call_collection_declaration_or_constructor(Value::List(
+                ListValue::default(),
+            )),
+            "map" => self.call_collection_declaration_or_constructor(Value::Map(
+                MapValue::default(),
+            )),
             "!push" => self.call_push(word),
             "!put" => self.call_put(word),
             "!method" => self.call_install_method(word),
@@ -710,10 +832,10 @@ impl Vm {
         let result = self.pop(word)?;
         match result {
             Value::Result(RicochetResult::Err(error)) => {
-                self.stack.push(Value::Map(BTreeMap::from([
+                self.stack.push(Value::Map(MapValue::from(BTreeMap::from([
                     ("kind".to_string(), Value::String(error.kind)),
                     ("message".to_string(), Value::String(error.message)),
-                ])));
+                ]))));
                 Ok(())
             }
             Value::Result(RicochetResult::Ok(_)) => {
@@ -937,7 +1059,17 @@ impl Vm {
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {
+        self.call_bytecode_block_with_args(frame, block, Vec::new())
+    }
+
+    pub(super) fn call_bytecode_block_with_args(
+        &mut self,
+        frame: &str,
+        block: &Chunk,
+        arguments: Vec<Value>,
+    ) -> Result<Value, VmError> {
         let base = self.stack.len();
+        self.stack.extend(arguments);
         let run_result = self.run_chunk_with_frame(block, frame, true);
 
         match run_result {
@@ -1002,7 +1134,8 @@ impl Vm {
             Some(Value::Instance(instance)) => self
                 .resolve_instance_method(&instance.class_name, name)?
                 .is_some(),
-            _ => false,
+            Some(value) => self.builtin_method_exists(value, name),
+            None => false,
         };
 
         if should_dispatch {
@@ -1228,6 +1361,37 @@ impl Vm {
         Ok(())
     }
 
+    fn call_collection_declaration_or_constructor(
+        &mut self,
+        value: Value,
+    ) -> Result<(), VmError> {
+        if let Some(Value::String(name)) = self.stack.last().cloned() {
+            self.stack.pop();
+            self.variables.entry(name).or_insert(value);
+        } else {
+            self.stack.push(value);
+        }
+        Ok(())
+    }
+
+    fn call_collection_class_or_declaration(&mut self, class_name: &str) -> Result<(), VmError> {
+        let collection = match class_name {
+            "Array" => Value::Array(ArrayValue::default()),
+            "List" => Value::List(ListValue::default()),
+            "Map" => Value::Map(MapValue::default()),
+            "Set" => Value::Set(SetValue::default()),
+            _ => unreachable!("collection class caller restricts names"),
+        };
+
+        if let Some(Value::String(name)) = self.stack.last().cloned() {
+            self.stack.pop();
+            self.variables.entry(name).or_insert(collection);
+        } else {
+            self.stack.push(Value::Class(class_name.to_string()));
+        }
+        Ok(())
+    }
+
     fn call_new(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let class_name = match self.pop(word)? {
@@ -1241,6 +1405,18 @@ impl Vm {
                 });
             }
         };
+
+        let built_in = match class_name.as_str() {
+            "Array" => Some(Value::Array(ArrayValue::default())),
+            "List" => Some(Value::List(ListValue::default())),
+            "Map" => Some(Value::Map(MapValue::default())),
+            "Set" => Some(Value::Set(SetValue::default())),
+            _ => None,
+        };
+        if let Some(value) = built_in {
+            self.stack.push(value);
+            return Ok(());
+        }
 
         match self.new_instance(&class_name) {
             Ok(instance) => {
@@ -1343,7 +1519,10 @@ impl Vm {
 
     fn call_println(&mut self, word: &str) -> Result<(), VmError> {
         let value = self.pop(word)?;
-        self.output_lines.push(output_string(&value));
+        let output = output_string(&value);
+        self.output_lines.push(output.clone());
+        self.stdout.push_str(&output);
+        self.stdout.push('\n');
         Ok(())
     }
 
@@ -1372,7 +1551,7 @@ impl Vm {
         let mut action = BTreeMap::new();
         action.insert("type".to_string(), Value::String("view".to_string()));
         action.insert("name".to_string(), Value::String(view_name));
-        self.stack.push(Value::Map(action));
+        self.stack.push(Value::Map(action.into()));
         Ok(())
     }
 
@@ -1401,7 +1580,7 @@ impl Vm {
         let mut action = BTreeMap::new();
         action.insert("type".to_string(), Value::String("text".to_string()));
         action.insert("body".to_string(), Value::String(body));
-        self.stack.push(Value::Map(action));
+        self.stack.push(Value::Map(action.into()));
         Ok(())
     }
 
@@ -1410,7 +1589,7 @@ impl Vm {
         let mut action = BTreeMap::new();
         action.insert("type".to_string(), Value::String("json".to_string()));
         action.insert("body".to_string(), body);
-        self.stack.push(Value::Map(action));
+        self.stack.push(Value::Map(action.into()));
         Ok(())
     }
 
@@ -1547,7 +1726,7 @@ impl Vm {
         let value = self.stack[self.stack.len() - 1].clone();
 
         match array {
-            Value::Array(mut values) => {
+            Value::Array(values) => {
                 values.push(value);
                 self.stack.truncate(self.stack.len() - 2);
                 self.stack.push(Value::Array(values));
@@ -1588,7 +1767,6 @@ impl Vm {
             }
         };
 
-        let mut map = map;
         map.insert(key, value);
         self.stack.push(Value::Map(map));
         Ok(())
@@ -1619,7 +1797,7 @@ impl Vm {
         Ok(())
     }
 
-    fn ensure_stack(&self, word: &str, needed: usize) -> Result<(), VmError> {
+    pub(super) fn ensure_stack(&self, word: &str, needed: usize) -> Result<(), VmError> {
         let available = self.stack.len();
         if available < needed {
             return Err(VmError::StackUnderflow {
@@ -1632,7 +1810,7 @@ impl Vm {
         Ok(())
     }
 
-    fn pop(&mut self, word: &str) -> Result<Value, VmError> {
+    pub(super) fn pop(&mut self, word: &str) -> Result<Value, VmError> {
         let available = self.stack.len();
         self.stack.pop().ok_or_else(|| VmError::StackUnderflow {
             word: word.to_string(),
@@ -1641,7 +1819,7 @@ impl Vm {
         })
     }
 
-    fn pop_number(&mut self, word: &str) -> Result<i64, VmError> {
+    pub(super) fn pop_number(&mut self, word: &str) -> Result<i64, VmError> {
         match self.pop(word)? {
             Value::Number(value) => Ok(value),
             value => Err(VmError::TypeError {
@@ -1652,7 +1830,7 @@ impl Vm {
         }
     }
 
-    fn pop_unchecked(&mut self) -> Value {
+    pub(super) fn pop_unchecked(&mut self) -> Value {
         self.stack
             .pop()
             .expect("stack length checked before pop")
@@ -1669,7 +1847,7 @@ impl Vm {
             .ok_or(VmError::UnknownClass(class_name))
     }
 
-    fn inheritance_chain(&self, class_name: &str) -> Result<Vec<&Class>, VmError> {
+    pub(super) fn inheritance_chain(&self, class_name: &str) -> Result<Vec<&Class>, VmError> {
         let mut chain = Vec::new();
         let mut visited = BTreeSet::new();
         let mut current_name = class_name;
@@ -1696,7 +1874,7 @@ impl Vm {
         Ok(chain)
     }
 
-    fn resolve_native_method(
+    pub(super) fn resolve_native_method(
         &self,
         class_name: &str,
         method_name: &str,
@@ -1709,7 +1887,7 @@ impl Vm {
         Ok(None)
     }
 
-    fn resolve_instance_method(
+    pub(super) fn resolve_instance_method(
         &self,
         class_name: &str,
         method_name: &str,
@@ -1732,19 +1910,22 @@ impl Vm {
     }
 }
 
-fn value_kind(value: &Value) -> &'static str {
+pub(super) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::Nil => "nil",
         Value::Bool(_) => "bool",
         Value::Number(_) => "number",
         Value::String(_) => "string",
         Value::Array(_) => "array",
+        Value::List(_) => "list",
         Value::Map(_) => "map",
+        Value::Set(_) => "set",
         Value::Class(_) => "class",
         Value::Instance(_) => "instance",
         Value::Member(_) => "member selector",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+        Value::Capability(_) => "capability",
     }
 }
 
@@ -1839,6 +2020,70 @@ mod tests {
             })
         );
         assert_eq!(vm.stack(), &[Value::Number(1)]);
+    }
+
+    #[test]
+    fn number_words_preserve_stack_on_type_errors() {
+        let cases = [
+            ("*", vec![Value::Number(4), Value::String("oops".to_string())]),
+            ("/", vec![Value::Number(4), Value::String("oops".to_string())]),
+            ("%", vec![Value::Number(4), Value::String("oops".to_string())]),
+            ("min", vec![Value::Number(4), Value::String("oops".to_string())]),
+            ("negate", vec![Value::String("oops".to_string())]),
+            (
+                "clamp",
+                vec![
+                    Value::Number(4),
+                    Value::String("oops".to_string()),
+                    Value::Number(10),
+                ],
+            ),
+        ];
+
+        for (word, stack) in cases {
+            let mut vm = Vm::default();
+            vm.stack = stack.clone();
+
+            assert!(
+                matches!(vm.call_word(word), Err(VmError::TypeError { .. })),
+                "{word} should reject non-number operands"
+            );
+            assert_eq!(
+                vm.stack(),
+                stack.as_slice(),
+                "{word} should preserve operands for debug inspection"
+            );
+        }
+    }
+
+    #[test]
+    fn division_and_modulo_preserve_stack_on_zero() {
+        for word in ["/", "%"] {
+            let mut vm = Vm::default();
+            vm.stack = vec![Value::Number(8), Value::Number(0)];
+
+            assert_eq!(
+                vm.call_word(word),
+                Err(VmError::DivisionByZero {
+                    word: word.to_string(),
+                })
+            );
+            assert_eq!(vm.stack(), &[Value::Number(8), Value::Number(0)]);
+        }
+    }
+
+    #[test]
+    fn disabled_capability_words_preserve_stack() {
+        for word in ["fs", "http"] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::String("sentinel".to_string()));
+
+            assert!(
+                matches!(vm.call_word(word), Err(VmError::HostError { .. })),
+                "{word} should require explicit host enablement"
+            );
+            assert_eq!(vm.stack(), &[Value::String("sentinel".to_string())]);
+        }
     }
 
     #[test]
@@ -2119,7 +2364,7 @@ mod tests {
                     "message".to_string(),
                     Value::String("connection failed".to_string()),
                 ),
-            ]))]
+            ]).into())]
         );
     }
 
@@ -2290,7 +2535,10 @@ mod tests {
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("array push succeeds");
 
-        assert_eq!(vm.stack(), &[Value::Array(vec![Value::Number(42)])]);
+        assert_eq!(
+            vm.stack(),
+            &[Value::Array(vec![Value::Number(42)].into())]
+        );
     }
 
     #[test]
@@ -2312,7 +2560,7 @@ mod tests {
     #[test]
     fn map_put_type_errors_preserve_stack() {
         let mut vm = Vm::default();
-        vm.stack.push(Value::Array(Vec::new()));
+        vm.stack.push(Value::Array(Vec::new().into()));
         vm.stack.push(Value::String("name".to_string()));
         vm.stack.push(Value::String("Ada".to_string()));
 
@@ -2327,7 +2575,7 @@ mod tests {
         assert_eq!(
             vm.stack(),
             &[
-                Value::Array(Vec::new()),
+                Value::Array(Vec::new().into()),
                 Value::String("name".to_string()),
                 Value::String("Ada".to_string())
             ]
@@ -2919,13 +3167,13 @@ mod tests {
         params.insert("id".to_string(), Value::String("42".to_string()));
 
         let mut vm = Vm::default();
-        vm.stack.push(Value::Map(params.clone()));
+        vm.stack.push(Value::Map(params.clone().into()));
         vm.stack.push(Value::Member("id".to_string()));
         vm.call_word("get").expect("map member get succeeds");
         assert_eq!(vm.stack(), &[Value::String("42".to_string())]);
 
         vm.stack.clear();
-        vm.stack.push(Value::Map(params));
+        vm.stack.push(Value::Map(params.into()));
         vm.stack.push(Value::Member("missing".to_string()));
         vm.call_word("get")
             .expect("missing map member get succeeds");
@@ -3212,11 +3460,11 @@ mod tests {
         );
         assert_eq!(
             action.get("type"),
-            Some(&Value::String("view".to_string()))
+            Some(Value::String("view".to_string()))
         );
         assert_eq!(
             action.get("name"),
-            Some(&Value::String("home/index".to_string()))
+            Some(Value::String("home/index".to_string()))
         );
     }
 
@@ -3239,11 +3487,11 @@ mod tests {
         };
         assert_eq!(
             action.get("type"),
-            Some(&Value::String("text".to_string()))
+            Some(Value::String("text".to_string()))
         );
         assert_eq!(
             action.get("body"),
-            Some(&Value::String("pong".to_string()))
+            Some(Value::String("pong".to_string()))
         );
     }
 
@@ -3261,9 +3509,9 @@ mod tests {
         };
         assert_eq!(
             action.get("type"),
-            Some(&Value::String("json".to_string()))
+            Some(Value::String("json".to_string()))
         );
-        assert_eq!(action.get("body"), Some(&Value::String("ok".to_string())));
+        assert_eq!(action.get("body"), Some(Value::String("ok".to_string())));
     }
 
     #[test]

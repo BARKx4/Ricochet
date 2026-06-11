@@ -406,7 +406,10 @@ fn variable_binding_pair(exprs: &[SpannedExpr], index: usize) -> Option<(String,
         return None;
     };
 
-    matches!(operator.as_str(), "get" | "set" | "var")
+    matches!(
+        operator.as_str(),
+        "get" | "set" | "var" | "array" | "list" | "map" | "Array" | "List" | "Map" | "Set"
+    )
         .then(|| (name.clone(), operator.clone()))
 }
 
