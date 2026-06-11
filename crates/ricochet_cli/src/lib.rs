@@ -45,6 +45,8 @@ enum Command {
     Test {
         #[arg(long)]
         debug: bool,
+        #[arg(long)]
+        filter: Option<String>,
         path: Option<String>,
     },
 }
@@ -74,8 +76,12 @@ pub async fn run_cli() -> Result<()> {
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
         Command::Routes { path } => routes(path.as_deref().unwrap_or("."))?,
-        Command::Test { debug, path } => {
-            run_tests(path.as_deref().unwrap_or("tests"), debug)?;
+        Command::Test {
+            debug,
+            filter,
+            path,
+        } => {
+            run_tests(path.as_deref().unwrap_or("tests"), debug, filter.as_deref())?;
         }
     }
     Ok(())
@@ -467,7 +473,7 @@ fn read_terminal_debug_action() -> DebugAction {
     }
 }
 
-fn run_tests(path: &str, debug: bool) -> Result<()> {
+fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
     let path = Path::new(path);
     let project_root = find_project_root_for_tests(path);
     let files = collect_test_files_for_path(path, project_root.as_deref())?;
@@ -493,15 +499,22 @@ fn run_tests(path: &str, debug: bool) -> Result<()> {
 
         let tests = vm.test_methods();
         for (class_name, method_name) in tests {
+            let test_name = format!("{class_name}.{method_name}");
+            if let Some(filter) = filter {
+                if !test_name.contains(filter) {
+                    continue;
+                }
+            }
+
             total += 1;
             let instance = vm
                 .new_instance(&class_name)
                 .with_context(|| format!("failed to instantiate test case {class_name}"))?;
             match vm.call_method_value(instance, &method_name) {
-                Ok(_) => println!("PASS {class_name}.{method_name}"),
+                Ok(_) => println!("PASS {test_name}"),
                 Err(error) => {
                     failed += 1;
-                    println!("FAIL {class_name}.{method_name}: {error}");
+                    println!("FAIL {test_name}: {error}");
                 }
             }
         }

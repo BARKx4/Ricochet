@@ -194,6 +194,7 @@ if ($failures.Count -eq 0) {
         "multiplier get 0 &gt; while",
         "rco run --debug --step app.rco",
         "rco routes [path]",
+        "rco test [--debug] [--filter PATTERN] [path]",
         "fs .read-text",
         "http .get",
         "{ user get .name get }"

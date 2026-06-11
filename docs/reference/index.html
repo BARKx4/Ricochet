@@ -508,7 +508,7 @@ end</code></pre>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco serve [--debug] [--watch]</code><span>Run the current directory as an MVC web app.</span></div>
-          <div><code>rco test [--debug] [path]</code><span>Run `TestCase` subclasses. In an MVC project, app sources load before tests.</span></div>
+          <div><code>rco test [--debug] [--filter PATTERN] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
           <article class="example-panel">

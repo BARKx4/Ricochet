@@ -813,6 +813,58 @@ end
 }
 
 #[test]
+fn test_filter_runs_only_matching_testcase_methods() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+UserTest TestCase subclass
+  "testFastPass" [
+    "ada@example.com"
+    "ada@example.com" assert-equals
+  ] !method
+
+  "testSlowFail" [
+    "ada@example.com"
+    "grace@example.com" assert-equals
+  ] !method
+end
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg("--filter")
+        .arg("Fast")
+        .arg(&source_path)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "filtered rco test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("PASS UserTest.testFastPass"),
+        "stdout should include matching passed test, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("testSlowFail"),
+        "stdout should not include filtered-out test, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 tests, 0 failed"),
+        "stdout should include filtered summary, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_reports_assertion_failures() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
