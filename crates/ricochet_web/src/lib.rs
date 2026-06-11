@@ -9,14 +9,13 @@ pub mod template;
 
 pub use active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};
-pub use database_capability::{
-    install_database_capability, DatabaseBackend,
-};
+pub use database_capability::{install_database_capability, DatabaseBackend};
 pub use manifest::{Database, DatabaseDefault, Manifest, Package, Views, Web};
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{
     build_app_from_dir_with_database, build_test_app, routes_from_dir, serve_current_dir,
+    ServeOptions,
 };
 pub use template::{render_template, EscapeMode};
 

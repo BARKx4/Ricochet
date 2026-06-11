@@ -44,9 +44,7 @@ impl Chunk {
     }
 
     pub fn ops(&self) -> impl Iterator<Item = &Op> {
-        self.instructions
-            .iter()
-            .map(|instruction| &instruction.op)
+        self.instructions.iter().map(|instruction| &instruction.op)
     }
 
     pub fn debug(&self) -> impl Iterator<Item = &SourceSpan> {

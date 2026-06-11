@@ -5,8 +5,8 @@ use std::rc::Rc;
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
 
-use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::capability::Capability;
+use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
@@ -74,10 +74,9 @@ pub enum VmError {
     #[error("assert-equals failed: expected {expected}, got {actual}")]
     AssertionFailed { expected: String, actual: String },
     #[error("execution aborted in {frame} at {location}")]
-    ExecutionAborted {
-        frame: String,
-        location: String,
-    },
+    ExecutionAborted { frame: String, location: String },
+    #[error("instruction limit exceeded after {limit} instructions")]
+    InstructionLimitExceeded { limit: u64 },
 }
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
@@ -106,6 +105,8 @@ pub struct Vm {
     step_mode: bool,
     breakpoints: BTreeSet<(String, usize)>,
     suppressed_breakpoint: Option<(String, String, usize)>,
+    instruction_limit: Option<u64>,
+    instructions_executed: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +169,16 @@ impl Vm {
         self.http_enabled = true;
     }
 
+    pub fn set_instruction_limit(&mut self, limit: u64) {
+        self.instruction_limit = Some(limit);
+        self.instructions_executed = 0;
+    }
+
+    pub fn clear_instruction_limit(&mut self) {
+        self.instruction_limit = None;
+        self.instructions_executed = 0;
+    }
+
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
     }
@@ -183,7 +194,9 @@ impl Vm {
     }
 
     pub fn function_args(&self, name: &str) -> Option<&ArgsSpec> {
-        self.functions.get(name).and_then(|function| function.args.as_ref())
+        self.functions
+            .get(name)
+            .and_then(|function| function.args.as_ref())
     }
 
     pub fn method_args(&self, class_name: &str, method_name: &str) -> Option<&ArgsSpec> {
@@ -334,12 +347,7 @@ impl Vm {
         Ok(Value::Instance(Instance::new(class_name, fields)))
     }
 
-    pub fn set_field(
-        &self,
-        instance: Value,
-        field: &str,
-        value: Value,
-    ) -> Result<Value, VmError> {
+    pub fn set_field(&self, instance: Value, field: &str, value: Value) -> Result<Value, VmError> {
         match instance {
             Value::Instance(mut instance) => {
                 instance.fields.insert(field.to_string(), value);
@@ -355,11 +363,9 @@ impl Vm {
 
     pub fn get_field(&self, instance: &Value, field: &str) -> Result<Value, VmError> {
         match instance {
-            Value::Instance(instance) => Ok(instance
-                .fields
-                .get(field)
-                .cloned()
-                .unwrap_or(Value::Nil)),
+            Value::Instance(instance) => {
+                Ok(instance.fields.get(field).cloned().unwrap_or(Value::Nil))
+            }
             Value::Map(map) => Ok(map.get(field).unwrap_or(Value::Nil)),
             value => Err(VmError::TypeError {
                 word: format!("get_field {field}"),
@@ -440,7 +446,9 @@ impl Vm {
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
         self.suppressed_breakpoint = None;
-        self.run_chunk_with_frame(chunk, "<main>", false).map(|_| ())
+        self.instructions_executed = 0;
+        self.run_chunk_with_frame(chunk, "<main>", false)
+            .map(|_| ())
     }
 
     fn run_chunk_with_frame(
@@ -451,20 +459,16 @@ impl Vm {
     ) -> Result<ExecutionSignal, VmError> {
         let mut ip = 0;
         while ip < chunk.instructions.len() {
+            self.consume_instruction_budget()?;
             let instruction = &chunk.instructions[ip];
             self.pause_before_instruction(frame, instruction)?;
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
-            let source = self
-                .debug_enabled
-                .then(|| source_label(&instruction.span));
-            let opcode = self
-                .debug_enabled
-                .then(|| format!("{:?}", &instruction.op));
+            let source = self.debug_enabled.then(|| source_label(&instruction.span));
+            let opcode = self.debug_enabled.then(|| format!("{:?}", &instruction.op));
 
             let result = self.execute_instruction(&instruction.op, chunk, allow_return);
 
-            if let (Some(stack_before), Some(source), Some(opcode)) =
-                (stack_before, source, opcode)
+            if let (Some(stack_before), Some(source), Some(opcode)) = (stack_before, source, opcode)
             {
                 self.record_debug_event(DebugEvent::Instruction {
                     frame: frame.to_string(),
@@ -493,6 +497,16 @@ impl Vm {
         }
 
         Ok(ExecutionSignal::Continue)
+    }
+
+    fn consume_instruction_budget(&mut self) -> Result<(), VmError> {
+        if let Some(limit) = self.instruction_limit {
+            if self.instructions_executed >= limit {
+                return Err(VmError::InstructionLimitExceeded { limit });
+            }
+        }
+        self.instructions_executed += 1;
+        Ok(())
     }
 
     fn pause_before_instruction(
@@ -609,15 +623,14 @@ impl Vm {
                 self.add_bytecode_method(name.clone(), method, args.clone())?;
             }
             Op::AddFunction { name, block, args } => {
-                let function =
-                    chunk
-                        .blocks
-                        .get(*block)
-                        .cloned()
-                        .ok_or(VmError::InvalidBlock {
-                            index: *block,
-                            available: chunk.blocks.len(),
-                        })?;
+                let function = chunk
+                    .blocks
+                    .get(*block)
+                    .cloned()
+                    .ok_or(VmError::InvalidBlock {
+                        index: *block,
+                        available: chunk.blocks.len(),
+                    })?;
                 self.add_function(name.clone(), function, args.clone());
             }
             Op::Return if allow_return => return Ok(ExecutionSignal::Return),
@@ -713,8 +726,7 @@ impl Vm {
             "exit" => self.call_exit(word),
             "fs" => {
                 if self.filesystem_enabled {
-                    self.stack
-                        .push(Value::Capability(Capability::FileSystem));
+                    self.stack.push(Value::Capability(Capability::FileSystem));
                     Ok(())
                 } else {
                     Err(VmError::HostError {
@@ -753,15 +765,15 @@ impl Vm {
             "methods" => self.call_methods(word),
             "callable?" => self.call_callable(word),
             "Array" | "List" | "Map" | "Set" => self.call_collection_class_or_declaration(word),
-            "array" => self.call_collection_declaration_or_constructor(Value::Array(
-                ArrayValue::default(),
-            )),
-            "list" => self.call_collection_declaration_or_constructor(Value::List(
-                ListValue::default(),
-            )),
-            "map" => self.call_collection_declaration_or_constructor(Value::Map(
-                MapValue::default(),
-            )),
+            "array" => {
+                self.call_collection_declaration_or_constructor(Value::Array(ArrayValue::default()))
+            }
+            "list" => {
+                self.call_collection_declaration_or_constructor(Value::List(ListValue::default()))
+            }
+            "map" => {
+                self.call_collection_declaration_or_constructor(Value::Map(MapValue::default()))
+            }
             "!push" => self.call_push(word),
             "!put" => self.call_put(word),
             "!method" => self.call_install_method(word),
@@ -1230,18 +1242,16 @@ impl Vm {
         let selector = self.pop(word)?;
         match selector {
             Value::Member(field) => self.call_field_get(word, stack_before, field),
-            Value::String(name) => {
-                match self.variables.get(&name).cloned() {
-                    Some(value) => {
-                        self.stack.push(value);
-                        Ok(())
-                    }
-                    None => {
-                        self.stack = stack_before;
-                        Err(VmError::UnknownVariable(name))
-                    }
+            Value::String(name) => match self.variables.get(&name).cloned() {
+                Some(value) => {
+                    self.stack.push(value);
+                    Ok(())
                 }
-            }
+                None => {
+                    self.stack = stack_before;
+                    Err(VmError::UnknownVariable(name))
+                }
+            },
             value => {
                 self.stack = stack_before;
                 Err(VmError::TypeError {
@@ -1361,10 +1371,7 @@ impl Vm {
         Ok(())
     }
 
-    fn call_collection_declaration_or_constructor(
-        &mut self,
-        value: Value,
-    ) -> Result<(), VmError> {
+    fn call_collection_declaration_or_constructor(&mut self, value: Value) -> Result<(), VmError> {
         if let Some(Value::String(name)) = self.stack.last().cloned() {
             self.stack.pop();
             self.variables.entry(name).or_insert(value);
@@ -1831,9 +1838,7 @@ impl Vm {
     }
 
     pub(super) fn pop_unchecked(&mut self) -> Value {
-        self.stack
-            .pop()
-            .expect("stack length checked before pop")
+        self.stack.pop().expect("stack length checked before pop")
     }
 
     fn current_class_mut(&mut self, word: &str) -> Result<&mut Class, VmError> {
@@ -2025,10 +2030,22 @@ mod tests {
     #[test]
     fn number_words_preserve_stack_on_type_errors() {
         let cases = [
-            ("*", vec![Value::Number(4), Value::String("oops".to_string())]),
-            ("/", vec![Value::Number(4), Value::String("oops".to_string())]),
-            ("%", vec![Value::Number(4), Value::String("oops".to_string())]),
-            ("min", vec![Value::Number(4), Value::String("oops".to_string())]),
+            (
+                "*",
+                vec![Value::Number(4), Value::String("oops".to_string())],
+            ),
+            (
+                "/",
+                vec![Value::Number(4), Value::String("oops".to_string())],
+            ),
+            (
+                "%",
+                vec![Value::Number(4), Value::String("oops".to_string())],
+            ),
+            (
+                "min",
+                vec![Value::Number(4), Value::String("oops".to_string())],
+            ),
             ("negate", vec![Value::String("oops".to_string())]),
             (
                 "clamp",
@@ -2041,8 +2058,10 @@ mod tests {
         ];
 
         for (word, stack) in cases {
-            let mut vm = Vm::default();
-            vm.stack = stack.clone();
+            let mut vm = Vm {
+                stack: stack.clone(),
+                ..Vm::default()
+            };
 
             assert!(
                 matches!(vm.call_word(word), Err(VmError::TypeError { .. })),
@@ -2059,8 +2078,10 @@ mod tests {
     #[test]
     fn division_and_modulo_preserve_stack_on_zero() {
         for word in ["/", "%"] {
-            let mut vm = Vm::default();
-            vm.stack = vec![Value::Number(8), Value::Number(0)];
+            let mut vm = Vm {
+                stack: vec![Value::Number(8), Value::Number(0)],
+                ..Vm::default()
+            };
 
             assert_eq!(
                 vm.call_word(word),
@@ -2170,26 +2191,11 @@ mod tests {
     #[test]
     fn line_breakpoint_pauses_before_matching_instruction() {
         let mut chunk = Chunk::new("test.rco");
-        chunk.push(
-            Op::PushNumber(2),
-            SourceSpan {
-                line: 1,
-                ..span()
-            },
-        );
-        chunk.push(
-            Op::PushNumber(3),
-            SourceSpan {
-                line: 2,
-                ..span()
-            },
-        );
+        chunk.push(Op::PushNumber(2), SourceSpan { line: 1, ..span() });
+        chunk.push(Op::PushNumber(3), SourceSpan { line: 2, ..span() });
         chunk.push(
             Op::CallWord("+".to_string()),
-            SourceSpan {
-                line: 3,
-                ..span()
-            },
+            SourceSpan { line: 3, ..span() },
         );
 
         let pauses = Rc::new(RefCell::new(Vec::new()));
@@ -2331,7 +2337,7 @@ mod tests {
 
         assert_eq!(ok.call_predicate("ok?"), Some(Value::Bool(true)));
         assert_eq!(err.call_predicate("ok?"), Some(Value::Bool(false)));
-        assert_eq!(err.truthy(), true);
+        assert!(err.truthy());
     }
 
     #[test]
@@ -2355,16 +2361,19 @@ mod tests {
 
         assert_eq!(
             vm.stack(),
-            &[Value::Map(BTreeMap::from([
-                (
-                    "kind".to_string(),
-                    Value::String("DatabaseError".to_string()),
-                ),
-                (
-                    "message".to_string(),
-                    Value::String("connection failed".to_string()),
-                ),
-            ]).into())]
+            &[Value::Map(
+                BTreeMap::from([
+                    (
+                        "kind".to_string(),
+                        Value::String("DatabaseError".to_string()),
+                    ),
+                    (
+                        "message".to_string(),
+                        Value::String("connection failed".to_string()),
+                    ),
+                ])
+                .into()
+            )]
         );
     }
 
@@ -2423,9 +2432,7 @@ mod tests {
         equals_chunk.push(Op::CallWord("equals".to_string()), span());
 
         let mut equals_vm = Vm::default();
-        equals_vm
-            .run_chunk(&equals_chunk)
-            .expect("equals succeeds");
+        equals_vm.run_chunk(&equals_chunk).expect("equals succeeds");
         assert_eq!(equals_vm.stack(), &[Value::Bool(true)]);
 
         let mut symbol_chunk = Chunk::new("test.rco");
@@ -2535,10 +2542,7 @@ mod tests {
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("array push succeeds");
 
-        assert_eq!(
-            vm.stack(),
-            &[Value::Array(vec![Value::Number(42)].into())]
-        );
+        assert_eq!(vm.stack(), &[Value::Array(vec![Value::Number(42)].into())]);
     }
 
     #[test]
@@ -2597,9 +2601,7 @@ mod tests {
         empty_chunk.push(Op::CallWord("empty?".to_string()), span());
 
         let mut empty_vm = Vm::default();
-        empty_vm
-            .run_chunk(&empty_chunk)
-            .expect("empty? succeeds");
+        empty_vm.run_chunk(&empty_chunk).expect("empty? succeeds");
         assert_eq!(empty_vm.stack(), &[Value::Bool(true)]);
 
         let mut ok_chunk = Chunk::new("test.rco");
@@ -2751,16 +2753,12 @@ mod tests {
 
         vm.define_class("Widget", "").expect("class opens");
         vm.add_field("name").expect("field is declared");
-        vm.add_native_method("label", |_| {
-            Ok(Value::String("old label".to_string()))
-        })
-        .expect("method is declared");
+        vm.add_native_method("label", |_| Ok(Value::String("old label".to_string())))
+            .expect("method is declared");
 
         vm.define_class("Widget", "").expect("class reopens");
-        vm.add_native_method("label", |_| {
-            Ok(Value::String("new label".to_string()))
-        })
-        .expect("method is replaced");
+        vm.add_native_method("label", |_| Ok(Value::String("new label".to_string())))
+            .expect("method is replaced");
         vm.end_class();
 
         let instance = vm.new_instance("Widget").expect("instance is created");
@@ -2785,7 +2783,8 @@ mod tests {
         chunk.push(Op::CallWord("Widget".to_string()), span());
         chunk.push(Op::CallWord("new".to_string()), span());
 
-        vm.run_chunk(&chunk).expect("class value constructs instance");
+        vm.run_chunk(&chunk)
+            .expect("class value constructs instance");
 
         assert!(matches!(
             vm.stack(),
@@ -2811,7 +2810,8 @@ mod tests {
         chunk.push(Op::CallWord("new".to_string()), span());
         chunk.push(Op::CallMethod("label".to_string()), span());
 
-        vm.run_chunk(&chunk).expect("runtime method installs and runs");
+        vm.run_chunk(&chunk)
+            .expect("runtime method installs and runs");
 
         assert_eq!(vm.stack(), &[Value::String("dynamic".to_string())]);
     }
@@ -2888,7 +2888,9 @@ mod tests {
             assert_eq!(args.len(), 3);
             assert_eq!(args[0], Value::Number(2));
             assert_eq!(args[1], Value::Number(3));
-            assert!(matches!(&args[2], Value::Instance(instance) if instance.class_name == "Calculator"));
+            assert!(
+                matches!(&args[2], Value::Instance(instance) if instance.class_name == "Calculator")
+            );
             Ok(Value::Number(5))
         })
         .expect("native method added");
@@ -2896,9 +2898,7 @@ mod tests {
 
         vm.stack.push(Value::Number(2));
         vm.stack.push(Value::Number(3));
-        let calculator = vm
-            .new_instance("Calculator")
-            .expect("calculator instance");
+        let calculator = vm.new_instance("Calculator").expect("calculator instance");
 
         let result = vm
             .call_method_value(calculator, "sum")
@@ -2920,9 +2920,7 @@ mod tests {
         vm.end_class();
 
         vm.stack.push(Value::Number(7));
-        let calculator = vm
-            .new_instance("Calculator")
-            .expect("calculator instance");
+        let calculator = vm.new_instance("Calculator").expect("calculator instance");
 
         assert_eq!(
             vm.call_method_value(calculator, "fail"),
@@ -2956,7 +2954,8 @@ mod tests {
     #[test]
     fn subclass_instances_include_inherited_fields() {
         let mut vm = Vm::default();
-        vm.define_class("Record", "Object").expect("base class begins");
+        vm.define_class("Record", "Object")
+            .expect("base class begins");
         vm.add_field("id").expect("base field added");
         vm.end_class();
         vm.define_class("User", "Record").expect("subclass begins");
@@ -2965,7 +2964,10 @@ mod tests {
 
         let user = vm.new_instance("User").expect("subclass instance created");
 
-        assert_eq!(vm.get_field(&user, "id").expect("base field reads"), Value::Nil);
+        assert_eq!(
+            vm.get_field(&user, "id").expect("base field reads"),
+            Value::Nil
+        );
         assert_eq!(
             vm.get_field(&user, "email").expect("child field reads"),
             Value::Nil
@@ -2975,7 +2977,8 @@ mod tests {
     #[test]
     fn subclass_uses_nearest_native_method_override() {
         let mut vm = Vm::default();
-        vm.define_class("Record", "Object").expect("base class begins");
+        vm.define_class("Record", "Object")
+            .expect("base class begins");
         vm.add_native_method("kind", |_| Ok(Value::String("record".to_string())))
             .expect("base method added");
         vm.end_class();
@@ -3006,7 +3009,8 @@ mod tests {
         method.push(Op::PushString("record".to_string()), span());
         method.push(Op::Return, span());
         let mut vm = Vm::default();
-        vm.define_class("Record", "Object").expect("base class begins");
+        vm.define_class("Record", "Object")
+            .expect("base class begins");
         vm.add_bytecode_method("kind", method, None)
             .expect("base method added");
         vm.end_class();
@@ -3027,7 +3031,8 @@ mod tests {
         child_method.push(Op::PushString("user".to_string()), span());
         child_method.push(Op::Return, span());
         let mut vm = Vm::default();
-        vm.define_class("Record", "Object").expect("base class begins");
+        vm.define_class("Record", "Object")
+            .expect("base class begins");
         vm.add_native_method("kind", |_| Ok(Value::String("record".to_string())))
             .expect("base method added");
         vm.end_class();
@@ -3046,7 +3051,8 @@ mod tests {
     #[test]
     fn class_values_inherit_native_methods_with_the_child_receiver() {
         let mut vm = Vm::default();
-        vm.define_class("Record", "Object").expect("base class begins");
+        vm.define_class("Record", "Object")
+            .expect("base class begins");
         vm.add_native_method("className", |arguments| {
             Ok(arguments
                 .last()
@@ -3068,9 +3074,11 @@ mod tests {
     #[test]
     fn inheritance_cycles_fail_loudly() {
         let mut vm = Vm::default();
-        vm.define_class("First", "Second").expect("first class begins");
+        vm.define_class("First", "Second")
+            .expect("first class begins");
         vm.end_class();
-        vm.define_class("Second", "First").expect("second class begins");
+        vm.define_class("Second", "First")
+            .expect("second class begins");
         vm.end_class();
 
         assert_eq!(
@@ -3101,7 +3109,8 @@ mod tests {
             Value::String("Launch".to_string())
         );
         assert_eq!(
-            vm.get_field(&updated, "missing").expect("missing field is nil"),
+            vm.get_field(&updated, "missing")
+                .expect("missing field is nil"),
             Value::Nil
         );
     }
@@ -3135,9 +3144,15 @@ mod tests {
             .expect("targeted declarations mutate class");
 
         assert_eq!(vm.class_table("User"), Some("users"));
-        assert_eq!(vm.class_fields("User"), Some(["email".to_string()].as_slice()));
+        assert_eq!(
+            vm.class_fields("User"),
+            Some(["email".to_string()].as_slice())
+        );
         let user = vm.new_instance("User").expect("instance created");
-        assert_eq!(vm.get_field(&user, "email").expect("field reads"), Value::Nil);
+        assert_eq!(
+            vm.get_field(&user, "email").expect("field reads"),
+            Value::Nil
+        );
     }
 
     #[test]
@@ -3236,11 +3251,7 @@ mod tests {
 
         let user = vm.new_instance("User").expect("instance is created");
         let user = vm
-            .set_field(
-                user,
-                "email",
-                Value::String("ada@example.com".to_string()),
-            )
+            .set_field(user, "email", Value::String("ada@example.com".to_string()))
             .expect("field writes");
 
         assert_eq!(
@@ -3282,11 +3293,7 @@ mod tests {
         vm.run_chunk(&class_chunk).expect("class opcodes run");
         let user = vm.new_instance("User").expect("instance is created");
         let user = vm
-            .set_field(
-                user,
-                "email",
-                Value::String("ada@example.com".to_string()),
-            )
+            .set_field(user, "email", Value::String("ada@example.com".to_string()))
             .expect("field writes");
 
         let mut call_chunk = Chunk::new("test.rco");
@@ -3332,11 +3339,7 @@ mod tests {
 
         let user = vm.new_instance("User").expect("instance is created");
         let user = vm
-            .set_field(
-                user,
-                "email",
-                Value::String("ada@example.com".to_string()),
-            )
+            .set_field(user, "email", Value::String("ada@example.com".to_string()))
             .expect("field writes");
 
         let mut call_chunk = Chunk::new("test.rco");
@@ -3382,7 +3385,9 @@ mod tests {
 
         vm.run_chunk(&chunk).expect("object field words run");
 
-        assert!(matches!(vm.stack(), [Value::Instance(_), Value::String(email)] if email == "ada@example.com"));
+        assert!(
+            matches!(vm.stack(), [Value::Instance(_), Value::String(email)] if email == "ada@example.com")
+        );
     }
 
     #[test]
@@ -3458,10 +3463,7 @@ mod tests {
             vm.variable("title"),
             Some(&Value::String("Hello Ricochet".to_string()))
         );
-        assert_eq!(
-            action.get("type"),
-            Some(Value::String("view".to_string()))
-        );
+        assert_eq!(action.get("type"), Some(Value::String("view".to_string())));
         assert_eq!(
             action.get("name"),
             Some(Value::String("home/index".to_string()))
@@ -3485,14 +3487,8 @@ mod tests {
         let [Value::Map(action)] = vm.stack() else {
             panic!("expected one action map on stack, got {:?}", vm.stack());
         };
-        assert_eq!(
-            action.get("type"),
-            Some(Value::String("text".to_string()))
-        );
-        assert_eq!(
-            action.get("body"),
-            Some(Value::String("pong".to_string()))
-        );
+        assert_eq!(action.get("type"), Some(Value::String("text".to_string())));
+        assert_eq!(action.get("body"), Some(Value::String("pong".to_string())));
     }
 
     #[test]
@@ -3507,10 +3503,7 @@ mod tests {
         let [Value::Map(action)] = vm.stack() else {
             panic!("expected one action map on stack, got {:?}", vm.stack());
         };
-        assert_eq!(
-            action.get("type"),
-            Some(Value::String("json".to_string()))
-        );
+        assert_eq!(action.get("type"), Some(Value::String("json".to_string())));
         assert_eq!(action.get("body"), Some(Value::String("ok".to_string())));
     }
 
@@ -3590,9 +3583,21 @@ mod tests {
         vm.stack
             .push(Value::result_ok(Value::String("ok".to_string())));
 
+        assert_eq!(vm.run_chunk(&chunk), Err(VmError::UncheckedResultCondition));
+    }
+
+    #[test]
+    fn instruction_limit_faults_runaway_loop() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushBool(true), span());
+        chunk.push(Op::JumpIfFalse(3), span());
+        chunk.push(Op::Jump(0), span());
+        let mut vm = Vm::default();
+        vm.set_instruction_limit(16);
+
         assert_eq!(
             vm.run_chunk(&chunk),
-            Err(VmError::UncheckedResultCondition)
+            Err(VmError::InstructionLimitExceeded { limit: 16 })
         );
     }
 
@@ -3816,11 +3821,7 @@ mod tests {
         vm.run_chunk(&class_chunk).expect("class opcodes run");
         let user = vm.new_instance("User").expect("instance is created");
         let user = vm
-            .set_field(
-                user,
-                "email",
-                Value::String("ada@example.com".to_string()),
-            )
+            .set_field(user, "email", Value::String("ada@example.com".to_string()))
             .expect("field writes");
 
         let mut call_chunk = Chunk::new("test.rco");

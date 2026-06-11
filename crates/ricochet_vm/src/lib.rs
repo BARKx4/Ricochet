@@ -8,8 +8,8 @@ pub mod result;
 pub mod value;
 pub mod vm;
 
-pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use capability::Capability;
+pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use collection::{ArrayValue, ListValue, MapValue, SetValue};
 pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 pub use object::Instance;

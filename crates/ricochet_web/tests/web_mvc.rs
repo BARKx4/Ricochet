@@ -1,6 +1,6 @@
 use axum::{
     body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
+    http::{header, Method, Request, StatusCode},
 };
 use ricochet_vm::Value;
 use ricochet_web::{
@@ -73,13 +73,16 @@ impl DatabaseBackend for FixtureDatabase {
     }
 
     fn all(&self, _mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
-        Ok(vec![Value::Map(BTreeMap::from([
-            ("id".to_string(), Value::Number(1)),
-            (
-                "email".to_string(),
-                Value::String("ada@example.com".to_string()),
-            ),
-        ]).into())])
+        Ok(vec![Value::Map(
+            BTreeMap::from([
+                ("id".to_string(), Value::Number(1)),
+                (
+                    "email".to_string(),
+                    Value::String("ada@example.com".to_string()),
+                ),
+            ])
+            .into(),
+        )])
     }
 
     fn where_eq(
@@ -115,8 +118,7 @@ async fn serves_database_capability_results_from_ricochet_controller() {
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
     fs::create_dir_all(project_root.join("app/Controllers"))
         .expect("controller directory should be created");
-    fs::create_dir_all(project_root.join("app/Models"))
-        .expect("model directory should be created");
+    fs::create_dir_all(project_root.join("app/Models")).expect("model directory should be created");
     fs::write(
         project_root.join("ricochet.toml"),
         r#"
@@ -421,7 +423,12 @@ end
 "#;
 
     controllers
-        .register_ricochet_source("ContactController", "create", "ContactController.rco", source)
+        .register_ricochet_source(
+            "ContactController",
+            "create",
+            "ContactController.rco",
+            source,
+        )
         .expect("controller source should register");
 
     let mut ctx = RequestContext::default();
@@ -456,8 +463,8 @@ async fn serves_minimal_mvc_home_page() {
 
 #[tokio::test]
 async fn serves_minimal_mvc_home_page_from_project_files() {
-    let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/web_minimal");
+    let project_root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
     let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
 
     let response = app
@@ -479,11 +486,130 @@ async fn serves_minimal_mvc_home_page_from_project_files() {
 }
 
 #[tokio::test]
+async fn serves_delete_route_from_project_files() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "delete_route"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"DELETE "/users/:id" UserController "destroy" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/UserController.rco"),
+        r#"
+UserController Controller subclass
+  "destroy" [
+    ctx get .params get .id get
+    "deleted " .concat text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/users/42")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "deleted 42");
+}
+
+#[tokio::test]
+async fn controller_execution_budget_returns_server_error_for_runaway_work() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "budgeted_controller"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  "index" [
+    0 counter var
+    counter get 10000 < while
+      counter get 1 + counter set
+    end
+    "done" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert!(
+        body.contains("instruction limit exceeded"),
+        "expected instruction budget error, got: {body}"
+    );
+}
+
+#[tokio::test]
 async fn serves_mvc_controller_that_uses_project_model_without_database() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
-    fs::create_dir_all(project_root.join("app/Models"))
-        .expect("model directory should be created");
+    fs::create_dir_all(project_root.join("app/Models")).expect("model directory should be created");
     fs::create_dir_all(project_root.join("app/Controllers"))
         .expect("controller directory should be created");
     fs::create_dir_all(project_root.join("app/Views/users"))
@@ -550,7 +676,12 @@ end
     let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
 
     let response = app
-        .oneshot(Request::builder().uri("/users").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/users")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .expect("response");
 
@@ -610,8 +741,11 @@ end
 "#,
     )
     .expect("controller should be written");
-    fs::write(project_root.join("app/Views/home/show.html"), "<h1>{ title get }</h1>")
-        .expect("view should be written");
+    fs::write(
+        project_root.join("app/Views/home/show.html"),
+        "<h1>{ title get }</h1>",
+    )
+    .expect("view should be written");
 
     let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
 
@@ -683,8 +817,11 @@ end
 "#,
     )
     .expect("controller should be written");
-    fs::write(project_root.join("app/Views/home/show.html"), "<h1>{ title get }</h1>")
-        .expect("view should be written");
+    fs::write(
+        project_root.join("app/Views/home/show.html"),
+        "<h1>{ title get }</h1>",
+    )
+    .expect("view should be written");
 
     let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
 
@@ -983,8 +1120,5 @@ fn temp_project_path() -> PathBuf {
     let sequence = NEXT_TEMP_PROJECT.fetch_add(1, Ordering::Relaxed);
 
     base.join("web-mvc")
-        .join(format!(
-            "project-{}-{nanos}-{sequence}",
-            std::process::id()
-        ))
+        .join(format!("project-{}-{nanos}-{sequence}", std::process::id()))
 }

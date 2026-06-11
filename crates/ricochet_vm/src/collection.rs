@@ -156,12 +156,7 @@ impl fmt::Debug for SetValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_set()
-            .entries(
-                self.0
-                    .read()
-                    .expect("collection lock poisoned")
-                    .iter(),
-            )
+            .entries(self.0.read().expect("collection lock poisoned").iter())
             .finish()
     }
 }

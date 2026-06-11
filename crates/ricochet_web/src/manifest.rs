@@ -157,8 +157,6 @@ escape = "none"
             .resolved_url()
             .expect_err("missing variable should fail");
 
-        assert!(error
-            .to_string()
-            .contains("RICOCHET_MISSING_DATABASE_URL"));
+        assert!(error.to_string().contains("RICOCHET_MISSING_DATABASE_URL"));
     }
 }

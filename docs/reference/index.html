@@ -35,7 +35,7 @@
             <code>rco routes my_app</code>
             <code>rco test my_app</code>
             <code>rco run --debug --step app.rco</code>
-            <code>rco serve --debug --watch</code>
+            <code>rco serve --debug --port 3000</code>
           </div>
         </div>
 
@@ -284,11 +284,7 @@ mode = "mvc"
 routes = "config/routes.rco"
 
 [web.views]
-escape = "html"
-
-[database.default]
-adapter = "postgres"
-url = "${DATABASE_URL}"</code></pre>
+escape = "html"</code></pre>
           </article>
 
           <article class="example-panel">
@@ -296,7 +292,8 @@ url = "${DATABASE_URL}"</code></pre>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy routes example" title="Copy">copy</button><code>GET "/" HomeController "index" route
 GET "/users" UserController "index" route
 GET "/users/show" UserController "show" route
-POST "/users" UserController "create" route</code></pre>
+POST "/users" UserController "create" route
+DELETE "/users/:id" UserController "destroy" route</code></pre>
           </article>
 
           <article class="example-panel wide">
@@ -507,7 +504,7 @@ end</code></pre>
           <div><code>rco repl [--debug]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
-          <div><code>rco serve [--debug] [--watch]</code><span>Run the current directory as an MVC web app.</span></div>
+          <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` currently fails loudly until hot reload is wired.</span></div>
           <div><code>rco test [--debug] [--filter PATTERN] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
@@ -540,7 +537,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
         </div>
         <ul class="limit-list">
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>HTTP and filesystem access are host capabilities. The CLI enables them; embedded hosts can leave them disabled.</li>
+          <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts; embedded hosts can leave them disabled. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
+          <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
+          <li>`rco serve --watch` is a planned hot reload surface and currently exits with a clear not-implemented error.</li>
           <li>Async, packages, and AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>

@@ -5,6 +5,8 @@ use ricochet_compiler::compile_source;
 use ricochet_vm::{Value, Vm};
 use serde::Deserialize;
 
+const TEMPLATE_INSTRUCTION_LIMIT: u64 = 10_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EscapeMode {
@@ -66,6 +68,7 @@ fn evaluate_expression(
     let chunk = compile_source("<template>", expression)
         .with_context(|| format!("failed to compile template expression {expression:?}"))?;
     let mut vm = Vm::default();
+    vm.set_instruction_limit(TEMPLATE_INSTRUCTION_LIMIT);
     for (name, value) in data {
         vm.set_variable(name.clone(), value.clone());
     }
@@ -165,10 +168,13 @@ mod tests {
     fn template_expressions_can_navigate_nested_values() {
         let data = BTreeMap::from([(
             "user".to_string(),
-            Value::Map(BTreeMap::from([(
-                "name".to_string(),
-                Value::String("Ada <Lovelace>".to_string()),
-            )]).into()),
+            Value::Map(
+                BTreeMap::from([(
+                    "name".to_string(),
+                    Value::String("Ada <Lovelace>".to_string()),
+                )])
+                .into(),
+            ),
         )]);
 
         let rendered = render_template(

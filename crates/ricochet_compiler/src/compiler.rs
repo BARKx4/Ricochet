@@ -125,8 +125,7 @@ impl Compiler {
                 span,
             } if is_field_declaration(exprs) => {
                 let name = declaration_name(&exprs[0]).expect("field declaration checked");
-                self.chunk
-                    .push(Op::AddField(name), self.source_span(*span));
+                self.chunk.push(Op::AddField(name), self.source_span(*span));
                 Ok(())
             }
             Item::Expr {
@@ -194,7 +193,9 @@ impl Compiler {
                 self.push(Op::PushBlock(block))
             }
             Expr::Sequence(exprs) => self.compile_exprs(exprs),
-            Expr::Args(_) => Err(CompileError::Unsupported("argument declarations".to_string())),
+            Expr::Args(_) => Err(CompileError::Unsupported(
+                "argument declarations".to_string(),
+            )),
             Expr::If {
                 then_body,
                 else_body,
@@ -410,7 +411,7 @@ fn variable_binding_pair(exprs: &[SpannedExpr], index: usize) -> Option<(String,
         operator.as_str(),
         "get" | "set" | "var" | "array" | "list" | "map" | "Array" | "List" | "Map" | "Set"
     )
-        .then(|| (name.clone(), operator.clone()))
+    .then(|| (name.clone(), operator.clone()))
 }
 
 fn args_spec(args: &ArgsDecl) -> ArgsSpec {
@@ -678,11 +679,8 @@ mod tests {
 
     #[test]
     fn compiles_controller_context_binding_words_as_variable_names() {
-        let chunk = compile_source(
-            "controllers/home.rco",
-            r#"ctx get "home/index" swap view"#,
-        )
-        .expect("compile succeeds");
+        let chunk = compile_source("controllers/home.rco", r#"ctx get "home/index" swap view"#)
+            .expect("compile succeeds");
 
         assert_eq!(
             chunk.ops().cloned().collect::<Vec<_>>(),
@@ -698,7 +696,8 @@ mod tests {
 
     #[test]
     fn compiles_fixture_home_controller_for_mvc_dispatch() {
-        let source = include_str!("../../../tests/fixtures/web_minimal/app/Controllers/HomeController.rco");
+        let source =
+            include_str!("../../../tests/fixtures/web_minimal/app/Controllers/HomeController.rco");
 
         let chunk = compile_source(
             "tests/fixtures/web_minimal/app/Controllers/HomeController.rco",
@@ -749,8 +748,8 @@ mod tests {
 
     #[test]
     fn compiles_postfix_if_else_to_jump_opcodes() {
-        let chunk = compile_source("test.rco", r#"true if "yes" else "no" end"#)
-            .expect("compile succeeds");
+        let chunk =
+            compile_source("test.rco", r#"true if "yes" else "no" end"#).expect("compile succeeds");
 
         assert_eq!(
             chunk.ops().cloned().collect::<Vec<_>>(),
@@ -904,11 +903,8 @@ mod tests {
 
     #[test]
     fn if_branch_debug_spans_follow_nested_expression_lines() {
-        let chunk = compile_source(
-            "test.rco",
-            "true if\n  \"yes\"\nelse\n  \"no\"\nend\n",
-        )
-        .expect("compile succeeds");
+        let chunk = compile_source("test.rco", "true if\n  \"yes\"\nelse\n  \"no\"\nend\n")
+            .expect("compile succeeds");
 
         assert_eq!(
             chunk.debug().map(|span| span.line).collect::<Vec<_>>(),

@@ -1,8 +1,8 @@
 use ricochet_bytecode::Chunk;
 use thiserror::Error;
 
-use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::capability::Capability;
+use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::object::Instance;
 use crate::result::{RicochetError, RicochetResult};
 

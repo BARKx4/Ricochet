@@ -19,7 +19,10 @@ pub enum Op {
     GetVar(String),
     SetVar(String),
     DeclareVar(String),
-    BeginClass { name: String, superclass: String },
+    BeginClass {
+        name: String,
+        superclass: String,
+    },
     EndClass,
     AddField(String),
     AddMethod {

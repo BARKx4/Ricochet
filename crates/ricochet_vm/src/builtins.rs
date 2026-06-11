@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -12,6 +13,9 @@ use super::*;
 use crate::capability::Capability;
 use crate::result::{RicochetError, RicochetResult};
 use crate::vm::value_kind;
+
+const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_MAX_RESPONSE_BYTES: usize = 1_048_576;
 
 impl Vm {
     pub(super) fn builtin_method_exists(&self, receiver: &Value, method: &str) -> bool {
@@ -88,7 +92,10 @@ impl Vm {
                 matches!(method, "error?" | "unwrap-or" | "map-result" | "and-then")
             }
             Value::Capability(Capability::FileSystem) => {
-                matches!(method, "read-text" | "write-text!" | "exists?" | "list" | "create-dir!")
+                matches!(
+                    method,
+                    "read-text" | "write-text!" | "exists?" | "list" | "create-dir!"
+                )
             }
             Value::Capability(Capability::Http) => matches!(method, "get" | "post-json"),
             _ => false,
@@ -133,18 +140,14 @@ impl Vm {
             "any?" => self.method_any(receiver, method),
             "all?" => self.method_all(receiver, method),
             "trim" => self.string_unary(receiver, method, |value| value.trim().to_string()),
-            "uppercase" => {
-                self.string_unary(receiver, method, |value| value.to_uppercase())
+            "uppercase" => self.string_unary(receiver, method, |value| value.to_uppercase()),
+            "lowercase" => self.string_unary(receiver, method, |value| value.to_lowercase()),
+            "starts-with?" => {
+                self.string_predicate(receiver, method, |value, needle| value.starts_with(needle))
             }
-            "lowercase" => {
-                self.string_unary(receiver, method, |value| value.to_lowercase())
+            "ends-with?" => {
+                self.string_predicate(receiver, method, |value, needle| value.ends_with(needle))
             }
-            "starts-with?" => self.string_predicate(receiver, method, |value, needle| {
-                value.starts_with(needle)
-            }),
-            "ends-with?" => self.string_predicate(receiver, method, |value, needle| {
-                value.ends_with(needle)
-            }),
             "split" => self.method_split(receiver, method),
             "join" => self.method_join(receiver, method),
             "replace" => self.method_replace(receiver, method),
@@ -196,7 +199,11 @@ impl Vm {
                 let key = self.pop_string(method, "map key string")?;
                 Ok(value.get(&key).unwrap_or(Value::Nil))
             }
-            value => Err(method_type_error(method, "string, array, list, or map", &value)),
+            value => Err(method_type_error(
+                method,
+                "string, array, list, or map",
+                &value,
+            )),
         }
     }
 
@@ -318,11 +325,7 @@ impl Vm {
                 map.remove(&key);
             }
             value => {
-                return Err(method_type_error(
-                    method,
-                    "array, list, set, or map",
-                    value,
-                ));
+                return Err(method_type_error(method, "array, list, set, or map", value));
             }
         }
         Ok(receiver)
@@ -394,11 +397,8 @@ impl Vm {
                 let values = sequence_snapshot(&receiver, method)?;
                 let mut selected = Vec::new();
                 for value in values {
-                    let keep = self.call_bytecode_block_with_args(
-                        method,
-                        &block,
-                        vec![value.clone()],
-                    )?;
+                    let keep =
+                        self.call_bytecode_block_with_args(method, &block, vec![value.clone()])?;
                     if condition_value(method, keep)? {
                         selected.push(value);
                     }
@@ -417,11 +417,8 @@ impl Vm {
         let block = self.pop_block(method)?;
         let mut accumulator = self.pop(method)?;
         for value in sequence_snapshot(&receiver, method)? {
-            accumulator = self.call_bytecode_block_with_args(
-                method,
-                &block,
-                vec![accumulator, value],
-            )?;
+            accumulator =
+                self.call_bytecode_block_with_args(method, &block, vec![accumulator, value])?;
         }
         Ok(accumulator)
     }
@@ -430,8 +427,7 @@ impl Vm {
         let block = self.pop_block(method)?;
         for arguments in collection_arguments(&receiver, method)? {
             let candidate = arguments.last().cloned().unwrap_or(Value::Nil);
-            let matched =
-                self.call_bytecode_block_with_args(method, &block, arguments)?;
+            let matched = self.call_bytecode_block_with_args(method, &block, arguments)?;
             if condition_value(method, matched)? {
                 return Ok(candidate);
             }
@@ -442,8 +438,7 @@ impl Vm {
     fn method_any(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         let block = self.pop_block(method)?;
         for arguments in collection_arguments(&receiver, method)? {
-            let matched =
-                self.call_bytecode_block_with_args(method, &block, arguments)?;
+            let matched = self.call_bytecode_block_with_args(method, &block, arguments)?;
             if condition_value(method, matched)? {
                 return Ok(Value::Bool(true));
             }
@@ -454,8 +449,7 @@ impl Vm {
     fn method_all(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         let block = self.pop_block(method)?;
         for arguments in collection_arguments(&receiver, method)? {
-            let matched =
-                self.call_bytecode_block_with_args(method, &block, arguments)?;
+            let matched = self.call_bytecode_block_with_args(method, &block, arguments)?;
             if !condition_value(method, matched)? {
                 return Ok(Value::Bool(false));
             }
@@ -586,8 +580,7 @@ impl Vm {
         let block = self.pop_block(method)?;
         match receiver {
             Value::Result(RicochetResult::Ok(value)) => {
-                let result =
-                    self.call_bytecode_block_with_args(method, &block, vec![*value])?;
+                let result = self.call_bytecode_block_with_args(method, &block, vec![*value])?;
                 if matches!(result, Value::Result(_)) {
                     Ok(result)
                 } else {
@@ -676,7 +669,8 @@ impl Vm {
                 message: "minimum cannot exceed maximum".to_string(),
             });
         }
-        self.stack.push(Value::Number(value.clamp(minimum, maximum)));
+        self.stack
+            .push(Value::Number(value.clamp(minimum, maximum)));
         Ok(())
     }
 
@@ -733,10 +727,7 @@ impl Vm {
         let values = if start <= end {
             (start..end).map(Value::Number).collect()
         } else {
-            ((end + 1)..=start)
-                .rev()
-                .map(Value::Number)
-                .collect()
+            ((end + 1)..=start).rev().map(Value::Number).collect()
         };
         self.stack.push(Value::Array(ArrayValue::new(values)));
         Ok(())
@@ -751,9 +742,9 @@ impl Vm {
     pub(super) fn call_json_encode(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let value = self.pop(word)?;
-        match value_to_json(&value).and_then(|value| {
-            serde_json::to_string(&value).map_err(|error| error.to_string())
-        }) {
+        match value_to_json(&value)
+            .and_then(|value| serde_json::to_string(&value).map_err(|error| error.to_string()))
+        {
             Ok(json) => {
                 self.stack.push(Value::String(json));
                 Ok(())
@@ -880,7 +871,13 @@ impl Vm {
         self.ensure_stack(word, 2)?;
         let class_name = match self.pop_unchecked() {
             Value::Class(value) | Value::String(value) => value,
-            value => return Err(method_type_error(word, "class or class name string", &value)),
+            value => {
+                return Err(method_type_error(
+                    word,
+                    "class or class name string",
+                    &value,
+                ))
+            }
         };
         let value = self.pop_unchecked();
         let matches = match value {
@@ -902,7 +899,9 @@ impl Vm {
             true
         } else {
             match &receiver {
-                Value::Class(class_name) => self.resolve_native_method(class_name, &method)?.is_some(),
+                Value::Class(class_name) => {
+                    self.resolve_native_method(class_name, &method)?.is_some()
+                }
                 Value::Instance(instance) => self
                     .resolve_instance_method(&instance.class_name, &method)?
                     .is_some(),
@@ -924,7 +923,11 @@ impl Vm {
             }
         }
         self.stack.push(Value::Array(
-            fields.into_iter().map(Value::String).collect::<Vec<_>>().into(),
+            fields
+                .into_iter()
+                .map(Value::String)
+                .collect::<Vec<_>>()
+                .into(),
         ));
         Ok(())
     }
@@ -1065,11 +1068,7 @@ impl Vm {
         })
     }
 
-    fn method_fs_write_text(
-        &mut self,
-        receiver: Value,
-        method: &str,
-    ) -> Result<Value, VmError> {
+    fn method_fs_write_text(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::FileSystem, method)?;
         let contents = self.pop_string(method, "file contents string")?;
         let path = self.pop_string(method, "path string")?;
@@ -1105,11 +1104,7 @@ impl Vm {
         })
     }
 
-    fn method_fs_create_dir(
-        &mut self,
-        receiver: Value,
-        method: &str,
-    ) -> Result<Value, VmError> {
+    fn method_fs_create_dir(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::FileSystem, method)?;
         let path = self.pop_string(method, "directory path string")?;
         Ok(match fs::create_dir_all(&path) {
@@ -1122,15 +1117,15 @@ impl Vm {
         require_capability(receiver, Capability::Http, method)?;
         let url = self.pop_string(method, "URL string")?;
         Ok(http_in_worker(move || {
-            http_response(reqwest::blocking::get(url))
+            let client = match http_client() {
+                Ok(client) => client,
+                Err(error) => return Value::result_err("HttpError", error.to_string()),
+            };
+            http_response(client.get(url).send())
         }))
     }
 
-    fn method_http_post_json(
-        &mut self,
-        receiver: Value,
-        method: &str,
-    ) -> Result<Value, VmError> {
+    fn method_http_post_json(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Http, method)?;
         let body = self.pop(method)?;
         let url = self.pop_string(method, "URL string")?;
@@ -1139,7 +1134,10 @@ impl Vm {
             Err(message) => return Ok(Value::result_err("JsonError", message)),
         };
         Ok(http_in_worker(move || {
-            let client = reqwest::blocking::Client::new();
+            let client = match http_client() {
+                Ok(client) => client,
+                Err(error) => return Value::result_err("HttpError", error.to_string()),
+            };
             http_response(client.post(url).json(&body).send())
         }))
     }
@@ -1153,12 +1151,12 @@ impl Vm {
 
     fn pop_index(&mut self, word: &str) -> Result<usize, VmError> {
         match self.pop(word)? {
-            Value::Number(value) if value >= 0 => usize::try_from(value).map_err(|_| {
-                VmError::InvalidArgument {
+            Value::Number(value) if value >= 0 => {
+                usize::try_from(value).map_err(|_| VmError::InvalidArgument {
                     word: word.to_string(),
                     message: "index is too large".to_string(),
-                }
-            }),
+                })
+            }
             Value::Number(value) => Err(VmError::InvalidArgument {
                 word: word.to_string(),
                 message: format!("index cannot be negative: {value}"),
@@ -1224,11 +1222,7 @@ impl Vm {
         Ok(())
     }
 
-    fn binary_number(
-        &mut self,
-        word: &str,
-        operation: fn(i64, i64) -> i64,
-    ) -> Result<(), VmError> {
+    fn binary_number(&mut self, word: &str, operation: fn(i64, i64) -> i64) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
         let right = self.pop_number_or_restore(word, &stack_before)?;
@@ -1363,9 +1357,13 @@ fn json_to_value(value: JsonValue) -> Value {
                 .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
         ),
         JsonValue::String(value) => Value::String(value),
-        JsonValue::Array(values) => {
-            Value::Array(values.into_iter().map(json_to_value).collect::<Vec<_>>().into())
-        }
+        JsonValue::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(json_to_value)
+                .collect::<Vec<_>>()
+                .into(),
+        ),
         JsonValue::Object(values) => Value::Map(
             values
                 .into_iter()
@@ -1403,11 +1401,7 @@ fn class_name_from_value(value: Value, word: &str) -> Result<String, VmError> {
     }
 }
 
-fn require_capability(
-    value: Value,
-    expected: Capability,
-    word: &str,
-) -> Result<(), VmError> {
+fn require_capability(value: Value, expected: Capability, word: &str) -> Result<(), VmError> {
     if value == Value::Capability(expected) {
         Ok(())
     } else {
@@ -1415,9 +1409,7 @@ fn require_capability(
     }
 }
 
-fn http_response(
-    response: Result<reqwest::blocking::Response, reqwest::Error>,
-) -> Value {
+fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) -> Value {
     let response = match response {
         Ok(response) => response,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
@@ -1433,17 +1425,37 @@ fn http_response(
                 .map(|value| (name.to_string(), Value::String(value.to_string())))
         })
         .collect::<BTreeMap<_, _>>();
-    match response.text() {
-        Ok(body) => Value::result_ok(Value::Map(
+    let mut body = Vec::new();
+    let read_result = response
+        .take((HTTP_MAX_RESPONSE_BYTES + 1) as u64)
+        .read_to_end(&mut body);
+    if body.len() > HTTP_MAX_RESPONSE_BYTES {
+        return Value::result_err(
+            "HttpBodyTooLarge",
+            format!("HTTP response exceeded {HTTP_MAX_RESPONSE_BYTES} bytes"),
+        );
+    }
+
+    match read_result {
+        Ok(_) => Value::result_ok(Value::Map(
             BTreeMap::from([
                 ("status".to_string(), Value::Number(status.into())),
-                ("body".to_string(), Value::String(body)),
+                (
+                    "body".to_string(),
+                    Value::String(String::from_utf8_lossy(&body).into_owned()),
+                ),
                 ("headers".to_string(), Value::Map(headers.into())),
             ])
             .into(),
         )),
         Err(error) => Value::result_err("HttpError", error.to_string()),
     }
+}
+
+fn http_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
+    reqwest::blocking::Client::builder()
+        .timeout(HTTP_TIMEOUT)
+        .build()
 }
 
 fn http_in_worker(request: impl FnOnce() -> Value + Send + 'static) -> Value {

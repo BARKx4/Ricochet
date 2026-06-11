@@ -22,8 +22,8 @@ pub enum ActionResult {
 }
 
 type Action = Box<dyn Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync>;
-type VmSetup =
-    Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
+type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
+const WEB_CONTROLLER_INSTRUCTION_LIMIT: u64 = 50_000;
 
 #[derive(Default)]
 pub struct ControllerRegistry {
@@ -43,10 +43,8 @@ impl ControllerRegistry {
     where
         F: Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync + 'static,
     {
-        self.actions.insert(
-            (controller.to_string(), action.to_string()),
-            Box::new(f),
-        );
+        self.actions
+            .insert((controller.to_string(), action.to_string()), Box::new(f));
     }
 
     pub fn register_ricochet_source(
@@ -64,6 +62,7 @@ impl ControllerRegistry {
 
         self.register_static(controller, action, move |ctx| {
             let mut vm = Vm::default();
+            vm.set_instruction_limit(WEB_CONTROLLER_INSTRUCTION_LIMIT);
             let capabilities = match &vm_setup {
                 Some(setup) => setup(&mut vm)?,
                 None => BTreeMap::new(),
@@ -278,7 +277,9 @@ mod tests {
             .call("HomeController", "missing", &mut ctx)
             .expect_err("unknown action should fail");
 
-        assert!(err.to_string().contains("unknown action HomeController.missing"));
+        assert!(err
+            .to_string()
+            .contains("unknown action HomeController.missing"));
     }
 
     #[test]

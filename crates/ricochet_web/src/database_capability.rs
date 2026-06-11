@@ -8,11 +8,7 @@ use tokio::runtime::{Handle, RuntimeFlavor};
 use crate::active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
 
 pub trait DatabaseBackend: Send + Sync {
-    fn find(
-        &self,
-        mapping: &ModelMapping,
-        id: &Value,
-    ) -> Result<Option<Value>, ActiveRecordError>;
+    fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
     fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError>;
     fn where_eq(
         &self,
@@ -34,11 +30,7 @@ pub trait DatabaseBackend: Send + Sync {
 }
 
 impl DatabaseBackend for PostgresDatabase {
-    fn find(
-        &self,
-        mapping: &ModelMapping,
-        id: &Value,
-    ) -> Result<Option<Value>, ActiveRecordError> {
+    fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError> {
         block_on_postgres("find", PostgresDatabase::find(self, mapping, id))
     }
 
@@ -106,21 +98,22 @@ pub fn install_database_capability(
     let find_mappings = mappings.clone();
     vm.add_native_method_with_arity("find", 2, move |arguments| {
         let model_name = string_argument(&arguments, 0, "DatabaseCapability.find", "model name")?;
-        let id = arguments
-            .get(1)
-            .ok_or_else(|| missing_native_argument("DatabaseCapability.find", 2, arguments.len()))?;
+        let id = arguments.get(1).ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.find", 2, arguments.len())
+        })?;
         let mapping = model_mapping(&find_mappings, model_name);
-        Ok(match mapping.and_then(|mapping| find_backend.find(mapping, id)) {
-            Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
-            Err(error) => database_result_error(error),
-        })
+        Ok(
+            match mapping.and_then(|mapping| find_backend.find(mapping, id)) {
+                Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
+                Err(error) => database_result_error(error),
+            },
+        )
     })?;
 
     let where_backend = backend.clone();
     let where_mappings = mappings.clone();
     vm.add_native_method_with_arity("where", 3, move |arguments| {
-        let model_name =
-            string_argument(&arguments, 0, "DatabaseCapability.where", "model name")?;
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.where", "model name")?;
         let field = string_argument(&arguments, 1, "DatabaseCapability.where", "field name")?;
         let value = arguments.get(2).ok_or_else(|| {
             missing_native_argument("DatabaseCapability.where", 3, arguments.len())
@@ -137,8 +130,7 @@ pub fn install_database_capability(
     let insert_backend = backend.clone();
     let insert_mappings = mappings.clone();
     vm.add_native_method_with_arity("insert", 2, move |arguments| {
-        let model_name =
-            string_argument(&arguments, 0, "DatabaseCapability.insert", "model name")?;
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.insert", "model name")?;
         let attributes =
             map_argument(&arguments, 1, "DatabaseCapability.insert", "attributes map")?;
         let mapping = model_mapping(&insert_mappings, model_name);
@@ -153,21 +145,20 @@ pub fn install_database_capability(
     let update_backend = backend;
     let update_mappings = mappings;
     vm.add_native_method_with_arity("update", 3, move |arguments| {
-        let model_name =
-            string_argument(&arguments, 0, "DatabaseCapability.update", "model name")?;
-        let id = arguments
-            .get(1)
-            .cloned()
-            .ok_or_else(|| missing_native_argument("DatabaseCapability.update", 3, arguments.len()))?;
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.update", "model name")?;
+        let id = arguments.get(1).cloned().ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.update", 3, arguments.len())
+        })?;
         let attributes =
             map_argument(&arguments, 2, "DatabaseCapability.update", "attributes map")?;
         let mapping = model_mapping(&update_mappings, model_name);
-        Ok(match mapping
-            .and_then(|mapping| update_backend.update_by_id(mapping, id, &attributes))
-        {
-            Ok(value) => Value::result_ok(value),
-            Err(error) => database_result_error(error),
-        })
+        Ok(
+            match mapping.and_then(|mapping| update_backend.update_by_id(mapping, id, &attributes))
+            {
+                Ok(value) => Value::result_ok(value),
+                Err(error) => database_result_error(error),
+            },
+        )
     })?;
 
     vm.end_class();
@@ -195,9 +186,9 @@ fn install_model_active_record_methods(
             let find_mapping = mapping.clone();
             let find_method = format!("{}.find", mapping.class_name);
             vm.add_native_method_with_arity("find", 1, move |arguments| {
-                let id = arguments.get(0).ok_or_else(|| {
-                    missing_native_argument(&find_method, 1, arguments.len())
-                })?;
+                let id = arguments
+                    .first()
+                    .ok_or_else(|| missing_native_argument(&find_method, 1, arguments.len()))?;
                 Ok(match find_backend.find(&find_mapping, id) {
                     Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
                     Err(error) => database_result_error(error),
@@ -208,11 +199,10 @@ fn install_model_active_record_methods(
             let where_mapping = mapping.clone();
             let where_method = format!("{}.where", mapping.class_name);
             vm.add_native_method_with_arity("where", 2, move |arguments| {
-                let field =
-                    string_argument(&arguments, 0, &where_method, "field name")?;
-                let value = arguments.get(1).ok_or_else(|| {
-                    missing_native_argument(&where_method, 2, arguments.len())
-                })?;
+                let field = string_argument(&arguments, 0, &where_method, "field name")?;
+                let value = arguments
+                    .get(1)
+                    .ok_or_else(|| missing_native_argument(&where_method, 2, arguments.len()))?;
                 Ok(match where_backend.where_eq(&where_mapping, field, value) {
                     Ok(values) => Value::result_ok(Value::Array(values.into())),
                     Err(error) => database_result_error(error),
@@ -223,8 +213,7 @@ fn install_model_active_record_methods(
             let insert_mapping = mapping.clone();
             let insert_method = format!("{}.insert", mapping.class_name);
             vm.add_native_method_with_arity("insert", 1, move |arguments| {
-                let attributes =
-                    map_argument(&arguments, 0, &insert_method, "attributes map")?;
+                let attributes = map_argument(&arguments, 0, &insert_method, "attributes map")?;
                 Ok(match insert_backend.insert(&insert_mapping, &attributes) {
                     Ok(value) => Value::result_ok(value),
                     Err(error) => database_result_error(error),
@@ -235,15 +224,17 @@ fn install_model_active_record_methods(
             let update_mapping = mapping.clone();
             let update_method = format!("{}.update", mapping.class_name);
             vm.add_native_method_with_arity("update", 2, move |arguments| {
-                let id = arguments.get(0).cloned().ok_or_else(|| {
-                    missing_native_argument(&update_method, 2, arguments.len())
-                })?;
-                let attributes =
-                    map_argument(&arguments, 1, &update_method, "attributes map")?;
-                Ok(match update_backend.update_by_id(&update_mapping, id, &attributes) {
-                    Ok(value) => Value::result_ok(value),
-                    Err(error) => database_result_error(error),
-                })
+                let id = arguments
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| missing_native_argument(&update_method, 2, arguments.len()))?;
+                let attributes = map_argument(&arguments, 1, &update_method, "attributes map")?;
+                Ok(
+                    match update_backend.update_by_id(&update_mapping, id, &attributes) {
+                        Ok(value) => Value::result_ok(value),
+                        Err(error) => database_result_error(error),
+                    },
+                )
             })?;
 
             Ok(())
@@ -255,10 +246,7 @@ fn install_model_active_record_methods(
     Ok(())
 }
 
-fn block_on_postgres<F, T>(
-    operation: &'static str,
-    future: F,
-) -> Result<T, ActiveRecordError>
+fn block_on_postgres<F, T>(operation: &'static str, future: F) -> Result<T, ActiveRecordError>
 where
     F: Future<Output = Result<T, ActiveRecordError>>,
 {
@@ -369,10 +357,16 @@ mod tests {
         }
 
         fn all(&self, _mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
-            Ok(vec![Value::Map(BTreeMap::from([
-                ("id".to_string(), Value::Number(1)),
-                ("email".to_string(), Value::String("ada@example.com".to_string())),
-            ]).into())])
+            Ok(vec![Value::Map(
+                BTreeMap::from([
+                    ("id".to_string(), Value::Number(1)),
+                    (
+                        "email".to_string(),
+                        Value::String("ada@example.com".to_string()),
+                    ),
+                ])
+                .into(),
+            )])
         }
 
         fn where_eq(
@@ -433,11 +427,8 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source(
-            "test.rco",
-            "\"User\" db get .all",
-        )
-        .expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get .all")
+            .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("database method runs");
 
@@ -452,8 +443,7 @@ mod tests {
     fn active_record_all_is_callable_on_the_model_class() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "User .all")
-                .expect("source compiles");
+            ricochet_compiler::compile_source("test.rco", "User .all").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -467,9 +457,8 @@ mod tests {
     #[test]
     fn active_record_find_accepts_an_id_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk =
-            ricochet_compiler::compile_source("test.rco", "42 User .find")
-                .expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "42 User .find")
+            .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -515,7 +504,8 @@ mod tests {
                 BTreeMap::from([(
                     "email".to_string(),
                     Value::String("ada@example.com".to_string())
-                )]).into()
+                )])
+                .into()
             ))))]
         );
     }
@@ -537,7 +527,8 @@ mod tests {
                 BTreeMap::from([(
                     "email".to_string(),
                     Value::String("grace@example.com".to_string())
-                )]).into()
+                )])
+                .into()
             ))))]
         );
     }
@@ -549,11 +540,11 @@ mod tests {
             install_database_capability(&mut vm, Arc::new(FixtureDatabase), BTreeMap::new())
                 .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk =
-            ricochet_compiler::compile_source("test.rco", "\"Missing\" db get .all")
-                .expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"Missing\" db get .all")
+            .expect("source compiles");
 
-        vm.run_chunk(&chunk).expect("database method returns result");
+        vm.run_chunk(&chunk)
+            .expect("database method returns result");
 
         assert!(matches!(
             vm.stack(),

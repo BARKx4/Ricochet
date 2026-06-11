@@ -51,13 +51,8 @@ fn new_creates_mvc_project_skeleton() {
             .join("index.html"),
     )
     .expect("view should exist");
-    let model = fs::read_to_string(
-        project_path
-            .join("app")
-            .join("Models")
-            .join("User.rco"),
-    )
-    .expect("model should exist");
+    let model = fs::read_to_string(project_path.join("app").join("Models").join("User.rco"))
+        .expect("model should exist");
     let user_controller = fs::read_to_string(
         project_path
             .join("app")
@@ -73,14 +68,18 @@ fn new_creates_mvc_project_skeleton() {
             .join("index.html"),
     )
     .expect("users view should exist");
-    let test = fs::read_to_string(
-        project_path
-            .join("tests")
-            .join("ApplicationSmokeTest.rco"),
-    )
-    .expect("test should exist");
+    let test = fs::read_to_string(project_path.join("tests").join("ApplicationSmokeTest.rco"))
+        .expect("test should exist");
 
     assert!(manifest.contains("routes = \"config/routes.rco\""));
+    assert!(
+        !manifest.contains("[database.default]"),
+        "fresh scaffolds should not require a database before rco serve can boot"
+    );
+    assert!(
+        !manifest.contains("DATABASE_URL"),
+        "fresh scaffolds should not require DATABASE_URL before rco serve can boot"
+    );
     assert!(routes.contains("GET \"/\" HomeController \"index\" route"));
     assert!(routes.contains("GET \"/users\" UserController \"index\" route"));
     assert!(controller.contains("HomeController Controller subclass"));
@@ -529,8 +528,7 @@ fn run_executes_println_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
-    fs::write(&source_path, r#""Hello Ricochet" println"#)
-        .expect("temp source should be written");
+    fs::write(&source_path, r#""Hello Ricochet" println"#).expect("temp source should be written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
@@ -729,11 +727,8 @@ fn run_debug_breakpoint_pauses_inside_function_body() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
-    fs::write(
-        &source_path,
-        "work function\n  2\n  3\n  +\nend\nwork\n",
-    )
-    .expect("temp source should be written");
+    fs::write(&source_path, "work function\n  2\n  3\n  +\nend\nwork\n")
+        .expect("temp source should be written");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
@@ -1389,11 +1384,7 @@ tags get .count
 
     assert_run_success(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    for expected in [
-        "Number(1)",
-        "String(\"Ada\")",
-        "String(\"dark\")",
-    ] {
+    for expected in ["Number(1)", "String(\"Ada\")", "String(\"dark\")"] {
         assert!(
             stdout.contains(expected),
             "stdout should contain {expected}, got:\n{stdout}"
@@ -1747,6 +1738,54 @@ fn run_exposes_http_client_capability() {
     assert!(
         stdout.contains("Number(200)") && stdout.contains("String(\"pong\")"),
         "stdout should contain HTTP status and body, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_limits_http_response_body_size() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+    let server = thread::spawn(move || {
+        let mut stream = (0..500)
+            .find_map(|_| match listener.accept() {
+                Ok((stream, _)) => Some(stream),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(std::time::Duration::from_millis(10));
+                    None
+                }
+                Err(error) => panic!("HTTP accept failed: {error}"),
+            })
+            .expect("client should connect");
+        let mut request = [0_u8; 1024];
+        let _ = std::io::Read::read(&mut stream, &mut request);
+        let body = vec![b'x'; 1_048_577];
+        std::io::Write::write_all(
+            &mut stream,
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .expect("response headers should write");
+        std::io::Write::write_all(&mut stream, &body).expect("response body should write");
+    });
+    let output = run_source(&format!(
+        r#"
+"http://{address}/large" http .get error err var
+"kind" err get .at
+"#
+    ));
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"HttpBodyTooLarge\")"),
+        "stdout should contain HTTP body limit error, got:\n{stdout}"
     );
 }
 

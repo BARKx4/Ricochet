@@ -79,8 +79,8 @@ mod tests {
 
     #[test]
     fn router_parses_quoted_path_and_action_route() {
-        let routes = parse_routes(r#"GET "/" HomeController "index" route"#)
-            .expect("route should parse");
+        let routes =
+            parse_routes(r#"GET "/" HomeController "index" route"#).expect("route should parse");
 
         assert_eq!(
             routes,

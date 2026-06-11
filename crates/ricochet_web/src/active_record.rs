@@ -63,7 +63,10 @@ impl fmt::Display for ActiveRecordError {
                 write!(f, "unknown Ricochet model class {class_name}")
             }
             ActiveRecordError::MissingTable { class_name } => {
-                write!(f, "Ricochet model class {class_name} has no table declaration")
+                write!(
+                    f,
+                    "Ricochet model class {class_name} has no table declaration"
+                )
             }
             ActiveRecordError::MissingField { class_name, field } => {
                 write!(f, "missing field {field:?} for model {class_name}")
@@ -88,15 +91,12 @@ impl fmt::Display for ActiveRecordError {
 impl std::error::Error for ActiveRecordError {}
 
 impl ModelMapping {
-    pub fn from_vm(
-        vm: &ricochet_vm::Vm,
-        class_name: &str,
-    ) -> Result<Self, ActiveRecordError> {
-        let fields = vm
-            .class_fields(class_name)
-            .ok_or_else(|| ActiveRecordError::UnknownModel {
-                class_name: class_name.to_string(),
-            })?;
+    pub fn from_vm(vm: &ricochet_vm::Vm, class_name: &str) -> Result<Self, ActiveRecordError> {
+        let fields =
+            vm.class_fields(class_name)
+                .ok_or_else(|| ActiveRecordError::UnknownModel {
+                    class_name: class_name.to_string(),
+                })?;
         let table_name =
             vm.class_table(class_name)
                 .ok_or_else(|| ActiveRecordError::MissingTable {
@@ -300,9 +300,7 @@ impl PostgresDatabase {
             .await
             .map_err(|error| database_error("all", error))?;
 
-        rows.iter()
-            .map(|row| row_to_value(row, mapping))
-            .collect()
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
 
     pub async fn where_eq(
@@ -319,9 +317,7 @@ impl PostgresDatabase {
             .await
             .map_err(|error| database_error("where", error))?;
 
-        rows.iter()
-            .map(|row| row_to_value(row, mapping))
-            .collect()
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
 
     pub async fn insert(
@@ -475,12 +471,13 @@ fn row_to_value(row: &Row, mapping: &ModelMapping) -> Result<Value, ActiveRecord
     let mut values = BTreeMap::new();
 
     for (index, field) in mapping.fields.iter().enumerate() {
-        let column = row.columns().get(index).ok_or_else(|| {
-            ActiveRecordError::Database {
+        let column = row
+            .columns()
+            .get(index)
+            .ok_or_else(|| ActiveRecordError::Database {
                 operation: "decode row",
                 message: format!("query did not return mapped field {field:?}"),
-            }
-        })?;
+            })?;
         let value = column_value(row, index, field, column.type_())?;
         values.insert(field.clone(), value);
     }
@@ -498,12 +495,16 @@ fn column_value(
         Type::BOOL => row
             .try_get::<_, Option<bool>>(index)
             .map(|value| value.map(Value::Bool).unwrap_or(Value::Nil)),
-        Type::INT2 => row
-            .try_get::<_, Option<i16>>(index)
-            .map(|value| value.map(|value| Value::Number(value.into())).unwrap_or(Value::Nil)),
-        Type::INT4 => row
-            .try_get::<_, Option<i32>>(index)
-            .map(|value| value.map(|value| Value::Number(value.into())).unwrap_or(Value::Nil)),
+        Type::INT2 => row.try_get::<_, Option<i16>>(index).map(|value| {
+            value
+                .map(|value| Value::Number(value.into()))
+                .unwrap_or(Value::Nil)
+        }),
+        Type::INT4 => row.try_get::<_, Option<i32>>(index).map(|value| {
+            value
+                .map(|value| Value::Number(value.into()))
+                .unwrap_or(Value::Nil)
+        }),
         Type::INT8 => row
             .try_get::<_, Option<i64>>(index)
             .map(|value| value.map(Value::Number).unwrap_or(Value::Nil)),

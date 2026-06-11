@@ -8,7 +8,7 @@ use axum::{
     extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse},
-    routing::{get, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use ricochet_bytecode::Chunk;
@@ -41,6 +41,38 @@ enum RenderedAction {
 }
 
 type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServeOptions {
+    pub host: String,
+    pub port: u16,
+    pub debug: bool,
+    pub watch: bool,
+}
+
+impl Default for ServeOptions {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+            debug: false,
+            watch: false,
+        }
+    }
+}
+
+impl ServeOptions {
+    pub fn bind_addr(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.watch {
+            bail!("rco serve --watch is not implemented yet");
+        }
+        Ok(())
+    }
+}
 
 pub fn build_test_app() -> Result<Router> {
     let fixture_root =
@@ -122,6 +154,84 @@ fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -
                     }),
                 );
             }
+            "DELETE" => {
+                app = app.route(
+                    &route.path,
+                    delete(move |State(state): State<AppState>,
+                                 path_params: Option<AxumPath<HashMap<String, String>>>,
+                                 AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
+                        let controller = controller.clone();
+                        let action = action.clone();
+                        let path_params = path_params
+                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                            .unwrap_or_default();
+                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                        async move {
+                            render_route(
+                                state,
+                                controller,
+                                action,
+                                path_params,
+                                query_params,
+                                BTreeMap::new(),
+                            )
+                            .await
+                        }
+                    }),
+                );
+            }
+            "PUT" => {
+                app = app.route(
+                    &route.path,
+                    put(move |State(state): State<AppState>,
+                              path_params: Option<AxumPath<HashMap<String, String>>>,
+                              AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
+                        let controller = controller.clone();
+                        let action = action.clone();
+                        let path_params = path_params
+                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                            .unwrap_or_default();
+                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                        async move {
+                            render_route(
+                                state,
+                                controller,
+                                action,
+                                path_params,
+                                query_params,
+                                BTreeMap::new(),
+                            )
+                            .await
+                        }
+                    }),
+                );
+            }
+            "PATCH" => {
+                app = app.route(
+                    &route.path,
+                    patch(move |State(state): State<AppState>,
+                                path_params: Option<AxumPath<HashMap<String, String>>>,
+                                AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
+                        let controller = controller.clone();
+                        let action = action.clone();
+                        let path_params = path_params
+                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
+                            .unwrap_or_default();
+                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
+                        async move {
+                            render_route(
+                                state,
+                                controller,
+                                action,
+                                path_params,
+                                query_params,
+                                BTreeMap::new(),
+                            )
+                            .await
+                        }
+                    }),
+                );
+            }
             "POST" => {
                 app = app.route(
                     &route.path,
@@ -150,7 +260,11 @@ fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -
                     }),
                 );
             }
-            _ => bail!("unsupported HTTP method {} for {}", route.method, route.path),
+            _ => bail!(
+                "unsupported HTTP method {} for {}",
+                route.method,
+                route.path
+            ),
         }
     }
 
@@ -200,10 +314,7 @@ fn build_controller_registry(
     Ok(registry)
 }
 
-fn database_vm_setup(
-    project_root: &Path,
-    backend: Arc<dyn DatabaseBackend>,
-) -> Result<VmSetup> {
+fn database_vm_setup(project_root: &Path, backend: Arc<dyn DatabaseBackend>) -> Result<VmSetup> {
     let (model_chunks, mappings) = load_model_runtime(project_root)?;
     let model_chunks = Arc::new(model_chunks);
 
@@ -211,8 +322,7 @@ fn database_vm_setup(
         for chunk in model_chunks.iter() {
             vm.run_chunk(chunk)?;
         }
-        let database =
-            install_database_capability(vm, backend.clone(), mappings.clone())?;
+        let database = install_database_capability(vm, backend.clone(), mappings.clone())?;
         Ok(BTreeMap::from([("db".to_string(), database)]))
     }))
 }
@@ -235,9 +345,7 @@ fn model_vm_setup(project_root: &Path) -> Result<Option<VmSetup>> {
     })))
 }
 
-fn load_model_runtime(
-    project_root: &Path,
-) -> Result<(Vec<Chunk>, BTreeMap<String, ModelMapping>)> {
+fn load_model_runtime(project_root: &Path) -> Result<(Vec<Chunk>, BTreeMap<String, ModelMapping>)> {
     let model_chunks = load_model_chunks(project_root)?;
 
     let mut vm = Vm::default();
@@ -324,7 +432,7 @@ async fn render_route(
         }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("ricochet MVC error: {err}"),
+            format!("ricochet MVC error: {err:#}"),
         )
             .into_response(),
     }
@@ -366,7 +474,8 @@ fn render_view(runtime: &AppRuntime, view: &str, ctx: &RequestContext) -> Result
     render_template(&template, &ctx.view_data, runtime.escape)
 }
 
-pub async fn serve_current_dir(debug: bool, watch: bool) -> Result<()> {
+pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
+    options.validate()?;
     let project_root = Path::new(".");
     let manifest = load_manifest(project_root)?;
     let app = match manifest.database.default {
@@ -380,9 +489,13 @@ pub async fn serve_current_dir(debug: bool, watch: bool) -> Result<()> {
         }
         None => build_app_from_dir(project_root)?,
     };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    let bind_addr = options.bind_addr();
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
-    println!("Ricochet web server listening on http://127.0.0.1:3000 debug={debug} watch={watch}");
+    println!(
+        "Ricochet web server listening on http://{bind_addr} debug={} watch={}",
+        options.debug, options.watch
+    );
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -394,5 +507,31 @@ mod tests {
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
+    }
+
+    #[test]
+    fn serve_options_build_configured_socket_addr() {
+        let options = ServeOptions {
+            host: "0.0.0.0".to_string(),
+            port: 4100,
+            debug: true,
+            watch: true,
+        };
+
+        assert_eq!(options.bind_addr(), "0.0.0.0:4100");
+    }
+
+    #[test]
+    fn serve_options_reject_watch_until_hot_reload_is_wired() {
+        let options = ServeOptions {
+            watch: true,
+            ..ServeOptions::default()
+        };
+
+        let error = options
+            .validate()
+            .expect_err("watch should fail loudly until reload is implemented");
+
+        assert!(error.to_string().contains("--watch is not implemented"));
     }
 }

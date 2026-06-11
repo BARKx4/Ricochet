@@ -22,8 +22,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    New { path: String },
-    Check { path: Option<String> },
+    New {
+        path: String,
+    },
+    Check {
+        path: Option<String>,
+    },
     Repl {
         #[arg(long)]
         debug: bool,
@@ -39,9 +43,22 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    Build { path: Option<String> },
-    Serve { #[arg(long)] debug: bool, #[arg(long)] watch: bool },
-    Routes { path: Option<String> },
+    Build {
+        path: Option<String>,
+    },
+    Serve {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 3000)]
+        port: u16,
+        #[arg(long)]
+        debug: bool,
+        #[arg(long)]
+        watch: bool,
+    },
+    Routes {
+        path: Option<String>,
+    },
     Test {
         #[arg(long)]
         debug: bool,
@@ -74,7 +91,20 @@ pub async fn run_cli() -> Result<()> {
             args,
         } => run_file(&path, debug, step, &breakpoints, args)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
-        Command::Serve { debug, watch } => ricochet_web::serve_current_dir(debug, watch).await?,
+        Command::Serve {
+            host,
+            port,
+            debug,
+            watch,
+        } => {
+            ricochet_web::serve_current_dir(ricochet_web::ServeOptions {
+                host,
+                port,
+                debug,
+                watch,
+            })
+            .await?
+        }
         Command::Routes { path } => routes(path.as_deref().unwrap_or("."))?,
         Command::Test {
             debug,
@@ -154,11 +184,7 @@ fn run_repl<R: BufRead, W: Write>(
     }
 }
 
-fn write_repl_result<W: Write>(
-    vm: &Vm,
-    output: &mut W,
-    output_cursor: &mut usize,
-) -> Result<()> {
+fn write_repl_result<W: Write>(vm: &Vm, output: &mut W, output_cursor: &mut usize) -> Result<()> {
     write!(output, "{}", &vm.stdout()[*output_cursor..])?;
     *output_cursor = vm.stdout().len();
     writeln!(output, "{:?}", vm.stack())?;
@@ -167,20 +193,18 @@ fn write_repl_result<W: Write>(
 }
 
 fn is_incomplete_compile_error(error: &CompileError) -> bool {
-    match error {
+    matches!(
+        error,
         CompileError::Parse(ParseError::Expected {
             found: TokenKind::Eof,
             ..
-        })
-        | CompileError::Parse(ParseError::Unexpected {
+        }) | CompileError::Parse(ParseError::Unexpected {
             found: TokenKind::Eof,
             ..
-        })
-        | CompileError::Parse(ParseError::Lex(
+        }) | CompileError::Parse(ParseError::Lex(
             LexError::UnterminatedString(_) | LexError::UnterminatedComment(_),
-        )) => true,
-        _ => false,
-    }
+        ))
+    )
 }
 
 fn check(path: &str) -> Result<()> {
@@ -209,7 +233,11 @@ fn check(path: &str) -> Result<()> {
         check_source_file(file)?;
     }
 
-    println!("checked {} Ricochet files in {}", files.len(), path.display());
+    println!(
+        "checked {} Ricochet files in {}",
+        files.len(),
+        path.display()
+    );
     Ok(())
 }
 
@@ -223,7 +251,10 @@ fn check_source_file(path: &Path) -> Result<()> {
 fn routes(path: &str) -> Result<()> {
     let path = Path::new(path);
     if !path.is_dir() {
-        bail!("routes path does not exist or is not a directory: {}", path.display());
+        bail!(
+            "routes path does not exist or is not a directory: {}",
+            path.display()
+        );
     }
 
     for route in ricochet_web::routes_from_dir(path)? {
@@ -263,7 +294,9 @@ GET "/users" UserController "index" route
 "#,
     )?;
     write_project_file(
-        path.join("app").join("Controllers").join("HomeController.rco"),
+        path.join("app")
+            .join("Controllers")
+            .join("HomeController.rco"),
         r#"HomeController Controller subclass
   "index" [
     "Hello Ricochet" title var
@@ -290,7 +323,9 @@ end
 "#,
     )?;
     write_project_file(
-        path.join("app").join("Controllers").join("UserController.rco"),
+        path.join("app")
+            .join("Controllers")
+            .join("UserController.rco"),
         r#"UserController Controller subclass
   "index" [
     users array
@@ -307,11 +342,17 @@ end
 "#,
     )?;
     write_project_file(
-        path.join("app").join("Views").join("home").join("index.html"),
+        path.join("app")
+            .join("Views")
+            .join("home")
+            .join("index.html"),
         "<h1>{ title get }</h1>\n",
     )?;
     write_project_file(
-        path.join("app").join("Views").join("users").join("index.html"),
+        path.join("app")
+            .join("Views")
+            .join("users")
+            .join("index.html"),
         "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n",
     )?;
     write_project_file(
@@ -343,7 +384,10 @@ end
 fn ensure_project_path_is_ready(path: &Path) -> Result<()> {
     if path.exists() {
         if !path.is_dir() {
-            bail!("project path already exists and is not a directory: {}", path.display());
+            bail!(
+                "project path already exists and is not a directory: {}",
+                path.display()
+            );
         }
 
         if fs::read_dir(path)
@@ -353,7 +397,10 @@ fn ensure_project_path_is_ready(path: &Path) -> Result<()> {
             .with_context(|| format!("failed to read entry in {}", path.display()))?
             .is_some()
         {
-            bail!("project path already exists and is not empty: {}", path.display());
+            bail!(
+                "project path already exists and is not empty: {}",
+                path.display()
+            );
         }
     }
 
@@ -375,10 +422,6 @@ routes = "config/routes.rco"
 
 [web.views]
 escape = "html"
-
-[database.default]
-adapter = "postgres"
-url = "${{DATABASE_URL}}"
 "#
     )
 }
@@ -658,8 +701,7 @@ fn build(path: &str) -> Result<()> {
         .parent()
         .expect("build output path should include parent directory");
 
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
     fs::write(output, chunk.to_bytes()?)
         .with_context(|| format!("failed to write {}", output.display()))?;
 

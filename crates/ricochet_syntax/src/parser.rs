@@ -215,8 +215,16 @@ impl Parser {
             Ok(exprs.remove(0))
         } else {
             let span = Span {
-                start: exprs.first().expect("expression sequence is non-empty").span.start,
-                end: exprs.last().expect("expression sequence is non-empty").span.end,
+                start: exprs
+                    .first()
+                    .expect("expression sequence is non-empty")
+                    .span
+                    .start,
+                end: exprs
+                    .last()
+                    .expect("expression sequence is non-empty")
+                    .span
+                    .end,
             };
             Ok(SpannedExpr {
                 expr: Expr::Sequence(exprs),
@@ -373,9 +381,10 @@ impl Parser {
     }
 
     fn expect_symbol(&mut self, expected: &'static str) -> Result<(), ParseError> {
-        self.expect_kind(expected, |kind| {
-            matches!(kind, TokenKind::Symbol(s) if s == expected)
-        })
+        self.expect_kind(
+            expected,
+            |kind| matches!(kind, TokenKind::Symbol(s) if s == expected),
+        )
     }
 
     fn expect_left_paren(&mut self) -> Result<(), ParseError> {
@@ -387,7 +396,9 @@ impl Parser {
     }
 
     fn expect_right_bracket(&mut self) -> Result<(), ParseError> {
-        self.expect_kind("right bracket", |kind| matches!(kind, TokenKind::RightBracket))
+        self.expect_kind("right bracket", |kind| {
+            matches!(kind, TokenKind::RightBracket)
+        })
     }
 
     fn expect_kind(
@@ -408,7 +419,10 @@ impl Parser {
     }
 
     fn skip_newlines(&mut self) {
-        while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::DocComment(_)) {
+        while matches!(
+            self.peek_kind(),
+            TokenKind::Newline | TokenKind::DocComment(_)
+        ) {
             self.pos += 1;
         }
     }
@@ -638,11 +652,7 @@ mod tests {
         let module = parse_module(src).expect("parse succeeds");
 
         let Item::Expr {
-            expr:
-                Expr::While {
-                    condition,
-                    body,
-                },
+            expr: Expr::While { condition, body },
             ..
         } = &module.items[0]
         else {
@@ -696,10 +706,7 @@ mod tests {
             Item::Function(function) => {
                 assert_eq!(function.name, "hello");
                 assert_eq!(function.args, None);
-                assert_eq!(
-                    unspan(&function.body),
-                    vec![Expr::String("hi".to_string())]
-                );
+                assert_eq!(unspan(&function.body), vec![Expr::String("hi".to_string())]);
             }
             other => panic!("expected function, got {other:?}"),
         }
