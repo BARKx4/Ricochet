@@ -9,4 +9,5 @@ ricochet_bytecode = { path = "../ricochet_bytecode" }
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
+regex.workspace = true
 thiserror.workspace = true

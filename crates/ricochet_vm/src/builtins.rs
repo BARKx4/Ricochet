@@ -6,11 +6,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use regex::Match as RegexMatch;
 use ricochet_bytecode::Chunk;
 use serde_json::Value as JsonValue;
 
 use super::*;
 use crate::capability::Capability;
+use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
 use crate::vm::value_kind;
 
@@ -25,12 +27,26 @@ impl Vm {
                 "length"
                     | "count"
                     | "at"
+                    | "first"
+                    | "last"
+                    | "take"
+                    | "skip"
+                    | "reverse"
                     | "contains?"
                     | "starts-with?"
                     | "ends-with?"
+                    | "blank?"
                     | "trim"
+                    | "trim-start"
+                    | "trim-end"
                     | "uppercase"
                     | "lowercase"
+                    | "slice"
+                    | "index-of"
+                    | "last-index-of"
+                    | "repeat"
+                    | "lines"
+                    | "chars"
                     | "split"
                     | "replace"
                     | "concat"
@@ -40,6 +56,11 @@ impl Vm {
                 method,
                 "count"
                     | "at"
+                    | "first"
+                    | "last"
+                    | "take"
+                    | "skip"
+                    | "reverse"
                     | "has?"
                     | "push!"
                     | "insert!"
@@ -58,6 +79,11 @@ impl Vm {
             Value::Set(_) => matches!(
                 method,
                 "count"
+                    | "first"
+                    | "last"
+                    | "take"
+                    | "skip"
+                    | "reverse"
                     | "has?"
                     | "push!"
                     | "remove!"
@@ -98,6 +124,7 @@ impl Vm {
                 )
             }
             Value::Capability(Capability::Http) => matches!(method, "get" | "post-json"),
+            Value::Regex(_) => matches!(method, "matches?" | "find" | "captures" | "replace"),
             _ => false,
         }
     }
@@ -123,6 +150,11 @@ impl Vm {
         match method {
             "count" | "length" => self.method_count(receiver, method),
             "at" => self.method_at(receiver, method),
+            "first" => self.method_first(receiver, method),
+            "last" => self.method_last(receiver, method),
+            "take" => self.method_take(receiver, method),
+            "skip" => self.method_skip(receiver, method),
+            "reverse" => self.method_reverse(receiver, method),
             "has?" | "contains?" => self.method_has(receiver, method),
             "keys" => self.method_keys(receiver, method),
             "values" => self.method_values(receiver, method),
@@ -136,12 +168,26 @@ impl Vm {
             "transform" => self.method_transform(receiver, method),
             "select" => self.method_select(receiver, method),
             "reduce" => self.method_reduce(receiver, method),
-            "find" => self.method_find(receiver, method),
+            "find" => match receiver {
+                Value::Regex(_) => self.method_regex_find(receiver, method),
+                receiver => self.method_find(receiver, method),
+            },
             "any?" => self.method_any(receiver, method),
             "all?" => self.method_all(receiver, method),
+            "blank?" => self.method_blank(receiver, method),
             "trim" => self.string_unary(receiver, method, |value| value.trim().to_string()),
+            "trim-start" => {
+                self.string_unary(receiver, method, |value| value.trim_start().to_string())
+            }
+            "trim-end" => self.string_unary(receiver, method, |value| value.trim_end().to_string()),
             "uppercase" => self.string_unary(receiver, method, |value| value.to_uppercase()),
             "lowercase" => self.string_unary(receiver, method, |value| value.to_lowercase()),
+            "slice" => self.method_slice(receiver, method),
+            "index-of" => self.method_index_of(receiver, method),
+            "last-index-of" => self.method_last_index_of(receiver, method),
+            "repeat" => self.method_repeat(receiver, method),
+            "lines" => self.method_lines(receiver, method),
+            "chars" => self.method_chars(receiver, method),
             "starts-with?" => {
                 self.string_predicate(receiver, method, |value, needle| value.starts_with(needle))
             }
@@ -150,7 +196,10 @@ impl Vm {
             }
             "split" => self.method_split(receiver, method),
             "join" => self.method_join(receiver, method),
-            "replace" => self.method_replace(receiver, method),
+            "replace" => match receiver {
+                Value::Regex(_) => self.method_regex_replace(receiver, method),
+                receiver => self.method_replace(receiver, method),
+            },
             "concat" => self.method_concat(receiver, method),
             "to-number" => self.method_to_number(receiver, method),
             "error?" => self.method_result_error(receiver, method),
@@ -164,6 +213,8 @@ impl Vm {
             "create-dir!" => self.method_fs_create_dir(receiver, method),
             "get" => self.method_http_get(receiver, method),
             "post-json" => self.method_http_post_json(receiver, method),
+            "matches?" => self.method_regex_matches(receiver, method),
+            "captures" => self.method_regex_captures(receiver, method),
             _ => Err(VmError::UnknownMethod {
                 class_name: value_kind(&receiver).to_string(),
                 method: method.to_string(),
@@ -204,6 +255,81 @@ impl Vm {
                 "string, array, list, or map",
                 &value,
             )),
+        }
+    }
+
+    fn method_first(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(value
+                .chars()
+                .next()
+                .map(|character| Value::String(character.to_string()))
+                .unwrap_or(Value::Nil)),
+            Value::Array(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
+            Value::List(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
+            Value::Set(value) => Ok(value.snapshot().first().cloned().unwrap_or(Value::Nil)),
+            value => Err(method_type_error(
+                method,
+                "string, array, list, or set",
+                &value,
+            )),
+        }
+    }
+
+    fn method_last(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(value
+                .chars()
+                .last()
+                .map(|character| Value::String(character.to_string()))
+                .unwrap_or(Value::Nil)),
+            Value::Array(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
+            Value::List(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
+            Value::Set(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
+            value => Err(method_type_error(
+                method,
+                "string, array, list, or set",
+                &value,
+            )),
+        }
+    }
+
+    fn method_take(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let count = self.pop_index(method)?;
+        match receiver {
+            Value::String(value) => Ok(Value::String(value.chars().take(count).collect())),
+            receiver => {
+                let values = sequence_snapshot(&receiver, method)?
+                    .into_iter()
+                    .take(count)
+                    .collect();
+                collection_from_sequence_receiver(&receiver, values, method)
+            }
+        }
+    }
+
+    fn method_skip(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let count = self.pop_index(method)?;
+        match receiver {
+            Value::String(value) => Ok(Value::String(value.chars().skip(count).collect())),
+            receiver => {
+                let values = sequence_snapshot(&receiver, method)?
+                    .into_iter()
+                    .skip(count)
+                    .collect();
+                collection_from_sequence_receiver(&receiver, values, method)
+            }
+        }
+    }
+
+    fn method_reverse(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(Value::String(value.chars().rev().collect())),
+            receiver => {
+                let mut values = sequence_snapshot(&receiver, method)?;
+                values.reverse();
+                collection_from_sequence_receiver(&receiver, values, method)
+            }
         }
     }
 
@@ -482,6 +608,88 @@ impl Vm {
         }
     }
 
+    fn method_blank(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(Value::Bool(value.trim().is_empty())),
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_slice(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let count = self.pop_index(method)?;
+        let start = self.pop_index(method)?;
+        match receiver {
+            Value::String(value) => Ok(Value::String(
+                value.chars().skip(start).take(count).collect(),
+            )),
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_index_of(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let needle = self.pop_string(method, "needle string")?;
+        match receiver {
+            Value::String(value) => match value.find(&needle) {
+                Some(index) => number_from_usize(method, byte_to_char_index(&value, index)),
+                None => Ok(Value::Nil),
+            },
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_last_index_of(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let needle = self.pop_string(method, "needle string")?;
+        match receiver {
+            Value::String(value) => match value.rfind(&needle) {
+                Some(index) => number_from_usize(method, byte_to_char_index(&value, index)),
+                None => Ok(Value::Nil),
+            },
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_repeat(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let count = self.pop_index(method)?;
+        match receiver {
+            Value::String(value) => {
+                value
+                    .len()
+                    .checked_mul(count)
+                    .ok_or_else(|| VmError::ArithmeticOverflow {
+                        word: method.to_string(),
+                    })?;
+                Ok(Value::String(value.repeat(count)))
+            }
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_lines(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(Value::Array(
+                value
+                    .lines()
+                    .map(|line| Value::String(line.to_string()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            )),
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_chars(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::String(value) => Ok(Value::Array(
+                value
+                    .chars()
+                    .map(|character| Value::String(character.to_string()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            )),
+            value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
     fn method_split(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         let delimiter = self.pop_string(method, "delimiter string")?;
         match receiver {
@@ -543,6 +751,71 @@ impl Vm {
                 Err(error) => Value::result_err("ParseError", error.to_string()),
             }),
             value => Err(method_type_error(method, "string", &value)),
+        }
+    }
+
+    fn method_regex_matches(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let haystack = self.pop_string(method, "haystack string")?;
+        match receiver {
+            Value::Regex(regex) => Ok(Value::Bool(regex.regex().is_match(&haystack))),
+            value => Err(method_type_error(method, "regex", &value)),
+        }
+    }
+
+    fn method_regex_find(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let haystack = self.pop_string(method, "haystack string")?;
+        match receiver {
+            Value::Regex(regex) => Ok(regex
+                .regex()
+                .find(&haystack)
+                .map(|matched| regex_match_map(method, &haystack, matched))
+                .transpose()?
+                .unwrap_or(Value::Nil)),
+            value => Err(method_type_error(method, "regex", &value)),
+        }
+    }
+
+    fn method_regex_captures(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let haystack = self.pop_string(method, "haystack string")?;
+        match receiver {
+            Value::Regex(regex) => {
+                let Some(captures) = regex.regex().captures(&haystack) else {
+                    return Ok(Value::Nil);
+                };
+                let mut values = BTreeMap::new();
+                for (index, matched) in captures.iter().enumerate() {
+                    if let Some(matched) = matched {
+                        values.insert(
+                            index.to_string(),
+                            Value::String(matched.as_str().to_string()),
+                        );
+                    }
+                }
+                for name in regex.regex().capture_names().flatten() {
+                    if let Some(matched) = captures.name(name) {
+                        values.insert(
+                            name.to_string(),
+                            Value::String(matched.as_str().to_string()),
+                        );
+                    }
+                }
+                Ok(Value::Map(values.into()))
+            }
+            value => Err(method_type_error(method, "regex", &value)),
+        }
+    }
+
+    fn method_regex_replace(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        let replacement = self.pop_string(method, "replacement string")?;
+        let haystack = self.pop_string(method, "haystack string")?;
+        match receiver {
+            Value::Regex(regex) => Ok(Value::String(
+                regex
+                    .regex()
+                    .replace_all(&haystack, replacement.as_str())
+                    .into_owned(),
+            )),
+            value => Err(method_type_error(method, "regex", &value)),
         }
     }
 
@@ -787,6 +1060,135 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_assert(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = self.pop(word)?;
+        match value.truthy_for_condition() {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.stack = stack_before;
+                Err(VmError::AssertionFailed {
+                    expected: "truthy".to_string(),
+                    actual: format!("{value:?}"),
+                })
+            }
+            Err(_) => {
+                self.stack = stack_before;
+                Err(VmError::InvalidArgument {
+                    word: word.to_string(),
+                    message: "Result values require ok? before assertion".to_string(),
+                })
+            }
+        }
+    }
+
+    pub(super) fn call_assert_true(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = self.pop(word)?;
+        match value {
+            Value::Bool(true) => Ok(()),
+            Value::Bool(false) => {
+                self.stack = stack_before;
+                Err(VmError::AssertionFailed {
+                    expected: "true".to_string(),
+                    actual: "false".to_string(),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(method_type_error(word, "bool", &value))
+            }
+        }
+    }
+
+    pub(super) fn call_assert_false(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = self.pop(word)?;
+        match value {
+            Value::Bool(false) => Ok(()),
+            Value::Bool(true) => {
+                self.stack = stack_before;
+                Err(VmError::AssertionFailed {
+                    expected: "false".to_string(),
+                    actual: "true".to_string(),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(method_type_error(word, "bool", &value))
+            }
+        }
+    }
+
+    pub(super) fn call_assert_ok(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = self.pop(word)?;
+        match value {
+            Value::Result(RicochetResult::Ok(_)) => Ok(()),
+            Value::Result(RicochetResult::Err(error)) => {
+                self.stack = stack_before;
+                Err(VmError::AssertionFailed {
+                    expected: "ok result".to_string(),
+                    actual: format!("{:?}", RicochetResult::Err(error)),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(method_type_error(word, "result", &value))
+            }
+        }
+    }
+
+    pub(super) fn call_assert_error(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = self.pop(word)?;
+        match value {
+            Value::Result(RicochetResult::Err(_)) => Ok(()),
+            Value::Result(RicochetResult::Ok(value)) => {
+                self.stack = stack_before;
+                Err(VmError::AssertionFailed {
+                    expected: "error result".to_string(),
+                    actual: format!("{:?}", RicochetResult::Ok(value)),
+                })
+            }
+            value => {
+                self.stack = stack_before;
+                Err(method_type_error(word, "result", &value))
+            }
+        }
+    }
+
+    pub(super) fn call_inspect(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 1)?;
+        let value = self
+            .stack
+            .last()
+            .expect("stack length checked before inspect")
+            .clone();
+        self.stack.push(Value::String(format!("{value:?}")));
+        Ok(())
+    }
+
+    pub(super) fn call_debug(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 1)?;
+        let value = self
+            .stack
+            .last()
+            .expect("stack length checked before debug")
+            .clone();
+        self.output_lines.push(format!("{value:?}"));
+        Ok(())
+    }
+
+    pub(super) fn call_regex(&mut self, word: &str) -> Result<(), VmError> {
+        let pattern = self.pop_string(word, "regex pattern string")?;
+        self.stack.push(match RegexValue::try_new(pattern) {
+            Ok(regex) => Value::result_ok(Value::Regex(regex)),
+            Err(error) => Value::result_err("RegexError", error.to_string()),
+        });
+        Ok(())
+    }
+
     pub(super) fn call_nip(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let top = self.pop_unchecked();
@@ -861,6 +1263,7 @@ impl Vm {
             Value::Member(_) => "Member".to_string(),
             Value::Block(_) => "Block".to_string(),
             Value::Result(_) => "Result".to_string(),
+            Value::Regex(_) => "Regex".to_string(),
             Value::Capability(_) => "Capability".to_string(),
         };
         self.stack.push(Value::Class(class_name));
@@ -1267,6 +1670,19 @@ fn sequence_snapshot(receiver: &Value, method: &str) -> Result<Vec<Value>, VmErr
     }
 }
 
+fn collection_from_sequence_receiver(
+    receiver: &Value,
+    values: Vec<Value>,
+    method: &str,
+) -> Result<Value, VmError> {
+    match receiver {
+        Value::Array(_) => Ok(Value::Array(values.into())),
+        Value::List(_) => Ok(Value::List(values.into())),
+        Value::Set(_) => Ok(Value::Set(values.into())),
+        value => Err(method_type_error(method, "array, list, or set", value)),
+    }
+}
+
 fn collection_length(receiver: &Value) -> usize {
     match receiver {
         Value::Array(value) => value.len(),
@@ -1275,6 +1691,34 @@ fn collection_length(receiver: &Value) -> usize {
         Value::Map(value) => value.len(),
         _ => 0,
     }
+}
+
+fn byte_to_char_index(value: &str, byte_index: usize) -> usize {
+    value[..byte_index].chars().count()
+}
+
+fn regex_match_map(
+    method: &str,
+    haystack: &str,
+    matched: RegexMatch<'_>,
+) -> Result<Value, VmError> {
+    Ok(Value::Map(
+        BTreeMap::from([
+            (
+                "text".to_string(),
+                Value::String(matched.as_str().to_string()),
+            ),
+            (
+                "start".to_string(),
+                number_from_usize(method, byte_to_char_index(haystack, matched.start()))?,
+            ),
+            (
+                "end".to_string(),
+                number_from_usize(method, byte_to_char_index(haystack, matched.end()))?,
+            ),
+        ])
+        .into(),
+    ))
 }
 
 fn condition_value(word: &str, value: Value) -> Result<bool, VmError> {
@@ -1309,6 +1753,7 @@ fn display_value(value: &Value) -> String {
         Value::Number(value) => value.to_string(),
         Value::String(value) => value.clone(),
         Value::Class(value) => value.clone(),
+        Value::Regex(value) => format!("/{}/", value.pattern()),
         value => format!("{value:?}"),
     }
 }
@@ -1388,6 +1833,7 @@ fn builtin_class_name(value: &Value) -> Option<&'static str> {
         Value::Member(_) => Some("Member"),
         Value::Block(_) => Some("Block"),
         Value::Result(_) => Some("Result"),
+        Value::Regex(_) => Some("Regex"),
         Value::Capability(_) => Some("Capability"),
         Value::Instance(_) => None,
     }

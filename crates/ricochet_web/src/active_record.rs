@@ -142,10 +142,29 @@ impl ModelMapping {
         format!("select {} from {}", self.fields.join(", "), self.table_name)
     }
 
+    pub fn select_count_sql(&self) -> String {
+        format!("select count(*) from {}", self.table_name)
+    }
+
+    pub fn select_first_sql(&self) -> String {
+        format!(
+            "select {} from {} limit 1",
+            self.fields.join(", "),
+            self.table_name
+        )
+    }
+
     pub fn select_limit_sql(&self) -> String {
         format!(
             "select {} from {} limit $1",
             self.fields.join(", "),
+            self.table_name
+        )
+    }
+
+    pub fn exists_by_id_sql(&self) -> String {
+        format!(
+            "select exists(select 1 from {} where id = $1)",
             self.table_name
         )
     }
@@ -311,6 +330,28 @@ impl PostgresDatabase {
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
 
+    pub async fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        let row = self
+            .client
+            .query_one(mapping.select_count_sql().as_str(), &[])
+            .await
+            .map_err(|error| database_error("count", error))?;
+
+        Ok(row.get(0))
+    }
+
+    pub async fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        let rows = self
+            .client
+            .query(mapping.select_first_sql().as_str(), &[])
+            .await
+            .map_err(|error| database_error("first", error))?;
+
+        rows.first()
+            .map(|row| row_to_value(row, mapping))
+            .transpose()
+    }
+
     pub async fn limit(
         &self,
         mapping: &ModelMapping,
@@ -325,6 +366,21 @@ impl PostgresDatabase {
             .map_err(|error| database_error("limit", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
+    pub async fn exists_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<bool, ActiveRecordError> {
+        let parameter = PostgresParameter::try_from(id)?;
+        let row = self
+            .client
+            .query_one(mapping.exists_by_id_sql().as_str(), &[parameter.as_sql()])
+            .await
+            .map_err(|error| database_error("exists", error))?;
+
+        Ok(row.get(0))
     }
 
     pub async fn where_eq(
@@ -568,6 +624,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Member(_) => "member",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+        Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
     }
 }
@@ -642,6 +699,45 @@ mod tests {
         assert_eq!(
             mapping.select_limit_sql(),
             "select id, email from users limit $1"
+        );
+    }
+
+    #[test]
+    fn select_count_sql_uses_existing_table() {
+        let mapping = ModelMapping {
+            class_name: "User".to_string(),
+            table_name: "users".to_string(),
+            fields: vec!["id".to_string(), "email".to_string()],
+        };
+
+        assert_eq!(mapping.select_count_sql(), "select count(*) from users");
+    }
+
+    #[test]
+    fn select_first_sql_uses_existing_table_and_fields() {
+        let mapping = ModelMapping {
+            class_name: "User".to_string(),
+            table_name: "users".to_string(),
+            fields: vec!["id".to_string(), "email".to_string()],
+        };
+
+        assert_eq!(
+            mapping.select_first_sql(),
+            "select id, email from users limit 1"
+        );
+    }
+
+    #[test]
+    fn exists_by_id_sql_uses_existing_table() {
+        let mapping = ModelMapping {
+            class_name: "User".to_string(),
+            table_name: "users".to_string(),
+            fields: vec!["id".to_string(), "email".to_string()],
+        };
+
+        assert_eq!(
+            mapping.exists_by_id_sql(),
+            "select exists(select 1 from users where id = $1)"
         );
     }
 

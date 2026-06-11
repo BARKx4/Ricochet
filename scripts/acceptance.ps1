@@ -35,6 +35,7 @@ $examplesRoot = Join-Path $Root "examples"
 $examples = @(
     "basic-oop.rco",
     "collections.rco",
+    "text_regex.rco",
     "loop_control.rco",
     "turing_complete.rco",
     "unary_counter.rco"

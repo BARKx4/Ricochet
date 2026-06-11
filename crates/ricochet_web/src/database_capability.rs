@@ -10,7 +10,10 @@ use crate::active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
 pub trait DatabaseBackend: Send + Sync {
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
     fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError>;
+    fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError>;
+    fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError>;
     fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError>;
+    fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError>;
     fn where_eq(
         &self,
         mapping: &ModelMapping,
@@ -39,8 +42,20 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres("all", PostgresDatabase::all(self, mapping))
     }
 
+    fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        block_on_postgres("count", PostgresDatabase::count(self, mapping))
+    }
+
+    fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        block_on_postgres("first", PostgresDatabase::first(self, mapping))
+    }
+
     fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres("limit", PostgresDatabase::limit(self, mapping, limit))
+    }
+
+    fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
+        block_on_postgres("exists", PostgresDatabase::exists_by_id(self, mapping, id))
     }
 
     fn where_eq(
@@ -99,6 +114,32 @@ pub fn install_database_capability(
         })
     })?;
 
+    let count_backend = backend.clone();
+    let count_mappings = mappings.clone();
+    vm.add_native_method_with_arity("count", 1, move |arguments| {
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.count", "model name")?;
+        let mapping = model_mapping(&count_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| count_backend.count(mapping)) {
+                Ok(value) => Value::result_ok(Value::Number(value)),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
+    let first_backend = backend.clone();
+    let first_mappings = mappings.clone();
+    vm.add_native_method_with_arity("first", 1, move |arguments| {
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.first", "model name")?;
+        let mapping = model_mapping(&first_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| first_backend.first(mapping)) {
+                Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
     let limit_backend = backend.clone();
     let limit_mappings = mappings.clone();
     vm.add_native_method_with_arity("limit", 2, move |arguments| {
@@ -108,6 +149,23 @@ pub fn install_database_capability(
         Ok(
             match mapping.and_then(|mapping| limit_backend.limit(mapping, limit)) {
                 Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
+    let exists_backend = backend.clone();
+    let exists_mappings = mappings.clone();
+    vm.add_native_method_with_arity("exists?", 2, move |arguments| {
+        let model_name =
+            string_argument(&arguments, 0, "DatabaseCapability.exists?", "model name")?;
+        let id = arguments.get(1).ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.exists?", 2, arguments.len())
+        })?;
+        let mapping = model_mapping(&exists_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| exists_backend.exists_by_id(mapping, id)) {
+                Ok(value) => Value::result_ok(Value::Bool(value)),
                 Err(error) => database_result_error(error),
             },
         )
@@ -201,6 +259,24 @@ fn install_model_active_record_methods(
                 })
             })?;
 
+            let count_backend = backend.clone();
+            let count_mapping = mapping.clone();
+            vm.add_native_method_with_arity("count", 0, move |_| {
+                Ok(match count_backend.count(&count_mapping) {
+                    Ok(value) => Value::result_ok(Value::Number(value)),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let first_backend = backend.clone();
+            let first_mapping = mapping.clone();
+            vm.add_native_method_with_arity("first", 0, move |_| {
+                Ok(match first_backend.first(&first_mapping) {
+                    Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
             let limit_backend = backend.clone();
             let limit_mapping = mapping.clone();
             let limit_method = format!("{}.limit", mapping.class_name);
@@ -208,6 +284,19 @@ fn install_model_active_record_methods(
                 let limit = limit_argument(&arguments, 0, &limit_method)?;
                 Ok(match limit_backend.limit(&limit_mapping, limit) {
                     Ok(values) => Value::result_ok(Value::Array(values.into())),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
+            let exists_backend = backend.clone();
+            let exists_mapping = mapping.clone();
+            let exists_method = format!("{}.exists?", mapping.class_name);
+            vm.add_native_method_with_arity("exists?", 1, move |arguments| {
+                let id = arguments
+                    .first()
+                    .ok_or_else(|| missing_native_argument(&exists_method, 1, arguments.len()))?;
+                Ok(match exists_backend.exists_by_id(&exists_mapping, id) {
+                    Ok(value) => Value::result_ok(Value::Bool(value)),
                     Err(error) => database_result_error(error),
                 })
             })?;
@@ -382,6 +471,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Member(_) => "member",
         Value::Block(_) => "block",
         Value::Result(_) => "result",
+        Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
     }
 }
@@ -415,6 +505,14 @@ mod tests {
             )])
         }
 
+        fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+            Ok(self.all(mapping)?.len() as i64)
+        }
+
+        fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+            Ok(self.all(mapping)?.into_iter().next())
+        }
+
         fn limit(
             &self,
             mapping: &ModelMapping,
@@ -423,6 +521,17 @@ mod tests {
             let mut rows = self.all(mapping)?;
             rows.truncate(limit as usize);
             Ok(rows)
+        }
+
+        fn exists_by_id(
+            &self,
+            mapping: &ModelMapping,
+            id: &Value,
+        ) -> Result<bool, ActiveRecordError> {
+            Ok(self.all(mapping)?.iter().any(|row| match row {
+                Value::Map(row) => row.get("id").as_ref() == Some(id),
+                _ => false,
+            }))
         }
 
         fn where_eq(
@@ -526,6 +635,53 @@ mod tests {
     }
 
     #[test]
+    fn active_record_count_returns_a_number_result() {
+        let mut vm = vm_with_active_record();
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "User .count").expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Number(
+                1
+            ))))]
+        );
+    }
+
+    #[test]
+    fn active_record_first_returns_first_row_or_nil() {
+        let mut vm = vm_with_active_record();
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "User .first").expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Map(row) if row.get("email") == Some(Value::String("ada@example.com".to_string())))
+        ));
+    }
+
+    #[test]
+    fn active_record_exists_accepts_an_id_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source("test.rco", "1 User .exists?")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Result(RicochetResult::Ok(Box::new(Value::Bool(
+                true
+            ))))]
+        );
+    }
+
+    #[test]
     fn database_capability_limit_accepts_model_name_and_count() {
         let mut vm = Vm::default();
         let capability = install_database_capability(
@@ -546,6 +702,35 @@ mod tests {
             [Value::Result(RicochetResult::Ok(value))]
                 if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
         ));
+    }
+
+    #[test]
+    fn database_capability_supports_count_first_and_exists() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"User\" db get .count value\n\"User\" db get .first value \"email\" swap .at\n\"User\" 1 db get .exists? value",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability methods run");
+
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::Number(1),
+                Value::String("ada@example.com".to_string()),
+                Value::Bool(true),
+            ]
+        );
     }
 
     #[test]

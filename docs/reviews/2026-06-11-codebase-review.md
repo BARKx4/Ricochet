@@ -65,15 +65,16 @@ Implemented after this review:
   1 MiB.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
-- Active Record now has a parameterized `.limit` class method for bounded reads.
+- Active Record now has parameterized `.limit` plus `.count`, `.first`, and
+  `.exists?` class methods for bounded/basic reads.
 - A root `README.md`, `rust-toolchain.toml`, and GitHub Actions CI workflow were
   added for repeatable verification.
 
 Still open:
 
 - Filesystem capability sandboxing remains a larger trust-model decision.
-- PostgreSQL TLS configuration and richer Active Record pagination beyond
-  `.limit` are still backlog.
+- PostgreSQL TLS configuration and richer Active Record pagination/querying
+  beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
 - Full hot reload is still planned, not implemented.
 
 ## Critical / High Findings
@@ -225,8 +226,9 @@ Recommendation:
 
 ### 7. Active Record reads are unbounded
 
-Status: partially fixed. `.limit` is now available as a parameterized model
-class method; offset/default pagination remain backlog.
+Status: partially fixed. `.limit`, `.count`, `.first`, and `.exists?` are now
+available as parameterized/basic model class methods; offset/order/default
+pagination remain backlog.
 
 Evidence:
 

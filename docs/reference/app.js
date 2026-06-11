@@ -72,6 +72,46 @@ const WORDS = [
     "example": "\"Ada\" \"Ada\" assert-equals"
   },
   {
+    "word": "assert",
+    "aliases": [],
+    "group": "math",
+    "stack": "value ->",
+    "body": "Consumes a truthy value or fails the current VM run.",
+    "example": "email get empty? not assert"
+  },
+  {
+    "word": "assert-true",
+    "aliases": [],
+    "group": "math",
+    "stack": "bool ->",
+    "body": "Consumes true or fails the current VM run.",
+    "example": "saved get assert-true"
+  },
+  {
+    "word": "assert-false",
+    "aliases": [],
+    "group": "math",
+    "stack": "bool ->",
+    "body": "Consumes false or fails the current VM run.",
+    "example": "deleted get assert-false"
+  },
+  {
+    "word": "assert-ok",
+    "aliases": [],
+    "group": "result",
+    "stack": "result ->",
+    "body": "Consumes an ok result or fails the current VM run.",
+    "example": "User .all assert-ok"
+  },
+  {
+    "word": "assert-error",
+    "aliases": [],
+    "group": "result",
+    "stack": "result ->",
+    "body": "Consumes an error result or fails the current VM run.",
+    "example": "\"Validation\" \"bad\" fail assert-error"
+  },
+  {
     "word": "less-than?",
     "aliases": ["<"],
     "group": "math",
@@ -496,6 +536,30 @@ const WORDS = [
     "example": "10 User .limit"
   },
   {
+    "word": ".count",
+    "aliases": ["Active Record"],
+    "group": "web",
+    "stack": "ModelClass -> result(number)",
+    "body": "Counts rows for a mapped model class.",
+    "example": "User .count"
+  },
+  {
+    "word": ".first",
+    "aliases": ["Active Record"],
+    "group": "web",
+    "stack": "ModelClass -> result(record|nil)",
+    "body": "Loads the first row for a mapped model class.",
+    "example": "User .first"
+  },
+  {
+    "word": ".exists?",
+    "aliases": ["Active Record"],
+    "group": "web",
+    "stack": "id ModelClass -> result(bool)",
+    "body": "Checks whether a mapped row exists by id.",
+    "example": "1 User .exists?"
+  },
+  {
     "word": ".insert",
     "aliases": ["Active Record"],
     "group": "web",
@@ -736,6 +800,46 @@ const WORDS = [
     "example": "0 users get .at\n\"theme\" settings get .at"
   },
   {
+    "word": ".first",
+    "aliases": [],
+    "group": "collection",
+    "stack": "string|array|list|set -> value|nil",
+    "body": "Returns the first character or item, or nil for an empty receiver.",
+    "example": "users get .first"
+  },
+  {
+    "word": ".last",
+    "aliases": [],
+    "group": "collection",
+    "stack": "string|array|list|set -> value|nil",
+    "body": "Returns the last character or item, or nil for an empty receiver.",
+    "example": "users get .last"
+  },
+  {
+    "word": ".take",
+    "aliases": [],
+    "group": "collection",
+    "stack": "count:number string|array|list|set -> sameKind",
+    "body": "Returns the first count characters or items.",
+    "example": "2 users get .take"
+  },
+  {
+    "word": ".skip",
+    "aliases": [],
+    "group": "collection",
+    "stack": "count:number string|array|list|set -> sameKind",
+    "body": "Returns characters or items after the first count entries.",
+    "example": "1 users get .skip"
+  },
+  {
+    "word": ".reverse",
+    "aliases": [],
+    "group": "collection",
+    "stack": "string|array|list|set -> sameKind",
+    "body": "Returns characters or items in reverse order.",
+    "example": "users get .reverse"
+  },
+  {
     "word": ".has?",
     "aliases": [],
     "group": "collection",
@@ -832,6 +936,78 @@ const WORDS = [
     "example": "\" Ada \" .trim"
   },
   {
+    "word": ".trim-start",
+    "aliases": [],
+    "group": "string",
+    "stack": "string -> string",
+    "body": "Trims leading whitespace.",
+    "example": "\"  Ada\" .trim-start"
+  },
+  {
+    "word": ".trim-end",
+    "aliases": [],
+    "group": "string",
+    "stack": "string -> string",
+    "body": "Trims trailing whitespace.",
+    "example": "\"Ada  \" .trim-end"
+  },
+  {
+    "word": ".blank?",
+    "aliases": [],
+    "group": "string",
+    "stack": "string -> bool",
+    "body": "Returns true when a string is empty or only whitespace.",
+    "example": "\"  \" .blank?"
+  },
+  {
+    "word": ".slice",
+    "aliases": [],
+    "group": "string",
+    "stack": "start:number count:number string -> string",
+    "body": "Returns count characters starting at start.",
+    "example": "2 4 \"ricochet\" .slice"
+  },
+  {
+    "word": ".index-of",
+    "aliases": [],
+    "group": "string",
+    "stack": "needle:string string -> number|nil",
+    "body": "Returns the first character index for a substring, or nil.",
+    "example": "\"co\" \"ricochet\" .index-of"
+  },
+  {
+    "word": ".last-index-of",
+    "aliases": [],
+    "group": "string",
+    "stack": "needle:string string -> number|nil",
+    "body": "Returns the last character index for a substring, or nil.",
+    "example": "\"c\" \"ricochet\" .last-index-of"
+  },
+  {
+    "word": ".repeat",
+    "aliases": [],
+    "group": "string",
+    "stack": "count:number string -> string",
+    "body": "Repeats a string count times.",
+    "example": "3 \"ha\" .repeat"
+  },
+  {
+    "word": ".lines",
+    "aliases": [],
+    "group": "string",
+    "stack": "string -> array",
+    "body": "Splits a string into lines.",
+    "example": "\"a\\nb\" .lines"
+  },
+  {
+    "word": ".chars",
+    "aliases": [],
+    "group": "string",
+    "stack": "string -> array",
+    "body": "Splits a string into one-character strings.",
+    "example": "\"cat\" .chars"
+  },
+  {
     "word": ".split",
     "aliases": [],
     "group": "string",
@@ -926,6 +1102,46 @@ const WORDS = [
     "stack": "string -> result(value)",
     "body": "Decodes JSON into Ricochet values.",
     "example": "\"{\\\"ok\\\":true}\" json-decode value"
+  },
+  {
+    "word": "regex",
+    "aliases": [],
+    "group": "string",
+    "stack": "pattern:string -> result(regex)",
+    "body": "Compiles a regular expression and returns a stack result.",
+    "example": "\"^[a-z0-9_-]+$\" regex value"
+  },
+  {
+    "word": ".matches?",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string regex -> bool",
+    "body": "Returns true when the regex matches the string.",
+    "example": "\"hello-world\" slugPattern get .matches?"
+  },
+  {
+    "word": ".find",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string regex -> map|nil",
+    "body": "Returns a match map with `text`, `start`, and `end`, or nil.",
+    "example": "\"abc123\" digits get .find"
+  },
+  {
+    "word": ".captures",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string regex -> map|nil",
+    "body": "Returns numbered and named capture groups as a map, or nil.",
+    "example": "\"item-42\" pairPattern get .captures"
+  },
+  {
+    "word": ".replace",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string replacement:string regex -> string",
+    "body": "Replaces all regex matches.",
+    "example": "\"abc123\" \"#\" digits get .replace"
   },
   {
     "word": "ok",
@@ -1126,6 +1342,22 @@ const WORDS = [
     "stack": "url:string body:any http -> result(map)",
     "body": "Posts a JSON-encoded Ricochet value.",
     "example": "\"https://api.example\" payload get http .post-json"
+  },
+  {
+    "word": "inspect",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "value -> value string",
+    "body": "Pushes a debug representation without consuming the original value.",
+    "example": "settings get inspect println"
+  },
+  {
+    "word": "debug",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "value -> value",
+    "body": "Prints a debug representation without changing the stack.",
+    "example": "payload get debug"
   },
   {
     "word": "type",

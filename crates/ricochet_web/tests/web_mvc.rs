@@ -85,10 +85,25 @@ impl DatabaseBackend for FixtureDatabase {
         )])
     }
 
+    fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        Ok(self.all(mapping)?.len() as i64)
+    }
+
+    fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        Ok(self.all(mapping)?.into_iter().next())
+    }
+
     fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
         let mut rows = self.all(mapping)?;
         rows.truncate(limit as usize);
         Ok(rows)
+    }
+
+    fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
+        Ok(self.all(mapping)?.iter().any(|row| match row {
+            Value::Map(row) => row.get("id").as_ref() == Some(id),
+            _ => false,
+        }))
     }
 
     fn where_eq(

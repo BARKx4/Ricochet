@@ -1,0 +1,25 @@
+(( Run with: rco run examples/text_regex.rco ))
+
+"text:" println
+2 4 "ricochet" .slice println
+"  Ada" .trim-start println
+"cat" .chars "," swap .join println
+
+"regex:" println
+"\\d+" regex value digits var
+"abc123def456" digits get .find "text" swap .at println
+"abc123def456" "#" digits get .replace println
+
+"collections:" println
+names array
+"Ada" names get .push! drop
+"Grace" names get .push! drop
+"Lin" names get .push! drop
+"," 2 names get .take .join println
+"," 1 names get .skip .join println
+
+"inspect:" println
+bag map
+"name" "Ada" bag get .put! drop
+bag get inspect println
+bag get .count println

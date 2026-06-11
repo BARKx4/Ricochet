@@ -4,6 +4,7 @@ use thiserror::Error;
 use crate::capability::Capability;
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::object::Instance;
+use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +22,7 @@ pub enum Value {
     Member(String),
     Block(Chunk),
     Result(RicochetResult),
+    Regex(RegexValue),
     Capability(Capability),
 }
 
@@ -46,6 +48,7 @@ impl Value {
             Value::Member(_) => true,
             Value::Block(_) => true,
             Value::Result(_) => true,
+            Value::Regex(_) => true,
             Value::Capability(_) => true,
         }
     }

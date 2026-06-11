@@ -1572,6 +1572,148 @@ payload get json-encode
 }
 
 #[test]
+fn run_supports_additional_string_quality_of_life_words() {
+    let output = run_source(
+        r#"
+2 4 "ricochet" .slice
+"co" "ricochet" .index-of
+"c" "ricochet" .last-index-of
+3 "ha" .repeat
+"alpha\nbeta\n" .lines .count
+"cat" .chars "," swap .join
+" \n" .blank?
+"  Ada" .trim-start
+"Ada  " .trim-end
+"zzz" "ricochet" .index-of nil?
+"zzz" "ricochet" .last-index-of nil?
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "String(\"coch\")",
+        "Number(2)",
+        "Number(4)",
+        "String(\"hahaha\")",
+        "String(\"c,a,t\")",
+        "Bool(true)",
+        "String(\"Ada\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn run_supports_collection_view_quality_of_life_words() {
+    let output = run_source(
+        r#"
+names array
+"Ada" names get .push! drop
+"Grace" names get .push! drop
+"Lin" names get .push! drop
+array .first nil?
+array .last nil?
+names get .first
+names get .last
+"," 2 names get .take .join
+"," 1 names get .skip .join
+"," names get .reverse .join
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "String(\"Ada\")",
+        "String(\"Lin\")",
+        "String(\"Ada,Grace\")",
+        "String(\"Grace,Lin\")",
+        "String(\"Lin,Grace,Ada\")",
+        "Bool(true)",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn run_supports_assertion_and_inspection_quality_of_life_words() {
+    let output = run_source(
+        r#"
+true assert
+true assert-true
+false assert-false
+42 ok assert-ok
+"ValidationError" "bad input" fail assert-error
+bag map
+"name" "Ada" bag get .put! drop
+bag get inspect println
+"Ada" debug
+bag get .count
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Map("),
+        "inspect should print a debug representation, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"Ada\")"),
+        "debug should print a debug representation without consuming the value, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(1)"),
+        "final stack should include map count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_supports_regex_words() {
+    let output = run_source(
+        r##"
+"^[a-z0-9_-]+$" regex value slug var
+"hello-world_42" slug get .matches?
+"bad slug!" slug get .matches?
+"\\d+" regex value digits var
+"abc123def" digits get .find "text" swap .at
+"abc123def" digits get .find "start" swap .at
+"abc123def" digits get .find "end" swap .at
+"([a-z]+)-(\\d+)" regex value pair var
+"item-42" pair get .captures "1" swap .at
+"item-42" pair get .captures "2" swap .at
+"abc123def456" "#" digits get .replace
+"[" regex .error?
+"##,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "Bool(true)",
+        "Bool(false)",
+        "String(\"123\")",
+        "Number(3)",
+        "Number(6)",
+        "String(\"item\")",
+        "String(\"42\")",
+        "String(\"abc#def#\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn run_supports_result_construction_and_composition() {
     let output = run_source(
         r#"
