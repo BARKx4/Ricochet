@@ -3,6 +3,7 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2229,6 +2230,11 @@ fn run_exit_uses_requested_process_status() {
     assert_eq!(output.status.code(), Some(7));
 }
 
+#[test]
+fn temp_source_path_returns_unique_paths() {
+    assert_ne!(temp_source_path(), temp_source_path());
+}
+
 fn run_source(source: &str) -> std::process::Output {
     let source_path = write_source(source);
 
@@ -2280,6 +2286,8 @@ fn assert_run_success_for(command: &str, name: &str, output: &std::process::Outp
 }
 
 fn temp_source_path() -> PathBuf {
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
     let base = std::env::var_os("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"));
@@ -2287,8 +2295,9 @@ fn temp_source_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after Unix epoch")
         .as_nanos();
+    let sequence = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
 
     base.join("cli-smoke")
-        .join(format!("run-{}-{nanos}", std::process::id()))
+        .join(format!("run-{}-{nanos}-{sequence}", std::process::id()))
         .join("main.rco")
 }
