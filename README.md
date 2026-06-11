@@ -9,7 +9,8 @@ existing PostgreSQL schemas.
 ## Current Status
 
 This is an early but runnable vertical slice. You can write `.rco` scripts, run
-CLI programs, scaffold an MVC app, list routes, run Ricochet tests, and serve a
+CLI programs, format source, build and run bytecode, package standalone
+executables, scaffold an MVC app, list routes, run Ricochet tests, and serve a
 local web app. Package management, hot reload, migrations, auth/session helpers,
 and the first-party AI package are still planned work.
 
@@ -26,6 +27,15 @@ Run a script:
 
 ```powershell
 cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
+```
+
+Format and package a script:
+
+```powershell
+cargo run -p ricochet_cli --bin rco -- fmt examples/basic-oop.rco
+cargo run -p ricochet_cli --bin rco -- build examples/basic-oop.rco
+cargo run -p ricochet_cli --bin rco -- run-bytecode build/app.rcob
+cargo run -p ricochet_cli --bin rco -- package examples/basic-oop.rco --output basic-oop.exe
 ```
 
 Serve an MVC app from its project directory:

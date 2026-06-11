@@ -1197,6 +1197,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "ricochet_bytecode",
  "ricochet_compiler",
  "ricochet_syntax",
  "ricochet_vm",
@@ -1208,6 +1209,7 @@ dependencies = [
 name = "ricochet_compiler"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "ricochet_bytecode",
  "ricochet_syntax",
  "thiserror 1.0.69",

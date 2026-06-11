@@ -756,6 +756,9 @@ impl Vm {
             "view" => self.call_view(word),
             "text" => self.call_text(word),
             "json" => self.call_json(word),
+            "redirect" => self.call_redirect(word),
+            "status" => self.call_status(word),
+            "header" => self.call_header(word),
             "value" => self.call_result_value(word),
             "error" => self.call_result_error(word),
             "ok" => self.call_ok(word),
@@ -1605,6 +1608,140 @@ impl Vm {
         action.insert("type".to_string(), Value::String("json".to_string()));
         action.insert("body".to_string(), body);
         self.stack.push(Value::Map(action.into()));
+        Ok(())
+    }
+
+    fn call_redirect(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let top = self.pop(word)?;
+        let location = match top {
+            Value::String(location) => location,
+            _context => match self.pop(word) {
+                Ok(Value::String(location)) => location,
+                Ok(value) => {
+                    self.stack = stack_before;
+                    return Err(VmError::TypeError {
+                        word: word.to_string(),
+                        expected: "redirect location string".to_string(),
+                        actual: value_kind(&value).to_string(),
+                    });
+                }
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            },
+        };
+
+        let mut action = BTreeMap::new();
+        action.insert("type".to_string(), Value::String("redirect".to_string()));
+        action.insert("location".to_string(), Value::String(location));
+        self.stack.push(Value::Map(action.into()));
+        Ok(())
+    }
+
+    fn call_status(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let status = match self.pop_number(word) {
+            Ok(status) if (100..=599).contains(&status) => status,
+            Ok(status) => {
+                self.stack = stack_before;
+                return Err(VmError::HostError {
+                    word: word.to_string(),
+                    message: format!("HTTP status must be between 100 and 599, got {status}"),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let action = match self.pop(word) {
+            Ok(Value::Map(action)) => action,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "action result map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        action.insert("status".to_string(), Value::Number(status));
+        self.stack.push(Value::Map(action));
+        Ok(())
+    }
+
+    fn call_header(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 3)?;
+        let stack_before = self.stack.clone();
+        let value = match self.pop(word) {
+            Ok(Value::String(value)) => value,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "header value string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let name = match self.pop(word) {
+            Ok(Value::String(name)) => name,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "header name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let action = match self.pop(word) {
+            Ok(Value::Map(action)) => action,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "action result map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        let headers = match action.remove("headers") {
+            Some(Value::Map(headers)) => headers,
+            Some(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "headers map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            None => MapValue::default(),
+        };
+        headers.insert(name, Value::String(value));
+        action.insert("headers".to_string(), Value::Map(headers));
+        self.stack.push(Value::Map(action));
         Ok(())
     }
 

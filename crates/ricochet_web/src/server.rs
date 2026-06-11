@@ -6,12 +6,13 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use axum::{
     extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
-    http::{header, StatusCode},
-    response::{Html, IntoResponse},
+    http::{header, HeaderName, HeaderValue, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, patch, post, put},
     Router,
 };
 use ricochet_bytecode::Chunk;
+use ricochet_compiler::compile_file_with_imports;
 use ricochet_vm::{Value, Vm};
 
 use crate::active_record::{ModelMapping, PostgresDatabase};
@@ -35,9 +36,26 @@ struct AppRuntime {
 }
 
 enum RenderedAction {
-    Html(String),
-    Text(String),
-    Json(String),
+    Html {
+        body: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    Text {
+        body: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    Json {
+        body: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    Redirect {
+        location: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
 }
 
 type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
@@ -301,14 +319,9 @@ fn build_controller_registry(
             .join("app")
             .join("Controllers")
             .join(format!("{controller}.rco"));
-        let source = fs::read_to_string(&controller_path)
-            .with_context(|| format!("failed to read {}", controller_path.display()))?;
-        registry.register_ricochet_source(
-            &controller,
-            &action,
-            controller_path.to_string_lossy().as_ref(),
-            &source,
-        )?;
+        let chunk = compile_file_with_imports(&controller_path)
+            .with_context(|| format!("failed to compile {}", controller_path.display()))?;
+        registry.register_ricochet_chunk(&controller, &action, chunk);
     }
 
     Ok(registry)
@@ -392,10 +405,7 @@ fn load_model_chunks(project_root: &Path) -> Result<Vec<ModelChunk>> {
                     format!("model filename must be valid Unicode: {}", path.display())
                 })?
                 .to_string();
-            let source = fs::read_to_string(&path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
-            let file = path.to_string_lossy();
-            let chunk = ricochet_compiler::compile_source(&file, &source)
+            let chunk = compile_file_with_imports(&path)
                 .with_context(|| format!("failed to compile model {}", path.display()))?;
             Ok(ModelChunk {
                 class_name,
@@ -425,11 +435,13 @@ async fn render_route(
         query_params,
         form_params,
     ) {
-        Ok(RenderedAction::Html(body)) => Html(body).into_response(),
-        Ok(RenderedAction::Text(body)) => body.into_response(),
-        Ok(RenderedAction::Json(body)) => {
-            ([(header::CONTENT_TYPE, "application/json")], body).into_response()
-        }
+        Ok(action) => action.into_response().unwrap_or_else(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("ricochet MVC error: {err:#}"),
+            )
+                .into_response()
+        }),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("ricochet MVC error: {err:#}"),
@@ -457,10 +469,117 @@ fn render_action(
         .insert("revision".to_string(), Value::Number(revision.id as i64));
 
     match runtime.controllers.call(controller, action, &mut ctx)? {
-        ActionResult::View(view) => render_view(runtime, &view, &ctx).map(RenderedAction::Html),
-        ActionResult::Text(text) => Ok(RenderedAction::Text(text)),
-        ActionResult::Json(json) => Ok(RenderedAction::Json(json)),
+        ActionResult::View(view) => Ok(RenderedAction::Html {
+            body: render_view(runtime, &view, &ctx)?,
+            status: None,
+            headers: BTreeMap::new(),
+        }),
+        ActionResult::Text(body) => Ok(RenderedAction::Text {
+            body,
+            status: None,
+            headers: BTreeMap::new(),
+        }),
+        ActionResult::Json(body) => Ok(RenderedAction::Json {
+            body,
+            status: None,
+            headers: BTreeMap::new(),
+        }),
+        ActionResult::ViewResponse {
+            view,
+            status,
+            headers,
+        } => Ok(RenderedAction::Html {
+            body: render_view(runtime, &view, &ctx)?,
+            status,
+            headers,
+        }),
+        ActionResult::TextResponse {
+            body,
+            status,
+            headers,
+        } => Ok(RenderedAction::Text {
+            body,
+            status,
+            headers,
+        }),
+        ActionResult::JsonResponse {
+            body,
+            status,
+            headers,
+        } => Ok(RenderedAction::Json {
+            body,
+            status,
+            headers,
+        }),
+        ActionResult::Redirect {
+            location,
+            status,
+            headers,
+        } => Ok(RenderedAction::Redirect {
+            location,
+            status,
+            headers,
+        }),
     }
+}
+
+impl RenderedAction {
+    fn into_response(self) -> Result<Response> {
+        match self {
+            RenderedAction::Html {
+                body,
+                status,
+                headers,
+            } => response_with_meta(Html(body), status, headers),
+            RenderedAction::Text {
+                body,
+                status,
+                headers,
+            } => response_with_meta(body, status, headers),
+            RenderedAction::Json {
+                body,
+                status,
+                mut headers,
+            } => {
+                headers
+                    .entry(header::CONTENT_TYPE.to_string())
+                    .or_insert_with(|| "application/json".to_string());
+                response_with_meta(body, status, headers)
+            }
+            RenderedAction::Redirect {
+                location,
+                status,
+                mut headers,
+            } => {
+                headers.insert(header::LOCATION.to_string(), location);
+                response_with_meta(
+                    "",
+                    Some(status.unwrap_or(StatusCode::FOUND.as_u16())),
+                    headers,
+                )
+            }
+        }
+    }
+}
+
+fn response_with_meta(
+    response: impl IntoResponse,
+    status: Option<u16>,
+    headers: BTreeMap<String, String>,
+) -> Result<Response> {
+    let mut response = response.into_response();
+    if let Some(status) = status {
+        *response.status_mut() = StatusCode::from_u16(status)
+            .with_context(|| format!("invalid HTTP status {status}"))?;
+    }
+    for (name, value) in headers {
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .with_context(|| format!("invalid response header name {name:?}"))?;
+        let value = HeaderValue::from_str(&value)
+            .with_context(|| format!("invalid response header value for {name}"))?;
+        response.headers_mut().insert(name, value);
+    }
+    Ok(response)
 }
 
 fn render_view(runtime: &AppRuntime, view: &str, ctx: &RequestContext) -> Result<String> {

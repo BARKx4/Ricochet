@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_source;
 use ricochet_vm::{Value, Vm};
 use serde_json::Value as JsonValue;
@@ -19,6 +20,26 @@ pub enum ActionResult {
     View(String),
     Text(String),
     Json(String),
+    ViewResponse {
+        view: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    TextResponse {
+        body: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    JsonResponse {
+        body: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
+    Redirect {
+        location: String,
+        status: Option<u16>,
+        headers: BTreeMap<String, String>,
+    },
 }
 
 type Action = Box<dyn Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync>;
@@ -56,6 +77,11 @@ impl ControllerRegistry {
     ) -> Result<()> {
         let chunk = compile_source(file, source)
             .with_context(|| format!("failed to compile controller {controller} from {file}"))?;
+        self.register_ricochet_chunk(controller, action, chunk);
+        Ok(())
+    }
+
+    pub fn register_ricochet_chunk(&mut self, controller: &str, action: &str, chunk: Chunk) {
         let controller_name = controller.to_string();
         let action_name = action.to_string();
         let vm_setup = self.vm_setup.clone();
@@ -84,8 +110,6 @@ impl ControllerRegistry {
             copy_view_data(&vm, ctx);
             action_result_from_value(result)
         });
-
-        Ok(())
     }
 
     pub fn call(
@@ -176,7 +200,7 @@ fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
 
 fn action_result_from_value(value: Value) -> Result<ActionResult> {
     match value {
-        Value::Map(map) => {
+        Value::Map(mut map) => {
             let action_type = match map.remove("type") {
                 Some(Value::String(action_type)) => action_type,
                 _ => bail!("Ricochet action result map is missing string type"),
@@ -184,16 +208,61 @@ fn action_result_from_value(value: Value) -> Result<ActionResult> {
 
             match action_type.as_str() {
                 "view" => match map.remove("name") {
-                    Some(Value::String(view)) => Ok(ActionResult::View(view)),
+                    Some(Value::String(view)) => {
+                        let (status, headers) = response_meta_from_map(&mut map)?;
+                        if status.is_none() && headers.is_empty() {
+                            Ok(ActionResult::View(view))
+                        } else {
+                            Ok(ActionResult::ViewResponse {
+                                view,
+                                status,
+                                headers,
+                            })
+                        }
+                    }
                     _ => bail!("Ricochet view action is missing string name"),
                 },
                 "text" => match map.remove("body") {
-                    Some(Value::String(text)) => Ok(ActionResult::Text(text)),
+                    Some(Value::String(body)) => {
+                        let (status, headers) = response_meta_from_map(&mut map)?;
+                        if status.is_none() && headers.is_empty() {
+                            Ok(ActionResult::Text(body))
+                        } else {
+                            Ok(ActionResult::TextResponse {
+                                body,
+                                status,
+                                headers,
+                            })
+                        }
+                    }
                     _ => bail!("Ricochet text action is missing string body"),
                 },
                 "json" => match map.remove("body") {
-                    Some(body) => Ok(ActionResult::Json(json_string_from_value(body)?)),
+                    Some(body) => {
+                        let body = json_string_from_value(body)?;
+                        let (status, headers) = response_meta_from_map(&mut map)?;
+                        if status.is_none() && headers.is_empty() {
+                            Ok(ActionResult::Json(body))
+                        } else {
+                            Ok(ActionResult::JsonResponse {
+                                body,
+                                status,
+                                headers,
+                            })
+                        }
+                    }
                     None => bail!("Ricochet json action is missing body"),
+                },
+                "redirect" => match map.remove("location") {
+                    Some(Value::String(location)) => {
+                        let (status, headers) = response_meta_from_map(&mut map)?;
+                        Ok(ActionResult::Redirect {
+                            location,
+                            status,
+                            headers,
+                        })
+                    }
+                    _ => bail!("Ricochet redirect action is missing string location"),
                 },
                 _ => bail!("unsupported Ricochet action result type {action_type}"),
             }
@@ -201,6 +270,36 @@ fn action_result_from_value(value: Value) -> Result<ActionResult> {
         Value::String(text) => Ok(ActionResult::Text(text)),
         value => bail!("Ricochet controller returned unsupported value {value:?}"),
     }
+}
+
+fn response_meta_from_map(
+    map: &mut ricochet_vm::collection::MapValue,
+) -> Result<(Option<u16>, BTreeMap<String, String>)> {
+    let status = match map.remove("status") {
+        Some(Value::Number(status)) if (100..=599).contains(&status) => Some(status as u16),
+        Some(Value::Number(status)) => {
+            bail!("HTTP status must be between 100 and 599, got {status}")
+        }
+        Some(value) => bail!("HTTP status must be a number, got {value:?}"),
+        None => None,
+    };
+    let headers = match map.remove("headers") {
+        Some(Value::Map(headers)) => string_map(headers.snapshot(), "response headers")?,
+        Some(value) => bail!("response headers must be a map, got {value:?}"),
+        None => BTreeMap::new(),
+    };
+
+    Ok((status, headers))
+}
+
+fn string_map(values: BTreeMap<String, Value>, context: &str) -> Result<BTreeMap<String, String>> {
+    values
+        .into_iter()
+        .map(|(key, value)| match value {
+            Value::String(value) => Ok((key, value)),
+            value => bail!("{context} values must be strings, got {value:?}"),
+        })
+        .collect()
 }
 
 fn json_string_from_value(value: Value) -> Result<String> {

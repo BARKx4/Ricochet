@@ -32,9 +32,11 @@
           </p>
           <div class="command-strip" aria-label="Quick commands">
             <code>rco new my_app</code>
+            <code>rco fmt app.rco</code>
             <code>rco routes my_app</code>
             <code>rco test my_app</code>
             <code>rco run --debug --step app.rco</code>
+            <code>rco package app.rco --output app.exe</code>
             <code>rco serve --debug --port 3000</code>
           </div>
         </div>
@@ -164,6 +166,12 @@ end</code></pre>
             <p>Dot words push member selectors for `get` and `set`, and call methods when used directly.</p>
           </article>
           <article>
+            <h3>Imports</h3>
+            <pre><code>"lib/math" import
+7 triple</code></pre>
+            <p>Static string imports load relative `.rco` files before the importing file. Dynamic imports remain a future package/runtime-loader feature.</p>
+          </article>
+          <article>
             <h3>Templates</h3>
             <pre><code>&lt;strong&gt;{ user get .name get }&lt;/strong&gt;
 &lt;small&gt;{ 20 22 + }&lt;/small&gt;</code></pre>
@@ -172,7 +180,8 @@ end</code></pre>
           <article>
             <h3>Routes</h3>
             <pre><code>GET "/" HomeController "index" route
-POST "/users" UserController "create" route</code></pre>
+POST "/users" UserController "create" route
+DELETE "/users/:id" UserController "destroy" route</code></pre>
             <p>Route files are line-oriented and accept quoted paths and action names.</p>
           </article>
         </div>
@@ -344,6 +353,17 @@ end</code></pre>
           </article>
 
           <article class="example-panel wide">
+            <h3>Redirect And Headers</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy web response example" title="Copy">copy</button><code>LoginController Controller subclass
+  "create" [
+    "/dashboard" redirect
+    303 status
+    "cache-control" "no-store" header
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
   &lt;h1&gt;{ title get }&lt;/h1&gt;
@@ -505,9 +525,12 @@ end</code></pre>
           <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app with routes, controllers, a model, views, and smoke tests.</span></div>
           <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
+          <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
           <div><code>rco repl [--debug]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
+          <div><code>rco run-bytecode [--debug] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
+          <div><code>rco package [path] --output &lt;exe&gt;</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`.</span></div>
           <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` currently fails loudly until hot reload is wired.</span></div>
           <div><code>rco test [--debug] [--filter PATTERN] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>

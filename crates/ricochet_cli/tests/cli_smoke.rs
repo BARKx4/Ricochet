@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -550,6 +550,144 @@ fn run_executes_println_script() {
     assert!(
         stdout.contains("[]"),
         "stdout should show final empty stack after println consumes value, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn fmt_check_reports_unformatted_source() {
+    let source_path = write_source(
+        r#"
+User Model subclass
+email field
+"label" [ self .email get ] !method
+end
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("fmt")
+        .arg("--check")
+        .arg(&source_path)
+        .output()
+        .expect("rco fmt should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco fmt --check should fail for unformatted source\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("would reformat"),
+        "stderr should explain check failure, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn fmt_rewrites_source_file() {
+    let source_path = write_source(
+        r#"
+User Model subclass
+email field
+"label" [ self .email get ] !method
+end
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("fmt")
+        .arg(&source_path)
+        .output()
+        .expect("rco fmt should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco fmt failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let formatted = fs::read_to_string(&source_path).expect("formatted source should be readable");
+    assert_eq!(
+        formatted,
+        "User Model subclass\n  email field\n  \"label\" [\n    self .email get\n  ] !method\nend\n"
+    );
+}
+
+#[test]
+fn run_loads_static_string_imports_before_main_source() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "lib/math.rco", "\"triple\" function\n  3 *\nend\n");
+    write_source_at(root, "main.rco", "\"lib/math\" import\n7 triple\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(21)"),
+        "stdout should show imported function result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_bytecode_executes_built_chunk() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "8 5 +\n");
+
+    let build_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("build")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco build should launch");
+    assert_run_success_for("rco build", "main.rco", &build_output);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run-bytecode")
+        .arg(root.join("build").join("app.rcob"))
+        .output()
+        .expect("rco run-bytecode should launch");
+
+    assert_run_success_for("rco run-bytecode", "build/app.rcob", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(13)"),
+        "stdout should show bytecode result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "\"packaged\" println\n20 2 +\n");
+    let output_path = root.join(format!("hello-app{}", std::env::consts::EXE_SUFFIX));
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package should launch");
+    assert_run_success_for("rco package", "main.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .output()
+        .expect("packaged Ricochet executable should launch");
+    assert_run_success_for("packaged executable", "hello-app", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line == "packaged") && stdout.contains("Number(22)"),
+        "stdout should show embedded app output and stack, got:\n{stdout}"
     );
 }
 
@@ -2022,6 +2160,14 @@ fn write_source(source: &str) -> PathBuf {
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
     fs::write(&source_path, source).expect("temp source should be written");
+    source_path
+}
+
+fn write_source_at(root: &Path, relative_path: &str, source: &str) -> PathBuf {
+    let source_path = root.join(relative_path);
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("source directory should be created");
+    fs::write(&source_path, source).expect("source should be written");
     source_path
 }
 

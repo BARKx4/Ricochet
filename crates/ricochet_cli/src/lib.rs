@@ -5,12 +5,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use ricochet_compiler::{compile_source, CompileError};
-use ricochet_syntax::{LexError, ParseError, TokenKind};
+use ricochet_bytecode::Chunk;
+use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
+use ricochet_syntax::{format_source, LexError, ParseError, TokenKind};
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, Vm};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
+const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
@@ -43,7 +45,24 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    RunBytecode {
+        #[arg(long)]
+        debug: bool,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     Build {
+        path: Option<String>,
+    },
+    Package {
+        path: Option<String>,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    Fmt {
+        #[arg(long)]
+        check: bool,
         path: Option<String>,
     },
     Serve {
@@ -73,6 +92,18 @@ pub fn crate_version() -> &'static str {
 }
 
 pub async fn run_cli() -> Result<()> {
+    if let Some(chunk) = embedded_chunk_from_current_exe()? {
+        run_chunk_cli(
+            &chunk,
+            false,
+            false,
+            &[],
+            None,
+            std::env::args().skip(1).collect(),
+        )?;
+        return Ok(());
+    }
+
     let cli = Cli::parse();
     match cli.command {
         Command::New { path } => new_project(Path::new(&path))?,
@@ -90,7 +121,12 @@ pub async fn run_cli() -> Result<()> {
             path,
             args,
         } => run_file(&path, debug, step, &breakpoints, args)?,
+        Command::RunBytecode { debug, path, args } => run_bytecode(&path, debug, args)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
+        Command::Package { path, output } => {
+            package(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE), &output)?
+        }
+        Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
         Command::Serve {
             host,
             port,
@@ -242,9 +278,7 @@ fn check(path: &str) -> Result<()> {
 }
 
 fn check_source_file(path: &Path) -> Result<()> {
-    let (file, source) = read_source_path(path)?;
-    compile_source(&file, &source)
-        .with_context(|| format!("failed to compile {}", path.display()))?;
+    compile_source_file(path).with_context(|| format!("failed to compile {}", path.display()))?;
     Ok(())
 }
 
@@ -453,18 +487,25 @@ fn run_file(
     breakpoints: &[usize],
     args: Vec<String>,
 ) -> Result<()> {
-    let (file, source) = read_source(path)?;
-    let chunk = compile_source(&file, &source)?;
-    let mut vm = Vm::default();
-    vm.enable_cli_capabilities();
-    vm.set_program_args(args);
-    vm.set_input_reader(|| {
-        let mut line = String::new();
-        std::io::stdin()
-            .read_line(&mut line)
-            .map_err(|error| error.to_string())
-            .map(|read| (read > 0).then_some(line))
-    });
+    let chunk = compile_source_file(Path::new(path))?;
+    run_chunk_cli(&chunk, debug, step, breakpoints, Some(&chunk.file), args)
+}
+
+fn run_bytecode(path: &str, debug: bool, args: Vec<String>) -> Result<()> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {path}"))?;
+    let chunk = Chunk::from_bytes(&bytes).with_context(|| format!("failed to decode {path}"))?;
+    run_chunk_cli(&chunk, debug, false, &[], None, args)
+}
+
+fn run_chunk_cli(
+    chunk: &Chunk,
+    debug: bool,
+    step: bool,
+    breakpoints: &[usize],
+    breakpoint_file: Option<&str>,
+    args: Vec<String>,
+) -> Result<()> {
+    let mut vm = cli_vm(args);
     let debugger_enabled = debug || step || !breakpoints.is_empty();
     if debugger_enabled {
         vm.enable_debug();
@@ -477,13 +518,14 @@ fn run_file(
         if line == 0 {
             bail!("breakpoint lines are 1-based");
         }
-        vm.add_line_breakpoint(file.clone(), line);
+        let file = breakpoint_file.unwrap_or(&chunk.file);
+        vm.add_line_breakpoint(file.to_string(), line);
     }
     if step || !breakpoints.is_empty() {
         vm.set_debug_controller(|_| read_terminal_debug_action());
     }
 
-    let result = vm.run_chunk(&chunk);
+    let result = vm.run_chunk(chunk);
     print!("{}", vm.stdout());
     eprint!("{}", vm.stderr());
     if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
@@ -494,6 +536,20 @@ fn run_file(
     println!("{:?}", vm.stack());
 
     Ok(())
+}
+
+fn cli_vm(args: Vec<String>) -> Vm {
+    let mut vm = Vm::default();
+    vm.enable_cli_capabilities();
+    vm.set_program_args(args);
+    vm.set_input_reader(|| {
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())
+            .map(|read| (read > 0).then_some(line))
+    });
+    vm
 }
 
 fn read_terminal_debug_action() -> DebugAction {
@@ -524,11 +580,12 @@ fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
     let mut failed = 0usize;
 
     for file in files {
-        let (file_name, source) = read_source_path(&file)?;
+        let source = fs::read_to_string(&file)
+            .with_context(|| format!("failed to read {}", file.display()))?;
         if filter.is_some_and(|filter| !test_file_may_match_filter(&source, filter)) {
             continue;
         }
-        let chunk = compile_source(&file_name, &source)?;
+        let chunk = compile_source_file(&file)?;
         let mut vm = Vm::default();
         vm.enable_cli_capabilities();
         if debug {
@@ -625,8 +682,7 @@ fn paths_point_to_same_location(left: &Path, right: &Path) -> bool {
 
 fn load_app_sources(vm: &mut Vm, project_root: &Path) -> Result<()> {
     for file in collect_app_source_files(project_root)? {
-        let (file_name, source) = read_source_path(&file)?;
-        let chunk = compile_source(&file_name, &source)
+        let chunk = compile_source_file(&file)
             .with_context(|| format!("failed to compile app source {}", file.display()))?;
         vm.run_chunk(&chunk)
             .with_context(|| format!("failed to load app source {}", file.display()))?;
@@ -707,8 +763,7 @@ fn print_debug_event(event: &DebugEvent) {
 }
 
 fn build(path: &str) -> Result<()> {
-    let (file, source) = read_source(path)?;
-    let chunk = compile_source(&file, &source)?;
+    let chunk = compile_source_file(Path::new(path))?;
     let output = Path::new(BUILD_OUTPUT);
     let parent = output
         .parent()
@@ -723,16 +778,130 @@ fn build(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_source(path: &str) -> Result<(String, String)> {
-    read_source_path(Path::new(path))
+fn package(path: &str, output: &Path) -> Result<()> {
+    if output.is_dir() {
+        bail!("package output is a directory: {}", output.display());
+    }
+
+    let chunk = compile_source_file(Path::new(path))?;
+    let bytes = chunk.to_bytes()?;
+    let current_exe =
+        std::env::current_exe().context("failed to locate current Ricochet executable")?;
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::copy(&current_exe, output).with_context(|| {
+        format!(
+            "failed to copy launcher {} to {}",
+            current_exe.display(),
+            output.display()
+        )
+    })?;
+    append_embedded_chunk(output, &bytes)?;
+
+    println!("packaged {}", output.display());
+    Ok(())
 }
 
-fn read_source_path(source_path: &Path) -> Result<(String, String)> {
-    let source = fs::read_to_string(source_path)
-        .with_context(|| format!("failed to read {}", source_path.display()))?;
-    let file = source_path.to_string_lossy();
+fn append_embedded_chunk(path: &Path, chunk_bytes: &[u8]) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open {} for packaging", path.display()))?;
+    file.write_all(chunk_bytes)
+        .with_context(|| format!("failed to append bytecode to {}", path.display()))?;
+    file.write_all(EMBEDDED_APP_MARKER)
+        .with_context(|| format!("failed to append package marker to {}", path.display()))?;
+    file.write_all(&(chunk_bytes.len() as u64).to_le_bytes())
+        .with_context(|| format!("failed to append package length to {}", path.display()))?;
+    Ok(())
+}
 
-    Ok((file.into_owned(), source))
+fn embedded_chunk_from_current_exe() -> Result<Option<Chunk>> {
+    let current_exe =
+        std::env::current_exe().context("failed to locate current Ricochet executable")?;
+    let bytes = fs::read(&current_exe)
+        .with_context(|| format!("failed to read {}", current_exe.display()))?;
+    embedded_chunk_from_bytes(&bytes)
+        .with_context(|| format!("failed to load embedded app from {}", current_exe.display()))
+}
+
+fn embedded_chunk_from_bytes(bytes: &[u8]) -> Result<Option<Chunk>> {
+    let trailer_len = EMBEDDED_APP_MARKER.len() + 8;
+    if bytes.len() < trailer_len {
+        return Ok(None);
+    }
+
+    let length_start = bytes.len() - 8;
+    let marker_start = length_start - EMBEDDED_APP_MARKER.len();
+    if &bytes[marker_start..length_start] != EMBEDDED_APP_MARKER {
+        return Ok(None);
+    }
+
+    let mut length_bytes = [0_u8; 8];
+    length_bytes.copy_from_slice(&bytes[length_start..]);
+    let chunk_len = u64::from_le_bytes(length_bytes) as usize;
+    if marker_start < chunk_len {
+        bail!("embedded Ricochet app length exceeds executable size");
+    }
+    let chunk_start = marker_start - chunk_len;
+    let chunk = Chunk::from_bytes(&bytes[chunk_start..marker_start])?;
+    Ok(Some(chunk))
+}
+
+fn format_path(path: &str, check: bool) -> Result<()> {
+    let path = Path::new(path);
+    if path.is_file() {
+        let changed = format_file(path, check)?;
+        if check && changed {
+            bail!("format check failed");
+        }
+        return Ok(());
+    }
+    if !path.is_dir() {
+        bail!("fmt path does not exist: {}", path.display());
+    }
+
+    let mut files = Vec::new();
+    collect_rco_files(path, &mut files)?;
+    files.sort();
+
+    let mut changed = false;
+    for file in files {
+        changed |= format_file(&file, check)?;
+    }
+    if check && changed {
+        bail!("format check failed");
+    }
+
+    Ok(())
+}
+
+fn format_file(path: &Path, check: bool) -> Result<bool> {
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let formatted =
+        format_source(&source).with_context(|| format!("failed to format {}", path.display()))?;
+    if source == formatted {
+        if check {
+            println!("checked {}", path.display());
+        }
+        return Ok(false);
+    }
+
+    if check {
+        eprintln!("{} would reformat", path.display());
+        return Ok(true);
+    }
+
+    fs::write(path, formatted).with_context(|| format!("failed to write {}", path.display()))?;
+    println!("formatted {}", path.display());
+    Ok(true)
+}
+
+fn compile_source_file(source_path: &Path) -> Result<Chunk> {
+    compile_file_with_imports(source_path)
 }
 
 fn collect_test_files(path: &Path) -> Result<Vec<PathBuf>> {

@@ -382,6 +382,68 @@ end
 }
 
 #[test]
+fn ricochet_controller_returns_redirect_response() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+LoginController Controller subclass
+  "create" [
+    "/dashboard" redirect
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("LoginController", "create", "LoginController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    let result = controllers
+        .call("LoginController", "create", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(
+        result,
+        ActionResult::Redirect {
+            location: "/dashboard".to_string(),
+            status: None,
+            headers: Default::default()
+        }
+    );
+}
+
+#[test]
+fn ricochet_controller_returns_text_response_with_status_and_header() {
+    let mut controllers = ControllerRegistry::default();
+    let source = r#"
+PingController Controller subclass
+  "index" [
+    "pong" text
+    201 status
+    "x-ricochet" "yes" header
+  ] !method
+end
+"#;
+
+    controllers
+        .register_ricochet_source("PingController", "index", "PingController.rco", source)
+        .expect("controller source should register");
+
+    let mut ctx = RequestContext::default();
+    let result = controllers
+        .call("PingController", "index", &mut ctx)
+        .expect("action should dispatch");
+
+    assert_eq!(
+        result,
+        ActionResult::TextResponse {
+            body: "pong".to_string(),
+            status: Some(201),
+            headers: BTreeMap::from([("x-ricochet".to_string(), "yes".to_string())])
+        }
+    );
+}
+
+#[test]
 fn ricochet_controller_reads_query_params() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
@@ -997,6 +1059,196 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body, r#"{"name":"Ada"}"#);
+}
+
+#[tokio::test]
+async fn serves_ricochet_redirect_response() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "redirect_response"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/login" LoginController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/LoginController.rco"),
+        r#"
+LoginController Controller subclass
+  "create" [
+    "/dashboard" redirect
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/dashboard")
+    );
+}
+
+#[tokio::test]
+async fn serves_text_response_with_status_and_header() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "status_header_response"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/ping" PingController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/PingController.rco"),
+        r#"
+PingController Controller subclass
+  "index" [
+    "pong" text
+    201 status
+    "x-ricochet" "yes" header
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/ping").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(
+        response
+            .headers()
+            .get("x-ricochet")
+            .and_then(|value| value.to_str().ok()),
+        Some("yes")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "pong");
+}
+
+#[tokio::test]
+async fn serves_controller_with_static_string_import() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Services"))
+        .expect("service directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "controller_import"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Services/Greeting.rco"),
+        r#"
+"greeting" function
+  "hello from import"
+end
+"#,
+    )
+    .expect("service should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+"../Services/Greeting" import
+
+HomeController Controller subclass
+  "index" [
+    greeting text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(body, "hello from import");
 }
 
 #[tokio::test]

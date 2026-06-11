@@ -472,8 +472,32 @@ const WORDS = [
     "example": "payload map\n\"ok\" true payload get .put! drop\npayload get json"
   },
   {
+    "word": "redirect",
+    "aliases": [],
+    "group": "web",
+    "stack": "location:string -> action | location:string ctx:any -> action",
+    "body": "Builds an HTTP redirect controller response. The server defaults to HTTP 302 unless a later `status` word changes it.",
+    "example": "\"/dashboard\" redirect"
+  },
+  {
+    "word": "status",
+    "aliases": [],
+    "group": "web",
+    "stack": "action status:number -> action",
+    "body": "Sets the HTTP status code on a controller action result map.",
+    "example": "\"created\" text 201 status"
+  },
+  {
+    "word": "header",
+    "aliases": [],
+    "group": "web",
+    "stack": "action name:string value:string -> action",
+    "body": "Adds a response header to a controller action result map.",
+    "example": "\"pong\" text \"x-ricochet\" \"yes\" header"
+  },
+  {
     "word": "route",
-    "aliases": ["GET", "POST"],
+    "aliases": ["GET", "POST", "PUT", "PATCH", "DELETE"],
     "group": "web",
     "stack": "route-file declaration",
     "body": "Route parser operator. Use five tokens per line: method, path, controller, action, `route`.",
