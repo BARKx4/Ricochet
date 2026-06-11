@@ -168,8 +168,11 @@ end</code></pre>
           <article>
             <h3>Imports</h3>
             <pre><code>"lib/math" import
-7 triple</code></pre>
-            <p>Static string imports load relative `.rco` files before the importing file. Dynamic imports remain a future package/runtime-loader feature.</p>
+7 triple
+
+"greeter/greeting" import
+packageHello</code></pre>
+            <p>Static string imports load relative `.rco` files before the importing file. If the relative file is missing, imports shaped like `package/module` resolve through `[dependencies.package]` in `ricochet.toml`. Dynamic imports remain a future package/runtime-loader feature.</p>
           </article>
           <article>
             <h3>Templates</h3>
@@ -293,7 +296,10 @@ mode = "mvc"
 routes = "config/routes.rco"
 
 [web.views]
-escape = "html"</code></pre>
+escape = "html"
+
+[dependencies.greeter]
+path = "./packages/greeter"</code></pre>
           </article>
 
           <article class="example-panel">
@@ -531,6 +537,7 @@ end</code></pre>
           <div><code>rco run-bytecode [--debug] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt;</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`.</span></div>
+          <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` currently fails loudly until hot reload is wired.</span></div>
           <div><code>rco test [--debug] [--filter PATTERN] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
@@ -542,6 +549,11 @@ end</code></pre>
 cwd value println
 now println
 100 random println</code></pre>
+          </article>
+          <article class="example-panel">
+            <h3>Packages</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy package commands" title="Copy">copy</button><code>rco add ./packages/greeter
+rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch</code></pre>
           </article>
           <article class="example-panel">
             <h3>Capabilities</h3>
@@ -567,7 +579,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts; embedded hosts can leave them disabled. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>`rco serve --watch` is a planned hot reload surface and currently exits with a clear not-implemented error.</li>
-          <li>Async, packages, and AI package words are not implemented yet.</li>
+          <li>Package imports are static, and `rco install` is not implemented yet. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
+          <li>Async and AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
           <li>Active Record targets existing PostgreSQL schemas in v1. Schema migrations are a later branch.</li>

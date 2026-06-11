@@ -9,6 +9,7 @@ use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{format_source, LexError, ParseError, TokenKind};
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, Vm};
+use toml_edit::{value, DocumentMut, Item, Table};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
@@ -59,6 +60,13 @@ enum Command {
         path: Option<String>,
         #[arg(short, long)]
         output: PathBuf,
+    },
+    Add {
+        source: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        no_fetch: bool,
     },
     Fmt {
         #[arg(long)]
@@ -126,6 +134,11 @@ pub async fn run_cli() -> Result<()> {
         Command::Package { path, output } => {
             package(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE), &output)?
         }
+        Command::Add {
+            source,
+            name,
+            no_fetch,
+        } => add_dependency(&source, name.as_deref(), no_fetch)?,
         Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
         Command::Serve {
             host,
@@ -478,6 +491,303 @@ fn project_name(path: &Path) -> String {
     } else {
         sanitized
     }
+}
+
+#[derive(Debug)]
+struct DependencySpec {
+    name: String,
+    path: String,
+    source: String,
+    git: Option<String>,
+    rev: Option<String>,
+    display_source: String,
+}
+
+#[derive(Debug)]
+enum DependencySource {
+    Local {
+        path: PathBuf,
+    },
+    GitHub {
+        owner: String,
+        repo: String,
+        rev: Option<String>,
+    },
+}
+
+fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()> {
+    let manifest_path = find_project_manifest_for_current_dir()?;
+    let project_root = manifest_path
+        .parent()
+        .expect("project manifest should have a parent");
+    let dependency_source = parse_dependency_source(source)?;
+    let spec = dependency_spec(project_root, source, dependency_source, name)?;
+
+    if spec.git.is_some() && !no_fetch {
+        fetch_git_dependency(project_root, &spec)?;
+    }
+
+    write_dependency_manifest(&manifest_path, &spec)?;
+    write_lockfile(&project_root.join("ricochet.lock"), &spec)?;
+
+    if spec.git.is_some() && no_fetch {
+        println!(
+            "added {} from {} (fetch skipped)",
+            spec.name, spec.display_source
+        );
+    } else {
+        println!("added {} from {}", spec.name, spec.display_source);
+    }
+    Ok(())
+}
+
+fn find_project_manifest_for_current_dir() -> Result<PathBuf> {
+    let current_dir = std::env::current_dir().context("failed to determine current directory")?;
+    for ancestor in current_dir.ancestors() {
+        let manifest_path = ancestor.join("ricochet.toml");
+        if manifest_path.is_file() {
+            return Ok(manifest_path);
+        }
+    }
+
+    bail!("rco add must be run inside a Ricochet project with ricochet.toml");
+}
+
+fn parse_dependency_source(source: &str) -> Result<DependencySource> {
+    if let Some(rest) = source.strip_prefix("github:") {
+        let (repository, rev) = rest
+            .split_once('@')
+            .map(|(repository, rev)| (repository, Some(rev.to_string())))
+            .unwrap_or((rest, None));
+        let (owner, repo) = repository.split_once('/').with_context(|| {
+            format!("invalid GitHub dependency {source:?}; expected github:owner/repo@ref")
+        })?;
+        if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+            bail!("invalid GitHub dependency {source:?}; expected github:owner/repo@ref");
+        }
+        return Ok(DependencySource::GitHub {
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            rev,
+        });
+    }
+
+    Ok(DependencySource::Local {
+        path: PathBuf::from(source),
+    })
+}
+
+fn dependency_spec(
+    project_root: &Path,
+    original_source: &str,
+    source: DependencySource,
+    name_override: Option<&str>,
+) -> Result<DependencySpec> {
+    match source {
+        DependencySource::Local { path } => {
+            let current_dir =
+                std::env::current_dir().context("failed to determine current directory")?;
+            let absolute_path = if path.is_absolute() {
+                path
+            } else {
+                current_dir.join(path)
+            };
+            if !absolute_path.is_dir() {
+                bail!(
+                    "local Ricochet dependency is not a directory: {}",
+                    absolute_path.display()
+                );
+            }
+
+            let name = match name_override {
+                Some(name) => name.to_string(),
+                None => read_package_name(&absolute_path)?
+                    .unwrap_or_else(|| directory_package_name(&absolute_path)),
+            };
+            validate_package_name(&name)?;
+            let path = dependency_path_value(project_root, &absolute_path, original_source)?;
+
+            Ok(DependencySpec {
+                name,
+                path: path.clone(),
+                source: format!("path+{path}"),
+                git: None,
+                rev: None,
+                display_source: path,
+            })
+        }
+        DependencySource::GitHub { owner, repo, rev } => {
+            let name = name_override.unwrap_or(&repo).to_string();
+            validate_package_name(&name)?;
+            let git = format!("https://github.com/{owner}/{repo}.git");
+            let path = format!(".ricochet/packages/{name}");
+
+            Ok(DependencySpec {
+                name,
+                path,
+                source: format!("git+{git}"),
+                git: Some(git),
+                rev,
+                display_source: original_source.to_string(),
+            })
+        }
+    }
+}
+
+fn read_package_name(path: &Path) -> Result<Option<String>> {
+    let manifest_path = path.join("ricochet.toml");
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    Ok(doc["package"]["name"].as_str().map(str::to_string))
+}
+
+fn directory_package_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("package")
+        .to_string()
+}
+
+fn validate_package_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        bail!("invalid Ricochet package name {name:?}; use letters, numbers, _ or -");
+    }
+
+    Ok(())
+}
+
+fn dependency_path_value(
+    project_root: &Path,
+    absolute_path: &Path,
+    fallback: &str,
+) -> Result<String> {
+    let canonical_root = fs::canonicalize(project_root)
+        .with_context(|| format!("failed to resolve {}", project_root.display()))?;
+    let canonical_path = fs::canonicalize(absolute_path)
+        .with_context(|| format!("failed to resolve {}", absolute_path.display()))?;
+    if let Ok(relative_path) = canonical_path.strip_prefix(&canonical_root) {
+        let relative = path_to_slash(relative_path);
+        if relative.is_empty() {
+            bail!("local dependency cannot point at the project root");
+        }
+        return Ok(format!("./{relative}"));
+    }
+
+    Ok(fallback.replace('\\', "/"))
+}
+
+fn path_to_slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<()> {
+    let git = spec
+        .git
+        .as_deref()
+        .expect("fetch_git_dependency only handles git dependencies");
+    let package_dir = project_root.join(&spec.path);
+    if package_dir.exists() {
+        bail!(
+            "package cache already exists: {}; remove it or choose a different --name",
+            package_dir.display()
+        );
+    }
+
+    if let Some(parent) = package_dir.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let mut command = std::process::Command::new("git");
+    command.arg("clone").arg("--depth").arg("1");
+    if let Some(rev) = spec.rev.as_deref() {
+        command.arg("--branch").arg(rev);
+    }
+    command.arg(git).arg(&package_dir);
+
+    let output = command
+        .output()
+        .with_context(|| format!("failed to launch git to fetch {}", spec.display_source))?;
+    if !output.status.success() {
+        bail!(
+            "failed to fetch Ricochet package {}\nstdout:\n{}\nstderr:\n{}",
+            spec.display_source,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+fn write_dependency_manifest(manifest_path: &Path, spec: &DependencySpec) -> Result<()> {
+    let source = fs::read_to_string(manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let mut doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+
+    let dependencies = ensure_table(doc.as_table_mut(), "dependencies", manifest_path)?;
+    let mut dependency = Table::new();
+    dependency["path"] = value(spec.path.clone());
+    if let Some(git) = &spec.git {
+        dependency["git"] = value(git.clone());
+    }
+    if let Some(rev) = &spec.rev {
+        dependency["rev"] = value(rev.clone());
+    }
+    dependencies.insert(&spec.name, Item::Table(dependency));
+
+    fs::write(manifest_path, doc.to_string())
+        .with_context(|| format!("failed to write {}", manifest_path.display()))
+}
+
+fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
+    let source = if lock_path.is_file() {
+        fs::read_to_string(lock_path)
+            .with_context(|| format!("failed to read {}", lock_path.display()))?
+    } else {
+        String::new()
+    };
+    let mut doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", lock_path.display()))?;
+
+    let packages = ensure_table(doc.as_table_mut(), "package", lock_path)?;
+    let mut package = Table::new();
+    package["source"] = value(spec.source.clone());
+    package["path"] = value(spec.path.clone());
+    if let Some(git) = &spec.git {
+        package["git"] = value(git.clone());
+    }
+    if let Some(rev) = &spec.rev {
+        package["rev"] = value(rev.clone());
+    }
+    packages.insert(&spec.name, Item::Table(package));
+
+    fs::write(lock_path, doc.to_string())
+        .with_context(|| format!("failed to write {}", lock_path.display()))
+}
+
+fn ensure_table<'a>(root: &'a mut Table, key: &str, path: &Path) -> Result<&'a mut Table> {
+    if !root.contains_key(key) {
+        root.insert(key, Item::Table(Table::new()));
+    }
+
+    root.get_mut(key)
+        .and_then(Item::as_table_mut)
+        .with_context(|| format!("{key} in {} must be a table", path.display()))
 }
 
 fn run_file(

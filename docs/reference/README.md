@@ -17,4 +17,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1
 
 The acceptance script validates this static site, runs the shipped examples, creates a fresh MVC scaffold, lists its routes, then runs `rco check` and `rco test` against it. It leaves the generated scaffold in a temp folder for inspection.
 
-The site is intentionally static: no build step, no package install, and no server required.
+The site is intentionally static: no build step, no Node package install, and no server required.

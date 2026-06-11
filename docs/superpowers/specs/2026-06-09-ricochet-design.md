@@ -400,6 +400,8 @@ rco install
 
 `ricochet.toml` records dependency declarations. `ricochet.lock` pins exact commits/paths. A central registry can be added later as a resolver over the same package format.
 
+Current implementation note: `rco add` supports local path dependencies and GitHub shorthand. Static imports such as `"greeter/greeting" import` resolve through `[dependencies.greeter]` when no relative file exists. `rco install`, central registry resolution, and dynamic runtime imports remain future work.
+
 ## CLI And Project Tooling
 
 The CLI should include:

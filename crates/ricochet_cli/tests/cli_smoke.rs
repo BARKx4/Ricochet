@@ -636,6 +636,90 @@ fn run_loads_static_string_imports_before_main_source() {
 }
 
 #[test]
+fn add_records_local_path_dependency_and_package_imports_are_runnable() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "ricochet.toml", "[package]\nname = \"app\"\n");
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/greeting.rco",
+        "\"packageHello\" function\n  \"hello from package\"\nend\n",
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("./packages/greeter")
+        .current_dir(root)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "./packages/greeter", &add_output);
+    let add_stdout = String::from_utf8_lossy(&add_output.stdout);
+    assert!(
+        add_stdout.contains("added greeter"),
+        "stdout should mention added package, got:\n{add_stdout}"
+    );
+
+    let manifest = fs::read_to_string(root.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[dependencies.greeter]"));
+    assert!(manifest.contains("path = \"./packages/greeter\""));
+
+    let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("[package.greeter]"));
+    assert!(lock.contains("source = \"path+./packages/greeter\""));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"hello from package\")"),
+        "stdout should show imported package result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn add_records_github_dependency_link_without_fetching() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "ricochet.toml", "[package]\nname = \"app\"\n");
+
+    let add_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("github:BARKx4/ricochet_auth@v0.1.0")
+        .arg("--no-fetch")
+        .current_dir(root)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "github:BARKx4/ricochet_auth@v0.1.0", &add_output);
+
+    let manifest = fs::read_to_string(root.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[dependencies.ricochet_auth]"));
+    assert!(manifest.contains("git = \"https://github.com/BARKx4/ricochet_auth.git\""));
+    assert!(manifest.contains("rev = \"v0.1.0\""));
+    assert!(manifest.contains("path = \".ricochet/packages/ricochet_auth\""));
+
+    let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("[package.ricochet_auth]"));
+    assert!(lock.contains("source = \"git+https://github.com/BARKx4/ricochet_auth.git\""));
+    assert!(lock.contains("rev = \"v0.1.0\""));
+}
+
+#[test]
 fn run_bytecode_executes_built_chunk() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");

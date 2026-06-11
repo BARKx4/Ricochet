@@ -9,3 +9,4 @@ ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_syntax = { path = "../ricochet_syntax" }
 anyhow.workspace = true
 thiserror.workspace = true
+toml.workspace = true

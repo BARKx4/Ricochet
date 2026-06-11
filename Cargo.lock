@@ -1203,6 +1203,7 @@ dependencies = [
  "ricochet_vm",
  "ricochet_web",
  "tokio",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1213,6 +1214,7 @@ dependencies = [
  "ricochet_bytecode",
  "ricochet_syntax",
  "thiserror 1.0.69",
+ "toml",
 ]
 
 [[package]]
