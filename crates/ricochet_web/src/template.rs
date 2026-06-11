@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use anyhow::{anyhow, bail, Context, Result};
 use ricochet_compiler::compile_source;
@@ -19,6 +19,8 @@ pub fn render_template(
     data: &BTreeMap<String, Value>,
     escape: EscapeMode,
 ) -> Result<String> {
+    let template = normalize_template_newlines(template);
+    let template = template.as_ref();
     let mut rendered = String::new();
     let mut pos = 0;
 
@@ -54,6 +56,14 @@ pub fn render_template(
     }
 
     Ok(rendered)
+}
+
+fn normalize_template_newlines(template: &str) -> Cow<'_, str> {
+    if template.contains('\r') {
+        Cow::Owned(template.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(template)
+    }
 }
 
 fn evaluate_expression(
@@ -162,6 +172,23 @@ mod tests {
             .expect("template should execute Ricochet");
 
         assert_eq!(rendered, "<p>42</p>");
+    }
+
+    #[test]
+    fn template_normalizes_windows_newlines() {
+        let data = BTreeMap::from([(
+            "title".to_string(),
+            Value::String("Hello <Ricochet>".to_string()),
+        )]);
+
+        let rendered = render_template(
+            "<h1>{ title get }</h1>\r\n<p>static</p>\r\n",
+            &data,
+            EscapeMode::Html,
+        )
+        .expect("template should render");
+
+        assert_eq!(rendered, "<h1>Hello &lt;Ricochet&gt;</h1>\n<p>static</p>\n");
     }
 
     #[test]
