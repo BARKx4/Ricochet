@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::Chunk;
@@ -19,6 +19,13 @@ pub struct RequestContext {
     pub session: BTreeMap<String, Value>,
     pub config: BTreeMap<String, Value>,
     pub view_data: BTreeMap<String, Value>,
+    pub logs: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogEntry {
+    pub level: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +108,10 @@ impl ControllerRegistry {
             };
             vm.run_chunk(&chunk)
                 .with_context(|| format!("failed to load controller {controller_name}"))?;
+            let log_entries = Arc::new(Mutex::new(Vec::new()));
+            let logger = install_logger_capability(&mut vm, log_entries.clone())?;
+            let mut capabilities = capabilities;
+            capabilities.insert("logger".to_string(), logger);
             let context = context_value(ctx, &capabilities);
             vm.set_variable("ctx", context.clone());
             let arg_values =
@@ -114,6 +125,7 @@ impl ControllerRegistry {
                 .with_context(|| format!("failed to call {controller_name}.{action_name}"))?;
 
             copy_session(&context, ctx)?;
+            copy_logs(&log_entries, ctx)?;
             copy_view_data(&vm, ctx);
             action_result_from_value(result)
         });
@@ -246,6 +258,100 @@ fn copy_session(context: &Value, ctx: &mut RequestContext) -> Result<()> {
             Ok(())
         }
         value => bail!("session context must be a map, got {value:?}"),
+    }
+}
+
+fn copy_logs(entries: &Arc<Mutex<Vec<LogEntry>>>, ctx: &mut RequestContext) -> Result<()> {
+    ctx.logs = entries
+        .lock()
+        .map_err(|_| anyhow::anyhow!("logger entries lock was poisoned"))?
+        .clone();
+    Ok(())
+}
+
+fn install_logger_capability(
+    vm: &mut Vm,
+    entries: Arc<Mutex<Vec<LogEntry>>>,
+) -> Result<Value, ricochet_vm::VmError> {
+    vm.define_class("LoggerCapability", "Capability")?;
+    for level in ["debug", "info", "warn", "error"] {
+        add_log_method(vm, level, entries.clone())?;
+    }
+    let entries_for_snapshot = entries.clone();
+    vm.add_native_method("entries", move |_| {
+        let entries = entries_for_snapshot
+            .lock()
+            .map_err(|_| ricochet_vm::VmError::UnknownWord("logger.entries".to_string()))?
+            .iter()
+            .map(|entry| {
+                Value::Map(
+                    BTreeMap::from([
+                        ("level".to_string(), Value::String(entry.level.clone())),
+                        ("message".to_string(), Value::String(entry.message.clone())),
+                    ])
+                    .into(),
+                )
+            })
+            .collect::<Vec<_>>();
+        Ok(Value::Array(entries.into()))
+    })?;
+    vm.end_class();
+    vm.new_instance("LoggerCapability")
+}
+
+fn add_log_method(
+    vm: &mut Vm,
+    level: &'static str,
+    entries: Arc<Mutex<Vec<LogEntry>>>,
+) -> Result<(), ricochet_vm::VmError> {
+    vm.add_native_method_with_arity(level, 1, move |arguments| {
+        let message = match arguments.as_slice() {
+            [Value::String(message), _receiver] => message.clone(),
+            [value, _receiver] => {
+                return Err(ricochet_vm::VmError::TypeError {
+                    word: format!("logger.{level}"),
+                    expected: "message string".to_string(),
+                    actual: logger_value_kind(value).to_string(),
+                });
+            }
+            _ => {
+                return Err(ricochet_vm::VmError::StackUnderflow {
+                    word: format!("logger.{level}"),
+                    needed: 1,
+                    available: 0,
+                });
+            }
+        };
+
+        entries
+            .lock()
+            .map_err(|_| ricochet_vm::VmError::UnknownWord(format!("logger.{level}")))?
+            .push(LogEntry {
+                level: level.to_string(),
+                message,
+            });
+        Ok(Value::Nil)
+    })
+}
+
+fn logger_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Nil => "nil",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::List(_) => "list",
+        Value::Map(_) => "map",
+        Value::Set(_) => "set",
+        Value::Class(_) => "class",
+        Value::Instance(_) => "instance",
+        Value::Member(_) => "member",
+        Value::Block(_) => "block",
+        Value::Task(_) => "task",
+        Value::Result(_) => "result",
+        Value::Regex(_) => "regex",
+        Value::Capability(_) => "capability",
     }
 }
 
@@ -467,6 +573,40 @@ end
         assert_eq!(
             result,
             ActionResult::Text("hello from capability".to_string())
+        );
+    }
+
+    #[test]
+    fn ricochet_controller_logs_to_request_context() {
+        let mut controllers = ControllerRegistry::default();
+        controllers
+            .register_ricochet_source(
+                "HomeController",
+                "index",
+                "HomeController.rco",
+                r#"
+HomeController Controller subclass
+  index method
+    "loaded" ctx get .logger get .info drop
+    "ok" text
+  end
+end
+"#,
+            )
+            .expect("controller registers");
+
+        let mut ctx = RequestContext::default();
+        let result = controllers
+            .call("HomeController", "index", &mut ctx)
+            .expect("controller dispatches");
+
+        assert_eq!(result, ActionResult::Text("ok".to_string()));
+        assert_eq!(
+            ctx.logs,
+            vec![LogEntry {
+                level: "info".to_string(),
+                message: "loaded".to_string()
+            }]
         );
     }
 }

@@ -501,13 +501,14 @@ escape = "html"
 Authentication is not built into core v1. Core web provides capability primitives such as request, response, cookies, session, db, logger, view, and config. Higher-level auth should live in packages.
 
 Current implementation note: controllers receive `request`, `cookies`,
-`session`, and `config` values through `ctx` and through declared Args.
-`request` includes method, path, params, query, form, headers, cookies, and the
-session map. `config` is derived from safe manifest metadata such as package
-name, web mode/routes/views, and database adapter; database URLs are
-intentionally not exposed. The built-in session map is stored in an unsigned
-JSON cookie named `ricochet_session`; signing/encryption and higher-level auth
-remain package work. Logger primitives remain future package/core work.
+`session`, `logger`, and `config` values through `ctx` and through declared
+Args. `request` includes method, path, params, query, form, headers, cookies,
+and the session map. `logger` supports `debug`, `info`, `warn`, `error`, and
+`entries` for per-request log inspection. `config` is derived from safe
+manifest metadata such as package name, web mode/routes/views, and database
+adapter; database URLs are intentionally not exposed. The built-in session map
+is stored in an unsigned JSON cookie named `ricochet_session`; signing,
+encryption, and higher-level auth remain package work.
 
 ## Active Record
 
@@ -567,10 +568,9 @@ view
 config
 ```
 
-Current implementation includes `request`, `cookies`, `session`, `config`, `db`
-when a database backend is configured, and response construction through `view`,
-`text`, `json`, `redirect`, `status`, and `header` words. Logger capability
-objects remain planned work.
+Current implementation includes `request`, `cookies`, `session`, `logger`,
+`config`, `db` when a database backend is configured, and response construction
+through `view`, `text`, `json`, `redirect`, `status`, and `header` words.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 

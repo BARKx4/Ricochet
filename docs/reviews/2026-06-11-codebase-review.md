@@ -56,7 +56,8 @@ Implemented after this review:
 - `rco serve --watch` now reloads routes, controllers, models, views, and the
   manifest between requests.
 - Web controllers now receive request metadata, headers, cookies, a lightweight
-  session map, and safe manifest config through `ctx` and declared Args.
+  session map, per-request logger, and safe manifest config through `ctx` and
+  declared Args.
 - The web router supports `DELETE`, `PUT`, and `PATCH` in addition to `GET` and
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use

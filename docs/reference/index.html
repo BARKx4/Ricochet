@@ -399,6 +399,18 @@ end</code></pre>
           </article>
 
           <article class="example-panel wide">
+            <h3>Logger</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy logger example" title="Copy">copy</button><code>LogController Controller subclass
+  ( logger ) "index" [
+    logger var
+    "loaded" logger get .info drop
+    "careful" logger get .warn drop
+    "ok" text
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
   &lt;h1&gt;{ title get }&lt;/h1&gt;

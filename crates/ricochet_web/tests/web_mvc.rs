@@ -1644,6 +1644,69 @@ end
     assert_eq!(body, "Ada");
 }
 
+#[tokio::test]
+async fn serves_logger_capability_to_ricochet_controllers() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "logger_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/logs" LogController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/LogController.rco"),
+        r#"
+LogController Controller subclass
+  ( logger ) "index" [
+    logger var
+    "loaded" logger get .info drop
+    "careful" logger get .warn drop
+    logger get .entries json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(Request::builder().uri("/logs").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE),
+        Some(&header::HeaderValue::from_static("application/json"))
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert!(body.contains(r#""level":"info""#), "body was {body}");
+    assert!(body.contains(r#""message":"loaded""#), "body was {body}");
+    assert!(body.contains(r#""level":"warn""#), "body was {body}");
+    assert!(body.contains(r#""message":"careful""#), "body was {body}");
+}
+
 fn temp_project_path() -> PathBuf {
     let base = std::env::var_os("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
