@@ -88,9 +88,9 @@ Implemented after this review:
   `--http-allow-host`.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
-- Active Record now has parameterized `.limit`, `.page`, `.where-limit`, and
-  `.where-page` plus `.count`, `.first`, and `.exists?` class methods for
-  bounded/basic reads.
+- Active Record now has parameterized `.limit`, `.page`, `.order-page`,
+  `.where-limit`, `.where-page`, and `.where-order-page` plus `.count`,
+  `.first`, and `.exists?` class methods for bounded/basic reads.
 - A root `README.md` and GitHub Actions CI workflow were added for repeatable
   verification. The repo-level `rust-toolchain.toml` was later removed in favor
   of README/CI toolchain instructions.
@@ -101,8 +101,8 @@ Still open:
   compatibility decision.
 - Session cookie signing is implemented behind `[web.session] signing_secret_env`;
   encryption and auth helpers remain package/framework work.
-- PostgreSQL TLS configuration, Active Record ordering/relation chaining, and
-  schema/migration tooling are still backlog.
+- PostgreSQL TLS configuration, Active Record relation chaining/default
+  pagination policy, and schema/migration tooling are still backlog.
 - Scheduler-level task concurrency and async IO words remain future async work.
 - Watch-mode debug trace events are implemented for reload success/failure;
   request-time hot reload is implemented.
@@ -267,18 +267,18 @@ Recommendation:
 
 ### 7. Active Record reads need safer production defaults
 
-Status: partially fixed. `.limit`, `.page`, `.where-limit`, `.where-page`,
-`.count`, `.first`, and `.exists?` are now available as parameterized/basic
-model class methods; ordering, relation chaining, and default pagination remain
-backlog.
+Status: partially fixed. `.limit`, `.page`, `.order-page`, `.where-limit`,
+`.where-page`, `.where-order-page`, `.count`, `.first`, and `.exists?` are now
+available as parameterized/basic model class methods; relation chaining and
+default pagination remain backlog.
 
 Evidence:
 
 - `select_all_sql` emits a full `select` in
   `crates/ricochet_web/src/active_record.rs:141`.
 - `all` executes it directly in `crates/ricochet_web/src/active_record.rs:299`.
-- Filtered queries now have bounded `.where-limit` and `.where-page` variants,
-  but no composable relation object or ordering API exists yet.
+- Filtered queries now have bounded `.where-limit`, `.where-page`, and
+  `.where-order-page` variants, but no composable relation object exists yet.
 
 Impact:
 
@@ -286,8 +286,8 @@ Small examples work, but production tables can be loaded entirely into memory.
 
 Recommendation:
 
-- Add ordering, relation-style chaining, and/or default pagination helpers
-  before encouraging real apps to use `.all`.
+- Add relation-style chaining and/or default pagination helpers before
+  encouraging real apps to use `.all`.
 
 ### 8. Resolved: `--watch` was advertised before implementation
 
@@ -433,7 +433,7 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Add Active Record ordering/relation chaining or default pagination policy.
+1. Add Active Record relation chaining or default pagination policy.
 2. Add encrypted session/auth package helpers.
 3. Build the first-party AI package/provider capability.
 4. Decide whether v1 should keep `trusted` as the CLI default or switch to

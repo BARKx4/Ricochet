@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ricochet_vm::{Value, Vm, VmError};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
-use crate::active_record::{ActiveRecordError, ModelMapping, PostgresDatabase};
+use crate::active_record::{ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase};
 
 pub trait DatabaseBackend: Send + Sync {
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
@@ -18,6 +18,11 @@ pub trait DatabaseBackend: Send + Sync {
         mapping: &ModelMapping,
         limit: i64,
         offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError>;
+    fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError>;
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError>;
     fn where_eq(
@@ -40,6 +45,13 @@ pub trait DatabaseBackend: Send + Sync {
         value: &Value,
         limit: i64,
         offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError>;
+    fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError>;
     fn insert(
         &self,
@@ -84,6 +96,17 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres("page", PostgresDatabase::page(self, mapping, limit, offset))
     }
 
+    fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres(
+            "order-page",
+            PostgresDatabase::order_page(self, mapping, order),
+        )
+    }
+
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
         block_on_postgres("exists", PostgresDatabase::exists_by_id(self, mapping, id))
     }
@@ -124,6 +147,19 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres(
             "where-page",
             PostgresDatabase::where_eq_page(self, mapping, field, value, limit, offset),
+        )
+    }
+
+    fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres(
+            "where-order-page",
+            PostgresDatabase::where_eq_order_page(self, mapping, where_field, value, order),
         )
     }
 
@@ -220,6 +256,39 @@ pub fn install_database_capability(
         let mapping = model_mapping(&page_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| page_backend.page(mapping, limit, offset)) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
+    let order_page_backend = backend.clone();
+    let order_page_mappings = mappings.clone();
+    vm.add_native_method_with_arity("order-page", 5, move |arguments| {
+        let model_name =
+            string_argument(&arguments, 0, "DatabaseCapability.order-page", "model name")?;
+        let field = string_argument(&arguments, 1, "DatabaseCapability.order-page", "field name")?;
+        let direction = string_argument(
+            &arguments,
+            2,
+            "DatabaseCapability.order-page",
+            "order direction",
+        )?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.order-page")?;
+        let offset = offset_argument(&arguments, 4, "DatabaseCapability.order-page")?;
+        let mapping = model_mapping(&order_page_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| {
+                order_page_backend.order_page(
+                    mapping,
+                    OrderPage {
+                        field,
+                        direction,
+                        limit,
+                        offset,
+                    },
+                )
+            }) {
                 Ok(values) => Value::result_ok(Value::Array(values.into())),
                 Err(error) => database_result_error(error),
             },
@@ -328,6 +397,59 @@ pub fn install_database_capability(
         )
     })?;
 
+    let where_order_page_backend = backend.clone();
+    let where_order_page_mappings = mappings.clone();
+    vm.add_native_method_with_arity("where-order-page", 7, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.where-order-page",
+            "model name",
+        )?;
+        let where_field = string_argument(
+            &arguments,
+            1,
+            "DatabaseCapability.where-order-page",
+            "field name",
+        )?;
+        let value = arguments.get(2).ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.where-order-page", 7, arguments.len())
+        })?;
+        let order_field = string_argument(
+            &arguments,
+            3,
+            "DatabaseCapability.where-order-page",
+            "order field name",
+        )?;
+        let direction = string_argument(
+            &arguments,
+            4,
+            "DatabaseCapability.where-order-page",
+            "order direction",
+        )?;
+        let limit = limit_argument(&arguments, 5, "DatabaseCapability.where-order-page")?;
+        let offset = offset_argument(&arguments, 6, "DatabaseCapability.where-order-page")?;
+        let mapping = model_mapping(&where_order_page_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| {
+                where_order_page_backend.where_eq_order_page(
+                    mapping,
+                    where_field,
+                    value,
+                    OrderPage {
+                        field: order_field,
+                        direction,
+                        limit,
+                        offset,
+                    },
+                )
+            }) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
     let insert_backend = backend.clone();
     let insert_mappings = mappings.clone();
     vm.add_native_method_with_arity("insert", 2, move |arguments| {
@@ -424,6 +546,31 @@ fn install_model_active_record_methods(
                 })
             })?;
 
+            let order_page_backend = backend.clone();
+            let order_page_mapping = mapping.clone();
+            let order_page_method = format!("{}.order-page", mapping.class_name);
+            vm.add_native_method_with_arity("order-page", 4, move |arguments| {
+                let field = string_argument(&arguments, 0, &order_page_method, "field name")?;
+                let direction =
+                    string_argument(&arguments, 1, &order_page_method, "order direction")?;
+                let limit = limit_argument(&arguments, 2, &order_page_method)?;
+                let offset = offset_argument(&arguments, 3, &order_page_method)?;
+                Ok(
+                    match order_page_backend.order_page(
+                        &order_page_mapping,
+                        OrderPage {
+                            field,
+                            direction,
+                            limit,
+                            offset,
+                        },
+                    ) {
+                        Ok(values) => Value::result_ok(Value::Array(values.into())),
+                        Err(error) => database_result_error(error),
+                    },
+                )
+            })?;
+
             let exists_backend = backend.clone();
             let exists_mapping = mapping.clone();
             let exists_method = format!("{}.exists?", mapping.class_name);
@@ -503,6 +650,39 @@ fn install_model_active_record_methods(
                         value,
                         limit,
                         offset,
+                    ) {
+                        Ok(values) => Value::result_ok(Value::Array(values.into())),
+                        Err(error) => database_result_error(error),
+                    },
+                )
+            })?;
+
+            let where_order_page_backend = backend.clone();
+            let where_order_page_mapping = mapping.clone();
+            let where_order_page_method = format!("{}.where-order-page", mapping.class_name);
+            vm.add_native_method_with_arity("where-order-page", 6, move |arguments| {
+                let where_field =
+                    string_argument(&arguments, 0, &where_order_page_method, "field name")?;
+                let value = arguments.get(1).ok_or_else(|| {
+                    missing_native_argument(&where_order_page_method, 6, arguments.len())
+                })?;
+                let order_field =
+                    string_argument(&arguments, 2, &where_order_page_method, "order field name")?;
+                let direction =
+                    string_argument(&arguments, 3, &where_order_page_method, "order direction")?;
+                let limit = limit_argument(&arguments, 4, &where_order_page_method)?;
+                let offset = offset_argument(&arguments, 5, &where_order_page_method)?;
+                Ok(
+                    match where_order_page_backend.where_eq_order_page(
+                        &where_order_page_mapping,
+                        where_field,
+                        value,
+                        OrderPage {
+                            field: order_field,
+                            direction,
+                            limit,
+                            offset,
+                        },
                     ) {
                         Ok(values) => Value::result_ok(Value::Array(values.into())),
                         Err(error) => database_result_error(error),
@@ -736,6 +916,14 @@ mod tests {
                 .collect())
         }
 
+        fn order_page(
+            &self,
+            mapping: &ModelMapping,
+            order: OrderPage<'_>,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            self.page(mapping, order.limit, order.offset)
+        }
+
         fn exists_by_id(
             &self,
             mapping: &ModelMapping,
@@ -789,6 +977,16 @@ mod tests {
                 .skip(offset as usize)
                 .take(limit as usize)
                 .collect())
+        }
+
+        fn where_eq_order_page(
+            &self,
+            mapping: &ModelMapping,
+            where_field: &str,
+            value: &Value,
+            order: OrderPage<'_>,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            self.where_eq_page(mapping, where_field, value, order.limit, order.offset)
         }
 
         fn insert(
@@ -898,6 +1096,22 @@ mod tests {
     }
 
     #[test]
+    fn active_record_order_page_accepts_field_direction_limit_and_offset_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "\"email\" \"asc\" 1 0 User .order-page")
+                .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
     fn active_record_count_returns_a_number_result() {
         let mut vm = vm_with_active_record();
         let chunk =
@@ -987,6 +1201,32 @@ mod tests {
             vm.stack(),
             [Value::Result(RicochetResult::Ok(value))]
                 if matches!(value.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
+    }
+
+    #[test]
+    fn database_capability_order_page_accepts_model_name_and_ordering() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"User\" \"email\" \"asc\" 1 0 db get .order-page",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability order-page method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
         ));
     }
 
@@ -1099,6 +1339,24 @@ mod tests {
     }
 
     #[test]
+    fn active_record_where_order_page_accepts_filter_ordering_limit_and_offset() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 User .where-order-page",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
     fn database_capability_supports_bounded_where_queries() {
         let mut vm = Vm::default();
         let capability = install_database_capability(
@@ -1122,6 +1380,32 @@ mod tests {
             [Value::Result(RicochetResult::Ok(first)), Value::Result(RicochetResult::Ok(second))]
                 if matches!(first.as_ref(), Value::Array(rows) if rows.len() == 1)
                     && matches!(second.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
+    }
+
+    #[test]
+    fn database_capability_supports_ordered_bounded_where_queries() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"User\" \"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 db get .where-order-page",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability ordered where method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
         ));
     }
 

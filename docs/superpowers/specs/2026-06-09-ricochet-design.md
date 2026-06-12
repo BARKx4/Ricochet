@@ -557,8 +557,10 @@ User .all
 "email" "ada@example.com" User .where
 10 User .limit
 10 20 User .page
+"email" "asc" 10 20 User .order-page
 "email" "ada@example.com" 10 User .where-limit
 "email" "ada@example.com" 10 20 User .where-page
+"email" "ada@example.com" "id" "desc" 10 20 User .where-order-page
 attributes map
 "email" "ada@example.com" attributes get .put! drop
 attributes get User .insert
@@ -569,8 +571,9 @@ updates map
 
 Active Record v1 supports connection configuration, basic table mapping, `find`,
 `all`, `where`, bounded reads with `limit`/`page`/`where-limit`/`where-page`,
-`count`, `first`, `exists?`, `insert`, and `update`. Every operation returns
-one `Result` object so expected database failures stay in the normal stack flow.
+deterministic ordered reads with `order-page`/`where-order-page`, `count`,
+`first`, `exists?`, `insert`, and `update`. Every operation returns one
+`Result` object so expected database failures stay in the normal stack flow.
 
 ## Capabilities
 

@@ -16,6 +16,14 @@ pub struct ModelMapping {
     pub fields: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrderPage<'a> {
+    pub field: &'a str,
+    pub direction: &'a str,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveRecordError {
     InvalidIdentifier {
@@ -25,6 +33,9 @@ pub enum ActiveRecordError {
     UnknownField {
         class_name: String,
         field: String,
+    },
+    InvalidOrderDirection {
+        direction: String,
     },
     UnknownModel {
         class_name: String,
@@ -58,6 +69,12 @@ impl fmt::Display for ActiveRecordError {
             }
             ActiveRecordError::UnknownField { class_name, field } => {
                 write!(f, "unknown field {field:?} on model {class_name}")
+            }
+            ActiveRecordError::InvalidOrderDirection { direction } => {
+                write!(
+                    f,
+                    "invalid Active Record order direction {direction:?}; expected \"asc\" or \"desc\""
+                )
             }
             ActiveRecordError::UnknownModel { class_name } => {
                 write!(f, "unknown Ricochet model class {class_name}")
@@ -170,6 +187,20 @@ impl ModelMapping {
         )
     }
 
+    pub fn select_order_page_sql(
+        &self,
+        field: &str,
+        direction: &str,
+    ) -> Result<String, ActiveRecordError> {
+        self.require_field(field)?;
+        let direction = validate_order_direction(direction)?;
+        Ok(format!(
+            "select {} from {} order by {field} {direction} limit $1 offset $2",
+            self.fields.join(", "),
+            self.table_name
+        ))
+    }
+
     pub fn exists_by_id_sql(&self) -> String {
         format!(
             "select exists(select 1 from {} where id = $1)",
@@ -199,6 +230,22 @@ impl ModelMapping {
         self.require_field(field)?;
         Ok(format!(
             "select {} from {} where {field} = $1 limit $2 offset $3",
+            self.fields.join(", "),
+            self.table_name
+        ))
+    }
+
+    pub fn select_where_eq_order_page_sql(
+        &self,
+        where_field: &str,
+        order_field: &str,
+        direction: &str,
+    ) -> Result<String, ActiveRecordError> {
+        self.require_field(where_field)?;
+        self.require_field(order_field)?;
+        let direction = validate_order_direction(direction)?;
+        Ok(format!(
+            "select {} from {} where {where_field} = $1 order by {order_field} {direction} limit $2 offset $3",
             self.fields.join(", "),
             self.table_name
         ))
@@ -416,6 +463,25 @@ impl PostgresDatabase {
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
 
+    pub async fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_order_page_sql(order.field, order.direction)?;
+        let limit = Value::Number(order.limit);
+        let offset = Value::Number(order.offset);
+        let limit = PostgresParameter::try_from(&limit)?;
+        let offset = PostgresParameter::try_from(&offset)?;
+        let rows = self
+            .client
+            .query(sql.as_str(), &[limit.as_sql(), offset.as_sql()])
+            .await
+            .map_err(|error| database_error("order-page", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
     pub async fn exists_by_id(
         &self,
         mapping: &ModelMapping,
@@ -490,6 +556,32 @@ impl PostgresDatabase {
             )
             .await
             .map_err(|error| database_error("where-page", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
+    pub async fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql =
+            mapping.select_where_eq_order_page_sql(where_field, order.field, order.direction)?;
+        let value = PostgresParameter::try_from(value)?;
+        let limit = Value::Number(order.limit);
+        let offset = Value::Number(order.offset);
+        let limit = PostgresParameter::try_from(&limit)?;
+        let offset = PostgresParameter::try_from(&offset)?;
+        let rows = self
+            .client
+            .query(
+                sql.as_str(),
+                &[value.as_sql(), limit.as_sql(), offset.as_sql()],
+            )
+            .await
+            .map_err(|error| database_error("where-order-page", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -746,6 +838,16 @@ fn validate_field_identifier(name: &str) -> Result<(), ActiveRecordError> {
     }
 }
 
+fn validate_order_direction(direction: &str) -> Result<&'static str, ActiveRecordError> {
+    match direction.to_ascii_lowercase().as_str() {
+        "asc" => Ok("asc"),
+        "desc" => Ok("desc"),
+        _ => Err(ActiveRecordError::InvalidOrderDirection {
+            direction: direction.to_string(),
+        }),
+    }
+}
+
 fn is_postgres_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('_' | 'a'..='z' | 'A'..='Z'))
@@ -808,6 +910,33 @@ mod tests {
         assert_eq!(
             mapping.select_page_sql(),
             "select id, email from users limit $1 offset $2"
+        );
+    }
+
+    #[test]
+    fn select_order_page_sql_requires_mapped_field_and_valid_direction() {
+        let mapping = ModelMapping::try_new("User", "public.users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_order_page_sql("email", "DESC"),
+            Ok(
+                "select id, email, name from public.users order by email desc limit $1 offset $2"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            mapping.select_order_page_sql("password_hash", "asc"),
+            Err(ActiveRecordError::UnknownField {
+                class_name: "User".to_string(),
+                field: "password_hash".to_string(),
+            })
+        );
+        assert_eq!(
+            mapping.select_order_page_sql("email", "sideways"),
+            Err(ActiveRecordError::InvalidOrderDirection {
+                direction: "sideways".to_string(),
+            })
         );
     }
 
@@ -921,6 +1050,40 @@ mod tests {
             Err(ActiveRecordError::UnknownField {
                 class_name: "User".to_string(),
                 field: "password_hash".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn select_where_eq_order_page_sql_requires_mapped_fields_and_valid_direction() {
+        let mapping = ModelMapping::try_new("User", "public.users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_where_eq_order_page_sql("email", "id", "asc"),
+            Ok(
+                "select id, email, name from public.users where email = $1 order by id asc limit $2 offset $3"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            mapping.select_where_eq_order_page_sql("password_hash", "id", "asc"),
+            Err(ActiveRecordError::UnknownField {
+                class_name: "User".to_string(),
+                field: "password_hash".to_string(),
+            })
+        );
+        assert_eq!(
+            mapping.select_where_eq_order_page_sql("email", "password_hash", "asc"),
+            Err(ActiveRecordError::UnknownField {
+                class_name: "User".to_string(),
+                field: "password_hash".to_string(),
+            })
+        );
+        assert_eq!(
+            mapping.select_where_eq_order_page_sql("email", "id", "down"),
+            Err(ActiveRecordError::InvalidOrderDirection {
+                direction: "down".to_string(),
             })
         );
     }

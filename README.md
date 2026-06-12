@@ -19,8 +19,9 @@ reload is available for MVC apps during local development, and controllers recei
 request, header, cookie, lightweight session, logger, and safe manifest config
 context. Session cookies can be HMAC-signed from an environment-backed manifest
 secret. Active Record has basic reads plus bounded `limit`, `page`,
-`where-limit`, and `where-page` helpers. Migrations, encrypted auth helpers,
-and the first-party AI package are still planned work.
+`order-page`, `where-limit`, `where-page`, and `where-order-page` helpers.
+Migrations, encrypted auth helpers, and the first-party AI package are still
+planned work.
 
 ## Quickstart
 

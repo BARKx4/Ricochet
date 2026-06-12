@@ -4,7 +4,7 @@ use axum::{
 };
 use ricochet_vm::Value;
 use ricochet_web::{
-    ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping,
+    ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping, OrderPage,
     PostgresDatabase, RequestContext, WatchTraceEvent, WatchTraceSink,
 };
 use std::{
@@ -113,6 +113,14 @@ impl DatabaseBackend for FixtureDatabase {
             .collect())
     }
 
+    fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.page(mapping, order.limit, order.offset)
+    }
+
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
         Ok(self.all(mapping)?.iter().any(|row| match row {
             Value::Map(row) => row.get("id").as_ref() == Some(id),
@@ -162,6 +170,16 @@ impl DatabaseBackend for FixtureDatabase {
             .skip(offset as usize)
             .take(limit as usize)
             .collect())
+    }
+
+    fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.where_eq_page(mapping, where_field, value, order.limit, order.offset)
     }
 
     fn insert(

@@ -447,8 +447,10 @@ end</code></pre>
 "email" "ada@example.com" User .where
 10 User .limit
 10 20 User .page
+"email" "asc" 10 20 User .order-page
 "email" "ada@example.com" 10 User .where-limit
 "email" "ada@example.com" 10 20 User .where-page
+"email" "ada@example.com" "id" "desc" 10 20 User .where-order-page
 User .count
 User .first
 1 User .exists?
