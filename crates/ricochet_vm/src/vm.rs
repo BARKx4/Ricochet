@@ -737,6 +737,7 @@ impl Vm {
             "call" => self.call_block(word),
             "spawn" => self.call_spawn(word),
             "await" => self.call_await(word),
+            "tasks" => self.call_tasks(word),
             "send" => self.call_send(word),
             "println" => self.call_println(word),
             "inspect" => self.call_inspect(word),
@@ -1185,6 +1186,14 @@ impl Vm {
         self.stdout.push_str(&task_vm.stdout);
         self.stderr.push_str(&task_vm.stderr);
         result
+    }
+
+    pub(super) fn task_pending(&self, task_id: u64) -> bool {
+        self.tasks.contains_key(&task_id)
+    }
+
+    pub(super) fn pending_task_ids(&self) -> Vec<u64> {
+        self.tasks.keys().copied().collect()
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {

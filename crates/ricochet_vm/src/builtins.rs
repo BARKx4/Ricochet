@@ -117,6 +117,7 @@ impl Vm {
             Value::Result(_) => {
                 matches!(method, "error?" | "unwrap-or" | "map-result" | "and-then")
             }
+            Value::Task(_) => matches!(method, "id" | "status" | "pending?"),
             Value::Capability(Capability::FileSystem) => {
                 matches!(
                     method,
@@ -206,6 +207,9 @@ impl Vm {
             "unwrap-or" => self.method_unwrap_or(receiver, method),
             "map-result" => self.method_map_result(receiver, method),
             "and-then" => self.method_and_then(receiver, method),
+            "id" => self.method_task_id(receiver, method),
+            "status" => self.method_task_status(receiver, method),
+            "pending?" => self.method_task_pending(receiver, method),
             "read-text" => self.method_fs_read_text(receiver, method),
             "write-text!" => self.method_fs_write_text(receiver, method),
             "exists?" => self.method_fs_exists(receiver, method),
@@ -865,6 +869,45 @@ impl Vm {
             }
             value => Err(method_type_error(method, "result", &value)),
         }
+    }
+
+    fn method_task_id(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => number_from_u64(method, task_id),
+            value => Err(method_type_error(method, "task", &value)),
+        }
+    }
+
+    fn method_task_status(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => Ok(Value::String(self.task_status(task_id).to_string())),
+            value => Err(method_type_error(method, "task", &value)),
+        }
+    }
+
+    fn method_task_pending(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => Ok(Value::Bool(self.task_pending(task_id))),
+            value => Err(method_type_error(method, "task", &value)),
+        }
+    }
+
+    fn task_status(&self, task_id: u64) -> &'static str {
+        if self.task_pending(task_id) {
+            "pending"
+        } else {
+            "consumed"
+        }
+    }
+
+    pub(super) fn call_tasks(&mut self, word: &str) -> Result<(), VmError> {
+        let tasks = self
+            .pending_task_ids()
+            .into_iter()
+            .map(|task_id| task_info_map(word, task_id, "pending"))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.stack.push(Value::Array(tasks.into()));
+        Ok(())
     }
 
     pub(super) fn call_multiply(&mut self, word: &str) -> Result<(), VmError> {
@@ -1722,6 +1765,16 @@ fn regex_match_map(
     ))
 }
 
+fn task_info_map(word: &str, task_id: u64, status: &str) -> Result<Value, VmError> {
+    Ok(Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), number_from_u64(word, task_id)?),
+            ("status".to_string(), Value::String(status.to_string())),
+        ])
+        .into(),
+    ))
+}
+
 fn condition_value(word: &str, value: Value) -> Result<bool, VmError> {
     value
         .truthy_for_condition()
@@ -1740,6 +1793,14 @@ fn method_type_error(word: &str, expected: &str, value: &Value) -> VmError {
 }
 
 fn number_from_usize(word: &str, value: usize) -> Result<Value, VmError> {
+    i64::try_from(value)
+        .map(Value::Number)
+        .map_err(|_| VmError::ArithmeticOverflow {
+            word: word.to_string(),
+        })
+}
+
+fn number_from_u64(word: &str, value: u64) -> Result<Value, VmError> {
     i64::try_from(value)
         .map(Value::Number)
         .map_err(|_| VmError::ArithmeticOverflow {

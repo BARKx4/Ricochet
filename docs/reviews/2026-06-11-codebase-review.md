@@ -62,6 +62,8 @@ Implemented after this review:
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
   request-time instruction budgets.
+- Async task values now support `.id`, `.status`, `.pending?`, and the `tasks`
+  word for basic pending/consumed inspection.
 - MVC 500 responses include the full error chain, so budget faults are visible
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at
@@ -80,6 +82,7 @@ Still open:
 - Session signing/encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
+- Scheduler-level task concurrency and async IO words remain future async work.
 - Watch-mode debug trace events are still planned; request-time hot reload is
   implemented.
 
@@ -371,17 +374,14 @@ random source later.
 These are not defects by themselves, but they are the biggest gaps between the
 design docs and the current implementation:
 
-- Real `rco serve --watch` hot reload.
-- `rco doc` generator.
-- Package resolver / GitHub dependency flow.
 - First-party AI package/provider capability.
-- Auth/session/cookie helpers.
+- Signed/encrypted auth/session/cookie helpers.
 - Migrations/schema management beyond existing-schema Active Record.
-- CLI host/port controls.
-- Request execution budgets and capability policy.
-- More HTTP methods.
+- Filesystem capability sandboxing and broader capability policy.
 - Production PostgreSQL TLS configuration.
 - More complete web smoke testing for live `rco serve`.
+- Scheduler-level task concurrency, async IO words, and richer debugger task
+  views.
 
 ## What Looks Solid
 

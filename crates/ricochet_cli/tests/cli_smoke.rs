@@ -1637,6 +1637,47 @@ task get await
 }
 
 #[test]
+fn run_inspects_spawned_task_status() {
+    let output = run_source(
+        r#"
+[ 20 2 + ] spawn task var
+task get .id
+task get .status
+task get .pending?
+tasks
+tasks .count
+task get await
+task get .status
+task get .pending?
+tasks .count
+"#,
+    );
+    assert_run_success_for("rco run", "task inspection", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(0)"),
+        "stdout should show the first task id, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"pending\")") && stdout.contains("Bool(true)"),
+        "stdout should show the task pending before await, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(r#"Map({"id": Number(0), "status": String("pending")})"#),
+        "stdout should include pending task metadata, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(22)"),
+        "stdout should show the awaited task result, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"consumed\")") && stdout.contains("Bool(false)"),
+        "stdout should show the task consumed after await, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_executes_dynamic_send_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

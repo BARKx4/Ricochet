@@ -12,12 +12,12 @@ This is an early but runnable vertical slice. You can write `.rco` scripts, run
 CLI programs, format source, build and run bytecode, package standalone
 executables, scaffold an MVC app, list routes, generate Markdown docs, run
 Ricochet tests, and serve a local web app. The VM has first-class task values
-with `spawn` and explicit `await`. The CLI can record and install path/GitHub
-package dependencies, and static imports can load local package sources. Hot
-reload is available for MVC apps during local development, and controllers
-receive request, header, cookie, lightweight session, logger, and safe manifest
-config context. Migrations, signed/encrypted auth helpers, and the first-party
-AI package are still planned work.
+with `spawn`, explicit `await`, and basic task inspection. The CLI can record
+and install path/GitHub package dependencies, and static imports can load local
+package sources. Hot reload is available for MVC apps during local development,
+and controllers receive request, header, cookie, lightweight session, logger,
+and safe manifest config context. Migrations, signed/encrypted auth helpers,
+and the first-party AI package are still planned work.
 
 ## Quickstart
 
@@ -70,6 +70,8 @@ Spawn a task and await its result:
 
 ```forth
 [ 40 2 + ] spawn answer var
+answer get .status
+tasks .count
 answer get await
 ```
 

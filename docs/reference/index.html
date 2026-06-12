@@ -603,6 +603,8 @@ rco install</code></pre>
             <h3>Tasks</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy task example" title="Copy">copy</button><code>10 base var
 [ base get 5 + ] spawn task var
+task get .status
+tasks .count
 task get await</code></pre>
           </article>
           <article class="example-panel">
@@ -631,7 +633,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The built-in session map uses an unsigned JSON cookie named `ricochet_session`; use package-level signing/encryption before storing sensitive data.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support `spawn` and explicit `await`; scheduler-level concurrency, task inspection, and async IO words are still planned work.</li>
+          <li>Task values support `spawn`, explicit `await`, and basic inspection with `.id`, `.status`, `.pending?`, and `tasks`; scheduler-level concurrency and async IO words are still planned work.</li>
           <li>AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
