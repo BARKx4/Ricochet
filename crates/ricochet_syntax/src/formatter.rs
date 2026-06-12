@@ -38,10 +38,28 @@ impl Formatter {
 
     fn format_item(&mut self, item: &Item, indent: usize) {
         match item {
-            Item::Class(class) => self.format_class(class, indent),
-            Item::Method(method) => self.format_method(method, indent),
-            Item::Function(function) => self.format_function(function, indent),
-            Item::Expr { expr, .. } => self.format_statement(expr, indent),
+            Item::Class(class) => {
+                self.format_docs(&class.docs, indent);
+                self.format_class(class, indent);
+            }
+            Item::Method(method) => {
+                self.format_docs(&method.docs, indent);
+                self.format_method(method, indent);
+            }
+            Item::Function(function) => {
+                self.format_docs(&function.docs, indent);
+                self.format_function(function, indent);
+            }
+            Item::Expr { expr, docs, .. } => {
+                self.format_docs(docs, indent);
+                self.format_statement(expr, indent);
+            }
+        }
+    }
+
+    fn format_docs(&mut self, docs: &[String], indent: usize) {
+        for doc in docs {
+            self.line(indent, &format!("(( {doc} ))"));
         }
     }
 
@@ -301,5 +319,23 @@ end
             format_source(r#"false if "yes" else "no" end"#).expect("source should format");
 
         assert_eq!(formatted, "false if\n  \"yes\"\nelse\n  \"no\"\nend\n");
+    }
+
+    #[test]
+    fn preserves_doc_comments() {
+        let source = r#"
+(( User docs ))
+User Model subclass
+(( Email docs ))
+email field
+end
+"#;
+
+        let formatted = format_source(source).expect("source should format");
+
+        assert_eq!(
+            formatted,
+            "(( User docs ))\nUser Model subclass\n  (( Email docs ))\n  email field\nend\n"
+        );
     }
 }

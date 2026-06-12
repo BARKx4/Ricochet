@@ -1252,6 +1252,90 @@ end
 }
 
 #[tokio::test]
+async fn watched_app_reloads_routes_and_controller_sources_between_requests() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "watched_reload"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  "index" [
+    "before" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app =
+        ricochet_web::server::build_watched_app_from_dir(&project_root).expect("build watched app");
+
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "before");
+
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/now" HomeController "index" route"#,
+    )
+    .expect("routes should be rewritten");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  "index" [
+    "after" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be rewritten");
+
+    let response = app
+        .oneshot(Request::builder().uri("/now").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "after");
+}
+
+#[tokio::test]
 async fn serves_query_params_to_ricochet_controller() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

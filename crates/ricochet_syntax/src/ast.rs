@@ -10,7 +10,11 @@ pub enum Item {
     Class(ClassDecl),
     Method(MethodDecl),
     Function(FunctionDecl),
-    Expr { expr: Expr, span: Span },
+    Expr {
+        expr: Expr,
+        span: Span,
+        docs: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +22,7 @@ pub struct ClassDecl {
     pub name: String,
     pub superclass: String,
     pub body: Vec<Item>,
+    pub docs: Vec<String>,
     pub span: Span,
 }
 
@@ -26,6 +31,7 @@ pub struct MethodDecl {
     pub name: String,
     pub args: Option<ArgsDecl>,
     pub body: Vec<SpannedExpr>,
+    pub docs: Vec<String>,
     pub span: Span,
 }
 
@@ -34,6 +40,7 @@ pub struct FunctionDecl {
     pub name: String,
     pub args: Option<ArgsDecl>,
     pub body: Vec<SpannedExpr>,
+    pub docs: Vec<String>,
     pub span: Span,
 }
 

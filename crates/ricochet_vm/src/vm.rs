@@ -77,6 +77,8 @@ pub enum VmError {
     ExecutionAborted { frame: String, location: String },
     #[error("instruction limit exceeded after {limit} instructions")]
     InstructionLimitExceeded { limit: u64 },
+    #[error("unknown task: {0}")]
+    UnknownTask(u64),
 }
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
@@ -107,6 +109,22 @@ pub struct Vm {
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
     instructions_executed: u64,
+    tasks: BTreeMap<u64, Task>,
+    next_task_id: u64,
+}
+
+#[derive(Clone)]
+struct Task {
+    block: Chunk,
+    variables: BTreeMap<String, Value>,
+    functions: BTreeMap<String, BytecodeCallable>,
+    classes: BTreeMap<String, Class>,
+    current_class: Option<String>,
+    self_stack: Vec<Value>,
+    program_args: Vec<String>,
+    filesystem_enabled: bool,
+    http_enabled: bool,
+    instruction_limit: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,6 +735,8 @@ impl Vm {
                 Ok(())
             }
             "call" => self.call_block(word),
+            "spawn" => self.call_spawn(word),
+            "await" => self.call_await(word),
             "send" => self.call_send(word),
             "println" => self.call_println(word),
             "inspect" => self.call_inspect(word),
@@ -1079,6 +1099,92 @@ impl Vm {
                 Err(error)
             }
         }
+    }
+
+    fn call_spawn(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let block = match self.pop(word)? {
+            Value::Block(block) => block,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "block".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let task_id = self.next_task_id;
+        self.next_task_id += 1;
+        self.tasks.insert(
+            task_id,
+            Task {
+                block,
+                variables: self.variables.clone(),
+                functions: self.functions.clone(),
+                classes: self.classes.clone(),
+                current_class: self.current_class.clone(),
+                self_stack: self.self_stack.clone(),
+                program_args: self.program_args.clone(),
+                filesystem_enabled: self.filesystem_enabled,
+                http_enabled: self.http_enabled,
+                instruction_limit: self.instruction_limit,
+            },
+        );
+        self.stack.push(Value::Task(task_id));
+        Ok(())
+    }
+
+    fn call_await(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let task_id = match self.pop(word)? {
+            Value::Task(task_id) => task_id,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "task".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let Some(task) = self.tasks.remove(&task_id) else {
+            self.stack = stack_before;
+            return Err(VmError::UnknownTask(task_id));
+        };
+
+        match self.run_task(task) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn run_task(&mut self, task: Task) -> Result<Value, VmError> {
+        let mut task_vm = Vm {
+            variables: task.variables,
+            functions: task.functions,
+            classes: task.classes,
+            current_class: task.current_class,
+            self_stack: task.self_stack,
+            program_args: task.program_args,
+            filesystem_enabled: task.filesystem_enabled,
+            http_enabled: task.http_enabled,
+            instruction_limit: task.instruction_limit,
+            ..Vm::default()
+        };
+
+        let result = task_vm.call_bytecode_block("<task>", &task.block);
+        self.output_lines.extend(task_vm.output_lines);
+        self.stdout.push_str(&task_vm.stdout);
+        self.stderr.push_str(&task_vm.stderr);
+        result
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {
@@ -2074,6 +2180,7 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Instance(_) => "instance",
         Value::Member(_) => "member selector",
         Value::Block(_) => "block",
+        Value::Task(_) => "task",
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",

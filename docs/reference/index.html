@@ -538,7 +538,9 @@ end</code></pre>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt;</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
-          <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` currently fails loudly until hot reload is wired.</span></div>
+          <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
+          <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>
+          <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` reloads routes, controllers, models, views, and the manifest between requests.</span></div>
           <div><code>rco test [--debug] [--filter PATTERN] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
@@ -553,7 +555,14 @@ now println
           <article class="example-panel">
             <h3>Packages</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy package commands" title="Copy">copy</button><code>rco add ./packages/greeter
-rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch</code></pre>
+rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
+rco install</code></pre>
+          </article>
+          <article class="example-panel">
+            <h3>Tasks</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy task example" title="Copy">copy</button><code>10 base var
+[ base get 5 + ] spawn task var
+task get await</code></pre>
           </article>
           <article class="example-panel">
             <h3>Capabilities</h3>
@@ -578,9 +587,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
           <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts; embedded hosts can leave them disabled. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
-          <li>`rco serve --watch` is a planned hot reload surface and currently exits with a clear not-implemented error.</li>
-          <li>Package imports are static, and `rco install` is not implemented yet. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Async and AI package words are not implemented yet.</li>
+          <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision.</li>
+          <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
+          <li>Task values support `spawn` and explicit `await`; scheduler-level concurrency, task inspection, and async IO words are still planned work.</li>
+          <li>AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
           <li>Active Record targets existing PostgreSQL schemas in v1. Schema migrations are a later branch.</li>

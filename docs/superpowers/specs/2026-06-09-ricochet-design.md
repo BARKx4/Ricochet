@@ -376,6 +376,11 @@ end
 await
 ```
 
+Current implementation note: `[ ... ] spawn` creates a first-class task value
+that captures the spawn-time VM environment; `await` resolves it explicitly.
+Scheduler-level concurrency, task inspection, and async IO words remain future
+work.
+
 The debugger can inspect running, suspended, and failed tasks.
 
 ## Modules And Packages
@@ -400,7 +405,12 @@ rco install
 
 `ricochet.toml` records dependency declarations. `ricochet.lock` pins exact commits/paths. A central registry can be added later as a resolver over the same package format.
 
-Current implementation note: `rco add` supports local path dependencies and GitHub shorthand. Static imports such as `"greeter/greeting" import` resolve through `[dependencies.greeter]` when no relative file exists. `rco install`, central registry resolution, and dynamic runtime imports remain future work.
+Current implementation note: `rco add` supports local path dependencies and
+GitHub shorthand, and `rco install` writes `ricochet.lock` entries for manifest
+dependencies while fetching missing GitHub package caches when needed. Static
+imports such as `"greeter/greeting" import` resolve through
+`[dependencies.greeter]` when no relative file exists. Central registry
+resolution and dynamic runtime imports remain future work.
 
 ## CLI And Project Tooling
 
@@ -606,6 +616,13 @@ The terminal debugger is first, but the debugger should be protocol/event-stream
 - New requests use the newest successfully reloaded revision.
 - Reload events are visible in debug traces.
 
+Current implementation note: `rco serve --watch` reloads the MVC runtime between
+requests when `ricochet.toml`, `app/**/*.rco`, `app/**/*.html`, or
+`config/**/*.rco` changes. Routes, controllers, models, views, and manifest
+view settings are rebuilt together. If a reload fails, the request returns a
+clear MVC error and the next request retries after the source is fixed; debug
+trace events for reloads remain future work.
+
 The REPL is a live metaprogramming workspace from v1. It supports redefining classes/methods, open classes, live stack inspection, multiline declarations, and optional debug tracing.
 
 REPL state is ephemeral by default. Future versions may support saving bytecode images and emitting source stubs from live definitions, but that is not v1.
@@ -630,6 +647,11 @@ end
 `rco test --debug` runs tests in the same bytecode VM with stack-aware debugging.
 
 `rco doc` is a v1 feature. It generates documentation from classes, fields, methods, functions/words, Args metadata, table mappings, package metadata, and preceding `(( ... ))` doc comments.
+
+Current implementation note: `rco doc [path]` emits Markdown for `.rco` files,
+directories, or projects. It includes class inheritance, table mappings, fields,
+methods, functions, Args metadata, and preceding doc comments. Full package
+metadata and built-in word reference generation remain future work.
 
 ## First Implementation Milestone
 

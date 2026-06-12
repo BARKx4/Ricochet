@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -7,7 +8,10 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
-use ricochet_syntax::{format_source, LexError, ParseError, TokenKind};
+use ricochet_syntax::{
+    format_source, parse_module, ArgsDecl, Expr, Item as SyntaxItem, LexError, Module, ParseError,
+    SpannedExpr, TokenKind,
+};
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, Vm};
 use toml_edit::{value, DocumentMut, Item, Table};
 
@@ -67,6 +71,10 @@ enum Command {
         name: Option<String>,
         #[arg(long)]
         no_fetch: bool,
+    },
+    Install,
+    Doc {
+        path: Option<String>,
     },
     Fmt {
         #[arg(long)]
@@ -139,6 +147,8 @@ pub async fn run_cli() -> Result<()> {
             name,
             no_fetch,
         } => add_dependency(&source, name.as_deref(), no_fetch)?,
+        Command::Install => install_dependencies()?,
+        Command::Doc { path } => doc_path(path.as_deref().unwrap_or("."))?,
         Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
         Command::Serve {
             host,
@@ -312,6 +322,140 @@ fn routes(path: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn doc_path(path: &str) -> Result<()> {
+    let path = Path::new(path);
+    if !path.exists() {
+        bail!("doc path does not exist: {}", path.display());
+    }
+
+    let mut files = Vec::new();
+    if path.is_file() {
+        files.push(path.to_path_buf());
+    } else {
+        collect_rco_files(path, &mut files)?;
+        files.sort();
+    }
+
+    let mut output = String::new();
+    writeln!(&mut output, "# Ricochet Documentation")?;
+    for file in files {
+        let source = fs::read_to_string(&file)
+            .with_context(|| format!("failed to read {}", file.display()))?;
+        let module =
+            parse_module(&source).with_context(|| format!("failed to parse {}", file.display()))?;
+        write_module_docs(&mut output, &file, &module)?;
+    }
+    print!("{output}");
+    Ok(())
+}
+
+fn write_module_docs(output: &mut String, file: &Path, module: &Module) -> Result<()> {
+    writeln!(output)?;
+    writeln!(output, "## File `{}`", file.display())?;
+    for item in &module.items {
+        write_item_docs(output, item, 0)?;
+    }
+    Ok(())
+}
+
+fn write_item_docs(output: &mut String, item: &SyntaxItem, indent: usize) -> Result<()> {
+    match item {
+        SyntaxItem::Class(class) => {
+            writeln!(output)?;
+            writeln!(output, "{}## Class `{}`", doc_indent(indent), class.name)?;
+            writeln!(
+                output,
+                "{}Extends `{}`.",
+                doc_indent(indent),
+                class.superclass
+            )?;
+            write_docs(output, &class.docs, indent)?;
+            for item in &class.body {
+                write_item_docs(output, item, indent + 1)?;
+            }
+        }
+        SyntaxItem::Function(function) => {
+            writeln!(output)?;
+            writeln!(
+                output,
+                "{}## Function `{}`{}",
+                doc_indent(indent),
+                function.name,
+                doc_args(function.args.as_ref())
+            )?;
+            write_docs(output, &function.docs, indent)?;
+        }
+        SyntaxItem::Method(method) => {
+            writeln!(
+                output,
+                "{}- Method: `{}`{}",
+                doc_indent(indent),
+                method.name,
+                doc_args(method.args.as_ref())
+            )?;
+            write_docs(output, &method.docs, indent + 1)?;
+        }
+        SyntaxItem::Expr { expr, docs, .. } => {
+            if let Some((kind, name)) = documented_expr_declaration(expr) {
+                writeln!(output, "{}- {kind}: `{name}`", doc_indent(indent))?;
+                write_docs(output, docs, indent + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn documented_expr_declaration(expr: &Expr) -> Option<(&'static str, &str)> {
+    let Expr::Sequence(exprs) = expr else {
+        return None;
+    };
+    let [name, declaration] = exprs.as_slice() else {
+        return None;
+    };
+    let name = declaration_name(name)?;
+    match &declaration.expr {
+        Expr::Symbol(word) if word == "field" => Some(("Field", name)),
+        Expr::Symbol(word) if word == "table" => Some(("Table", name)),
+        _ => None,
+    }
+}
+
+fn declaration_name(expression: &SpannedExpr) -> Option<&str> {
+    match &expression.expr {
+        Expr::Symbol(name) | Expr::String(name) => Some(name),
+        _ => None,
+    }
+}
+
+fn write_docs(output: &mut String, docs: &[String], indent: usize) -> Result<()> {
+    for doc in docs {
+        writeln!(output, "{}{}", doc_indent(indent), doc)?;
+    }
+    Ok(())
+}
+
+fn doc_args(args: Option<&ArgsDecl>) -> String {
+    let Some(args) = args else {
+        return String::new();
+    };
+
+    let inputs = if args.inputs.is_empty() {
+        String::new()
+    } else {
+        args.inputs.join(" ")
+    };
+    let outputs = if args.outputs.is_empty() {
+        String::new()
+    } else {
+        format!(" -> {}", args.outputs.join(" "))
+    };
+    format!(" `({inputs}{outputs})`")
+}
+
+fn doc_indent(indent: usize) -> String {
+    "  ".repeat(indent)
 }
 
 fn new_project(path: &Path) -> Result<()> {
@@ -516,7 +660,7 @@ enum DependencySource {
 }
 
 fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()> {
-    let manifest_path = find_project_manifest_for_current_dir()?;
+    let manifest_path = find_project_manifest_for_current_dir("add")?;
     let project_root = manifest_path
         .parent()
         .expect("project manifest should have a parent");
@@ -541,7 +685,89 @@ fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()
     Ok(())
 }
 
-fn find_project_manifest_for_current_dir() -> Result<PathBuf> {
+fn install_dependencies() -> Result<()> {
+    let manifest_path = find_project_manifest_for_current_dir("install")?;
+    let project_root = manifest_path
+        .parent()
+        .expect("project manifest should have a parent");
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+
+    let Some(dependencies) = doc.get("dependencies").and_then(Item::as_table) else {
+        println!("no dependencies to install");
+        return Ok(());
+    };
+
+    let lock_path = project_root.join("ricochet.lock");
+    let mut installed = 0usize;
+    for (name, item) in dependencies.iter() {
+        validate_package_name(name)?;
+        let table = item.as_table().with_context(|| {
+            format!(
+                "dependency {name} in {} must be a table",
+                manifest_path.display()
+            )
+        })?;
+        let path = table
+            .get("path")
+            .and_then(Item::as_str)
+            .with_context(|| {
+                format!(
+                    "dependency {name} in {} must include a string path",
+                    manifest_path.display()
+                )
+            })?
+            .to_string();
+        let git = table.get("git").and_then(Item::as_str).map(str::to_string);
+        let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let display_source = git.clone().unwrap_or_else(|| path.clone());
+        let spec = DependencySpec {
+            name: name.to_string(),
+            source: git
+                .as_ref()
+                .map(|git| format!("git+{git}"))
+                .unwrap_or_else(|| format!("path+{path}")),
+            path: path.clone(),
+            git,
+            rev,
+            display_source,
+        };
+
+        if spec.git.is_some() {
+            let package_dir = project_root.join(&spec.path);
+            if !package_dir.is_dir() {
+                fetch_git_dependency(project_root, &spec)?;
+            }
+        } else {
+            let dependency_dir = PathBuf::from(&spec.path);
+            let dependency_dir = if dependency_dir.is_absolute() {
+                dependency_dir
+            } else {
+                project_root.join(dependency_dir)
+            };
+            if !dependency_dir.is_dir() {
+                bail!(
+                    "local Ricochet dependency {name} is not a directory: {}",
+                    dependency_dir.display()
+                );
+            }
+        }
+
+        write_lockfile(&lock_path, &spec)?;
+        println!("installed {} from {}", spec.name, spec.display_source);
+        installed += 1;
+    }
+
+    if installed == 0 {
+        println!("no dependencies to install");
+    }
+    Ok(())
+}
+
+fn find_project_manifest_for_current_dir(command: &str) -> Result<PathBuf> {
     let current_dir = std::env::current_dir().context("failed to determine current directory")?;
     for ancestor in current_dir.ancestors() {
         let manifest_path = ancestor.join("ricochet.toml");
@@ -550,7 +776,7 @@ fn find_project_manifest_for_current_dir() -> Result<PathBuf> {
         }
     }
 
-    bail!("rco add must be run inside a Ricochet project with ricochet.toml");
+    bail!("rco {command} must be run inside a Ricochet project with ricochet.toml");
 }
 
 fn parse_dependency_source(source: &str) -> Result<DependencySource> {

@@ -64,7 +64,7 @@ impl Compiler {
     fn compile_item(&mut self, item: &Item) -> Result<(), CompileError> {
         match item {
             Item::Class(class) => self.compile_class(class),
-            Item::Expr { expr, span } => self.compile_expr_item(expr, *span),
+            Item::Expr { expr, span, .. } => self.compile_expr_item(expr, *span),
             Item::Function(function) => self.compile_function_decl(function),
             Item::Method(method) => Err(CompileError::Unsupported(format!(
                 "top-level method declaration {}",
@@ -123,6 +123,7 @@ impl Compiler {
             Item::Expr {
                 expr: Expr::Sequence(exprs),
                 span,
+                ..
             } if is_field_declaration(exprs) => {
                 let name = declaration_name(&exprs[0]).expect("field declaration checked");
                 self.chunk.push(Op::AddField(name), self.source_span(*span));
@@ -131,6 +132,7 @@ impl Compiler {
             Item::Expr {
                 expr: Expr::Sequence(exprs),
                 span,
+                ..
             } if block_method_declaration(exprs).is_some() => {
                 let (args, name, body) =
                     block_method_declaration(exprs).expect("method declaration checked");
@@ -146,7 +148,7 @@ impl Compiler {
                 );
                 Ok(())
             }
-            Item::Expr { expr, span } => self.compile_expr_item(expr, *span),
+            Item::Expr { expr, span, .. } => self.compile_expr_item(expr, *span),
             Item::Class(class) => Err(CompileError::Unsupported(format!(
                 "nested class declaration {}",
                 class.name

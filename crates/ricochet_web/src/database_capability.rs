@@ -470,6 +470,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Instance(_) => "instance",
         Value::Member(_) => "member",
         Value::Block(_) => "block",
+        Value::Task(_) => "task",
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",

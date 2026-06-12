@@ -10,40 +10,51 @@ existing PostgreSQL schemas.
 
 This is an early but runnable vertical slice. You can write `.rco` scripts, run
 CLI programs, format source, build and run bytecode, package standalone
-executables, scaffold an MVC app, list routes, run Ricochet tests, and serve a
-local web app. The CLI can record path/GitHub package dependencies and static
-imports can load local package sources. Hot reload, migrations, auth/session
-helpers, `rco install`, and the first-party AI package are still planned work.
+executables, scaffold an MVC app, list routes, generate Markdown docs, run
+Ricochet tests, and serve a local web app. The VM has first-class task values
+with `spawn` and explicit `await`. The CLI can record and install path/GitHub
+package dependencies, and static imports can load local package sources. Hot
+reload is available for MVC apps during local development. Migrations,
+auth/session helpers, and the first-party AI package are still planned work.
 
 ## Quickstart
 
+Until packaged releases exist, install the CLI from this checkout once:
+
 ```powershell
-cargo build -p ricochet_cli --bin rco
-cargo run -p ricochet_cli --bin rco -- new my_app
-cargo run -p ricochet_cli --bin rco -- routes my_app
-cargo run -p ricochet_cli --bin rco -- test my_app
+cargo install --path crates/ricochet_cli --bin rco --locked
+```
+
+Then use `rco` as the Ricochet toolchain:
+
+```powershell
+rco new my_app
+rco routes my_app
+rco doc my_app
+rco test my_app
 ```
 
 Run a script:
 
 ```powershell
-cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
+rco run examples/basic-oop.rco
 ```
 
 Format and package a script:
 
 ```powershell
-cargo run -p ricochet_cli --bin rco -- fmt examples/basic-oop.rco
-cargo run -p ricochet_cli --bin rco -- build examples/basic-oop.rco
-cargo run -p ricochet_cli --bin rco -- run-bytecode build/app.rcob
-cargo run -p ricochet_cli --bin rco -- package examples/basic-oop.rco --output basic-oop.exe
+rco fmt examples/basic-oop.rco
+rco build examples/basic-oop.rco
+rco run-bytecode build/app.rcob
+rco package examples/basic-oop.rco --output basic-oop.exe
 ```
 
 Add a package dependency from a Ricochet project:
 
 ```powershell
-cargo run -p ricochet_cli --bin rco -- add ./packages/greeter
-cargo run -p ricochet_cli --bin rco -- add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
+rco add ./packages/greeter
+rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
+rco install
 ```
 
 Local package dependencies can be imported by package name:
@@ -53,19 +64,37 @@ Local package dependencies can be imported by package name:
 packageHello
 ```
 
+Spawn a task and await its result:
+
+```forth
+[ 40 2 + ] spawn answer var
+answer get await
+```
+
 Serve an MVC app from its project directory:
 
 ```powershell
-cargo run -p ricochet_cli --bin rco -- serve --host 127.0.0.1 --port 3000
+rco serve --host 127.0.0.1 --port 3000
+rco serve --watch
 ```
 
-`rco serve --watch` is reserved for hot reload and currently exits with a clear
-not-implemented error.
+`--watch` reloads Ricochet MVC routes, controllers, models, views, and the
+manifest between requests. If a reload fails, the request returns a clear MVC
+error and the next request retries after you fix the source.
+
+## Developing Ricochet
+
+Use Cargo when changing the Rust implementation itself. For an uninstalled
+source-tree run, this is equivalent to `rco run examples/basic-oop.rco`:
+
+```powershell
+cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
+```
 
 ## Verification
 
-Use a current stable Rust toolchain. For local verification, install the
-formatter, linter, and audit plugin explicitly:
+For contributor verification, use a current stable Rust toolchain and install
+the formatter, linter, and audit plugin explicitly:
 
 ```powershell
 rustup component add rustfmt clippy

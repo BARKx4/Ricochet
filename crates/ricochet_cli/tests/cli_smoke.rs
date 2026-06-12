@@ -721,6 +721,97 @@ fn add_records_github_dependency_link_without_fetching() {
 }
 
 #[test]
+fn install_locks_existing_local_path_dependencies() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "rco install failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("installed greeter from ./packages/greeter"),
+        "stdout should describe installed local dependency, got:\n{stdout}"
+    );
+
+    let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("[package.greeter]"));
+    assert!(lock.contains("source = \"path+./packages/greeter\""));
+    assert!(lock.contains("path = \"./packages/greeter\""));
+}
+
+#[test]
+fn doc_generates_markdown_for_declarations_and_doc_comments() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "models/user.rco",
+        r#"
+(( User records from an existing table. ))
+User Model subclass
+  (( users table mapping ))
+  users table
+
+  (( Primary email address. ))
+  email field
+
+  (( Display name fallback. ))
+  displayName method
+    self .email get
+  end
+end
+
+(( Formats a greeting. ))
+greeting function
+  "hello"
+end
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("doc")
+        .arg(root.join("models"))
+        .output()
+        .expect("rco doc should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "rco doc failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("# Ricochet Documentation"));
+    assert!(stdout.contains("## Class `User`"));
+    assert!(stdout.contains("User records from an existing table."));
+    assert!(stdout.contains("- Table: `users`"));
+    assert!(stdout.contains("- Field: `email`"));
+    assert!(stdout.contains("Primary email address."));
+    assert!(stdout.contains("- Method: `displayName`"));
+    assert!(stdout.contains("Display name fallback."));
+    assert!(stdout.contains("## Function `greeting`"));
+    assert!(stdout.contains("Formats a greeting."));
+}
+
+#[test]
 fn run_bytecode_executes_built_chunk() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -1502,6 +1593,46 @@ fn run_executes_first_class_block_call_script() {
     assert!(
         stdout.contains("String(\"ok\")"),
         "stdout should show final stack with block result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_spawns_and_awaits_block_task_with_snapshot() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        r#"
+10 base var
+[ base get 5 + ] spawn task var
+99 base set
+task get type
+task get await
+"#,
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco run failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("String(\"task\")"),
+        "stdout should show a first-class task value type, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(15)") && !stdout.contains("Number(104)"),
+        "await should resolve against the spawn-time snapshot, got:\n{stdout}"
     );
 }
 

@@ -1,14 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use axum::{
+    body::{to_bytes, Body},
     extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
-    http::{header, HeaderName, HeaderValue, StatusCode},
+    http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{delete, get, patch, post, put},
+    routing::{any, delete, get, patch, post, put},
     Router,
 };
 use ricochet_bytecode::Chunk;
@@ -25,15 +27,32 @@ use crate::template::{render_template, EscapeMode};
 
 #[derive(Clone)]
 struct AppState {
-    runtime: Arc<AppRuntime>,
+    runtime: RuntimeSource,
     revisions: RevisionManager,
 }
 
 struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
+    routes: Vec<Route>,
     controllers: ControllerRegistry,
 }
+
+#[derive(Clone)]
+enum RuntimeSource {
+    Static(Arc<AppRuntime>),
+    Watched(Arc<WatchedRuntime>),
+}
+
+struct WatchedRuntime {
+    root: PathBuf,
+    current: RwLock<Arc<AppRuntime>>,
+    signature: Mutex<ProjectSignature>,
+    builder: RuntimeBuilder,
+}
+
+type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
+const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
 
 enum RenderedAction {
     Html {
@@ -61,6 +80,57 @@ enum RenderedAction {
 type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectSignature {
+    files: BTreeMap<PathBuf, FileSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileSignature {
+    len: u64,
+    hash: u64,
+}
+
+impl RuntimeSource {
+    fn snapshot(&self, revisions: &RevisionManager) -> Result<(Arc<AppRuntime>, AppRevision)> {
+        match self {
+            RuntimeSource::Static(runtime) => Ok((runtime.clone(), revisions.current())),
+            RuntimeSource::Watched(runtime) => runtime.snapshot(revisions),
+        }
+    }
+}
+
+impl WatchedRuntime {
+    fn snapshot(&self, revisions: &RevisionManager) -> Result<(Arc<AppRuntime>, AppRevision)> {
+        let current_signature = project_signature(&self.root)?;
+        let mut signature = self
+            .signature
+            .lock()
+            .map_err(|_| anyhow!("hot reload signature lock was poisoned"))?;
+
+        if *signature != current_signature {
+            let runtime = Arc::new((self.builder)()?);
+            {
+                let mut current = self
+                    .current
+                    .write()
+                    .map_err(|_| anyhow!("hot reload runtime lock was poisoned"))?;
+                *current = runtime.clone();
+            }
+            *signature = current_signature;
+            let revision = revisions.publish_new_revision();
+            return Ok((runtime, revision));
+        }
+
+        let runtime = self
+            .current
+            .read()
+            .map_err(|_| anyhow!("hot reload runtime lock was poisoned"))?
+            .clone();
+        Ok((runtime, revisions.current()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServeOptions {
     pub host: String,
     pub port: u16,
@@ -85,9 +155,6 @@ impl ServeOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.watch {
-            bail!("rco serve --watch is not implemented yet");
-        }
         Ok(())
     }
 }
@@ -112,6 +179,31 @@ pub fn build_app_from_dir_with_database(
     build_app_from_dir_internal(project_root, Some(vm_setup))
 }
 
+pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
+    let project_root = project_root.as_ref().to_path_buf();
+    let builder_root = project_root.clone();
+    let builder: RuntimeBuilder = Arc::new(move || {
+        let vm_setup = model_vm_setup(&builder_root)?;
+        build_runtime_from_dir_internal(&builder_root, vm_setup)
+    });
+
+    build_watched_app_from_runtime_builder(project_root, builder)
+}
+
+pub fn build_watched_app_from_dir_with_database(
+    project_root: impl AsRef<Path>,
+    backend: Arc<dyn DatabaseBackend>,
+) -> Result<Router> {
+    let project_root = project_root.as_ref().to_path_buf();
+    let builder_root = project_root.clone();
+    let builder: RuntimeBuilder = Arc::new(move || {
+        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
+        build_runtime_from_dir_internal(&builder_root, Some(vm_setup))
+    });
+
+    build_watched_app_from_runtime_builder(project_root, builder)
+}
+
 pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
     let project_root = project_root.as_ref();
     let manifest = load_manifest(project_root)?;
@@ -123,6 +215,14 @@ pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
 }
 
 fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
+    let runtime = Arc::new(build_runtime_from_dir_internal(project_root, vm_setup)?);
+    build_static_router(runtime)
+}
+
+fn build_runtime_from_dir_internal(
+    project_root: &Path,
+    vm_setup: Option<VmSetup>,
+) -> Result<AppRuntime> {
     let manifest = load_manifest(project_root)?;
     let routes = routes_from_dir(project_root)?;
 
@@ -131,13 +231,42 @@ fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -
         None => model_vm_setup(project_root)?,
     };
     let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
-    let runtime = Arc::new(AppRuntime {
+
+    Ok(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
+        routes,
         controllers,
-    });
+    })
+}
+
+fn build_watched_app_from_runtime_builder(
+    project_root: PathBuf,
+    builder: RuntimeBuilder,
+) -> Result<Router> {
+    let runtime = Arc::new(builder()?);
+    let signature = project_signature(&project_root)?;
+    let watched = WatchedRuntime {
+        root: project_root,
+        current: RwLock::new(runtime),
+        signature: Mutex::new(signature),
+        builder,
+    };
+
     let state = AppState {
-        runtime,
+        runtime: RuntimeSource::Watched(Arc::new(watched)),
+        revisions: RevisionManager::default(),
+    };
+
+    Ok(Router::new()
+        .fallback(any(render_watched_route))
+        .with_state(state))
+}
+
+fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
+    let routes = runtime.routes.clone();
+    let state = AppState {
+        runtime: RuntimeSource::Static(runtime),
         revisions: RevisionManager::default(),
     };
 
@@ -297,6 +426,69 @@ fn load_manifest(project_root: &Path) -> Result<Manifest> {
         .with_context(|| format!("failed to parse {}", manifest_path.display()))
 }
 
+fn project_signature(project_root: &Path) -> Result<ProjectSignature> {
+    let mut files = BTreeMap::new();
+    let manifest_path = project_root.join("ricochet.toml");
+    if manifest_path.exists() {
+        files.insert(
+            PathBuf::from("ricochet.toml"),
+            file_signature(&manifest_path)?,
+        );
+    }
+
+    collect_watch_files(project_root, &project_root.join("app"), &mut files)?;
+    collect_watch_files(project_root, &project_root.join("config"), &mut files)?;
+
+    Ok(ProjectSignature { files })
+}
+
+fn collect_watch_files(
+    project_root: &Path,
+    dir: &Path,
+    files: &mut BTreeMap<PathBuf, FileSignature>,
+) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    let mut entries = fs::read_dir(dir)
+        .with_context(|| format!("failed to read {}", dir.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort();
+
+    for path in entries {
+        if path.is_dir() {
+            collect_watch_files(project_root, &path, files)?;
+        } else if is_watched_file(&path) {
+            let relative_path = path
+                .strip_prefix(project_root)
+                .unwrap_or(&path)
+                .to_path_buf();
+            files.insert(relative_path, file_signature(&path)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_watched_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("rco" | "html" | "htm")
+    )
+}
+
+fn file_signature(path: &Path) -> Result<FileSignature> {
+    let contents = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut hasher = DefaultHasher::new();
+    contents.hash(&mut hasher);
+    Ok(FileSignature {
+        len: contents.len() as u64,
+        hash: hasher.finish(),
+    })
+}
+
 fn build_controller_registry(
     project_root: &Path,
     routes: &[Route],
@@ -424,10 +616,13 @@ async fn render_route(
     query_params: BTreeMap<String, String>,
     form_params: BTreeMap<String, String>,
 ) -> impl IntoResponse {
-    let revision = state.revisions.current();
+    let (runtime, revision) = match state.runtime.snapshot(&state.revisions) {
+        Ok(snapshot) => snapshot,
+        Err(err) => return mvc_error_response(err),
+    };
 
     match render_action(
-        &state.runtime,
+        &runtime,
         revision,
         &controller,
         &action,
@@ -448,6 +643,50 @@ async fn render_route(
         )
             .into_response(),
     }
+}
+
+async fn render_watched_route(
+    State(state): State<AppState>,
+    request: Request<Body>,
+) -> impl IntoResponse {
+    let (parts, body) = request.into_parts();
+    let method = parts.method;
+    let path = parts.uri.path().to_string();
+    let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
+    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
+        Ok(params) => params,
+        Err(err) => return mvc_error_response(err),
+    };
+
+    let (runtime, revision) = match state.runtime.snapshot(&state.revisions) {
+        Ok(snapshot) => snapshot,
+        Err(err) => return mvc_error_response(err),
+    };
+
+    let Some((route, path_params)) = matching_route(&runtime.routes, method.as_str(), &path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    match render_action(
+        &runtime,
+        revision,
+        &route.controller,
+        &route.action,
+        path_params,
+        query_params,
+        form_params,
+    ) {
+        Ok(action) => action.into_response().unwrap_or_else(mvc_error_response),
+        Err(err) => mvc_error_response(err),
+    }
+}
+
+fn mvc_error_response(err: anyhow::Error) -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("ricochet MVC error: {err:#}"),
+    )
+        .into_response()
 }
 
 fn render_action(
@@ -593,12 +832,144 @@ fn render_view(runtime: &AppRuntime, view: &str, ctx: &RequestContext) -> Result
     render_template(&template, &ctx.view_data, runtime.escape)
 }
 
+fn matching_route<'a>(
+    routes: &'a [Route],
+    method: &str,
+    path: &str,
+) -> Option<(&'a Route, BTreeMap<String, String>)> {
+    routes.iter().find_map(|route| {
+        if !route.method.eq_ignore_ascii_case(method) {
+            return None;
+        }
+        route_path_params(&route.path, path).map(|params| (route, params))
+    })
+}
+
+fn route_path_params(route_path: &str, request_path: &str) -> Option<BTreeMap<String, String>> {
+    let route_segments = path_segments(route_path);
+    let request_segments = path_segments(request_path);
+    if route_segments.len() != request_segments.len() {
+        return None;
+    }
+
+    let mut params = BTreeMap::new();
+    for (route_segment, request_segment) in route_segments.iter().zip(request_segments) {
+        if let Some(name) = route_segment.strip_prefix(':') {
+            params.insert(name.to_string(), request_segment.to_string());
+        } else if route_segment != &request_segment {
+            return None;
+        }
+    }
+
+    Some(params)
+}
+
+fn path_segments(path: &str) -> Vec<&str> {
+    let path = path.trim_matches('/');
+    if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('/').collect()
+    }
+}
+
+async fn form_params_from_body(
+    method: &Method,
+    headers: &axum::http::HeaderMap,
+    body: Body,
+) -> Result<BTreeMap<String, String>> {
+    if !matches!(
+        method,
+        &Method::POST | &Method::PUT | &Method::PATCH | &Method::DELETE
+    ) {
+        return Ok(BTreeMap::new());
+    }
+
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !content_type.starts_with("application/x-www-form-urlencoded") {
+        return Ok(BTreeMap::new());
+    }
+
+    let body = to_bytes(body, WATCHED_FORM_BODY_LIMIT)
+        .await
+        .map_err(|err| anyhow!("failed to read request body: {err}"))?;
+    let body = std::str::from_utf8(&body).context("form body is not valid UTF-8")?;
+    Ok(parse_urlencoded_params(body))
+}
+
+fn parse_urlencoded_params(source: &str) -> BTreeMap<String, String> {
+    source
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (
+                decode_urlencoded_component(key),
+                decode_urlencoded_component(value),
+            )
+        })
+        .collect()
+}
+
+fn decode_urlencoded_component(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                decoded.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let high = hex_value(bytes[index + 1]);
+                let low = hex_value(bytes[index + 2]);
+                if let (Some(high), Some(low)) = (high, low) {
+                    decoded.push((high << 4) | low);
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     options.validate()?;
     let project_root = Path::new(".");
     let manifest = load_manifest(project_root)?;
-    let app = match manifest.database.default {
-        Some(database) => {
+    let app = match (options.watch, manifest.database.default) {
+        (true, Some(database)) => {
+            if database.adapter != "postgres" {
+                bail!("unsupported database adapter {}", database.adapter);
+            }
+            let url = database.resolved_url()?;
+            let backend = PostgresDatabase::connect(&url).await?;
+            build_watched_app_from_dir_with_database(project_root, Arc::new(backend))?
+        }
+        (true, None) => build_watched_app_from_dir(project_root)?,
+        (false, Some(database)) => {
             if database.adapter != "postgres" {
                 bail!("unsupported database adapter {}", database.adapter);
             }
@@ -606,7 +977,7 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
             let backend = PostgresDatabase::connect(&url).await?;
             build_app_from_dir_with_database(project_root, Arc::new(backend))?
         }
-        None => build_app_from_dir(project_root)?,
+        (false, None) => build_app_from_dir(project_root)?,
     };
     let bind_addr = options.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -641,16 +1012,14 @@ mod tests {
     }
 
     #[test]
-    fn serve_options_reject_watch_until_hot_reload_is_wired() {
+    fn serve_options_accept_watch_for_hot_reload() {
         let options = ServeOptions {
             watch: true,
             ..ServeOptions::default()
         };
 
-        let error = options
+        options
             .validate()
-            .expect_err("watch should fail loudly until reload is implemented");
-
-        assert!(error.to_string().contains("--watch is not implemented"));
+            .expect("watch should be a valid serve option");
     }
 }

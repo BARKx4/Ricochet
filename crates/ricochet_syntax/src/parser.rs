@@ -23,39 +23,49 @@ pub enum ParseError {
 
 pub fn parse_module(source: &str) -> Result<Module, ParseError> {
     let tokens = lex(source)?;
-    Parser { tokens, pos: 0 }.parse_module()
+    Parser {
+        tokens,
+        pos: 0,
+        pending_docs: Vec::new(),
+    }
+    .parse_module()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    pending_docs: Vec<String>,
 }
 
 impl Parser {
     fn parse_module(&mut self) -> Result<Module, ParseError> {
         let mut items = Vec::new();
-        self.skip_newlines();
-        while !self.at_eof() {
+        loop {
+            self.skip_item_trivia();
+            if self.at_eof() {
+                break;
+            }
             items.push(self.parse_item()?);
-            self.skip_newlines();
         }
         Ok(Module { items })
     }
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
+        let docs = self.take_pending_docs();
         if let Some(class) = self.try_parse_class()? {
-            return Ok(Item::Class(class));
+            return Ok(Item::Class(ClassDecl { docs, ..class }));
         }
         if let Some(function) = self.try_parse_function()? {
-            return Ok(Item::Function(function));
+            return Ok(Item::Function(FunctionDecl { docs, ..function }));
         }
         if let Some(method) = self.try_parse_method()? {
-            return Ok(Item::Method(method));
+            return Ok(Item::Method(MethodDecl { docs, ..method }));
         }
         let expression = self.parse_expr_item()?;
         Ok(Item::Expr {
             expr: expression.expr,
             span: expression.span,
+            docs,
         })
     }
 
@@ -79,13 +89,14 @@ impl Parser {
 
         let mut body = Vec::new();
         loop {
-            self.skip_newlines();
+            self.skip_item_trivia();
             if self.consume_symbol("end") {
                 let end = self.previous_span().end;
                 return Ok(Some(ClassDecl {
                     name,
                     superclass,
                     body,
+                    docs: Vec::new(),
                     span: Span {
                         start: start.start,
                         end,
@@ -129,6 +140,7 @@ impl Parser {
             name,
             args,
             body,
+            docs: Vec::new(),
             span: Span {
                 start: start.start,
                 end,
@@ -161,6 +173,7 @@ impl Parser {
             name,
             args,
             body,
+            docs: Vec::new(),
             span: Span {
                 start: start.start,
                 end,
@@ -427,6 +440,23 @@ impl Parser {
         }
     }
 
+    fn skip_item_trivia(&mut self) {
+        loop {
+            match self.peek_kind() {
+                TokenKind::Newline => self.pos += 1,
+                TokenKind::DocComment(text) => {
+                    self.pending_docs.push(text.clone());
+                    self.pos += 1;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    fn take_pending_docs(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_docs)
+    }
+
     fn at_eof(&self) -> bool {
         matches!(self.peek_kind(), TokenKind::Eof)
     }
@@ -611,6 +641,50 @@ mod tests {
                 assert_eq!(args.outputs, vec!["Result"]);
             }
             other => panic!("expected method, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preserves_doc_comments_on_declarations_and_fields() {
+        let src = r#"
+          (( User model docs ))
+          User Model subclass
+            (( Email field docs ))
+            email field
+
+            (( Display name docs ))
+            displayName method
+              self .email get
+            end
+          end
+
+          (( Helper docs ))
+          helper function
+            "ok"
+          end
+        "#;
+
+        let module = parse_module(src).expect("parse succeeds");
+        match &module.items[0] {
+            Item::Class(class) => {
+                assert_eq!(class.docs, vec!["User model docs"]);
+                match &class.body[0] {
+                    Item::Expr { docs, .. } => assert_eq!(docs, &vec!["Email field docs"]),
+                    other => panic!("expected field expression, got {other:?}"),
+                }
+                match &class.body[1] {
+                    Item::Method(method) => {
+                        assert_eq!(method.docs, vec!["Display name docs"]);
+                    }
+                    other => panic!("expected method, got {other:?}"),
+                }
+            }
+            other => panic!("expected class, got {other:?}"),
+        }
+
+        match &module.items[1] {
+            Item::Function(function) => assert_eq!(function.docs, vec!["Helper docs"]),
+            other => panic!("expected function, got {other:?}"),
         }
     }
 

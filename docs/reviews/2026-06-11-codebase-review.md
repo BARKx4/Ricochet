@@ -53,8 +53,8 @@ Implemented after this review:
 - Fresh `rco new` manifests no longer include `[database.default]`, so the
   scaffold no longer requires `DATABASE_URL` before local serving.
 - `rco serve` now accepts `--host` and `--port` through `ServeOptions`.
-- `rco serve --watch` now fails loudly with a not-implemented error instead of
-  implying hot reload is active.
+- `rco serve --watch` now reloads routes, controllers, models, views, and the
+  manifest between requests.
 - The web router supports `DELETE`, `PUT`, and `PATCH` in addition to `GET` and
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
@@ -75,7 +75,8 @@ Still open:
 - Filesystem capability sandboxing remains a larger trust-model decision.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
-- Full hot reload is still planned, not implemented.
+- Watch-mode debug trace events are still planned; request-time hot reload is
+  implemented.
 
 ## Critical / High Findings
 
@@ -246,7 +247,10 @@ Recommendation:
 - Add `.limit`, `.offset`, and/or default pagination helpers before encouraging
   real apps to use `.all`.
 
-### 8. `--watch` is advertised but not implemented
+### 8. Resolved: `--watch` was advertised before implementation
+
+Status: resolved after this review. `rco serve --watch` now rebuilds the MVC
+runtime between requests when watched project files change.
 
 Evidence:
 
@@ -262,10 +266,10 @@ Impact:
 This is a feature gap, not a runtime bug. It can mislead testers into assuming
 hot reload is active.
 
-Recommendation:
+Original recommendation:
 
-- Either mark `--watch` as planned in CLI output/docs, or wire a filesystem
-  watcher into the existing revision snapshot model.
+- Either label `--watch` as future work in CLI output/docs, or wire reloading
+  into the existing revision snapshot model.
 
 ### 9. Fixed serve address and port
 
@@ -393,6 +397,6 @@ design docs and the current implementation:
 2. Add VM fuel/request limits for web execution.
 3. Add capability policy knobs for filesystem and HTTP.
 4. Add host/port CLI options and at least `DELETE` routes.
-5. Mark `--watch` as planned or implement real reload.
+5. Add watch-mode debug trace events.
 6. Add a root README and a live-server smoke script.
 7. Install/run clippy and cargo-audit in the local toolchain or CI.
