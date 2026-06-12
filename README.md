@@ -115,6 +115,10 @@ cargo audit
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 ```
 
+The acceptance suite validates the static reference docs, examples, scaffolded
+project checks/tests, and a live `rco serve` smoke request against the generated
+no-database scaffold.
+
 ## Reference Docs
 
 The documentation website is static and lives at

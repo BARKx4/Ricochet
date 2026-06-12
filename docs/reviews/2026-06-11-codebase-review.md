@@ -55,6 +55,9 @@ Implemented after this review:
 - `rco serve` now accepts `--host` and `--port` through `ServeOptions`.
 - `rco serve --watch` now reloads routes, controllers, models, views, and the
   manifest between requests.
+- `scripts/acceptance.ps1` now invokes `scripts/live-server-smoke.ps1`, which
+  starts a real `rco serve` process for the generated no-database scaffold and
+  verifies the home page over HTTP.
 - Web controllers now receive request metadata, headers, cookies, a lightweight
   session map, per-request logger, and safe manifest config through `ctx` and
   declared Args.
@@ -97,6 +100,10 @@ Still open:
 
 ### 1. Fresh MVC scaffolds are not actually server-ready by default
 
+Status: resolved after this review. Fresh scaffolds no longer include
+`[database.default]`, and acceptance now starts `rco serve` for the generated
+no-database scaffold and hits `/`.
+
 Evidence:
 
 - `rco new` writes a default PostgreSQL config with `url = "${DATABASE_URL}"`
@@ -116,8 +123,8 @@ Recommendation:
 - For v1 ergonomics, scaffold without `[database.default]` unless the user passes
   a database option, or make the default database lazy until a model/database
   capability is actually used.
-- Add an acceptance test that launches a no-database scaffold web app and hits
-  `/`.
+- Keep the live-server smoke in acceptance so regressions are caught before
+  pushing.
 - Keep PostgreSQL as the blessed database, but do not make "hello MVC" require
   it.
 
@@ -388,7 +395,6 @@ design docs and the current implementation:
 - Migrations/schema management beyond existing-schema Active Record.
 - Filesystem capability sandboxing and broader capability policy.
 - Production PostgreSQL TLS configuration.
-- More complete web smoke testing for live `rco serve`.
 - Scheduler-level task concurrency, async IO words, and richer debugger task
   views.
 
@@ -407,12 +413,11 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Add a live-server smoke script for `rco serve` on a no-database scaffold.
-2. Add watch-mode debug trace events.
-3. Design filesystem read/write policy and decide whether default CLI
+1. Add watch-mode debug trace events.
+2. Design filesystem read/write policy and decide whether default CLI
    filesystem access should become opt-in.
-4. Design HTTP allow/deny policy for host capability use.
-5. Expand Active Record pagination/querying beyond `.limit`, `.count`,
+3. Design HTTP allow/deny policy for host capability use.
+4. Expand Active Record pagination/querying beyond `.limit`, `.count`,
    `.first`, and `.exists?`.
-6. Add signed/encrypted session/auth package helpers.
-7. Build the first-party AI package/provider capability.
+5. Add signed/encrypted session/auth package helpers.
+6. Build the first-party AI package/provider capability.

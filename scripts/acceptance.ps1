@@ -67,5 +67,9 @@ Invoke-Rco "check scaffold" @("check", $project)
 Invoke-Rco "test scaffold" @("test", $project)
 Invoke-Rco "test scaffold tests directory" @("test", (Join-Path $project "tests"))
 
+$liveServerSmoke = Join-Path $Root "scripts\live-server-smoke.ps1"
+Write-Host "==> live server smoke"
+& $liveServerSmoke -Rco $Rco -Project $project
+
 Write-Host "Ricochet acceptance suite passed."
 Write-Host "Generated scaffold left at: $project"
