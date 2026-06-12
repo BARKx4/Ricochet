@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use axum::{
     body::{to_bytes, Body},
     extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
-    http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
     routing::{any, delete, get, patch, post, put},
     Router,
@@ -34,8 +34,19 @@ struct AppState {
 struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
+    config: BTreeMap<String, Value>,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
+}
+
+#[derive(Debug, Default)]
+struct WebRequest {
+    method: String,
+    path: String,
+    headers: BTreeMap<String, String>,
+    path_params: BTreeMap<String, String>,
+    query_params: BTreeMap<String, String>,
+    form_params: BTreeMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -235,6 +246,7 @@ fn build_runtime_from_dir_internal(
     Ok(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
+        config: manifest_config(&manifest),
         routes,
         controllers,
     })
@@ -279,10 +291,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                 app = app.route(
                     &route.path,
                     get(move |State(state): State<AppState>,
+                              headers: HeaderMap,
+                              uri: Uri,
                               path_params: Option<AxumPath<HashMap<String, String>>>,
                               AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
                         let controller = controller.clone();
                         let action = action.clone();
+                        let request_headers = headers_to_map(&headers);
+                        let request_path = uri.path().to_string();
                         let path_params = path_params
                             .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                             .unwrap_or_default();
@@ -292,9 +308,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                                 state,
                                 controller,
                                 action,
-                                path_params,
-                                query_params,
-                                BTreeMap::new(),
+                                WebRequest {
+                                    method: Method::GET.to_string(),
+                                    path: request_path,
+                                    headers: request_headers,
+                                    path_params,
+                                    query_params,
+                                    ..WebRequest::default()
+                                },
                             )
                             .await
                         }
@@ -305,10 +326,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                 app = app.route(
                     &route.path,
                     delete(move |State(state): State<AppState>,
+                                 headers: HeaderMap,
+                                 uri: Uri,
                                  path_params: Option<AxumPath<HashMap<String, String>>>,
                                  AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
                         let controller = controller.clone();
                         let action = action.clone();
+                        let request_headers = headers_to_map(&headers);
+                        let request_path = uri.path().to_string();
                         let path_params = path_params
                             .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                             .unwrap_or_default();
@@ -318,9 +343,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                                 state,
                                 controller,
                                 action,
-                                path_params,
-                                query_params,
-                                BTreeMap::new(),
+                                WebRequest {
+                                    method: Method::DELETE.to_string(),
+                                    path: request_path,
+                                    headers: request_headers,
+                                    path_params,
+                                    query_params,
+                                    ..WebRequest::default()
+                                },
                             )
                             .await
                         }
@@ -331,10 +361,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                 app = app.route(
                     &route.path,
                     put(move |State(state): State<AppState>,
+                              headers: HeaderMap,
+                              uri: Uri,
                               path_params: Option<AxumPath<HashMap<String, String>>>,
                               AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
                         let controller = controller.clone();
                         let action = action.clone();
+                        let request_headers = headers_to_map(&headers);
+                        let request_path = uri.path().to_string();
                         let path_params = path_params
                             .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                             .unwrap_or_default();
@@ -344,9 +378,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                                 state,
                                 controller,
                                 action,
-                                path_params,
-                                query_params,
-                                BTreeMap::new(),
+                                WebRequest {
+                                    method: Method::PUT.to_string(),
+                                    path: request_path,
+                                    headers: request_headers,
+                                    path_params,
+                                    query_params,
+                                    ..WebRequest::default()
+                                },
                             )
                             .await
                         }
@@ -357,10 +396,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                 app = app.route(
                     &route.path,
                     patch(move |State(state): State<AppState>,
+                                headers: HeaderMap,
+                                uri: Uri,
                                 path_params: Option<AxumPath<HashMap<String, String>>>,
                                 AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
                         let controller = controller.clone();
                         let action = action.clone();
+                        let request_headers = headers_to_map(&headers);
+                        let request_path = uri.path().to_string();
                         let path_params = path_params
                             .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                             .unwrap_or_default();
@@ -370,9 +413,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                                 state,
                                 controller,
                                 action,
-                                path_params,
-                                query_params,
-                                BTreeMap::new(),
+                                WebRequest {
+                                    method: Method::PATCH.to_string(),
+                                    path: request_path,
+                                    headers: request_headers,
+                                    path_params,
+                                    query_params,
+                                    ..WebRequest::default()
+                                },
                             )
                             .await
                         }
@@ -383,11 +431,15 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                 app = app.route(
                     &route.path,
                     post(move |State(state): State<AppState>,
+                               headers: HeaderMap,
+                               uri: Uri,
                                path_params: Option<AxumPath<HashMap<String, String>>>,
                                AxumQuery(query_params): AxumQuery<HashMap<String, String>>,
                                AxumForm(form_params): AxumForm<HashMap<String, String>>| {
                         let controller = controller.clone();
                         let action = action.clone();
+                        let request_headers = headers_to_map(&headers);
+                        let request_path = uri.path().to_string();
                         let path_params = path_params
                             .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
                             .unwrap_or_default();
@@ -398,9 +450,14 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
                                 state,
                                 controller,
                                 action,
-                                path_params,
-                                query_params,
-                                form_params,
+                                WebRequest {
+                                    method: Method::POST.to_string(),
+                                    path: request_path,
+                                    headers: request_headers,
+                                    path_params,
+                                    query_params,
+                                    form_params,
+                                },
                             )
                             .await
                         }
@@ -424,6 +481,61 @@ fn load_manifest(project_root: &Path) -> Result<Manifest> {
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
     toml::from_str(&manifest_source)
         .with_context(|| format!("failed to parse {}", manifest_path.display()))
+}
+
+fn manifest_config(manifest: &Manifest) -> BTreeMap<String, Value> {
+    let mut config = BTreeMap::new();
+    config.insert(
+        "package".to_string(),
+        Value::Map(
+            BTreeMap::from([(
+                "name".to_string(),
+                Value::String(manifest.package.name.clone()),
+            )])
+            .into(),
+        ),
+    );
+    config.insert(
+        "web".to_string(),
+        Value::Map(
+            BTreeMap::from([
+                ("mode".to_string(), Value::String(manifest.web.mode.clone())),
+                (
+                    "routes".to_string(),
+                    Value::String(manifest.web.routes.clone()),
+                ),
+                (
+                    "views".to_string(),
+                    Value::Map(
+                        BTreeMap::from([(
+                            "escape".to_string(),
+                            Value::String(match manifest.web.views.escape {
+                                EscapeMode::Html => "html".to_string(),
+                                EscapeMode::None => "none".to_string(),
+                            }),
+                        )])
+                        .into(),
+                    ),
+                ),
+            ])
+            .into(),
+        ),
+    );
+
+    if let Some(database) = &manifest.database.default {
+        config.insert(
+            "database".to_string(),
+            Value::Map(
+                BTreeMap::from([(
+                    "adapter".to_string(),
+                    Value::String(database.adapter.clone()),
+                )])
+                .into(),
+            ),
+        );
+    }
+
+    config
 }
 
 fn project_signature(project_root: &Path) -> Result<ProjectSignature> {
@@ -612,24 +724,14 @@ async fn render_route(
     state: AppState,
     controller: String,
     action: String,
-    path_params: BTreeMap<String, String>,
-    query_params: BTreeMap<String, String>,
-    form_params: BTreeMap<String, String>,
+    request: WebRequest,
 ) -> impl IntoResponse {
     let (runtime, revision) = match state.runtime.snapshot(&state.revisions) {
         Ok(snapshot) => snapshot,
         Err(err) => return mvc_error_response(err),
     };
 
-    match render_action(
-        &runtime,
-        revision,
-        &controller,
-        &action,
-        path_params,
-        query_params,
-        form_params,
-    ) {
+    match render_action(&runtime, revision, &controller, &action, request) {
         Ok(action) => action.into_response().unwrap_or_else(|err| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -652,6 +754,7 @@ async fn render_watched_route(
     let (parts, body) = request.into_parts();
     let method = parts.method;
     let path = parts.uri.path().to_string();
+    let headers = headers_to_map(&parts.headers);
     let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
     let form_params = match form_params_from_body(&method, &parts.headers, body).await {
         Ok(params) => params,
@@ -672,9 +775,14 @@ async fn render_watched_route(
         revision,
         &route.controller,
         &route.action,
-        path_params,
-        query_params,
-        form_params,
+        WebRequest {
+            method: method.to_string(),
+            path,
+            headers,
+            path_params,
+            query_params,
+            form_params,
+        },
     ) {
         Ok(action) => action.into_response().unwrap_or_else(mvc_error_response),
         Err(err) => mvc_error_response(err),
@@ -694,14 +802,18 @@ fn render_action(
     revision: AppRevision,
     controller: &str,
     action: &str,
-    path_params: BTreeMap<String, String>,
-    query_params: BTreeMap<String, String>,
-    form_params: BTreeMap<String, String>,
+    request: WebRequest,
 ) -> Result<RenderedAction> {
+    let cookies = cookies_from_headers(&request.headers);
     let mut ctx = RequestContext {
-        params: path_params,
-        query: query_params,
-        form: form_params,
+        method: request.method,
+        path: request.path,
+        params: request.path_params,
+        query: request.query_params,
+        form: request.form_params,
+        headers: request.headers,
+        cookies,
+        config: runtime.config.clone(),
         ..RequestContext::default()
     };
     ctx.view_data
@@ -871,6 +983,42 @@ fn path_segments(path: &str) -> Vec<&str> {
     } else {
         path.split('/').collect()
     }
+}
+
+fn headers_to_map(headers: &HeaderMap) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_ascii_lowercase(), value.to_string()))
+        })
+        .collect()
+}
+
+fn cookies_from_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    headers
+        .get("cookie")
+        .map(|cookie| parse_cookie_header(cookie))
+        .unwrap_or_default()
+}
+
+fn parse_cookie_header(header: &str) -> BTreeMap<String, String> {
+    header
+        .split(';')
+        .filter_map(|cookie| {
+            let cookie = cookie.trim();
+            if cookie.is_empty() {
+                return None;
+            }
+            let (name, value) = cookie.split_once('=')?;
+            Some((
+                name.trim().to_string(),
+                decode_urlencoded_component(value.trim()),
+            ))
+        })
+        .collect()
 }
 
 async fn form_params_from_body(

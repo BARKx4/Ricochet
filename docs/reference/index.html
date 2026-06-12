@@ -370,6 +370,22 @@ end</code></pre>
           </article>
 
           <article class="example-panel wide">
+            <h3>Request Context</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy request context example" title="Copy">copy</button><code>ContextController Controller subclass
+  ( request cookies config ) "show" [
+    config var
+    cookies var
+    request var
+    map
+    "method" request get .method get !put
+    "theme" cookies get .theme get !put
+    "package" config get .package get .name get !put
+    json
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
   &lt;h1&gt;{ title get }&lt;/h1&gt;

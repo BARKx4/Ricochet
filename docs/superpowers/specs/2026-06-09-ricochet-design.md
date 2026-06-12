@@ -465,7 +465,10 @@ POST "/users" UserController "create" route
 GET "/users/:id" UserController "show" route
 ```
 
-Route params live in `ctx request params`. If a controller action declares Args, route dispatch may also push matching params onto the stack in declared order.
+Route params live in `ctx request params`. In the current implementation this is
+available as `ctx get .request get .params get`, with compatibility shortcuts
+such as `ctx get .params get`. If a controller action declares Args, route
+dispatch may also push matching params onto the stack in declared order.
 
 Controller context binding is framework-configurable. The recommended default is both stack and variable binding:
 
@@ -496,6 +499,13 @@ escape = "html"
 ```
 
 Authentication is not built into core v1. Core web provides capability primitives such as request, response, cookies, session, db, logger, view, and config. Higher-level auth should live in packages.
+
+Current implementation note: controllers receive `request`, `cookies`, and
+`config` values through `ctx` and through declared Args. `request` includes
+method, path, params, query, form, headers, and cookies. `config` is derived
+from safe manifest metadata such as package name, web mode/routes/views, and
+database adapter; database URLs are intentionally not exposed. Session and
+logger primitives remain future package/core work.
 
 ## Active Record
 
@@ -554,6 +564,11 @@ logger
 view
 config
 ```
+
+Current implementation includes `request`, `cookies`, `config`, `db` when a
+database backend is configured, and response construction through `view`, `text`,
+`json`, `redirect`, `status`, and `header` words. Session and logger capability
+objects remain planned work.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 

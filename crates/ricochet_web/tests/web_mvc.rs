@@ -1466,6 +1466,81 @@ end
     assert_eq!(body, "ada@example.com");
 }
 
+#[tokio::test]
+async fn serves_request_cookies_and_config_to_ricochet_controller_args() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "request_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/context" ContextController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/ContextController.rco"),
+        r#"
+ContextController Controller subclass
+  ( request cookies config ) "show" [
+    config var
+    cookies var
+    request var
+    map
+    "method" request get .method get !put
+    "path" request get .path get !put
+    "theme" cookies get .theme get !put
+    "session" cookies get .session get !put
+    "package" config get .package get .name get !put
+    json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/context")
+                .header("cookie", "theme=dark; session=abc%20123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert!(body.contains(r#""method":"GET""#), "body was {body}");
+    assert!(body.contains(r#""path":"/context""#), "body was {body}");
+    assert!(body.contains(r#""theme":"dark""#), "body was {body}");
+    assert!(body.contains(r#""session":"abc 123""#), "body was {body}");
+    assert!(
+        body.contains(r#""package":"request_context""#),
+        "body was {body}"
+    );
+}
+
 fn temp_project_path() -> PathBuf {
     let base = std::env::var_os("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)

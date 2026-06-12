@@ -9,9 +9,14 @@ use serde_json::Value as JsonValue;
 
 #[derive(Debug, Default)]
 pub struct RequestContext {
+    pub method: String,
+    pub path: String,
     pub params: BTreeMap<String, String>,
     pub query: BTreeMap<String, String>,
     pub form: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+    pub cookies: BTreeMap<String, String>,
+    pub config: BTreeMap<String, Value>,
     pub view_data: BTreeMap<String, Value>,
 }
 
@@ -129,26 +134,44 @@ impl ControllerRegistry {
 
 fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -> Value {
     let mut context = BTreeMap::new();
-    let params = ctx
-        .params
-        .iter()
-        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
-        .collect::<BTreeMap<_, _>>();
-    let query = ctx
-        .query
-        .iter()
-        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
-        .collect::<BTreeMap<_, _>>();
-    let form = ctx
-        .form
-        .iter()
-        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
-        .collect::<BTreeMap<_, _>>();
-    context.insert("params".to_string(), Value::Map(params.into()));
-    context.insert("query".to_string(), Value::Map(query.into()));
-    context.insert("form".to_string(), Value::Map(form.into()));
+    let params = string_map_value(&ctx.params);
+    let query = string_map_value(&ctx.query);
+    let form = string_map_value(&ctx.form);
+    let headers = string_map_value(&ctx.headers);
+    let cookies = string_map_value(&ctx.cookies);
+    let config = Value::Map(ctx.config.clone().into());
+    let request = Value::Map(
+        BTreeMap::from([
+            ("method".to_string(), Value::String(ctx.method.clone())),
+            ("path".to_string(), Value::String(ctx.path.clone())),
+            ("params".to_string(), params.clone()),
+            ("query".to_string(), query.clone()),
+            ("form".to_string(), form.clone()),
+            ("headers".to_string(), headers.clone()),
+            ("cookies".to_string(), cookies.clone()),
+        ])
+        .into(),
+    );
+
+    context.insert("params".to_string(), params);
+    context.insert("query".to_string(), query);
+    context.insert("form".to_string(), form);
+    context.insert("headers".to_string(), headers);
+    context.insert("cookies".to_string(), cookies);
+    context.insert("request".to_string(), request);
+    context.insert("config".to_string(), config);
     context.extend(capabilities.clone());
     Value::Map(context.into())
+}
+
+fn string_map_value(values: &BTreeMap<String, String>) -> Value {
+    Value::Map(
+        values
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect::<BTreeMap<_, _>>()
+            .into(),
+    )
 }
 
 fn controller_arg_values(
@@ -183,6 +206,12 @@ fn controller_arg_value(name: &str, ctx: &RequestContext, context: &Value) -> Va
 
     if let Some(value) = ctx.query.get(name) {
         return Value::String(value.clone());
+    }
+
+    if let Value::Map(context) = context {
+        if let Some(value) = context.get(name) {
+            return value;
+        }
     }
 
     Value::Nil

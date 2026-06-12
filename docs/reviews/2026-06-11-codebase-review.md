@@ -55,6 +55,8 @@ Implemented after this review:
 - `rco serve` now accepts `--host` and `--port` through `ServeOptions`.
 - `rco serve --watch` now reloads routes, controllers, models, views, and the
   manifest between requests.
+- Web controllers now receive request metadata, headers, cookies, and safe
+  manifest config through `ctx` and declared Args.
 - The web router supports `DELETE`, `PUT`, and `PATCH` in addition to `GET` and
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
@@ -67,8 +69,9 @@ Implemented after this review:
   before running top-level code.
 - Active Record now has parameterized `.limit` plus `.count`, `.first`, and
   `.exists?` class methods for bounded/basic reads.
-- A root `README.md`, `rust-toolchain.toml`, and GitHub Actions CI workflow were
-  added for repeatable verification.
+- A root `README.md` and GitHub Actions CI workflow were added for repeatable
+  verification. The repo-level `rust-toolchain.toml` was later removed in favor
+  of README/CI toolchain instructions.
 
 Still open:
 

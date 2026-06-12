@@ -14,8 +14,9 @@ executables, scaffold an MVC app, list routes, generate Markdown docs, run
 Ricochet tests, and serve a local web app. The VM has first-class task values
 with `spawn` and explicit `await`. The CLI can record and install path/GitHub
 package dependencies, and static imports can load local package sources. Hot
-reload is available for MVC apps during local development. Migrations,
-auth/session helpers, and the first-party AI package are still planned work.
+reload is available for MVC apps during local development, and controllers
+receive request, header, cookie, and safe manifest config context. Migrations,
+session/auth helpers, and the first-party AI package are still planned work.
 
 ## Quickstart
 
