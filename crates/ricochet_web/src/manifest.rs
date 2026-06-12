@@ -36,21 +36,43 @@ pub struct Views {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Session {
     pub signing_secret_env: Option<String>,
+    pub encryption_secret_env: Option<String>,
 }
 
 impl Session {
     pub fn resolved_signing_secret(&self) -> Result<Option<String>> {
-        let Some(variable) = &self.signing_secret_env else {
+        self.resolve_secret(
+            self.signing_secret_env.as_deref(),
+            "signing_secret_env",
+            "signing secret",
+        )
+    }
+
+    pub fn resolved_encryption_secret(&self) -> Result<Option<String>> {
+        self.resolve_secret(
+            self.encryption_secret_env.as_deref(),
+            "encryption_secret_env",
+            "encryption secret",
+        )
+    }
+
+    fn resolve_secret(
+        &self,
+        variable: Option<&str>,
+        field: &str,
+        description: &str,
+    ) -> Result<Option<String>> {
+        let Some(variable) = variable else {
             return Ok(None);
         };
         if variable.is_empty() {
-            bail!("session signing_secret_env must not be empty");
+            bail!("session {field} must not be empty");
         }
         let secret = std::env::var(variable).with_context(|| {
-            format!("session signing secret environment variable {variable} is not set")
+            format!("session {description} environment variable {variable} is not set")
         })?;
         if secret.is_empty() {
-            bail!("session signing secret environment variable {variable} is empty");
+            bail!("session {description} environment variable {variable} is empty");
         }
         Ok(Some(secret))
     }
@@ -169,6 +191,7 @@ escape = "html"
 
 [web.session]
 signing_secret_env = "RICOCHET_SESSION_SECRET"
+encryption_secret_env = "RICOCHET_SESSION_ENCRYPTION_SECRET"
 
 [database.default]
 adapter = "postgres"
@@ -190,6 +213,10 @@ api_key = "${RICOCHET_TEST_OPENAI_API_KEY}"
         assert_eq!(
             manifest.web.session.signing_secret_env.as_deref(),
             Some("RICOCHET_SESSION_SECRET")
+        );
+        assert_eq!(
+            manifest.web.session.encryption_secret_env.as_deref(),
+            Some("RICOCHET_SESSION_ENCRYPTION_SECRET")
         );
 
         let database = manifest
@@ -235,6 +262,7 @@ escape = "none"
         std::env::set_var("RICOCHET_TEST_SESSION_SECRET", "test-secret");
         let session = Session {
             signing_secret_env: Some("RICOCHET_TEST_SESSION_SECRET".to_string()),
+            encryption_secret_env: None,
         };
 
         let secret = session
@@ -249,6 +277,7 @@ escape = "none"
         std::env::remove_var("RICOCHET_MISSING_SESSION_SECRET");
         let session = Session {
             signing_secret_env: Some("RICOCHET_MISSING_SESSION_SECRET".to_string()),
+            encryption_secret_env: None,
         };
 
         let error = session
@@ -259,6 +288,41 @@ escape = "none"
             error
                 .to_string()
                 .contains("session signing secret environment variable RICOCHET_MISSING_SESSION_SECRET is not set"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn session_encryption_secret_resolves_environment_variable() {
+        std::env::set_var("RICOCHET_TEST_SESSION_ENCRYPTION_SECRET", "test-secret");
+        let session = Session {
+            signing_secret_env: None,
+            encryption_secret_env: Some("RICOCHET_TEST_SESSION_ENCRYPTION_SECRET".to_string()),
+        };
+
+        let secret = session
+            .resolved_encryption_secret()
+            .expect("session encryption secret should resolve");
+
+        assert_eq!(secret.as_deref(), Some("test-secret"));
+    }
+
+    #[test]
+    fn session_encryption_secret_reports_missing_environment_variable() {
+        std::env::remove_var("RICOCHET_MISSING_SESSION_ENCRYPTION_SECRET");
+        let session = Session {
+            signing_secret_env: None,
+            encryption_secret_env: Some("RICOCHET_MISSING_SESSION_ENCRYPTION_SECRET".to_string()),
+        };
+
+        let error = session
+            .resolved_encryption_secret()
+            .expect_err("missing session encryption secret should fail");
+
+        assert!(
+            error.to_string().contains(
+                "session encryption secret environment variable RICOCHET_MISSING_SESSION_ENCRYPTION_SECRET is not set"
+            ),
             "{error:#}"
         );
     }

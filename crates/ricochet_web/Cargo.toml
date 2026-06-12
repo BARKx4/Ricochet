@@ -12,6 +12,8 @@ ricochet_vm = { path = "../ricochet_vm" }
 anyhow.workspace = true
 axum.workspace = true
 bytes.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
 hmac.workspace = true
 reqwest.workspace = true
 serde.workspace = true

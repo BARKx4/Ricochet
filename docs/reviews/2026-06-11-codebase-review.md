@@ -101,7 +101,9 @@ Still open:
 - Changing the global CLI default from `trusted` to `sandboxed` remains a larger
   compatibility decision.
 - Session cookie signing is implemented behind `[web.session] signing_secret_env`;
-  encryption and auth helpers remain package/framework work.
+  encrypted v2 session cookies are implemented behind
+  `[web.session] encryption_secret_env`; higher-level auth helpers remain
+  package/framework work.
 - PostgreSQL TLS configuration, Active Record relation chaining/default
   pagination policy, and schema/migration tooling are still backlog.
 - Richer async IO words and suspended-task debugger views remain future async
@@ -417,7 +419,7 @@ design docs and the current implementation:
 
 - Richer AI package/provider helpers beyond the initial MVC `ai.chat`
   capability.
-- Cookie/session encryption and higher-level auth helpers.
+- Higher-level auth helpers beyond signed/encrypted session cookies.
 - Migrations/schema management beyond existing-schema Active Record.
 - Capability-profile default decision and broader policy hardening.
 - Production PostgreSQL TLS configuration.
@@ -439,7 +441,7 @@ design docs and the current implementation:
 ## Suggested Next Sprint Order
 
 1. Add Active Record relation chaining or default pagination policy.
-2. Add encrypted session/auth package helpers.
+2. Add higher-level auth package helpers.
 3. Decide whether v1 should keep `trusted` as the CLI default or switch to
    `sandboxed`.
 4. Extend AI with structured/schema helpers or streaming after the web/auth

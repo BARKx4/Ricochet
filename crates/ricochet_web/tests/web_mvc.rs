@@ -1885,6 +1885,142 @@ end
 }
 
 #[tokio::test]
+async fn serves_encrypted_session_cookie_when_secret_env_is_configured() {
+    let project_root = temp_project_path();
+    let secret_env = "RICOCHET_TEST_ENCRYPTED_SESSION_SECRET";
+    std::env::set_var(secret_env, "test-session-encryption-secret");
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        format!(
+            r#"
+[package]
+name = "encrypted_session_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.session]
+encryption_secret_env = "{secret_env}"
+"#
+        ),
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/session" SessionController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/SessionController.rco"),
+        r#"
+SessionController Controller subclass
+  ( session ) "show" [
+    session var
+    session get .user get nil? if
+      session get "user" "Ada" !put drop
+      "new" text
+    else
+      session get .user get text
+    end
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("session mutation should set a cookie")
+        .to_str()
+        .expect("set-cookie should be UTF-8")
+        .to_string();
+    assert!(
+        set_cookie.starts_with("ricochet_session=v2%3A"),
+        "set-cookie was {set_cookie}"
+    );
+    assert!(
+        !set_cookie.contains("Ada") && !set_cookie.contains("%7B"),
+        "encrypted cookie should not expose raw JSON, got {set_cookie}"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "new");
+
+    let cookie = set_cookie
+        .split(';')
+        .next()
+        .expect("set-cookie should include cookie pair");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers().get(header::SET_COOKIE).is_none(),
+        "unchanged encrypted session should not rewrite the cookie"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "Ada");
+
+    let tampered_cookie = format!("{cookie}00");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .header("cookie", tampered_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers().get(header::SET_COOKIE).is_some(),
+        "tampered encrypted session should be replaced"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "new");
+}
+
+#[tokio::test]
 async fn serves_ai_capability_to_ricochet_controllers() {
     let project_root = temp_project_path();
     let (base_url, ai_server) = spawn_openai_compatible_server("hello from ai");

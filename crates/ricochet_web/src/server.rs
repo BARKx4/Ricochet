@@ -13,12 +13,14 @@ use axum::{
     routing::{any, delete, get, patch, post, put},
     Router,
 };
+use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
 use ricochet_vm::{Value, Vm};
 use serde_json::Value as JsonValue;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::active_record::{ModelMapping, PostgresDatabase};
 use crate::ai_capability::{install_ai_capability, AiProvider};
@@ -40,6 +42,7 @@ struct AppRuntime {
     escape: EscapeMode,
     config: BTreeMap<String, Value>,
     session_signing_key: Option<SessionSigningKey>,
+    session_encryption_key: Option<SessionEncryptionKey>,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
 }
@@ -73,6 +76,7 @@ pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
 const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
 const SIGNED_SESSION_PREFIX: &str = "v1";
+const ENCRYPTED_SESSION_PREFIX: &str = "v2";
 
 #[derive(Clone)]
 struct SessionSigningKey {
@@ -87,7 +91,7 @@ impl SessionSigningKey {
     }
 
     fn sign(&self, payload: &[u8]) -> String {
-        let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret)
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.secret)
             .expect("HMAC accepts signing keys of any length");
         mac.update(payload);
         hex_encode(&mac.finalize().into_bytes())
@@ -97,10 +101,52 @@ impl SessionSigningKey {
         let Ok(signature) = hex_decode(signature_hex) else {
             return false;
         };
-        let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret)
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.secret)
             .expect("HMAC accepts signing keys of any length");
         mac.update(payload);
         mac.verify_slice(&signature).is_ok()
+    }
+}
+
+#[derive(Clone)]
+struct SessionEncryptionKey {
+    key: Arc<[u8; 32]>,
+}
+
+impl SessionEncryptionKey {
+    fn new(secret: String) -> Self {
+        let digest = Sha256::digest(secret.as_bytes());
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&digest);
+        Self { key: Arc::new(key) }
+    }
+
+    fn encrypt(&self, plaintext: &[u8]) -> Result<String> {
+        let mut nonce = [0_u8; 12];
+        getrandom::fill(&mut nonce)
+            .map_err(|error| anyhow!("failed to generate session encryption nonce: {error}"))?;
+        let cipher = ChaCha20Poly1305::new_from_slice(self.key.as_ref())
+            .expect("ChaCha20-Poly1305 accepts 32 byte keys");
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), plaintext)
+            .map_err(|_| anyhow!("failed to encrypt session cookie"))?;
+        Ok(format!(
+            "{ENCRYPTED_SESSION_PREFIX}:{}:{}",
+            hex_encode(&nonce),
+            hex_encode(&ciphertext)
+        ))
+    }
+
+    fn decrypt(&self, nonce_hex: &str, ciphertext_hex: &str) -> Option<Vec<u8>> {
+        let nonce = hex_decode(nonce_hex).ok()?;
+        if nonce.len() != 12 {
+            return None;
+        }
+        let ciphertext = hex_decode(ciphertext_hex).ok()?;
+        let cipher = ChaCha20Poly1305::new_from_slice(self.key.as_ref()).ok()?;
+        cipher
+            .decrypt(Nonce::from_slice(&nonce), ciphertext.as_slice())
+            .ok()
     }
 }
 
@@ -359,6 +405,11 @@ fn build_runtime_from_dir_internal(
             .session
             .resolved_signing_secret()?
             .map(SessionSigningKey::new),
+        session_encryption_key: manifest
+            .web
+            .session
+            .resolved_encryption_secret()?
+            .map(SessionEncryptionKey::new),
         routes,
         controllers,
     })
@@ -983,7 +1034,11 @@ fn render_action(
     request: WebRequest,
 ) -> Result<RenderedAction> {
     let cookies = cookies_from_headers(&request.headers);
-    let initial_session = session_from_cookies(&cookies, runtime.session_signing_key.as_ref());
+    let initial_session = session_from_cookies(
+        &cookies,
+        runtime.session_signing_key.as_ref(),
+        runtime.session_encryption_key.as_ref(),
+    );
     let mut ctx = RequestContext {
         method: request.method,
         path: request.path,
@@ -1057,7 +1112,11 @@ fn render_action(
     if ctx.session != initial_session {
         rendered.insert_header(
             "set-cookie",
-            session_cookie_header(&ctx.session, runtime.session_signing_key.as_ref())?,
+            session_cookie_header(
+                &ctx.session,
+                runtime.session_signing_key.as_ref(),
+                runtime.session_encryption_key.as_ref(),
+            )?,
         );
     }
 
@@ -1225,11 +1284,13 @@ fn parse_cookie_header(header: &str) -> BTreeMap<String, String> {
 fn session_from_cookies(
     cookies: &BTreeMap<String, String>,
     signing_key: Option<&SessionSigningKey>,
+    encryption_key: Option<&SessionEncryptionKey>,
 ) -> BTreeMap<String, Value> {
     let Some(raw_session) = cookies.get(SESSION_COOKIE_NAME) else {
         return BTreeMap::new();
     };
-    let Some(session_json) = session_json_from_cookie(raw_session, signing_key) else {
+    let Some(session_json) = session_json_from_cookie(raw_session, signing_key, encryption_key)
+    else {
         return BTreeMap::new();
     };
     let Ok(JsonValue::Object(values)) = serde_json::from_str::<JsonValue>(&session_json) else {
@@ -1264,6 +1325,7 @@ fn json_to_session_value(value: JsonValue) -> Option<Value> {
 fn session_cookie_header(
     session: &BTreeMap<String, Value>,
     signing_key: Option<&SessionSigningKey>,
+    encryption_key: Option<&SessionEncryptionKey>,
 ) -> Result<String> {
     if session.is_empty() {
         return Ok(format!(
@@ -1278,9 +1340,12 @@ fn session_cookie_header(
             .collect::<Result<serde_json::Map<_, _>>>()?,
     );
     let session_json = serde_json::to_string(&json)?;
-    let cookie_value = match signing_key {
-        Some(signing_key) => signed_session_cookie_value(&session_json, signing_key),
-        None => session_json,
+    let cookie_value = match encryption_key {
+        Some(encryption_key) => encrypted_session_cookie_value(&session_json, encryption_key)?,
+        None => match signing_key {
+            Some(signing_key) => signed_session_cookie_value(&session_json, signing_key),
+            None => session_json,
+        },
     };
     let encoded = encode_urlencoded_component(&cookie_value);
     Ok(format!(
@@ -1291,11 +1356,42 @@ fn session_cookie_header(
 fn session_json_from_cookie(
     cookie_value: &str,
     signing_key: Option<&SessionSigningKey>,
+    encryption_key: Option<&SessionEncryptionKey>,
 ) -> Option<String> {
+    if let Some(encryption_key) = encryption_key {
+        if let Some(session_json) = decrypted_session_json(cookie_value, encryption_key) {
+            return Some(session_json);
+        }
+        return signing_key
+            .and_then(|signing_key| verified_signed_session_json(cookie_value, signing_key));
+    }
+
     match signing_key {
         Some(signing_key) => verified_signed_session_json(cookie_value, signing_key),
         None => Some(cookie_value.to_string()),
     }
+}
+
+fn encrypted_session_cookie_value(
+    session_json: &str,
+    encryption_key: &SessionEncryptionKey,
+) -> Result<String> {
+    encryption_key.encrypt(session_json.as_bytes())
+}
+
+fn decrypted_session_json(
+    cookie_value: &str,
+    encryption_key: &SessionEncryptionKey,
+) -> Option<String> {
+    let mut parts = cookie_value.split(':');
+    let prefix = parts.next()?;
+    let nonce_hex = parts.next()?;
+    let ciphertext_hex = parts.next()?;
+    if parts.next().is_some() || prefix != ENCRYPTED_SESSION_PREFIX {
+        return None;
+    }
+    let plaintext = encryption_key.decrypt(nonce_hex, ciphertext_hex)?;
+    String::from_utf8(plaintext).ok()
 }
 
 fn signed_session_cookie_value(session_json: &str, signing_key: &SessionSigningKey) -> String {
