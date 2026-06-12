@@ -9,7 +9,7 @@ pub mod server;
 pub mod template;
 
 pub use active_record::{
-    ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase, SqliteDatabase,
+    ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,
 };
 pub use ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};

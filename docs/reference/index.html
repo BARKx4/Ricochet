@@ -31,7 +31,7 @@
             operators, symbols, OOP, MVC, Active Record, templates, tests, and debugger behavior.
           </p>
           <div class="command-strip" aria-label="Quick commands">
-            <code>rco new my_app</code>
+            <code>rco new --with-sqlite my_app</code>
             <code>rco fmt app.rco</code>
             <code>rco routes my_app</code>
             <code>rco test my_app</code>
@@ -448,7 +448,7 @@ end</code></pre>
 
       <section id="active-record" class="section-band">
         <div class="section-heading">
-          <p class="eyebrow">SQLite + PostgreSQL</p>
+          <p class="eyebrow">SQLite + PostgreSQL + MySQL</p>
           <h2>Active Record Examples</h2>
         </div>
         <div class="example-grid">
@@ -600,7 +600,7 @@ end</code></pre>
           <h2>CLI Reference</h2>
         </div>
         <div class="cli-list">
-          <div><code>rco new &lt;path&gt;</code><span>Create an MVC Ricochet app with routes, controllers, a model, views, and smoke tests.</span></div>
+          <div><code>rco new [--with-sqlite] &lt;path&gt;</code><span>Create an MVC Ricochet app with routes, controllers, a model, views, and smoke tests. `--with-sqlite` seeds a local `db/development.sqlite3` Active Record app.</span></div>
           <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
@@ -680,7 +680,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
-          <li>Active Record targets existing SQLite and PostgreSQL schemas in v1. Schema migrations are a later branch.</li>
+          <li>Active Record targets existing SQLite, PostgreSQL, and MySQL/MariaDB schemas in v1. Schema migrations are a later branch.</li>
           <li>Template expressions must leave exactly one scalar renderable value: nil, bool, number, or string.</li>
         </ul>
       </section>

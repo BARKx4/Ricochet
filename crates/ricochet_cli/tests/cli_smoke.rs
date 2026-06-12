@@ -137,6 +137,97 @@ fn new_creates_mvc_project_skeleton() {
 }
 
 #[test]
+fn new_with_sqlite_creates_ready_database_project() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("sqlite_app");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg("--with-sqlite")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco new --with-sqlite failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("SQLite database"),
+        "stdout should mention the SQLite database, got:\n{stdout}"
+    );
+
+    let manifest =
+        fs::read_to_string(project_path.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[database.default]"));
+    assert!(manifest.contains("adapter = \"sqlite\""));
+    assert!(manifest.contains("url = \"db/development.sqlite3\""));
+
+    let model = fs::read_to_string(project_path.join("app").join("Models").join("User.rco"))
+        .expect("model should exist");
+    assert!(model.contains("users table"));
+    assert!(model.contains("id field"));
+
+    let controller = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("UserController.rco"),
+    )
+    .expect("user controller should exist");
+    assert!(controller.contains("User .order-page"));
+    assert!(controller.contains("firstEmail var"));
+
+    let database_path = project_path.join("db").join("development.sqlite3");
+    assert!(
+        database_path.exists(),
+        "SQLite database should be created at {}",
+        database_path.display()
+    );
+    let connection = rusqlite::Connection::open(&database_path).expect("sqlite database opens");
+    let first_email: String = connection
+        .query_row("select email from users order by id limit 1", [], |row| {
+            row.get(0)
+        })
+        .expect("seeded user should be queryable");
+    assert_eq!(first_email, "ada@example.com");
+
+    let check_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg(&project_path)
+        .output()
+        .expect("rco check should launch");
+    let check_stdout = String::from_utf8_lossy(&check_output.stdout);
+    let check_stderr = String::from_utf8_lossy(&check_output.stderr);
+    assert!(
+        check_output.status.success(),
+        "SQLite scaffold should check\nstdout:\n{check_stdout}\nstderr:\n{check_stderr}"
+    );
+
+    let test_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(&project_path)
+        .output()
+        .expect("rco test should launch");
+    let test_stdout = String::from_utf8_lossy(&test_output.stdout);
+    let test_stderr = String::from_utf8_lossy(&test_output.stderr);
+    assert!(
+        test_output.status.success(),
+        "SQLite scaffolded tests should pass\nstdout:\n{test_stdout}\nstderr:\n{test_stderr}"
+    );
+    assert!(
+        test_stdout.contains("2 tests, 0 failed"),
+        "SQLite scaffolded test summary should pass, got:\n{test_stdout}"
+    );
+}
+
+#[test]
 fn new_refuses_non_empty_directory() {
     let source_path = temp_source_path();
     let project_path = source_path

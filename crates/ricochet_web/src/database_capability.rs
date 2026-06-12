@@ -6,7 +6,7 @@ use ricochet_vm::{Value, Vm, VmError};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
 use crate::active_record::{
-    ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase, SqliteDatabase,
+    ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,
 };
 
 pub trait DatabaseBackend: Send + Sync {
@@ -185,6 +185,124 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres(
             "update",
             PostgresDatabase::update_by_id(self, mapping, id, attributes),
+        )
+    }
+}
+
+impl DatabaseBackend for MysqlDatabase {
+    fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError> {
+        block_on_database_async("find", MysqlDatabase::find(self, mapping, id))
+    }
+
+    fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async("all", MysqlDatabase::all(self, mapping))
+    }
+
+    fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        block_on_database_async("count", MysqlDatabase::count(self, mapping))
+    }
+
+    fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        block_on_database_async("first", MysqlDatabase::first(self, mapping))
+    }
+
+    fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async("limit", MysqlDatabase::limit(self, mapping, limit))
+    }
+
+    fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async("page", MysqlDatabase::page(self, mapping, limit, offset))
+    }
+
+    fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async(
+            "order-page",
+            MysqlDatabase::order_page(self, mapping, order),
+        )
+    }
+
+    fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
+        block_on_database_async("exists", MysqlDatabase::exists_by_id(self, mapping, id))
+    }
+
+    fn where_eq(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async(
+            "where",
+            MysqlDatabase::where_eq(self, mapping, field, value),
+        )
+    }
+
+    fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async(
+            "where-limit",
+            MysqlDatabase::where_eq_limit(self, mapping, field, value, limit),
+        )
+    }
+
+    fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async(
+            "where-page",
+            MysqlDatabase::where_eq_page(self, mapping, field, value, limit, offset),
+        )
+    }
+
+    fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_database_async(
+            "where-order-page",
+            MysqlDatabase::where_eq_order_page(self, mapping, where_field, value, order),
+        )
+    }
+
+    fn insert(
+        &self,
+        mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        block_on_database_async("insert", MysqlDatabase::insert(self, mapping, attributes))
+    }
+
+    fn update_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        block_on_database_async(
+            "update",
+            MysqlDatabase::update_by_id(self, mapping, id, attributes),
         )
     }
 }
@@ -830,6 +948,13 @@ fn install_model_active_record_methods(
 }
 
 fn block_on_postgres<F, T>(operation: &'static str, future: F) -> Result<T, ActiveRecordError>
+where
+    F: Future<Output = Result<T, ActiveRecordError>>,
+{
+    block_on_database_async(operation, future)
+}
+
+fn block_on_database_async<F, T>(operation: &'static str, future: F) -> Result<T, ActiveRecordError>
 where
     F: Future<Output = Result<T, ActiveRecordError>>,
 {

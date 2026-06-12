@@ -21,5 +21,6 @@ ricochet_vm = { path = "../ricochet_vm" }
 ricochet_web = { path = "../ricochet_web" }
 anyhow.workspace = true
 clap.workspace = true
+rusqlite.workspace = true
 tokio.workspace = true
 toml_edit.workspace = true

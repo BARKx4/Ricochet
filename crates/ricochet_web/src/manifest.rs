@@ -286,6 +286,34 @@ url = "db/development.sqlite3"
     }
 
     #[test]
+    fn manifest_parses_mysql_database_adapter() {
+        let source = r#"
+[package]
+name = "mysql_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "mysql"
+url = "${MYSQL_URL}"
+"#;
+
+        let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+        let database = manifest
+            .database
+            .default
+            .expect("mysql default database should be present");
+
+        assert_eq!(database.adapter, "mysql");
+        assert_eq!(database.url, "${MYSQL_URL}");
+    }
+
+    #[test]
     fn session_signing_secret_resolves_environment_variable() {
         std::env::set_var("RICOCHET_TEST_SESSION_SECRET", "test-secret");
         let session = Session {

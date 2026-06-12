@@ -27,6 +27,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 regex = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
+mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "1"

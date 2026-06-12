@@ -4,7 +4,7 @@ Ricochet is a modern, pure-postfix, stack-based programming language descended
 in spirit from MUF/MUCK-era Multi-User Forth. The current implementation is a
 Rust bytecode VM with dynamic OOP, CLI scripting, MVC web app scaffolding,
 template rendering, stack/debug tracing, and early Active Record support for
-existing SQLite and PostgreSQL schemas.
+existing SQLite, PostgreSQL, and MySQL/MariaDB schemas.
 
 ## Current Status
 
@@ -41,6 +41,7 @@ Then use `rco` as the Ricochet toolchain:
 
 ```powershell
 rco new my_app
+rco new --with-sqlite my_beta_app
 rco routes my_app
 rco doc my_app
 rco test my_app
@@ -113,7 +114,9 @@ error and the next request retries after you fix the source. Combine `--watch`
 with `--debug` to print reload trace lines with the new revision and changed
 files.
 
-For a zero-service local beta app, point Active Record at SQLite:
+For a zero-service local beta app, `rco new --with-sqlite my_beta_app`
+creates `db/development.sqlite3`, seeds `users`, and configures Active Record.
+The manifest shape is:
 
 ```toml
 [database.default]
@@ -127,6 +130,14 @@ For a Postgres-backed app, use the same manifest shape with a Postgres URL:
 [database.default]
 adapter = "postgres"
 url = "${DATABASE_URL}"
+```
+
+For a MySQL or MariaDB-backed app, use the MySQL adapter with a `mysql://` URL:
+
+```toml
+[database.default]
+adapter = "mysql"
+url = "${MYSQL_URL}"
 ```
 
 Active Record maps model declarations to existing tables; schema migrations are

@@ -22,7 +22,7 @@ use ricochet_vm::{Value, Vm};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use crate::active_record::{ModelMapping, PostgresDatabase, SqliteDatabase};
+use crate::active_record::{ModelMapping, MysqlDatabase, PostgresDatabase, SqliteDatabase};
 use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
@@ -1612,9 +1612,10 @@ async fn connect_database_backend(database: &DatabaseDefault) -> Result<Arc<dyn 
 
     match adapter.as_str() {
         "postgres" | "postgresql" => Ok(Arc::new(PostgresDatabase::connect(&url).await?)),
+        "mysql" | "mariadb" => Ok(Arc::new(MysqlDatabase::connect(&url).await?)),
         "sqlite" => Ok(Arc::new(SqliteDatabase::connect(&url)?)),
         _ => bail!(
-            "unsupported database adapter {}; expected postgres or sqlite",
+            "unsupported database adapter {}; expected postgres, sqlite, or mysql",
             database.adapter
         ),
     }

@@ -30,6 +30,11 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     New {
+        #[arg(
+            long,
+            help = "Seed a local SQLite database and configure Active Record"
+        )]
+        with_sqlite: bool,
         path: String,
     },
     Check {
@@ -211,7 +216,9 @@ pub async fn run_cli() -> Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Command::New { path } => new_project(Path::new(&path))?,
+        Command::New { path, with_sqlite } => {
+            new_project(Path::new(&path), NewProjectOptions { with_sqlite })?
+        }
         Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
         Command::Repl {
             debug,
@@ -569,7 +576,12 @@ fn doc_indent(indent: usize) -> String {
     "  ".repeat(indent)
 }
 
-fn new_project(path: &Path) -> Result<()> {
+#[derive(Debug, Clone, Copy, Default)]
+struct NewProjectOptions {
+    with_sqlite: bool,
+}
+
+fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
     ensure_project_path_is_ready(path)?;
 
     fs::create_dir_all(path.join("app").join("Controllers"))
@@ -584,10 +596,14 @@ fn new_project(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to create config in {}", path.display()))?;
     fs::create_dir_all(path.join("tests"))
         .with_context(|| format!("failed to create tests in {}", path.display()))?;
+    if options.with_sqlite {
+        fs::create_dir_all(path.join("db"))
+            .with_context(|| format!("failed to create db in {}", path.display()))?;
+    }
 
     write_project_file(
         path.join("ricochet.toml"),
-        &manifest_source(&project_name(path)),
+        &manifest_source(&project_name(path), options),
     )?;
     write_project_file(
         path.join("config").join("routes.rco"),
@@ -610,38 +626,13 @@ end
     )?;
     write_project_file(
         path.join("app").join("Models").join("User.rco"),
-        r#"User Model subclass
-  email field
-  name field
-
-  "displayName" [
-    self .name get nil? if
-      self .email get
-    else
-      self .name get
-    end
-  ] !method
-end
-"#,
+        user_model_source(options),
     )?;
     write_project_file(
         path.join("app")
             .join("Controllers")
             .join("UserController.rco"),
-        r#"UserController Controller subclass
-  "index" [
-    users array
-    User new
-    "ada@example.com" swap .email set
-    "Ada Lovelace" swap .name set
-    users get .push! drop
-    users get .count userCount var
-    "Users" title var
-    ctx get
-    "users/index" swap view
-  ] !method
-end
-"#,
+        user_controller_source(options),
     )?;
     write_project_file(
         path.join("app")
@@ -655,7 +646,7 @@ end
             .join("Views")
             .join("users")
             .join("index.html"),
-        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n",
+        users_index_view_source(options),
     )?;
     write_project_file(
         path.join("tests").join("ApplicationSmokeTest.rco"),
@@ -679,7 +670,120 @@ end
 "#,
     )?;
 
-    println!("created {}", path.display());
+    if options.with_sqlite {
+        create_sqlite_development_database(path)?;
+        println!(
+            "created {} with SQLite database at {}",
+            path.display(),
+            path.join("db").join("development.sqlite3").display()
+        );
+    } else {
+        println!("created {}", path.display());
+    }
+    Ok(())
+}
+
+fn user_model_source(options: NewProjectOptions) -> &'static str {
+    if options.with_sqlite {
+        r#"User Model subclass
+  users table
+  id field
+  email field
+  name field
+
+  "displayName" [
+    self .name get nil? if
+      self .email get
+    else
+      self .name get
+    end
+  ] !method
+end
+"#
+    } else {
+        r#"User Model subclass
+  email field
+  name field
+
+  "displayName" [
+    self .name get nil? if
+      self .email get
+    else
+      self .name get
+    end
+  ] !method
+end
+"#
+    }
+}
+
+fn user_controller_source(options: NewProjectOptions) -> &'static str {
+    if options.with_sqlite {
+        r#"UserController Controller subclass
+  ( session ctx ) "index" [
+    ctx var
+    session var
+    session get "last_page" "users" !put drop
+    "id" "asc" 20 0 User .order-page
+    dup ok? if
+      value users var
+      users get .count userCount var
+      users get .first firstUser var
+      "email" firstUser get .at firstEmail var
+      "Users" title var
+      ctx get
+      "users/index" swap view
+    else
+      error .message get text
+    end
+  ] !method
+end
+"#
+    } else {
+        r#"UserController Controller subclass
+  "index" [
+    users array
+    User new
+    "ada@example.com" swap .email set
+    "Ada Lovelace" swap .name set
+    users get .push! drop
+    users get .count userCount var
+    "Users" title var
+    ctx get
+    "users/index" swap view
+  ] !method
+end
+"#
+    }
+}
+
+fn users_index_view_source(options: NewProjectOptions) -> &'static str {
+    if options.with_sqlite {
+        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n<p>First user: { firstEmail get }</p>\n"
+    } else {
+        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n"
+    }
+}
+
+fn create_sqlite_development_database(path: &Path) -> Result<()> {
+    let database_path = path.join("db").join("development.sqlite3");
+    let connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to create {}", database_path.display()))?;
+    connection
+        .execute_batch(
+            r#"
+create table users (
+  id integer primary key,
+  email text not null,
+  name text not null
+);
+
+insert into users (email, name) values
+  ('ada@example.com', 'Ada Lovelace'),
+  ('grace@example.com', 'Grace Hopper');
+"#,
+        )
+        .with_context(|| format!("failed to seed {}", database_path.display()))?;
     Ok(())
 }
 
@@ -713,8 +817,8 @@ fn write_project_file(path: PathBuf, contents: &str) -> Result<()> {
     fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn manifest_source(name: &str) -> String {
-    format!(
+fn manifest_source(name: &str, options: NewProjectOptions) -> String {
+    let mut manifest = format!(
         r#"[package]
 name = "{name}"
 
@@ -725,7 +829,19 @@ routes = "config/routes.rco"
 [web.views]
 escape = "html"
 "#
-    )
+    );
+
+    if options.with_sqlite {
+        manifest.push_str(
+            r#"
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+        );
+    }
+
+    manifest
 }
 
 fn project_name(path: &Path) -> String {

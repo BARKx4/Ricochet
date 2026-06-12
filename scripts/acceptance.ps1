@@ -71,5 +71,13 @@ $liveServerSmoke = Join-Path $Root "scripts\live-server-smoke.ps1"
 Write-Host "==> live server smoke"
 & $liveServerSmoke -Rco $Rco -Project $project
 
+$sqliteProject = Join-Path $TempRoot "sqlite_app"
+Invoke-Rco "scaffold SQLite beta app" @("new", "--with-sqlite", $sqliteProject)
+Invoke-Rco "check SQLite beta app" @("check", $sqliteProject)
+Invoke-Rco "test SQLite beta app" @("test", $sqliteProject)
+Write-Host "==> SQLite live server smoke"
+& $liveServerSmoke -Rco $Rco -Project $sqliteProject -RequestPath "/users" -ExpectedContent "ada@example.com"
+
 Write-Host "Ricochet acceptance suite passed."
 Write-Host "Generated scaffold left at: $project"
+Write-Host "Generated SQLite scaffold left at: $sqliteProject"

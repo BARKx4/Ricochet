@@ -4,8 +4,9 @@ use axum::{
 };
 use ricochet_vm::Value;
 use ricochet_web::{
-    ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping, OrderPage,
-    PostgresDatabase, RequestContext, SqliteDatabase, WatchTraceEvent, WatchTraceSink,
+    ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping,
+    MysqlDatabase, OrderPage, PostgresDatabase, RequestContext, SqliteDatabase, WatchTraceEvent,
+    WatchTraceSink,
 };
 use std::{
     collections::BTreeMap,
@@ -42,6 +43,24 @@ fn active_record_database_url_smoke_allows_unset_or_postgres_url() {
     }
 }
 
+#[test]
+fn active_record_mysql_url_smoke_allows_unset_or_mysql_url() {
+    match std::env::var("MYSQL_URL") {
+        Ok(url) => {
+            assert!(
+                url.starts_with("mysql://"),
+                "MYSQL_URL must start with mysql://"
+            );
+        }
+        Err(std::env::VarError::NotPresent) => {
+            println!("MYSQL_URL unset; skipping MySQL Active Record smoke check");
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("MYSQL_URL must be valid Unicode");
+        }
+    }
+}
+
 #[tokio::test]
 async fn active_record_pings_live_postgres_when_database_url_is_set() {
     let url = match std::env::var("DATABASE_URL") {
@@ -62,6 +81,28 @@ async fn active_record_pings_live_postgres_when_database_url_is_set() {
         .ping()
         .await
         .expect("PostgreSQL select 1 should succeed");
+}
+
+#[tokio::test]
+async fn active_record_pings_live_mysql_when_mysql_url_is_set() {
+    let url = match std::env::var("MYSQL_URL") {
+        Ok(url) => url,
+        Err(std::env::VarError::NotPresent) => {
+            println!("MYSQL_URL unset; skipping live MySQL ping");
+            return;
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("MYSQL_URL must be valid Unicode");
+        }
+    };
+
+    let database = MysqlDatabase::connect(&url)
+        .await
+        .expect("MySQL connection should succeed");
+    database
+        .ping()
+        .await
+        .expect("MySQL select 1 should succeed");
 }
 
 struct FixtureDatabase;

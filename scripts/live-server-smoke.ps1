@@ -3,6 +3,8 @@ param(
     [string]$Project,
     [string]$TempRoot,
     [int]$Port = 0,
+    [string]$RequestPath = "/",
+    [string]$ExpectedContent = "Hello Ricochet",
     [int]$TimeoutSeconds = 15
 )
 
@@ -59,7 +61,11 @@ if ($Port -eq 0) {
     $Port = Get-FreeTcpPort
 }
 
-$url = "http://127.0.0.1:$Port/"
+if (-not $RequestPath.StartsWith("/")) {
+    $RequestPath = "/" + $RequestPath
+}
+
+$url = "http://127.0.0.1:$Port$RequestPath"
 $process = $null
 $response = $null
 
@@ -103,8 +109,8 @@ try {
         throw "Expected HTTP 200 from $url, got $($response.StatusCode)"
     }
 
-    if (-not $response.Content.Contains("Hello Ricochet")) {
-        throw "Expected scaffold home page to contain 'Hello Ricochet'; body was:`n$($response.Content)"
+    if (-not $response.Content.Contains($ExpectedContent)) {
+        throw "Expected $url to contain '$ExpectedContent'; body was:`n$($response.Content)"
     }
 
     Write-Host "Ricochet live server smoke passed at $url"

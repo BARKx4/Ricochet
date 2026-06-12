@@ -5,6 +5,8 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use bytes::BytesMut;
+use mysql_async::prelude::Queryable;
+use mysql_async::{Pool as MysqlPool, Row as MysqlRow, Value as MysqlSqlValue};
 use ricochet_vm::Value;
 use rusqlite::types::{ToSqlOutput, Value as SqliteSqlValue, ValueRef};
 use rusqlite::{Connection, Row as SqliteRow};
@@ -30,13 +32,14 @@ pub struct OrderPage<'a> {
 enum SqlDialect {
     Postgres,
     Sqlite,
+    Mysql,
 }
 
 impl SqlDialect {
     fn placeholder(self, index: usize) -> String {
         match self {
             SqlDialect::Postgres => format!("${index}"),
-            SqlDialect::Sqlite => "?".to_string(),
+            SqlDialect::Sqlite | SqlDialect::Mysql => "?".to_string(),
         }
     }
 }
@@ -367,6 +370,20 @@ impl ModelMapping {
         )
     }
 
+    fn insert_sql_without_returning_for(&self, dialect: SqlDialect) -> String {
+        let fields = self.non_id_fields();
+        let placeholders = (1..=fields.len())
+            .map(|index| dialect.placeholder(index))
+            .collect::<Vec<_>>();
+
+        format!(
+            "insert into {} ({}) values ({})",
+            self.table_name,
+            fields.join(", "),
+            placeholders.join(", ")
+        )
+    }
+
     pub fn update_by_id_sql(&self) -> String {
         self.update_by_id_sql_for(SqlDialect::Postgres)
     }
@@ -386,6 +403,23 @@ impl ModelMapping {
             assignments.join(", "),
             dialect.placeholder(id_parameter),
             self.fields.join(", ")
+        )
+    }
+
+    fn update_by_id_sql_without_returning_for(&self, dialect: SqlDialect) -> String {
+        let fields = self.non_id_fields();
+        let assignments = fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| format!("{field} = {}", dialect.placeholder(index + 1)))
+            .collect::<Vec<_>>();
+        let id_parameter = fields.len() + 1;
+
+        format!(
+            "update {} set {} where id = {}",
+            self.table_name,
+            assignments.join(", "),
+            dialect.placeholder(id_parameter)
         )
     }
 
@@ -1034,6 +1068,377 @@ impl SqliteDatabase {
     }
 }
 
+#[derive(Clone)]
+pub struct MysqlDatabase {
+    pool: MysqlPool,
+}
+
+impl fmt::Debug for MysqlDatabase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MysqlDatabase").finish_non_exhaustive()
+    }
+}
+
+impl MysqlDatabase {
+    pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
+        let pool = MysqlPool::from_url(url).map_err(|error| mysql_error("connect", error))?;
+        let database = Self { pool };
+        database.ping().await?;
+        Ok(database)
+    }
+
+    pub async fn ping(&self) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("ping", error))?;
+        connection
+            .query_drop("select 1")
+            .await
+            .map_err(|error| mysql_error("ping", error))?;
+        Ok(())
+    }
+
+    pub async fn find(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        self.query_optional(
+            mapping,
+            "find",
+            mapping.select_by_id_sql_for(SqlDialect::Mysql),
+            vec![id.clone()],
+        )
+        .await
+    }
+
+    pub async fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(mapping, "all", mapping.select_all_sql(), Vec::new())
+            .await
+    }
+
+    pub async fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("count", error))?;
+        let count: Option<u64> = connection
+            .exec_first(
+                mapping.select_count_sql().as_str(),
+                Vec::<MysqlSqlValue>::new(),
+            )
+            .await
+            .map_err(|error| mysql_error("count", error))?;
+        let count = count.ok_or_else(|| ActiveRecordError::Database {
+            operation: "count",
+            message: "query returned no rows".to_string(),
+        })?;
+
+        i64::try_from(count).map_err(|_| ActiveRecordError::Database {
+            operation: "count",
+            message: "COUNT(*) exceeded Ricochet i64 range".to_string(),
+        })
+    }
+
+    pub async fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        self.query_optional(mapping, "first", mapping.select_first_sql(), Vec::new())
+            .await
+    }
+
+    pub async fn limit(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(
+            mapping,
+            "limit",
+            mapping.select_limit_sql_for(SqlDialect::Mysql),
+            vec![Value::Number(limit)],
+        )
+        .await
+    }
+
+    pub async fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(
+            mapping,
+            "page",
+            mapping.select_page_sql_for(SqlDialect::Mysql),
+            vec![Value::Number(limit), Value::Number(offset)],
+        )
+        .await
+    }
+
+    pub async fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql =
+            mapping.select_order_page_sql_for(order.field, order.direction, SqlDialect::Mysql)?;
+        self.query_many(
+            mapping,
+            "order-page",
+            sql,
+            vec![Value::Number(order.limit), Value::Number(order.offset)],
+        )
+        .await
+    }
+
+    pub async fn exists_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<bool, ActiveRecordError> {
+        let parameters = mysql_parameters([id])?;
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("exists", error))?;
+        let row: Option<MysqlRow> = connection
+            .exec_first(
+                mapping.exists_by_id_sql_for(SqlDialect::Mysql).as_str(),
+                parameters,
+            )
+            .await
+            .map_err(|error| mysql_error("exists", error))?;
+        let Some(row) = row else {
+            return Ok(false);
+        };
+        let value = row.as_ref(0).ok_or_else(|| ActiveRecordError::Database {
+            operation: "exists",
+            message: "query did not return EXISTS column".to_string(),
+        })?;
+
+        match mysql_column_value(value, "exists")? {
+            Value::Bool(value) => Ok(value),
+            Value::Number(value) => Ok(value != 0),
+            Value::Nil => Ok(false),
+            value => Err(ActiveRecordError::UnsupportedColumnType {
+                field: "exists".to_string(),
+                database_type: value_kind(&value).to_string(),
+            }),
+        }
+    }
+
+    pub async fn where_eq(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_sql_for(field, SqlDialect::Mysql)?;
+        self.query_many(mapping, "where", sql, vec![value.clone()])
+            .await
+    }
+
+    pub async fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_limit_sql_for(field, SqlDialect::Mysql)?;
+        self.query_many(
+            mapping,
+            "where-limit",
+            sql,
+            vec![value.clone(), Value::Number(limit)],
+        )
+        .await
+    }
+
+    pub async fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_page_sql_for(field, SqlDialect::Mysql)?;
+        self.query_many(
+            mapping,
+            "where-page",
+            sql,
+            vec![value.clone(), Value::Number(limit), Value::Number(offset)],
+        )
+        .await
+    }
+
+    pub async fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_order_page_sql_for(
+            where_field,
+            order.field,
+            order.direction,
+            SqlDialect::Mysql,
+        )?;
+        self.query_many(
+            mapping,
+            "where-order-page",
+            sql,
+            vec![
+                value.clone(),
+                Value::Number(order.limit),
+                Value::Number(order.offset),
+            ],
+        )
+        .await
+    }
+
+    pub async fn insert(
+        &self,
+        mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.insert_values(attributes)?;
+        let parameters = mysql_parameters(values.iter())?;
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("insert", error))?;
+        connection
+            .exec_drop(
+                mapping
+                    .insert_sql_without_returning_for(SqlDialect::Mysql)
+                    .as_str(),
+                parameters,
+            )
+            .await
+            .map_err(|error| mysql_error("insert", error))?;
+        let id = connection
+            .last_insert_id()
+            .ok_or_else(|| ActiveRecordError::Database {
+                operation: "insert",
+                message: "insert did not report an AUTO_INCREMENT id".to_string(),
+            })
+            .and_then(|id| {
+                i64::try_from(id).map_err(|_| ActiveRecordError::Database {
+                    operation: "insert",
+                    message: "AUTO_INCREMENT id exceeded Ricochet i64 range".to_string(),
+                })
+            })?;
+
+        Self::query_one_with_connection(
+            &mut connection,
+            mapping,
+            "insert",
+            mapping.select_by_id_sql_for(SqlDialect::Mysql),
+            vec![Value::Number(id)],
+        )
+        .await
+    }
+
+    pub async fn update_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.update_values(id.clone(), attributes)?;
+        let parameters = mysql_parameters(values.iter())?;
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("update", error))?;
+        connection
+            .exec_drop(
+                mapping
+                    .update_by_id_sql_without_returning_for(SqlDialect::Mysql)
+                    .as_str(),
+                parameters,
+            )
+            .await
+            .map_err(|error| mysql_error("update", error))?;
+
+        Self::query_one_with_connection(
+            &mut connection,
+            mapping,
+            "update",
+            mapping.select_by_id_sql_for(SqlDialect::Mysql),
+            vec![id],
+        )
+        .await
+    }
+
+    async fn query_many(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let parameters = mysql_parameters(values.iter())?;
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error(operation, error))?;
+        let rows: Vec<MysqlRow> = connection
+            .exec(sql.as_str(), parameters)
+            .await
+            .map_err(|error| mysql_error(operation, error))?;
+
+        rows.iter()
+            .map(|row| mysql_row_to_value(row, mapping))
+            .collect()
+    }
+
+    async fn query_optional(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        Ok(self
+            .query_many(mapping, operation, sql, values)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    async fn query_one_with_connection(
+        connection: &mut mysql_async::Conn,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let parameters = mysql_parameters(values.iter())?;
+        let row: Option<MysqlRow> = connection
+            .exec_first(sql.as_str(), parameters)
+            .await
+            .map_err(|error| mysql_error(operation, error))?;
+
+        row.as_ref()
+            .map(|row| mysql_row_to_value(row, mapping))
+            .transpose()?
+            .ok_or_else(|| ActiveRecordError::Database {
+                operation,
+                message: "query returned no rows".to_string(),
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum PostgresParameter {
     Null,
@@ -1180,6 +1585,52 @@ impl TryFrom<&Value> for SqliteParameter {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum MysqlParameter {
+    Null,
+    Bool(bool),
+    Number(i64),
+    String(String),
+}
+
+impl MysqlParameter {
+    fn into_sql(self) -> MysqlSqlValue {
+        match self {
+            MysqlParameter::Null => MysqlSqlValue::NULL,
+            MysqlParameter::Bool(value) => MysqlSqlValue::Int(if value { 1 } else { 0 }),
+            MysqlParameter::Number(value) => MysqlSqlValue::Int(value),
+            MysqlParameter::String(value) => MysqlSqlValue::Bytes(value.into_bytes()),
+        }
+    }
+}
+
+impl TryFrom<&Value> for MysqlParameter {
+    type Error = ActiveRecordError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Nil => Ok(MysqlParameter::Null),
+            Value::Bool(value) => Ok(MysqlParameter::Bool(*value)),
+            Value::Number(value) => Ok(MysqlParameter::Number(*value)),
+            Value::String(value) => Ok(MysqlParameter::String(value.clone())),
+            value => Err(ActiveRecordError::UnsupportedValue {
+                operation: "MySQL parameter",
+                actual: value_kind(value).to_string(),
+            }),
+        }
+    }
+}
+
+fn mysql_parameters<'a>(
+    values: impl IntoIterator<Item = &'a Value>,
+) -> Result<Vec<MysqlSqlValue>, ActiveRecordError> {
+    values
+        .into_iter()
+        .map(MysqlParameter::try_from)
+        .map(|parameter| parameter.map(MysqlParameter::into_sql))
+        .collect()
+}
+
 fn open_sqlite_connection(url: &str) -> Result<Connection, ActiveRecordError> {
     let path = sqlite_path_from_url(url)?;
     if path == ":memory:" {
@@ -1314,6 +1765,54 @@ fn sqlite_column_value(
     }
 }
 
+fn mysql_row_to_value(row: &MysqlRow, mapping: &ModelMapping) -> Result<Value, ActiveRecordError> {
+    let mut values = BTreeMap::new();
+
+    for (index, field) in mapping.fields.iter().enumerate() {
+        let value = row
+            .as_ref(index)
+            .ok_or_else(|| ActiveRecordError::Database {
+                operation: "decode row",
+                message: format!("query did not return mapped field {field:?}"),
+            })?;
+        values.insert(field.clone(), mysql_column_value(value, field)?);
+    }
+
+    Ok(Value::Map(values.into()))
+}
+
+fn mysql_column_value(value: &MysqlSqlValue, field: &str) -> Result<Value, ActiveRecordError> {
+    match value {
+        MysqlSqlValue::NULL => Ok(Value::Nil),
+        MysqlSqlValue::Int(value) => Ok(Value::Number(*value)),
+        MysqlSqlValue::UInt(value) => i64::try_from(*value).map(Value::Number).map_err(|_| {
+            ActiveRecordError::UnsupportedColumnType {
+                field: field.to_string(),
+                database_type: "UNSIGNED BIGINT".to_string(),
+            }
+        }),
+        MysqlSqlValue::Bytes(value) => {
+            Ok(Value::String(String::from_utf8_lossy(value).into_owned()))
+        }
+        MysqlSqlValue::Float(_) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "FLOAT".to_string(),
+        }),
+        MysqlSqlValue::Double(_) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "DOUBLE".to_string(),
+        }),
+        MysqlSqlValue::Date(..) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "DATE/DATETIME".to_string(),
+        }),
+        MysqlSqlValue::Time(..) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "TIME".to_string(),
+        }),
+    }
+}
+
 fn database_error(operation: &'static str, error: tokio_postgres::Error) -> ActiveRecordError {
     ActiveRecordError::Database {
         operation,
@@ -1322,6 +1821,13 @@ fn database_error(operation: &'static str, error: tokio_postgres::Error) -> Acti
 }
 
 fn sqlite_error(operation: &'static str, error: rusqlite::Error) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation,
+        message: error.to_string(),
+    }
+}
+
+fn mysql_error(operation: &'static str, error: mysql_async::Error) -> ActiveRecordError {
     ActiveRecordError::Database {
         operation,
         message: error.to_string(),
@@ -1668,6 +2174,36 @@ mod tests {
     }
 
     #[test]
+    fn mysql_sql_uses_question_mark_placeholders_without_returning() {
+        let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_by_id_sql_for(SqlDialect::Mysql),
+            "select id, email, name from users where id = ? limit 1"
+        );
+        assert_eq!(
+            mapping.select_page_sql_for(SqlDialect::Mysql),
+            "select id, email, name from users limit ? offset ?"
+        );
+        assert_eq!(
+            mapping.select_where_eq_order_page_sql_for("email", "id", "desc", SqlDialect::Mysql),
+            Ok(
+                "select id, email, name from users where email = ? order by id desc limit ? offset ?"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            mapping.insert_sql_without_returning_for(SqlDialect::Mysql),
+            "insert into users (email, name) values (?, ?)"
+        );
+        assert_eq!(
+            mapping.update_by_id_sql_without_returning_for(SqlDialect::Mysql),
+            "update users set email = ?, name = ? where id = ?"
+        );
+    }
+
+    #[test]
     fn sqlite_database_runs_active_record_queries_against_real_database() {
         let database = SqliteDatabase::connect(":memory:").expect("sqlite connects");
         database
@@ -1786,6 +2322,40 @@ mod tests {
                 class_name: "User".to_string(),
                 field: "name".to_string(),
             })
+        );
+    }
+
+    #[test]
+    fn mysql_parameters_reject_non_scalar_values() {
+        assert_eq!(
+            MysqlParameter::try_from(&Value::Map(BTreeMap::new().into())),
+            Err(ActiveRecordError::UnsupportedValue {
+                operation: "MySQL parameter",
+                actual: "map".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn mysql_column_values_decode_supported_scalar_values() {
+        assert_eq!(
+            mysql_column_value(&MysqlSqlValue::NULL, "deleted_at"),
+            Ok(Value::Nil)
+        );
+        assert_eq!(
+            mysql_column_value(&MysqlSqlValue::Int(42), "id"),
+            Ok(Value::Number(42))
+        );
+        assert_eq!(
+            mysql_column_value(&MysqlSqlValue::UInt(42), "id"),
+            Ok(Value::Number(42))
+        );
+        assert_eq!(
+            mysql_column_value(
+                &MysqlSqlValue::Bytes("ada@example.com".as_bytes().to_vec()),
+                "email",
+            ),
+            Ok(Value::String("ada@example.com".to_string()))
         );
     }
 
