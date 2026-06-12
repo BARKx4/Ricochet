@@ -520,9 +520,11 @@ Args. `request` includes method, path, params, query, form, headers, cookies,
 and the session map. `logger` supports `debug`, `info`, `warn`, `error`, and
 `entries` for per-request log inspection. `config` is derived from safe
 manifest metadata such as package name, web mode/routes/views, and database
-adapter; database URLs are intentionally not exposed. The built-in session map
-is stored in an unsigned JSON cookie named `ricochet_session`; signing,
-encryption, and higher-level auth remain package work.
+adapter; database URLs and session signing secrets are intentionally not
+exposed. The built-in session map is stored in a JSON cookie named
+`ricochet_session`; `[web.session] signing_secret_env` enables HMAC signing
+with a secret from the environment. Cookie encryption and higher-level auth
+remain package work.
 
 ## Active Record
 

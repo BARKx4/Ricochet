@@ -13,10 +13,12 @@ use axum::{
     routing::{any, delete, get, patch, post, put},
     Router,
 };
+use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
 use ricochet_vm::{Value, Vm};
 use serde_json::Value as JsonValue;
+use sha2::Sha256;
 
 use crate::active_record::{ModelMapping, PostgresDatabase};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
@@ -36,6 +38,7 @@ struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
     config: BTreeMap<String, Value>,
+    session_signing_key: Option<SessionSigningKey>,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
 }
@@ -68,6 +71,37 @@ type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
 pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
 const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
+const SIGNED_SESSION_PREFIX: &str = "v1";
+
+#[derive(Clone)]
+struct SessionSigningKey {
+    secret: Arc<[u8]>,
+}
+
+impl SessionSigningKey {
+    fn new(secret: String) -> Self {
+        Self {
+            secret: Arc::from(secret.into_bytes()),
+        }
+    }
+
+    fn sign(&self, payload: &[u8]) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret)
+            .expect("HMAC accepts signing keys of any length");
+        mac.update(payload);
+        hex_encode(&mac.finalize().into_bytes())
+    }
+
+    fn verify(&self, payload: &[u8], signature_hex: &str) -> bool {
+        let Ok(signature) = hex_decode(signature_hex) else {
+            return false;
+        };
+        let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret)
+            .expect("HMAC accepts signing keys of any length");
+        mac.update(payload);
+        mac.verify_slice(&signature).is_ok()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchTraceEvent {
@@ -312,6 +346,11 @@ fn build_runtime_from_dir_internal(
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
         config: manifest_config(&manifest),
+        session_signing_key: manifest
+            .web
+            .session
+            .resolved_signing_secret()?
+            .map(SessionSigningKey::new),
         routes,
         controllers,
     })
@@ -915,7 +954,7 @@ fn render_action(
     request: WebRequest,
 ) -> Result<RenderedAction> {
     let cookies = cookies_from_headers(&request.headers);
-    let initial_session = session_from_cookies(&cookies);
+    let initial_session = session_from_cookies(&cookies, runtime.session_signing_key.as_ref());
     let mut ctx = RequestContext {
         method: request.method,
         path: request.path,
@@ -987,7 +1026,10 @@ fn render_action(
     };
 
     if ctx.session != initial_session {
-        rendered.insert_header("set-cookie", session_cookie_header(&ctx.session)?);
+        rendered.insert_header(
+            "set-cookie",
+            session_cookie_header(&ctx.session, runtime.session_signing_key.as_ref())?,
+        );
     }
 
     Ok(rendered)
@@ -1151,11 +1193,17 @@ fn parse_cookie_header(header: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn session_from_cookies(cookies: &BTreeMap<String, String>) -> BTreeMap<String, Value> {
+fn session_from_cookies(
+    cookies: &BTreeMap<String, String>,
+    signing_key: Option<&SessionSigningKey>,
+) -> BTreeMap<String, Value> {
     let Some(raw_session) = cookies.get(SESSION_COOKIE_NAME) else {
         return BTreeMap::new();
     };
-    let Ok(JsonValue::Object(values)) = serde_json::from_str::<JsonValue>(raw_session) else {
+    let Some(session_json) = session_json_from_cookie(raw_session, signing_key) else {
+        return BTreeMap::new();
+    };
+    let Ok(JsonValue::Object(values)) = serde_json::from_str::<JsonValue>(&session_json) else {
         return BTreeMap::new();
     };
 
@@ -1184,7 +1232,10 @@ fn json_to_session_value(value: JsonValue) -> Option<Value> {
     }
 }
 
-fn session_cookie_header(session: &BTreeMap<String, Value>) -> Result<String> {
+fn session_cookie_header(
+    session: &BTreeMap<String, Value>,
+    signing_key: Option<&SessionSigningKey>,
+) -> Result<String> {
     if session.is_empty() {
         return Ok(format!(
             "{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
@@ -1197,10 +1248,49 @@ fn session_cookie_header(session: &BTreeMap<String, Value>) -> Result<String> {
             .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
             .collect::<Result<serde_json::Map<_, _>>>()?,
     );
-    let encoded = encode_urlencoded_component(&serde_json::to_string(&json)?);
+    let session_json = serde_json::to_string(&json)?;
+    let cookie_value = match signing_key {
+        Some(signing_key) => signed_session_cookie_value(&session_json, signing_key),
+        None => session_json,
+    };
+    let encoded = encode_urlencoded_component(&cookie_value);
     Ok(format!(
         "{SESSION_COOKIE_NAME}={encoded}; Path=/; HttpOnly; SameSite=Lax"
     ))
+}
+
+fn session_json_from_cookie(
+    cookie_value: &str,
+    signing_key: Option<&SessionSigningKey>,
+) -> Option<String> {
+    match signing_key {
+        Some(signing_key) => verified_signed_session_json(cookie_value, signing_key),
+        None => Some(cookie_value.to_string()),
+    }
+}
+
+fn signed_session_cookie_value(session_json: &str, signing_key: &SessionSigningKey) -> String {
+    let payload_hex = hex_encode(session_json.as_bytes());
+    let signature = signing_key.sign(session_json.as_bytes());
+    format!("{SIGNED_SESSION_PREFIX}:{payload_hex}:{signature}")
+}
+
+fn verified_signed_session_json(
+    cookie_value: &str,
+    signing_key: &SessionSigningKey,
+) -> Option<String> {
+    let mut parts = cookie_value.split(':');
+    let prefix = parts.next()?;
+    let payload_hex = parts.next()?;
+    let signature_hex = parts.next()?;
+    if parts.next().is_some() || prefix != SIGNED_SESSION_PREFIX {
+        return None;
+    }
+    let payload = hex_decode(payload_hex).ok()?;
+    if !signing_key.verify(&payload, signature_hex) {
+        return None;
+    }
+    String::from_utf8(payload).ok()
 }
 
 fn session_value_to_json(value: &Value) -> Result<JsonValue> {
@@ -1315,6 +1405,29 @@ fn encode_urlencoded_component(source: &str) -> String {
         }
     }
     encoded
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push_str(&format!("{byte:02x}"));
+    }
+    encoded
+}
+
+fn hex_decode(source: &str) -> Result<Vec<u8>, ()> {
+    let bytes = source.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return Err(());
+    }
+
+    let mut decoded = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks_exact(2) {
+        let high = hex_value(chunk[0]).ok_or(())?;
+        let low = hex_value(chunk[1]).ok_or(())?;
+        decoded.push((high << 4) | low);
+    }
+    Ok(decoded)
 }
 
 fn hex_value(byte: u8) -> Option<u8> {

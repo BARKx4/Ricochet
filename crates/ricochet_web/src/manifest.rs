@@ -21,11 +21,36 @@ pub struct Web {
     pub mode: String,
     pub routes: String,
     pub views: Views,
+    #[serde(default)]
+    pub session: Session,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Views {
     pub escape: EscapeMode,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Session {
+    pub signing_secret_env: Option<String>,
+}
+
+impl Session {
+    pub fn resolved_signing_secret(&self) -> Result<Option<String>> {
+        let Some(variable) = &self.signing_secret_env else {
+            return Ok(None);
+        };
+        if variable.is_empty() {
+            bail!("session signing_secret_env must not be empty");
+        }
+        let secret = std::env::var(variable).with_context(|| {
+            format!("session signing secret environment variable {variable} is not set")
+        })?;
+        if secret.is_empty() {
+            bail!("session signing secret environment variable {variable} is empty");
+        }
+        Ok(Some(secret))
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -87,6 +112,9 @@ routes = "config/routes.rco"
 [web.views]
 escape = "html"
 
+[web.session]
+signing_secret_env = "RICOCHET_SESSION_SECRET"
+
 [database.default]
 adapter = "postgres"
 url = "postgres://localhost/ricochet_development"
@@ -98,6 +126,10 @@ url = "postgres://localhost/ricochet_development"
         assert_eq!(manifest.web.mode, "mvc");
         assert_eq!(manifest.web.routes, "config/routes.rco");
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::Html);
+        assert_eq!(
+            manifest.web.session.signing_secret_env.as_deref(),
+            Some("RICOCHET_SESSION_SECRET")
+        );
 
         let database = manifest
             .database
@@ -125,6 +157,40 @@ escape = "none"
 
         assert!(manifest.database.default.is_none());
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::None);
+        assert_eq!(manifest.web.session, Session::default());
+    }
+
+    #[test]
+    fn session_signing_secret_resolves_environment_variable() {
+        std::env::set_var("RICOCHET_TEST_SESSION_SECRET", "test-secret");
+        let session = Session {
+            signing_secret_env: Some("RICOCHET_TEST_SESSION_SECRET".to_string()),
+        };
+
+        let secret = session
+            .resolved_signing_secret()
+            .expect("session secret should resolve");
+
+        assert_eq!(secret.as_deref(), Some("test-secret"));
+    }
+
+    #[test]
+    fn session_signing_secret_reports_missing_environment_variable() {
+        std::env::remove_var("RICOCHET_MISSING_SESSION_SECRET");
+        let session = Session {
+            signing_secret_env: Some("RICOCHET_MISSING_SESSION_SECRET".to_string()),
+        };
+
+        let error = session
+            .resolved_signing_secret()
+            .expect_err("missing session secret should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("session signing secret environment variable RICOCHET_MISSING_SESSION_SECRET is not set"),
+            "{error:#}"
+        );
     }
 
     #[test]

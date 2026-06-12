@@ -99,7 +99,8 @@ Still open:
 
 - Changing the global CLI default from `trusted` to `sandboxed` remains a larger
   compatibility decision.
-- Session signing/encryption and auth helpers remain package/framework work.
+- Session cookie signing is implemented behind `[web.session] signing_secret_env`;
+  encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration, Active Record ordering/relation chaining, and
   schema/migration tooling are still backlog.
 - Scheduler-level task concurrency and async IO words remain future async work.
@@ -410,7 +411,7 @@ These are not defects by themselves, but they are the biggest gaps between the
 design docs and the current implementation:
 
 - First-party AI package/provider capability.
-- Signed/encrypted auth/session/cookie helpers.
+- Cookie/session encryption and higher-level auth helpers.
 - Migrations/schema management beyond existing-schema Active Record.
 - Capability-profile default decision and broader policy hardening.
 - Production PostgreSQL TLS configuration.
@@ -433,7 +434,7 @@ design docs and the current implementation:
 ## Suggested Next Sprint Order
 
 1. Add Active Record ordering/relation chaining or default pagination policy.
-2. Add signed/encrypted session/auth package helpers.
+2. Add encrypted session/auth package helpers.
 3. Build the first-party AI package/provider capability.
 4. Decide whether v1 should keep `trusted` as the CLI default or switch to
    `sandboxed`.

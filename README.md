@@ -17,9 +17,10 @@ status, and basic task inspection. The CLI can record and install path/GitHub
 package dependencies, and static imports can load local package sources. Hot
 reload is available for MVC apps during local development, and controllers receive
 request, header, cookie, lightweight session, logger, and safe manifest config
-context. Active Record has basic reads plus bounded `limit`, `page`,
-`where-limit`, and `where-page` helpers. Migrations, signed/encrypted auth
-helpers, and the first-party AI package are still planned work.
+context. Session cookies can be HMAC-signed from an environment-backed manifest
+secret. Active Record has basic reads plus bounded `limit`, `page`,
+`where-limit`, and `where-page` helpers. Migrations, encrypted auth helpers,
+and the first-party AI package are still planned work.
 
 ## Quickstart
 
