@@ -576,12 +576,13 @@ Current implementation includes `request`, `cookies`, `session`, `logger`,
 through `view`, `text`, `json`, `redirect`, `status`, and `header` words.
 CLI script execution enables filesystem and HTTP host capabilities for trusted
 local scripts by default, and `rco repl`, `rco run`, `rco run-bytecode`, and
-`rco test` accept `--no-fs` and `--no-http` to deny those capabilities for a
-specific execution. The same commands accept `--fs-root <path>` to bound
-filesystem access to a directory and `--fs-readonly` to allow reads while
-denying writes and directory creation. `--http-allow-host <host>` can be
-repeated to restrict HTTP requests to specific hosts. Default-off capability
-policy and named host-policy profiles remain future work.
+`rco test` accept `--capability-profile trusted|sandboxed`. `trusted` preserves
+the local-script default; `sandboxed` starts with filesystem and HTTP disabled
+unless `--fs-root <path>` or `--http-allow-host <host>` opens bounded access.
+The same commands accept `--no-fs` and `--no-http` to deny capabilities
+explicitly, and `--fs-readonly` to allow reads while denying writes and
+directory creation. Changing the global default to sandboxed remains a future
+compatibility decision.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 

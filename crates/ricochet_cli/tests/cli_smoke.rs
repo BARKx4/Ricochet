@@ -2335,6 +2335,47 @@ fn run_can_disable_filesystem_capability() {
 }
 
 #[test]
+fn run_sandboxed_capability_profile_disables_host_powers() {
+    let fs_source_path = write_source("fs drop\n");
+    let fs_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg(&fs_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !fs_output.status.success(),
+        "rco run should fail when sandboxed fs is not explicitly bounded"
+    );
+    let stderr = String::from_utf8_lossy(&fs_output.stderr);
+    assert!(
+        stderr.contains("filesystem capability is not enabled"),
+        "stderr should explain sandboxed filesystem denial, got:\n{stderr}"
+    );
+
+    let http_source_path = write_source("http drop\n");
+    let http_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg(&http_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !http_output.status.success(),
+        "rco run should fail when sandboxed HTTP is not explicitly bounded"
+    );
+    let stderr = String::from_utf8_lossy(&http_output.stderr);
+    assert!(
+        stderr.contains("HTTP capability is not enabled"),
+        "stderr should explain sandboxed HTTP denial, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_can_restrict_filesystem_capability_to_root() {
     let source_path = temp_source_path();
     let base = source_path.parent().expect("source path has parent");
@@ -2380,6 +2421,44 @@ fn run_can_restrict_filesystem_capability_to_root() {
     assert!(
         stdout.contains("Bool(false)"),
         "stdout should report outside-root exists? as false, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_sandboxed_capability_profile_allows_bounded_filesystem() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let root = base.join("sandbox-fs-root");
+    fs::create_dir_all(&root).expect("filesystem root should be created");
+    let data_path = root.join("data.txt");
+    fs::write(&data_path, "bounded").expect("data file should be written");
+    let data = escape_ricochet_string(&data_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+"{data}" fs .read-text value
+"#
+        ),
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--fs-root")
+        .arg(&root)
+        .arg("--fs-readonly")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"bounded\")"),
+        "stdout should include file contents from bounded sandbox root, got:\n{stdout}"
     );
 }
 
@@ -2431,6 +2510,37 @@ fn run_can_make_filesystem_capability_read_only() {
     assert!(
         !directory_path.exists(),
         "read-only filesystem policy should not create directories"
+    );
+}
+
+#[test]
+fn run_sandboxed_capability_profile_allows_bounded_http() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+"http://{address}/ping" http .get value response var
+"body" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"pong\")"),
+        "stdout should include HTTP body from allowed sandbox host, got:\n{stdout}"
     );
 }
 

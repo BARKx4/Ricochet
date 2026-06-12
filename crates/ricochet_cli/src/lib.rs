@@ -5,7 +5,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
@@ -113,6 +113,13 @@ enum Command {
 
 #[derive(Clone, Debug, Default, Args)]
 struct CapabilityOptions {
+    #[arg(
+        long = "capability-profile",
+        value_enum,
+        default_value = "trusted",
+        help = "Select host capability defaults: trusted enables filesystem/HTTP, sandboxed disables them unless bounded by flags"
+    )]
+    capability_profile: CapabilityProfile,
     #[arg(long, help = "Disable the filesystem host capability for this run")]
     no_fs: bool,
     #[arg(long, value_name = "PATH", help = "Restrict filesystem access to PATH")]
@@ -132,6 +139,13 @@ struct CapabilityOptions {
     http_allow_hosts: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+enum CapabilityProfile {
+    #[default]
+    Trusted,
+    Sandboxed,
+}
+
 impl CapabilityOptions {
     fn apply_to(&self, vm: &mut Vm) -> Result<()> {
         if self.no_fs {
@@ -145,8 +159,20 @@ impl CapabilityOptions {
         if self.no_http && !self.http_allow_hosts.is_empty() {
             bail!("--http-allow-host cannot be used with --no-http");
         }
+        if self.capability_profile == CapabilityProfile::Sandboxed
+            && self.fs_readonly
+            && self.fs_root.is_none()
+        {
+            bail!("--capability-profile sandboxed requires --fs-root when --fs-readonly is used");
+        }
 
-        vm.set_host_capabilities(!self.no_fs, !self.no_http);
+        let filesystem_enabled = !self.no_fs
+            && (self.capability_profile == CapabilityProfile::Trusted || self.fs_root.is_some());
+        let http_enabled = !self.no_http
+            && (self.capability_profile == CapabilityProfile::Trusted
+                || !self.http_allow_hosts.is_empty());
+
+        vm.set_host_capabilities(filesystem_enabled, http_enabled);
         if let Some(root) = &self.fs_root {
             let root = fs::canonicalize(root)
                 .with_context(|| format!("failed to resolve --fs-root {}", root.display()))?;

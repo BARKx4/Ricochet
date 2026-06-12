@@ -83,6 +83,9 @@ Implemented after this review:
   writes and directory creation.
 - They also accept repeatable `--http-allow-host <host>` flags to restrict
   HTTP capability calls to specific hosts.
+- They also accept `--capability-profile trusted|sandboxed`; `sandboxed` starts
+  with filesystem and HTTP disabled unless bounded by `--fs-root` or
+  `--http-allow-host`.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
 - Active Record now has parameterized `.limit` plus `.count`, `.first`, and
@@ -93,9 +96,8 @@ Implemented after this review:
 
 Still open:
 
-- Default-off capability policy and named host-policy profiles remain larger
-  trust-model decisions beyond the per-execution deny/root/read-only/allowlist
-  flags.
+- Changing the global CLI default from `trusted` to `sandboxed` remains a larger
+  compatibility decision.
 - Session signing/encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
@@ -161,20 +163,23 @@ Recommendation:
 - Add max stack depth and max collection size limits for hosted/server mode.
 - Surface the limit fault cleanly through the existing debug/error trace model.
 
-### 3. CLI filesystem and HTTP capabilities are powerful but unsandboxed
+### 3. CLI filesystem and HTTP capabilities remain powerful host effects
 
 Status: partially resolved after this review. CLI execution still defaults to
 trusted-local filesystem and HTTP powers for compatibility, but `rco repl`,
-`rco run`, `rco run-bytecode`, and `rco test` now accept `--no-fs` and
-`--no-http` to deny those powers for a specific execution. They also accept
-`--fs-root <path>` to bound filesystem access to a directory,
-`--fs-readonly` to deny writes and directory creation, and repeatable
-`--http-allow-host <host>` flags to restrict HTTP requests to specific hosts.
-Default-off policy and named host-policy profiles remain future work.
+`rco run`, `rco run-bytecode`, and `rco test` now accept
+`--capability-profile trusted|sandboxed`. The `sandboxed` profile starts with
+filesystem and HTTP disabled unless bounded by `--fs-root <path>` or
+`--http-allow-host <host>`. They also accept `--no-fs` and `--no-http` to deny
+those powers explicitly, `--fs-readonly` to deny writes and directory creation,
+and repeatable `--http-allow-host <host>` flags to restrict HTTP requests to
+specific hosts.
 
 Evidence:
 
 - CLI capability flags are threaded through `crates/ricochet_cli/src/lib.rs`.
+- `--capability-profile sandboxed` provides a default-off profile for untrusted
+  local scripts while keeping `trusted` as the compatibility default.
 - VM host capability toggles live in `crates/ricochet_vm/src/vm.rs`.
 - VM filesystem root resolution bounds read/write/list/create calls when
   `--fs-root` is set.
@@ -191,11 +196,10 @@ server context.
 
 Recommendation:
 
-- Keep the capability model, but introduce host policy objects:
-  timeout, max response bytes, and named profiles for default-off or read-only
-  execution.
-- Consider default-off execution, a manifest-based trust prompt, or a named
-  policy profile before enabling dangerous effects for arbitrary script files.
+- Keep the capability model, but consider whether v1 should switch the global
+  CLI default to `sandboxed` or keep it as an explicit profile.
+- Consider a manifest-based trust prompt before enabling dangerous effects for
+  arbitrary script files.
 - Keep documenting clearly that CLI commands execute trusted code with host
   access unless denied by flags or a future policy.
 
@@ -425,8 +429,9 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Decide whether default CLI filesystem/HTTP access should become opt-in.
-2. Expand Active Record pagination/querying beyond `.limit`, `.count`,
+1. Expand Active Record pagination/querying beyond `.limit`, `.count`,
    `.first`, and `.exists?`.
-3. Add signed/encrypted session/auth package helpers.
-4. Build the first-party AI package/provider capability.
+2. Add signed/encrypted session/auth package helpers.
+3. Build the first-party AI package/provider capability.
+4. Decide whether v1 should keep `trusted` as the CLI default or switch to
+   `sandboxed`.

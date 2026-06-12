@@ -132,12 +132,12 @@ step.
 
 ## Safety Notes
 
-The CLI enables filesystem and HTTP capabilities for trusted local scripts by
-default. Use `--no-fs` or `--no-http` with `rco run`, `rco run-bytecode`,
-`rco repl`, or `rco test` to deny those host powers for a specific execution;
-use `--fs-root <path>` to bound filesystem access to a directory, and
-`--fs-readonly` to deny writes while allowing reads. Use
-`--http-allow-host <host>` to restrict HTTP requests to one or more hosts.
-Embedded hosts can leave those capabilities disabled. HTTP calls use a timeout
-and response body cap; filesystem access remains powerful CLI behavior unless
-it is bounded with an explicit root or read-only policy.
+The CLI uses the `trusted` capability profile by default for local scripts.
+Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
+`rco repl`, or `rco test` to start with filesystem and HTTP disabled. In the
+sandboxed profile, `--fs-root <path>` enables filesystem access only under that
+directory, `--fs-readonly` denies writes, and `--http-allow-host <host>` enables
+HTTP only for named hosts. `--no-fs` and `--no-http` still deny those host powers
+explicitly in either profile. Embedded hosts can leave capabilities disabled.
+HTTP calls use a timeout and response body cap; filesystem access remains
+powerful CLI behavior unless you deny or bound it with these flags.
