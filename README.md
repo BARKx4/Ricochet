@@ -6,31 +6,47 @@ Rust bytecode VM with dynamic OOP, CLI scripting, MVC web app scaffolding,
 template rendering, stack/debug tracing, and early Active Record support for
 existing SQLite, PostgreSQL, and MySQL/MariaDB schemas.
 
-## Current Status
+## Current Features
 
-This is an early but runnable vertical slice. The v1 bar is a usable web app
-beta target for other developers to test, not a production deployment promise.
-You can write `.rco` scripts, run CLI programs, format source, build and run
-bytecode, package standalone executables, scaffold an MVC app, list routes,
-generate Markdown docs, run Ricochet tests, and serve a local web app. The VM
-has first-class task values with `spawn`, explicit `await`/`await-all`,
-retained completed/failed task status, eager background task execution, basic
-task inspection, and task-returning HTTP helpers. The CLI can record and
-install path/GitHub package dependencies, and static imports can load
-local package sources. Hot reload is available for MVC apps during local
-development, and controllers receive request, header, cookie, lightweight
-session, logger, and safe manifest config context. Session cookies can be
-HMAC-signed with a manifest secret or a per-process beta key, and can be
-emitted as authenticated encrypted v2 cookies from environment-backed manifest
-secrets. Active Record has basic reads plus a
-bounded `default-page` list helper and explicit `limit`, `page`, `order-page`,
-`where-limit`, `where-page`, and `where-order-page` helpers. MVC apps can opt
-into an OpenAI-compatible `[ai.default]` provider and receive an `ai` controller
-capability whose `.chat` method returns `Result` maps. The SQLite beta scaffold
-includes a copyable
-form/session login loop for local testing.
-Migrations, production auth packages, and structured AI/schema package helpers
-are still planned work.
+Ricochet is currently aimed at a developer-facing v1 beta: a usable web app
+foundation that other developers can scaffold, run, inspect, and extend.
+
+- Language runtime: Rust bytecode VM, dynamic OOP, stack/debug tracing, regular
+  expressions, collections, and postfix control flow.
+- Task model: first-class task values with `spawn`, `await`, `await-all`,
+  retained completed/failed status, eager background execution, task inspection,
+  and task-returning HTTP helpers.
+- CLI workflow: run `.rco` scripts, format source, build and run bytecode,
+  package standalone executables, generate Markdown docs, run Ricochet tests,
+  and serve local web apps.
+- Package workflow: record and install path/GitHub dependencies, pin Git
+  dependencies to immutable commits in `ricochet.lock`, and import local package
+  sources by package name.
+- MVC web apps: scaffold projects, list routes, serve apps, use hot reload
+  during local development, and render templates with controller-provided view
+  data.
+- Controller context: request params, query, form data, headers, cookies,
+  lightweight session state, logger, safe manifest config, database capability,
+  and optional AI capability are available to controllers.
+- Sessions and cookies: sessions are HMAC-signed by default with a per-process
+  beta key or a manifest-provided secret, can use authenticated encrypted v2
+  cookies, and emit secure cookie attributes for non-local requests.
+- Active Record: map models to existing SQLite, PostgreSQL, and MySQL/MariaDB
+  tables with `find`, `all`, `where`, `count`, `first`, `exists?`, `insert`,
+  `update`, `default-page`, `limit`, `page`, `order-page`, `where-limit`,
+  `where-page`, and `where-order-page`.
+- Local beta scaffold: `rco new --with-sqlite` creates a zero-service app with
+  a seeded SQLite database, `/users` Active Record page, and copyable
+  form/session login loop.
+- AI integration: MVC apps can opt into an OpenAI-compatible `[ai.default]`
+  provider and receive an `ai` controller capability whose `.chat` method
+  returns `Result` maps.
+- Security posture: sandboxable host capabilities, no-follow HTTP redirects,
+  import/dependency path containment, signed default sessions, view/template
+  traversal guards, and TLS-required remote PostgreSQL connections.
+
+Still planned: migrations, production auth packages, and structured AI/schema
+package helpers.
 
 ## Quickstart
 
@@ -80,28 +96,39 @@ Local package dependencies can be imported by package name:
 packageHello
 ```
 
+Read an existing binding with `$name`. Declaration words still keep the
+name-first shape, and `$` is useful when a declaration name is itself stored in
+another variable:
+
+```forth
+"users" name var
+$name array
+"Ada" $users .push! drop
+$users .count println
+```
+
 Spawn a task and await its result:
 
 ```forth
 [ 40 2 + ] spawn answer var
-answer get .status
-answer get .running?
+$answer .status
+$answer .running?
 tasks .count
-answer get await
-answer get .status
-answer get await
+$answer await
+$answer .status
+$answer await
 handles array
-[ 20 2 + ] spawn handles get .push! drop
-[ 30 4 + ] spawn handles get .push! drop
-handles get await-all
+[ 20 2 + ] spawn $handles .push! drop
+[ 30 4 + ] spawn $handles .push! drop
+$handles await-all
 ```
 
 HTTP capability calls can also be launched as tasks:
 
 ```forth
 "https://example.com" http .get-task request var
-request get await value response var
-"status" response get .at println
+$request await value response var
+"status" $response .at println
 ```
 
 Serve an MVC app from its project directory:
