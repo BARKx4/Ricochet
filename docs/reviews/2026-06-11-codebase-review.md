@@ -106,8 +106,9 @@ Still open:
   package/framework work.
 - PostgreSQL TLS configuration, Active Record relation chaining/default
   pagination policy, and schema/migration tooling are still backlog.
-- Richer async IO words and suspended-task debugger views remain future async
-  work.
+- HTTP capability calls can now be launched as task handles with `.get-task`
+  and `.post-json-task`; richer suspended-task debugger views remain future
+  async work.
 - The first-party AI surface now has an initial MVC `ai` capability for
   OpenAI-compatible chat completions; streaming, schema validation, and richer
   provider packages are still backlog.
@@ -423,7 +424,8 @@ design docs and the current implementation:
 - Migrations/schema management beyond existing-schema Active Record.
 - Capability-profile default decision and broader policy hardening.
 - Production PostgreSQL TLS configuration.
-- Richer async IO words and suspended debugger task views.
+- Richer suspended debugger task views and broader async IO helpers beyond the
+  HTTP task methods.
 
 ## What Looks Solid
 

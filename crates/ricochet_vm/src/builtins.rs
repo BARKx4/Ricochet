@@ -129,7 +129,9 @@ impl Vm {
                     "read-text" | "write-text!" | "exists?" | "list" | "create-dir!"
                 )
             }
-            Value::Capability(Capability::Http) => matches!(method, "get" | "post-json"),
+            Value::Capability(Capability::Http) => {
+                matches!(method, "get" | "post-json" | "get-task" | "post-json-task")
+            }
             Value::Regex(_) => matches!(method, "matches?" | "find" | "captures" | "replace"),
             _ => false,
         }
@@ -225,6 +227,8 @@ impl Vm {
             "create-dir!" => self.method_fs_create_dir(receiver, method),
             "get" => self.method_http_get(receiver, method),
             "post-json" => self.method_http_post_json(receiver, method),
+            "get-task" => self.method_http_get_task(receiver, method),
+            "post-json-task" => self.method_http_post_json_task(receiver, method),
             "matches?" => self.method_regex_matches(receiver, method),
             "captures" => self.method_regex_captures(receiver, method),
             _ => Err(VmError::UnknownMethod {
@@ -1619,13 +1623,7 @@ impl Vm {
         if let Err(error) = self.check_http_url_allowed(method, &url) {
             return Ok(Value::result_err("PermissionError", error.to_string()));
         }
-        Ok(http_in_worker(move || {
-            let client = match http_client() {
-                Ok(client) => client,
-                Err(error) => return Value::result_err("HttpError", error.to_string()),
-            };
-            http_response(client.get(url).send())
-        }))
+        Ok(http_in_worker(move || perform_http_get(url)))
     }
 
     fn method_http_post_json(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
@@ -1639,13 +1637,46 @@ impl Vm {
         if let Err(error) = self.check_http_url_allowed(method, &url) {
             return Ok(Value::result_err("PermissionError", error.to_string()));
         }
-        Ok(http_in_worker(move || {
-            let client = match http_client() {
-                Ok(client) => client,
-                Err(error) => return Value::result_err("HttpError", error.to_string()),
-            };
-            http_response(client.post(url).json(&body).send())
-        }))
+        Ok(http_in_worker(move || perform_http_post_json(url, body)))
+    }
+
+    fn method_http_get_task(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Http, method)?;
+        let url = self.pop_string(method, "URL string")?;
+        let permission_error = self
+            .check_http_url_allowed(method, &url)
+            .err()
+            .map(|error| error.to_string());
+        Ok(
+            self.spawn_value_task(method, move || match permission_error {
+                Some(error) => Value::result_err("PermissionError", error),
+                None => perform_http_get(url),
+            }),
+        )
+    }
+
+    fn method_http_post_json_task(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Http, method)?;
+        let body = self.pop(method)?;
+        let url = self.pop_string(method, "URL string")?;
+        let body = match value_to_json(&body) {
+            Ok(value) => value,
+            Err(message) => return Ok(Value::result_err("JsonError", message)),
+        };
+        let permission_error = self
+            .check_http_url_allowed(method, &url)
+            .err()
+            .map(|error| error.to_string());
+        Ok(
+            self.spawn_value_task(method, move || match permission_error {
+                Some(error) => Value::result_err("PermissionError", error),
+                None => perform_http_post_json(url, body),
+            }),
+        )
     }
 
     fn pop_string(&mut self, word: &str, expected: &str) -> Result<String, VmError> {
@@ -2024,6 +2055,22 @@ fn http_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
     reqwest::blocking::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()
+}
+
+fn perform_http_get(url: String) -> Value {
+    let client = match http_client() {
+        Ok(client) => client,
+        Err(error) => return Value::result_err("HttpError", error.to_string()),
+    };
+    http_response(client.get(url).send())
+}
+
+fn perform_http_post_json(url: String, body: JsonValue) -> Value {
+    let client = match http_client() {
+        Ok(client) => client,
+        Err(error) => return Value::result_err("HttpError", error.to_string()),
+    };
+    http_response(client.post(url).json(&body).send())
 }
 
 fn http_in_worker(request: impl FnOnce() -> Value + Send + 'static) -> Value {

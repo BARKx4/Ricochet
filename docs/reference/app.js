@@ -1384,12 +1384,28 @@ const WORDS = [
     "example": "\"https://example.com\" http .get value"
   },
   {
+    "word": ".get-task",
+    "aliases": ["HTTP", "async"],
+    "group": "system",
+    "stack": "url:string http -> task",
+    "body": "Starts an HTTP GET on a task worker. Await the task to receive the same result map returned by `.get`.",
+    "example": "\"https://example.com\" http .get-task await value"
+  },
+  {
     "word": ".post-json",
     "aliases": [],
     "group": "system",
     "stack": "url:string body:any http -> result(map)",
     "body": "Posts a JSON-encoded Ricochet value.",
     "example": "\"https://api.example\" payload get http .post-json"
+  },
+  {
+    "word": ".post-json-task",
+    "aliases": ["async"],
+    "group": "system",
+    "stack": "url:string body:any http -> task",
+    "body": "Starts a JSON HTTP POST on a task worker. Await the task to receive the same result map returned by `.post-json`.",
+    "example": "\"https://api.example\" payload get http .post-json-task await value"
   },
   {
     "word": "inspect",

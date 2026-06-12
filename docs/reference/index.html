@@ -650,7 +650,10 @@ handles get await-all</code></pre>
             <h3>Capabilities</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy capability example" title="Copy">copy</button><code>"README.md" fs .read-text value .count println
 "https://example.com" http .get value response var
-"status" response get .at println</code></pre>
+"status" response get .at println
+"https://example.com" http .get-task request var
+request get await value asyncResponse var
+"body" asyncResponse get .at println</code></pre>
           </article>
           <article class="example-panel wide">
             <h3>Acceptance Suite</h3>
@@ -672,7 +675,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. Higher-level auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, `.failed?`, and `tasks`; richer async IO words are still planned work.</li>
+          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, `.failed?`, and `tasks`; HTTP capabilities also expose `.get-task` and `.post-json-task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>

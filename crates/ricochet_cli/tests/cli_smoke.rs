@@ -2627,6 +2627,62 @@ fn run_exposes_http_client_capability() {
 }
 
 #[test]
+fn run_exposes_http_get_task_capability() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
+    );
+    let output = run_source(&format!(
+        r#"
+"http://{address}/ping" http .get-task task var
+task get .id
+task get await value response var
+"status" response get .at
+"body" response get .at
+task get .status
+"#
+    ));
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(0)")
+            && stdout.contains("Number(200)")
+            && stdout.contains("String(\"pong\")")
+            && stdout.contains("String(\"completed\")"),
+        "stdout should contain task id, HTTP response, and completed status, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_exposes_http_post_json_task_capability() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 201 Created\r\nContent-Length: 7\r\nConnection: close\r\n\r\ncreated".to_vec(),
+    );
+    let output = run_source(&format!(
+        r#"
+map payload var
+"message" "hello" payload get .put! drop
+"http://{address}/messages" payload get http .post-json-task task var
+task get await value response var
+"status" response get .at
+"body" response get .at
+task get .completed?
+"#
+    ));
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(201)")
+            && stdout.contains("String(\"created\")")
+            && stdout.contains("Bool(true)"),
+        "stdout should contain async POST response and completed predicate, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_can_disable_http_capability() {
     let source_path = write_source("http drop\n");
 
@@ -2702,6 +2758,36 @@ fn run_can_restrict_http_capability_by_host() {
         stdout.contains("String(\"PermissionError\")")
             && stdout.contains("HTTP host is not allowed: 127.0.0.1"),
         "stdout should report blocked HTTP host before connecting, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_http_get_task_respects_http_allowlist() {
+    let source_path = write_source(
+        r#"
+"http://127.0.0.1:1/blocked" http .get-task task var
+task get await error denied var
+"kind" denied get .at
+"message" denied get .at
+task get .completed?
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("example.com")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"PermissionError\")")
+            && stdout.contains("HTTP host is not allowed: 127.0.0.1")
+            && stdout.contains("Bool(true)"),
+        "stdout should report blocked async HTTP host and completed task, got:\n{stdout}"
     );
 }
 

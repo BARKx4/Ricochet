@@ -392,8 +392,10 @@ worker. `await` waits for one handle when needed, and `await-all` resolves an
 array/list of handles. Task handles retain completed/failed status, expose
 `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, and `.failed?`, and
 completed handles can be awaited again for the cached result. The `tasks` word
-returns active running task metadata for debugger-style inspection. Richer async
-IO words remain future work.
+returns active running task metadata for debugger-style inspection. HTTP
+capabilities expose `.get-task` and `.post-json-task`, which start worker tasks
+and resolve through `await` to the same `Result` maps as `.get` and
+`.post-json`. Richer suspended-task debugger views remain future work.
 
 The debugger can inspect running, suspended, and failed tasks.
 

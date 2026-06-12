@@ -193,7 +193,9 @@ if ($failures.Count -eq 0) {
         '".list"',
         '".create-dir!"',
         '"http"',
+        '".get-task"',
         '".post-json"',
+        '".post-json-task"',
         '"inspect"',
         '"debug"',
         '"type"',
@@ -248,6 +250,7 @@ if ($failures.Count -eq 0) {
         "tasks .count",
         "fs .read-text",
         "http .get",
+        "http .get-task",
         "{ user get .name get }"
     )
 

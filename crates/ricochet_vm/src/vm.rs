@@ -169,17 +169,32 @@ struct TaskOutput {
 
 impl RunningTask {
     fn spawn(task: Task) -> Self {
+        Self::spawn_completion("spawn".to_string(), move || run_task_to_completion(task))
+    }
+
+    fn spawn_value(word: String, operation: impl FnOnce() -> Value + Send + 'static) -> Self {
+        Self::spawn_completion(word, move || TaskCompletion {
+            result: Ok(operation()),
+            output: TaskOutput::default(),
+            output_consumed: false,
+        })
+    }
+
+    fn spawn_completion(
+        panic_word: String,
+        operation: impl FnOnce() -> TaskCompletion + Send + 'static,
+    ) -> Self {
         let shared = Arc::new(RunningTaskShared {
             completion: Mutex::new(None),
             ready: Condvar::new(),
         });
         let worker_shared = shared.clone();
         thread::spawn(move || {
-            let completion = match catch_unwind(AssertUnwindSafe(|| run_task_to_completion(task))) {
+            let completion = match catch_unwind(AssertUnwindSafe(operation)) {
                 Ok(completion) => completion,
                 Err(_) => TaskCompletion {
                     result: Err(VmError::HostError {
-                        word: "spawn".to_string(),
+                        word: panic_word,
                         message: "task worker thread panicked".to_string(),
                     }),
                     output: TaskOutput::default(),
@@ -1318,6 +1333,20 @@ impl Vm {
             .insert(task_id, TaskState::Running(RunningTask::spawn(task)));
         self.stack.push(Value::Task(task_id));
         Ok(())
+    }
+
+    pub(super) fn spawn_value_task(
+        &mut self,
+        word: &str,
+        operation: impl FnOnce() -> Value + Send + 'static,
+    ) -> Value {
+        let task_id = self.next_task_id;
+        self.next_task_id += 1;
+        self.tasks.insert(
+            task_id,
+            TaskState::Running(RunningTask::spawn_value(word.to_string(), operation)),
+        );
+        Value::Task(task_id)
     }
 
     fn call_await(&mut self, word: &str) -> Result<(), VmError> {

@@ -13,16 +13,18 @@ CLI programs, format source, build and run bytecode, package standalone
 executables, scaffold an MVC app, list routes, generate Markdown docs, run
 Ricochet tests, and serve a local web app. The VM has first-class task values
 with `spawn`, explicit `await`/`await-all`, retained completed/failed task
-status, eager background task execution, and basic task inspection. The CLI can
-record and install path/GitHub package dependencies, and static imports can load
+status, eager background task execution, basic task inspection, and
+task-returning HTTP helpers. The CLI can record and install path/GitHub package
+dependencies, and static imports can load
 local package sources. Hot reload is available for MVC apps during local
 development, and controllers receive request, header, cookie, lightweight
 session, logger, and safe manifest config context. Session cookies can be
-HMAC-signed from an environment-backed manifest secret. Active Record has basic
-reads plus bounded `limit`, `page`,
-`order-page`, `where-limit`, `where-page`, and `where-order-page` helpers.
-MVC apps can opt into an OpenAI-compatible `[ai.default]` provider and receive an
-`ai` controller capability whose `.chat` method returns `Result` maps.
+HMAC-signed or emitted as authenticated encrypted v2 cookies from
+environment-backed manifest secrets. Active Record has basic reads plus bounded
+`limit`, `page`, `order-page`, `where-limit`, `where-page`, and
+`where-order-page` helpers. MVC apps can opt into an OpenAI-compatible
+`[ai.default]` provider and receive an `ai` controller capability whose `.chat`
+method returns `Result` maps.
 Migrations, higher-level auth helpers, and structured AI/schema package helpers
 are still planned work.
 
@@ -87,6 +89,14 @@ handles array
 [ 20 2 + ] spawn handles get .push! drop
 [ 30 4 + ] spawn handles get .push! drop
 handles get await-all
+```
+
+HTTP capability calls can also be launched as tasks:
+
+```forth
+"https://example.com" http .get-task request var
+request get await value response var
+"status" response get .at println
 ```
 
 Serve an MVC app from its project directory:
