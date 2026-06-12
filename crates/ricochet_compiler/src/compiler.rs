@@ -187,6 +187,10 @@ impl Compiler {
             Expr::Symbol(word) => self.compile_symbol(word),
             Expr::BangWord(word) => self.push(Op::CallWord(word.clone())),
             Expr::DotWord(word) => self.push(Op::CallMethod(method_name(word))),
+            Expr::Reference(name) => {
+                self.push(Op::PushString(name.clone()))?;
+                self.push(Op::CallWord("get".to_string()))
+            }
             Expr::String(value) => self.push(Op::PushString(value.clone())),
             Expr::Number(value) => self.push(Op::PushNumber(*value)),
             Expr::Block(body) => {
@@ -692,6 +696,44 @@ mod tests {
                 Op::PushString("home/index".to_string()),
                 Op::CallWord("swap".to_string()),
                 Op::CallWord("view".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_dollar_references_as_variable_gets() {
+        let chunk = compile_source("controllers/home.rco", r#"$ctx "home/index" swap view"#)
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("ctx".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushString("home/index".to_string()),
+                Op::CallWord("swap".to_string()),
+                Op::CallWord("view".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_dynamic_declarations_from_dollar_references() {
+        let chunk = compile_source("test.rco", r#""users" name var $name array $users .count"#)
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("users".to_string()),
+                Op::PushString("name".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::PushString("name".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::CallWord("array".to_string()),
+                Op::PushString("users".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::CallMethod("count".to_string()),
             ]
         );
     }

@@ -252,7 +252,7 @@ if ($failures.Count -eq 0) {
         "fs .read-text",
         "http .get",
         "http .get-task",
-        "{ user get .name get }"
+        "{ `$user .name get }"
     )
 
     foreach ($example in $requiredExamples) {

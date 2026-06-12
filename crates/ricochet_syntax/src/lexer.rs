@@ -9,6 +9,8 @@ pub enum LexError {
     UnterminatedComment(usize),
     #[error("invalid string escape \\{escape} at byte {position}")]
     InvalidStringEscape { escape: char, position: usize },
+    #[error("empty reference at byte {0}")]
+    EmptyReference(usize),
 }
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
@@ -126,6 +128,11 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     TokenKind::BangWord(word)
                 } else if word.starts_with('.') {
                     TokenKind::DotWord(word)
+                } else if let Some(name) = word.strip_prefix('$') {
+                    if name.is_empty() {
+                        return Err(LexError::EmptyReference(start));
+                    }
+                    TokenKind::Reference(name.to_string())
                 } else {
                     TokenKind::Symbol(word)
                 };
@@ -217,6 +224,15 @@ mod tests {
         assert_eq!(kinds[0], TokenKind::LeftParen);
         assert!(kinds.contains(&TokenKind::Arrow));
         assert!(kinds.contains(&TokenKind::RightParen));
+    }
+
+    #[test]
+    fn lexes_dollar_reference_words() {
+        let tokens = lex("$users .count").expect("lexing succeeds");
+        let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
+
+        assert_eq!(kinds[0], TokenKind::Reference("users".to_string()));
+        assert_eq!(kinds[1], TokenKind::DotWord(".count".to_string()));
     }
 
     #[test]

@@ -258,6 +258,7 @@ impl Parser {
             TokenKind::Symbol(s) => Expr::Symbol(s),
             TokenKind::BangWord(s) => Expr::BangWord(s),
             TokenKind::DotWord(s) => Expr::DotWord(s),
+            TokenKind::Reference(s) => Expr::Reference(s),
             TokenKind::String(s) => Expr::String(s),
             TokenKind::Number(n) => {
                 let value = n.parse().map_err(|_| ParseError::InvalidNumber {
@@ -641,6 +642,28 @@ mod tests {
                 assert_eq!(args.outputs, vec!["Result"]);
             }
             other => panic!("expected method, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_dollar_references() {
+        let module = parse_module("$ctx .params .id").expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                assert_eq!(
+                    unspan(exprs),
+                    vec![
+                        Expr::Reference("ctx".to_string()),
+                        Expr::DotWord(".params".to_string()),
+                        Expr::DotWord(".id".to_string()),
+                    ]
+                );
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
         }
     }
 

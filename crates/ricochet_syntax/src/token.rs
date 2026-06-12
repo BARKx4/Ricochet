@@ -15,6 +15,7 @@ pub enum TokenKind {
     Symbol(String),
     BangWord(String),
     DotWord(String),
+    Reference(String),
     String(String),
     Number(String),
     DocComment(String),

@@ -132,9 +132,17 @@ tags Set</code></pre>
             <p>Name-first collection declarations bind mutable shared collections. Use `Array new`, `Map new`, `List new`, or `Set new` for anonymous values.</p>
           </article>
           <article>
+            <h3>Reference Prefix</h3>
+            <pre><code>"users" name var
+$name array
+"Ada" $users .push! drop
+$users .count println</code></pre>
+            <p>`$name` reads an existing binding and is equivalent to `name get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string.</p>
+          </article>
+          <article>
             <h3>Argument Lists</h3>
             <pre><code>( ctx -> Response ) "index" [
-  ctx get "home/index" swap view
+  $ctx "home/index" swap view
 ] !method</code></pre>
             <p>Parentheses create optional input/output metadata for functions and methods.</p>
           </article>
@@ -176,7 +184,7 @@ packageHello</code></pre>
           </article>
           <article>
             <h3>Templates</h3>
-            <pre><code>&lt;strong&gt;{ user get .name get }&lt;/strong&gt;
+            <pre><code>&lt;strong&gt;{ $user .name get }&lt;/strong&gt;
 &lt;small&gt;{ 20 22 + }&lt;/small&gt;</code></pre>
             <p>Each `{ ... }` expression runs Ricochet and must leave exactly one renderable value.</p>
           </article>

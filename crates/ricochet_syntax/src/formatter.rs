@@ -209,6 +209,7 @@ fn is_inline_expr(expr: &Expr) -> bool {
         Expr::Symbol(_)
             | Expr::BangWord(_)
             | Expr::DotWord(_)
+            | Expr::Reference(_)
             | Expr::String(_)
             | Expr::Number(_)
             | Expr::Args(_)
@@ -248,6 +249,7 @@ fn split_if_sequence(
 fn format_expr_inline(expr: &Expr) -> String {
     match expr {
         Expr::Symbol(word) | Expr::BangWord(word) | Expr::DotWord(word) => word.clone(),
+        Expr::Reference(name) => format!("${name}"),
         Expr::String(value) => format!("\"{}\"", escape_string(value)),
         Expr::Number(value) => value.to_string(),
         Expr::Args(args) => format_args(args),
@@ -319,6 +321,13 @@ end
             format_source(r#"false if "yes" else "no" end"#).expect("source should format");
 
         assert_eq!(formatted, "false if\n  \"yes\"\nelse\n  \"no\"\nend\n");
+    }
+
+    #[test]
+    fn formats_dollar_references() {
+        let formatted = format_source("$ctx .params .id").expect("source should format");
+
+        assert_eq!(formatted, "$ctx .params .id\n");
     }
 
     #[test]

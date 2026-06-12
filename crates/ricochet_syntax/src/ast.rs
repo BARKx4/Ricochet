@@ -61,6 +61,7 @@ pub enum Expr {
     Symbol(String),
     BangWord(String),
     DotWord(String),
+    Reference(String),
     String(String),
     Number(i64),
     Args(ArgsDecl),

@@ -215,6 +215,12 @@ Set new
 `array` and `list` are separate types. v1 does not need collection literal
 syntax.
 
+Variable reads can use the `$name` reference prefix instead of the lower-level
+`name get` spelling. Declaration words still use bare names or strings, so
+`users array` declares a static array, `"users" array` declares dynamically from
+a string literal, and `$name array` reads `name` and declares an array using the
+runtime string stored there.
+
 ## OOP And Metaprogramming
 
 Ricochet uses class-based OOP with open classes. Normal classes can be declared at compile time:

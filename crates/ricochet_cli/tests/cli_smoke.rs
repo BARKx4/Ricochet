@@ -757,6 +757,32 @@ fn run_loads_static_string_imports_before_main_source() {
 }
 
 #[test]
+fn run_reads_variables_with_dollar_reference_prefix() {
+    let source_path = write_source(
+        r#"
+"users" name var
+$name array
+"Ada" $users .push! drop
+$users .count println
+0 $users .at println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("1\nAda"),
+        "stdout should show values read through $ references, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_rejects_absolute_static_imports() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
