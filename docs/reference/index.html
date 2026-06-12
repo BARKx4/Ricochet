@@ -573,16 +573,16 @@ end</code></pre>
           <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
-          <div><code>rco repl [--debug] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
-          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
-          <div><code>rco run-bytecode [--debug] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
+          <div><code>rco repl [--debug] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
+          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
+          <div><code>rco run-bytecode [--debug] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt;</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>
           <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` reloads routes, controllers, models, views, and the manifest between requests.</span></div>
-          <div><code>rco test [--debug] [--filter PATTERN] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
+          <div><code>rco test [--debug] [--filter PATTERN] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
           <article class="example-panel">
@@ -628,7 +628,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
         </div>
         <ul class="limit-list">
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts by default, but `--no-fs` and `--no-http` can deny them per `repl`, `run`, `run-bytecode`, or `test` execution; `--fs-root PATH` bounds filesystem access to a directory, and `--fs-readonly` denies writes. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
+          <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts by default, but `--no-fs` and `--no-http` can deny them per `repl`, `run`, `run-bytecode`, or `test` execution; `--fs-root PATH` bounds filesystem access to a directory, `--fs-readonly` denies writes, and `--http-allow-host HOST` limits HTTP requests by host. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses an unsigned JSON cookie named `ricochet_session`; use package-level signing/encryption before storing sensitive data.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision.</li>

@@ -2466,6 +2466,63 @@ fn run_can_disable_http_capability() {
 }
 
 #[test]
+fn run_can_allow_http_capability_by_host() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+"http://{address}/ping" http .get value response var
+"status" response get .at
+"body" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(200)") && stdout.contains("String(\"pong\")"),
+        "stdout should contain HTTP status and body for allowed host, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_can_restrict_http_capability_by_host() {
+    let source_path = write_source(
+        r#"
+"http://127.0.0.1:1/blocked" http .get error denied var
+"kind" denied get .at
+"message" denied get .at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("example.com")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"PermissionError\")")
+            && stdout.contains("HTTP host is not allowed: 127.0.0.1"),
+        "stdout should report blocked HTTP host before connecting, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_limits_http_response_body_size() {
     let body = vec![b'x'; 1_048_577];
     let mut response = format!(

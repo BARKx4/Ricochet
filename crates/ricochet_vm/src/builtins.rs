@@ -1595,6 +1595,9 @@ impl Vm {
     fn method_http_get(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Http, method)?;
         let url = self.pop_string(method, "URL string")?;
+        if let Err(error) = self.check_http_url_allowed(method, &url) {
+            return Ok(Value::result_err("PermissionError", error.to_string()));
+        }
         Ok(http_in_worker(move || {
             let client = match http_client() {
                 Ok(client) => client,
@@ -1612,6 +1615,9 @@ impl Vm {
             Ok(value) => value,
             Err(message) => return Ok(Value::result_err("JsonError", message)),
         };
+        if let Err(error) = self.check_http_url_allowed(method, &url) {
+            return Ok(Value::result_err("PermissionError", error.to_string()));
+        }
         Ok(http_in_worker(move || {
             let client = match http_client() {
                 Ok(client) => client,

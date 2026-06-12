@@ -103,6 +103,7 @@ pub struct Vm {
     filesystem_root: Option<PathBuf>,
     filesystem_writes_enabled: bool,
     http_enabled: bool,
+    http_allowed_hosts: Option<BTreeSet<String>>,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     debug_sink: Option<DebugSink>,
@@ -129,6 +130,7 @@ struct Task {
     filesystem_root: Option<PathBuf>,
     filesystem_writes_enabled: bool,
     http_enabled: bool,
+    http_allowed_hosts: Option<BTreeSet<String>>,
     instruction_limit: Option<u64>,
 }
 
@@ -205,6 +207,15 @@ impl Vm {
 
     pub fn set_filesystem_writes_enabled(&mut self, enabled: bool) {
         self.filesystem_writes_enabled = enabled;
+    }
+
+    pub fn set_http_allowed_hosts(&mut self, hosts: impl IntoIterator<Item = String>) {
+        self.http_allowed_hosts = Some(
+            hosts
+                .into_iter()
+                .map(|host| host.to_ascii_lowercase())
+                .collect(),
+        );
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1152,6 +1163,7 @@ impl Vm {
                 filesystem_root: self.filesystem_root.clone(),
                 filesystem_writes_enabled: self.filesystem_writes_enabled,
                 http_enabled: self.http_enabled,
+                http_allowed_hosts: self.http_allowed_hosts.clone(),
                 instruction_limit: self.instruction_limit,
             },
         );
@@ -1201,6 +1213,7 @@ impl Vm {
             filesystem_root: task.filesystem_root,
             filesystem_writes_enabled: task.filesystem_writes_enabled,
             http_enabled: task.http_enabled,
+            http_allowed_hosts: task.http_allowed_hosts,
             instruction_limit: task.instruction_limit,
             ..Vm::default()
         };
@@ -1222,6 +1235,31 @@ impl Vm {
 
     pub(super) fn filesystem_writes_enabled(&self) -> bool {
         self.filesystem_enabled && self.filesystem_writes_enabled
+    }
+
+    pub(super) fn check_http_url_allowed(&self, word: &str, url: &str) -> Result<(), VmError> {
+        let Some(allowed_hosts) = &self.http_allowed_hosts else {
+            return Ok(());
+        };
+
+        let parsed = reqwest::Url::parse(url).map_err(|error| VmError::InvalidArgument {
+            word: word.to_string(),
+            message: format!("invalid HTTP URL {url:?}: {error}"),
+        })?;
+        let host = parsed.host_str().ok_or_else(|| VmError::InvalidArgument {
+            word: word.to_string(),
+            message: format!("HTTP URL has no host: {url:?}"),
+        })?;
+        let host = host.to_ascii_lowercase();
+
+        if allowed_hosts.contains(&host) {
+            Ok(())
+        } else {
+            Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("HTTP host is not allowed: {host}"),
+            })
+        }
     }
 
     pub(super) fn resolve_filesystem_path(

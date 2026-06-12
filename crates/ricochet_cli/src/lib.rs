@@ -124,6 +124,12 @@ struct CapabilityOptions {
     fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
+    #[arg(
+        long = "http-allow-host",
+        value_name = "HOST",
+        help = "Allow HTTP requests only to HOST; repeat for multiple hosts"
+    )]
+    http_allow_hosts: Vec<String>,
 }
 
 impl CapabilityOptions {
@@ -135,6 +141,9 @@ impl CapabilityOptions {
             if self.fs_readonly {
                 bail!("--fs-readonly cannot be used with --no-fs");
             }
+        }
+        if self.no_http && !self.http_allow_hosts.is_empty() {
+            bail!("--http-allow-host cannot be used with --no-http");
         }
 
         vm.set_host_capabilities(!self.no_fs, !self.no_http);
@@ -148,6 +157,9 @@ impl CapabilityOptions {
         }
         if self.fs_readonly {
             vm.set_filesystem_writes_enabled(false);
+        }
+        if !self.http_allow_hosts.is_empty() {
+            vm.set_http_allowed_hosts(self.http_allow_hosts.clone());
         }
         Ok(())
     }

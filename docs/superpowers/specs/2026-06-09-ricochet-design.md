@@ -577,8 +577,9 @@ local scripts by default, and `rco repl`, `rco run`, `rco run-bytecode`, and
 `rco test` accept `--no-fs` and `--no-http` to deny those capabilities for a
 specific execution. The same commands accept `--fs-root <path>` to bound
 filesystem access to a directory and `--fs-readonly` to allow reads while
-denying writes and directory creation. Default-off capability policy and HTTP
-allow/deny lists remain future host-policy work.
+denying writes and directory creation. `--http-allow-host <host>` can be
+repeated to restrict HTTP requests to specific hosts. Default-off capability
+policy and named host-policy profiles remain future work.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 
