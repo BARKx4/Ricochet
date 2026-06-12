@@ -125,7 +125,8 @@ step.
 
 The CLI enables filesystem and HTTP capabilities for trusted local scripts by
 default. Use `--no-fs` or `--no-http` with `rco run`, `rco run-bytecode`,
-`rco repl`, or `rco test` to deny those host powers for a specific execution.
-Embedded hosts can leave those capabilities disabled. HTTP calls use a timeout
-and response body cap; filesystem access remains powerful CLI behavior and
-should not be given to untrusted scripts without a future sandbox policy layer.
+`rco repl`, or `rco test` to deny those host powers for a specific execution;
+use `--fs-root <path>` to bound filesystem access to a directory. Embedded
+hosts can leave those capabilities disabled. HTTP calls use a timeout and
+response body cap; filesystem access remains powerful CLI behavior unless it is
+bounded with an explicit root.

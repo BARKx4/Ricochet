@@ -111,17 +111,32 @@ enum Command {
     },
 }
 
-#[derive(Clone, Copy, Debug, Default, Args)]
+#[derive(Clone, Debug, Default, Args)]
 struct CapabilityOptions {
     #[arg(long, help = "Disable the filesystem host capability for this run")]
     no_fs: bool,
+    #[arg(long, value_name = "PATH", help = "Restrict filesystem access to PATH")]
+    fs_root: Option<PathBuf>,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
 }
 
 impl CapabilityOptions {
-    fn apply_to(self, vm: &mut Vm) {
+    fn apply_to(&self, vm: &mut Vm) -> Result<()> {
+        if self.no_fs && self.fs_root.is_some() {
+            bail!("--fs-root cannot be used with --no-fs");
+        }
+
         vm.set_host_capabilities(!self.no_fs, !self.no_http);
+        if let Some(root) = &self.fs_root {
+            let root = fs::canonicalize(root)
+                .with_context(|| format!("failed to resolve --fs-root {}", root.display()))?;
+            if !root.is_dir() {
+                bail!("--fs-root must be a directory: {}", root.display());
+            }
+            vm.set_filesystem_root(root);
+        }
+        Ok(())
     }
 }
 
@@ -228,7 +243,7 @@ fn run_repl<R: BufRead, W: Write>(
     capabilities: CapabilityOptions,
 ) -> Result<()> {
     let mut vm = Vm::default();
-    capabilities.apply_to(&mut vm);
+    capabilities.apply_to(&mut vm)?;
     if debug {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
@@ -1101,7 +1116,7 @@ fn run_chunk_cli(
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
-    let mut vm = cli_vm(args, capabilities);
+    let mut vm = cli_vm(args, &capabilities)?;
     let debugger_enabled = debug || step || !breakpoints.is_empty();
     if debugger_enabled {
         vm.enable_debug();
@@ -1134,9 +1149,9 @@ fn run_chunk_cli(
     Ok(())
 }
 
-fn cli_vm(args: Vec<String>, capabilities: CapabilityOptions) -> Vm {
+fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
     let mut vm = Vm::default();
-    capabilities.apply_to(&mut vm);
+    capabilities.apply_to(&mut vm)?;
     vm.set_program_args(args);
     vm.set_input_reader(|| {
         let mut line = String::new();
@@ -1145,7 +1160,7 @@ fn cli_vm(args: Vec<String>, capabilities: CapabilityOptions) -> Vm {
             .map_err(|error| error.to_string())
             .map(|read| (read > 0).then_some(line))
     });
-    vm
+    Ok(vm)
 }
 
 fn read_terminal_debug_action() -> DebugAction {
@@ -1188,7 +1203,7 @@ fn run_tests(
         }
         let chunk = compile_source_file(&file)?;
         let mut vm = Vm::default();
-        capabilities.apply_to(&mut vm);
+        capabilities.apply_to(&mut vm)?;
         if debug {
             vm.enable_debug();
             vm.set_debug_sink(print_debug_event);

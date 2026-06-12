@@ -2322,6 +2322,55 @@ fn run_can_disable_filesystem_capability() {
 }
 
 #[test]
+fn run_can_restrict_filesystem_capability_to_root() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let root = base.join("fs-root");
+    fs::create_dir_all(&root).expect("filesystem root should be created");
+    let inside_path = root.join("inside.txt");
+    let outside_path = base.join("outside.txt");
+    fs::write(&inside_path, "inside root").expect("inside file should be written");
+    fs::write(&outside_path, "outside root").expect("outside file should be written");
+    let inside = escape_ricochet_string(&inside_path.to_string_lossy());
+    let outside = escape_ricochet_string(&outside_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+"{inside}" fs .read-text value
+"{outside}" fs .read-text error denied var
+"kind" denied get .at
+"{outside}" fs .exists?
+"#
+        ),
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-root")
+        .arg(&root)
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"inside root\")"),
+        "stdout should include readable file inside fs root, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"PermissionError\")"),
+        "stdout should report outside-root reads as PermissionError, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(false)"),
+        "stdout should report outside-root exists? as false, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_exposes_http_client_capability() {
     let (address, server) = spawn_single_response_http_server(
         b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),

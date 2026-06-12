@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
@@ -99,6 +100,7 @@ pub struct Vm {
     pub(super) program_args: Vec<String>,
     pub(super) input_reader: Option<InputReader>,
     filesystem_enabled: bool,
+    filesystem_root: Option<PathBuf>,
     http_enabled: bool,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
@@ -123,6 +125,7 @@ struct Task {
     self_stack: Vec<Value>,
     program_args: Vec<String>,
     filesystem_enabled: bool,
+    filesystem_root: Option<PathBuf>,
     http_enabled: bool,
     instruction_limit: Option<u64>,
 }
@@ -190,6 +193,10 @@ impl Vm {
     pub fn set_host_capabilities(&mut self, filesystem_enabled: bool, http_enabled: bool) {
         self.filesystem_enabled = filesystem_enabled;
         self.http_enabled = http_enabled;
+    }
+
+    pub fn set_filesystem_root(&mut self, root: impl Into<PathBuf>) {
+        self.filesystem_root = Some(normalize_path(&strip_verbatim_prefix(root.into())));
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1134,6 +1141,7 @@ impl Vm {
                 self_stack: self.self_stack.clone(),
                 program_args: self.program_args.clone(),
                 filesystem_enabled: self.filesystem_enabled,
+                filesystem_root: self.filesystem_root.clone(),
                 http_enabled: self.http_enabled,
                 instruction_limit: self.instruction_limit,
             },
@@ -1181,6 +1189,7 @@ impl Vm {
             self_stack: task.self_stack,
             program_args: task.program_args,
             filesystem_enabled: task.filesystem_enabled,
+            filesystem_root: task.filesystem_root,
             http_enabled: task.http_enabled,
             instruction_limit: task.instruction_limit,
             ..Vm::default()
@@ -1199,6 +1208,48 @@ impl Vm {
 
     pub(super) fn pending_task_ids(&self) -> Vec<u64> {
         self.tasks.keys().copied().collect()
+    }
+
+    pub(super) fn resolve_filesystem_path(
+        &self,
+        word: &str,
+        source: &str,
+    ) -> Result<PathBuf, VmError> {
+        let Some(root) = &self.filesystem_root else {
+            return Ok(PathBuf::from(source));
+        };
+
+        let source_path = Path::new(source);
+        let candidate = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            root.join(source_path)
+        };
+        let normalized = normalize_path(&candidate);
+
+        if !normalized.starts_with(root) {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("filesystem path is outside root: {source}"),
+            });
+        }
+
+        let existing = nearest_existing_ancestor(&normalized);
+        let canonical_existing = existing
+            .canonicalize()
+            .map_err(|error| VmError::HostError {
+                word: word.to_string(),
+                message: format!("failed to resolve filesystem path {}: {error}", source),
+            })?;
+        let canonical_existing = normalize_path(&strip_verbatim_prefix(canonical_existing));
+        if !canonical_existing.starts_with(root) {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("filesystem path is outside root: {source}"),
+            });
+        }
+
+        Ok(normalized)
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {
@@ -2199,6 +2250,51 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
     }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Normal(value) => normalized.push(value),
+        }
+    }
+    normalized
+}
+
+fn nearest_existing_ancestor(path: &Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    loop {
+        if current.exists() {
+            return current;
+        }
+        if !current.pop() {
+            return path.to_path_buf();
+        }
+    }
+}
+
+#[cfg(windows)]
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{stripped}"))
+    } else if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn output_string(value: &Value) -> String {
