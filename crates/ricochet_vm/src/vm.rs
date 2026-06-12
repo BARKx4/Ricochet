@@ -187,6 +187,11 @@ impl Vm {
         self.http_enabled = true;
     }
 
+    pub fn set_host_capabilities(&mut self, filesystem_enabled: bool, http_enabled: bool) {
+        self.filesystem_enabled = filesystem_enabled;
+        self.http_enabled = http_enabled;
+    }
+
     pub fn set_instruction_limit(&mut self, limit: u64) {
         self.instruction_limit = Some(limit);
         self.instructions_executed = 0;

@@ -23,10 +23,10 @@ Ricochet now has a coherent first vertical slice:
 - `ricochet_cli`: `rco new`, `check`, `run`, `build`, `serve`, `routes`, `test`,
   and REPL entry points.
 
-The core language shape is already testable. The biggest risks are around the
-host boundary: request-time execution is not bounded yet, CLI capabilities are
-very powerful once enabled, and the scaffolded web app looks more ready to serve
-than it currently is.
+The core language shape is already testable. The biggest remaining risks are
+around the host boundary: CLI capabilities are still powerful when enabled,
+filesystem access is not sandboxed, and higher-level production policies are
+not yet in place.
 
 ## Verification Performed
 
@@ -68,6 +68,9 @@ Implemented after this review:
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at
   1 MiB.
+- `rco repl`, `rco run`, `rco run-bytecode`, and `rco test` now accept
+  `--no-fs` and `--no-http` so trusted-local defaults can be denied per
+  execution.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
 - Active Record now has parameterized `.limit` plus `.count`, `.first`, and
@@ -78,7 +81,8 @@ Implemented after this review:
 
 Still open:
 
-- Filesystem capability sandboxing remains a larger trust-model decision.
+- Filesystem capability sandboxing remains a larger trust-model decision beyond
+  the per-execution deny flags.
 - Session signing/encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
@@ -142,20 +146,19 @@ Recommendation:
 
 ### 3. CLI filesystem and HTTP capabilities are powerful but unsandboxed
 
+Status: partially resolved after this review. CLI execution still defaults to
+trusted-local filesystem and HTTP powers for compatibility, but `rco repl`,
+`rco run`, `rco run-bytecode`, and `rco test` now accept `--no-fs` and
+`--no-http` to deny those powers for a specific execution. Filesystem roots,
+read/write policy, and HTTP allow/deny lists remain future host-policy work.
+
 Evidence:
 
-- CLI mode enables filesystem and HTTP together in
-  `crates/ricochet_vm/src/vm.rs:166`.
-- Filesystem methods read/write/list/create arbitrary host paths in
-  `crates/ricochet_vm/src/builtins.rs:1059`,
-  `crates/ricochet_vm/src/builtins.rs:1068`,
-  `crates/ricochet_vm/src/builtins.rs:1088`, and
-  `crates/ricochet_vm/src/builtins.rs:1108`.
-- HTTP methods use blocking requests without explicit timeout/body limits in
-  `crates/ricochet_vm/src/builtins.rs:1121`,
-  `crates/ricochet_vm/src/builtins.rs:1129`,
-  `crates/ricochet_vm/src/builtins.rs:1418`, and
-  `crates/ricochet_vm/src/builtins.rs:1449`.
+- CLI capability flags are threaded through `crates/ricochet_cli/src/lib.rs`.
+- VM host capability toggles live in `crates/ricochet_vm/src/vm.rs`.
+- Filesystem methods can still read/write/list/create arbitrary host paths
+  when enabled.
+- HTTP methods now have timeout/body limits, but no allow/deny list.
 
 Impact:
 
@@ -169,9 +172,10 @@ Recommendation:
 - Keep the capability model, but introduce host policy objects:
   filesystem root, read/write permissions, HTTP allow/deny lists, timeout, and
   max response bytes.
-- Consider `rco run --allow-fs --allow-http` or a manifest-based trust prompt
-  before enabling dangerous effects for arbitrary script files.
-- Document clearly that `rco run` executes trusted code with host access today.
+- Consider default-off execution, a manifest-based trust prompt, or a named
+  policy profile before enabling dangerous effects for arbitrary script files.
+- Keep documenting clearly that CLI commands execute trusted code with host
+  access unless denied by flags or a future policy.
 
 ## Medium Findings
 
@@ -398,10 +402,11 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Fix fresh scaffold serving: make no-database MVC apps run with `rco serve`.
-2. Add VM fuel/request limits for web execution.
-3. Add capability policy knobs for filesystem and HTTP.
-4. Add host/port CLI options and at least `DELETE` routes.
-5. Add watch-mode debug trace events.
-6. Add a root README and a live-server smoke script.
-7. Install/run clippy and cargo-audit in the local toolchain or CI.
+1. Add a live-server smoke script for `rco serve` on a no-database scaffold.
+2. Add watch-mode debug trace events.
+3. Design filesystem sandbox roots plus read/write policy.
+4. Design HTTP allow/deny policy for host capability use.
+5. Expand Active Record pagination/querying beyond `.limit`, `.count`,
+   `.first`, and `.exists?`.
+6. Add signed/encrypted session/auth package helpers.
+7. Build the first-party AI package/provider capability.

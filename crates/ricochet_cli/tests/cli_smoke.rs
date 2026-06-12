@@ -2300,6 +2300,28 @@ fn run_exposes_filesystem_capability() {
 }
 
 #[test]
+fn run_can_disable_filesystem_capability() {
+    let source_path = write_source("fs drop\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-fs")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail when fs is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("filesystem capability is not enabled"),
+        "stderr should explain the disabled filesystem capability, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_exposes_http_client_capability() {
     let (address, server) = spawn_single_response_http_server(
         b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
@@ -2318,6 +2340,28 @@ fn run_exposes_http_client_capability() {
     assert!(
         stdout.contains("Number(200)") && stdout.contains("String(\"pong\")"),
         "stdout should contain HTTP status and body, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_can_disable_http_capability() {
+    let source_path = write_source("http drop\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-http")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail when HTTP is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("HTTP capability is not enabled"),
+        "stderr should explain the disabled HTTP capability, got:\n{stderr}"
     );
 }
 

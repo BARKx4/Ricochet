@@ -416,6 +416,30 @@ const WORDS = [
     "example": "[ \"ok\" ] call"
   },
   {
+    "word": "spawn",
+    "aliases": [],
+    "group": "control",
+    "stack": "block -> task",
+    "body": "Creates a first-class task value from a block. The current VM environment is captured when the task is spawned.",
+    "example": "[ 40 2 + ] spawn"
+  },
+  {
+    "word": "await",
+    "aliases": [],
+    "group": "control",
+    "stack": "task -> result",
+    "body": "Resolves a spawned task explicitly. Await consumes the pending task handle.",
+    "example": "task get await"
+  },
+  {
+    "word": "tasks",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "-> array",
+    "body": "Returns metadata maps for pending spawned tasks in the current VM.",
+    "example": "tasks .count"
+  },
+  {
     "word": "while",
     "aliases": ["end"],
     "group": "control",
@@ -1414,6 +1438,30 @@ const WORDS = [
     "stack": "method:string receiver -> bool",
     "body": "Checks whether a receiver has a built-in, native, or bytecode method.",
     "example": "\"displayName\" user responds-to?"
+  },
+  {
+    "word": ".id",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> number",
+    "body": "Returns a spawned task handle's numeric id.",
+    "example": "task get .id"
+  },
+  {
+    "word": ".status",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> string",
+    "body": "Returns `pending` while a task can still be awaited, or `consumed` after it has been awaited.",
+    "example": "task get .status"
+  },
+  {
+    "word": ".pending?",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> bool",
+    "body": "Returns true while a task handle is still pending in the current VM.",
+    "example": "task get .pending?"
   },
   {
     "word": "fields",

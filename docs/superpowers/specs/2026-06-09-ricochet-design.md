@@ -572,6 +572,11 @@ config
 Current implementation includes `request`, `cookies`, `session`, `logger`,
 `config`, `db` when a database backend is configured, and response construction
 through `view`, `text`, `json`, `redirect`, `status`, and `header` words.
+CLI script execution enables filesystem and HTTP host capabilities for trusted
+local scripts by default, and `rco repl`, `rco run`, `rco run-bytecode`, and
+`rco test` accept `--no-fs` and `--no-http` to deny those capabilities for a
+specific execution. Filesystem sandbox roots and HTTP allow/deny lists remain
+future host-policy work.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 

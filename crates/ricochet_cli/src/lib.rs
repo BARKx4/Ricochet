@@ -5,7 +5,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
@@ -38,6 +38,8 @@ enum Command {
     Repl {
         #[arg(long)]
         debug: bool,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
     },
     Run {
         #[arg(long)]
@@ -46,6 +48,8 @@ enum Command {
         step: bool,
         #[arg(long = "breakpoint", value_name = "LINE")]
         breakpoints: Vec<usize>,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
         path: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -53,6 +57,8 @@ enum Command {
     RunBytecode {
         #[arg(long)]
         debug: bool,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
         path: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -99,8 +105,24 @@ enum Command {
         debug: bool,
         #[arg(long)]
         filter: Option<String>,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
         path: Option<String>,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, Args)]
+struct CapabilityOptions {
+    #[arg(long, help = "Disable the filesystem host capability for this run")]
+    no_fs: bool,
+    #[arg(long, help = "Disable the HTTP host capability for this run")]
+    no_http: bool,
+}
+
+impl CapabilityOptions {
+    fn apply_to(self, vm: &mut Vm) {
+        vm.set_host_capabilities(!self.no_fs, !self.no_http);
+    }
 }
 
 pub fn crate_version() -> &'static str {
@@ -116,6 +138,7 @@ pub async fn run_cli() -> Result<()> {
             &[],
             None,
             std::env::args().skip(1).collect(),
+            CapabilityOptions::default(),
         )?;
         return Ok(());
     }
@@ -124,20 +147,35 @@ pub async fn run_cli() -> Result<()> {
     match cli.command {
         Command::New { path } => new_project(Path::new(&path))?,
         Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
-        Command::Repl { debug } => {
+        Command::Repl {
+            debug,
+            capabilities,
+        } => {
             let stdin = io::stdin();
             let interactive = stdin.is_terminal();
             let stdout = io::stdout();
-            run_repl(stdin.lock(), stdout.lock(), debug, interactive)?;
+            run_repl(
+                stdin.lock(),
+                stdout.lock(),
+                debug,
+                interactive,
+                capabilities,
+            )?;
         }
         Command::Run {
             debug,
             step,
             breakpoints,
+            capabilities,
             path,
             args,
-        } => run_file(&path, debug, step, &breakpoints, args)?,
-        Command::RunBytecode { debug, path, args } => run_bytecode(&path, debug, args)?,
+        } => run_file(&path, debug, step, &breakpoints, args, capabilities)?,
+        Command::RunBytecode {
+            debug,
+            capabilities,
+            path,
+            args,
+        } => run_bytecode(&path, debug, args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Package { path, output } => {
             package(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE), &output)?
@@ -168,9 +206,15 @@ pub async fn run_cli() -> Result<()> {
         Command::Test {
             debug,
             filter,
+            capabilities,
             path,
         } => {
-            run_tests(path.as_deref().unwrap_or("tests"), debug, filter.as_deref())?;
+            run_tests(
+                path.as_deref().unwrap_or("tests"),
+                debug,
+                filter.as_deref(),
+                capabilities,
+            )?;
         }
     }
     Ok(())
@@ -181,9 +225,10 @@ fn run_repl<R: BufRead, W: Write>(
     mut output: W,
     debug: bool,
     interactive: bool,
+    capabilities: CapabilityOptions,
 ) -> Result<()> {
     let mut vm = Vm::default();
-    vm.enable_cli_capabilities();
+    capabilities.apply_to(&mut vm);
     if debug {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
@@ -1022,15 +1067,29 @@ fn run_file(
     step: bool,
     breakpoints: &[usize],
     args: Vec<String>,
+    capabilities: CapabilityOptions,
 ) -> Result<()> {
     let chunk = compile_source_file(Path::new(path))?;
-    run_chunk_cli(&chunk, debug, step, breakpoints, Some(&chunk.file), args)
+    run_chunk_cli(
+        &chunk,
+        debug,
+        step,
+        breakpoints,
+        Some(&chunk.file),
+        args,
+        capabilities,
+    )
 }
 
-fn run_bytecode(path: &str, debug: bool, args: Vec<String>) -> Result<()> {
+fn run_bytecode(
+    path: &str,
+    debug: bool,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
     let bytes = fs::read(path).with_context(|| format!("failed to read {path}"))?;
     let chunk = Chunk::from_bytes(&bytes).with_context(|| format!("failed to decode {path}"))?;
-    run_chunk_cli(&chunk, debug, false, &[], None, args)
+    run_chunk_cli(&chunk, debug, false, &[], None, args, capabilities)
 }
 
 fn run_chunk_cli(
@@ -1040,8 +1099,9 @@ fn run_chunk_cli(
     breakpoints: &[usize],
     breakpoint_file: Option<&str>,
     args: Vec<String>,
+    capabilities: CapabilityOptions,
 ) -> Result<()> {
-    let mut vm = cli_vm(args);
+    let mut vm = cli_vm(args, capabilities);
     let debugger_enabled = debug || step || !breakpoints.is_empty();
     if debugger_enabled {
         vm.enable_debug();
@@ -1074,9 +1134,9 @@ fn run_chunk_cli(
     Ok(())
 }
 
-fn cli_vm(args: Vec<String>) -> Vm {
+fn cli_vm(args: Vec<String>, capabilities: CapabilityOptions) -> Vm {
     let mut vm = Vm::default();
-    vm.enable_cli_capabilities();
+    capabilities.apply_to(&mut vm);
     vm.set_program_args(args);
     vm.set_input_reader(|| {
         let mut line = String::new();
@@ -1108,7 +1168,12 @@ fn read_terminal_debug_action() -> DebugAction {
     }
 }
 
-fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
+fn run_tests(
+    path: &str,
+    debug: bool,
+    filter: Option<&str>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
     let path = Path::new(path);
     let project_root = find_project_root_for_tests(path);
     let files = collect_test_files_for_path(path, project_root.as_deref())?;
@@ -1123,7 +1188,7 @@ fn run_tests(path: &str, debug: bool, filter: Option<&str>) -> Result<()> {
         }
         let chunk = compile_source_file(&file)?;
         let mut vm = Vm::default();
-        vm.enable_cli_capabilities();
+        capabilities.apply_to(&mut vm);
         if debug {
             vm.enable_debug();
             vm.set_debug_sink(print_debug_event);
