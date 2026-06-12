@@ -61,11 +61,25 @@ struct WatchedRuntime {
     current: RwLock<Arc<AppRuntime>>,
     signature: Mutex<ProjectSignature>,
     builder: RuntimeBuilder,
+    trace_sink: Option<WatchTraceSink>,
 }
 
 type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
+pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
 const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatchTraceEvent {
+    Reloaded {
+        revision: u64,
+        changed_files: Vec<PathBuf>,
+    },
+    ReloadFailed {
+        changed_files: Vec<PathBuf>,
+        message: String,
+    },
+}
 
 enum RenderedAction {
     Html {
@@ -121,7 +135,17 @@ impl WatchedRuntime {
             .map_err(|_| anyhow!("hot reload signature lock was poisoned"))?;
 
         if *signature != current_signature {
-            let runtime = Arc::new((self.builder)()?);
+            let changed_files = changed_signature_paths(&signature, &current_signature);
+            let runtime = match (self.builder)() {
+                Ok(runtime) => Arc::new(runtime),
+                Err(error) => {
+                    self.record_trace(WatchTraceEvent::ReloadFailed {
+                        changed_files,
+                        message: format!("{error:#}"),
+                    });
+                    return Err(error);
+                }
+            };
             {
                 let mut current = self
                     .current
@@ -131,6 +155,10 @@ impl WatchedRuntime {
             }
             *signature = current_signature;
             let revision = revisions.publish_new_revision();
+            self.record_trace(WatchTraceEvent::Reloaded {
+                revision: revision.id,
+                changed_files,
+            });
             return Ok((runtime, revision));
         }
 
@@ -140,6 +168,12 @@ impl WatchedRuntime {
             .map_err(|_| anyhow!("hot reload runtime lock was poisoned"))?
             .clone();
         Ok((runtime, revisions.current()))
+    }
+
+    fn record_trace(&self, event: WatchTraceEvent) {
+        if let Some(sink) = &self.trace_sink {
+            sink(&event);
+        }
     }
 }
 
@@ -200,7 +234,21 @@ pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Rout
         build_runtime_from_dir_internal(&builder_root, vm_setup)
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder)
+    build_watched_app_from_runtime_builder(project_root, builder, None)
+}
+
+pub fn build_watched_app_from_dir_with_trace(
+    project_root: impl AsRef<Path>,
+    trace_sink: WatchTraceSink,
+) -> Result<Router> {
+    let project_root = project_root.as_ref().to_path_buf();
+    let builder_root = project_root.clone();
+    let builder: RuntimeBuilder = Arc::new(move || {
+        let vm_setup = model_vm_setup(&builder_root)?;
+        build_runtime_from_dir_internal(&builder_root, vm_setup)
+    });
+
+    build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
 }
 
 pub fn build_watched_app_from_dir_with_database(
@@ -214,7 +262,22 @@ pub fn build_watched_app_from_dir_with_database(
         build_runtime_from_dir_internal(&builder_root, Some(vm_setup))
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder)
+    build_watched_app_from_runtime_builder(project_root, builder, None)
+}
+
+pub fn build_watched_app_from_dir_with_database_and_trace(
+    project_root: impl AsRef<Path>,
+    backend: Arc<dyn DatabaseBackend>,
+    trace_sink: WatchTraceSink,
+) -> Result<Router> {
+    let project_root = project_root.as_ref().to_path_buf();
+    let builder_root = project_root.clone();
+    let builder: RuntimeBuilder = Arc::new(move || {
+        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
+        build_runtime_from_dir_internal(&builder_root, Some(vm_setup))
+    });
+
+    build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
 }
 
 pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
@@ -257,6 +320,7 @@ fn build_runtime_from_dir_internal(
 fn build_watched_app_from_runtime_builder(
     project_root: PathBuf,
     builder: RuntimeBuilder,
+    trace_sink: Option<WatchTraceSink>,
 ) -> Result<Router> {
     let runtime = Arc::new(builder()?);
     let signature = project_signature(&project_root)?;
@@ -265,6 +329,7 @@ fn build_watched_app_from_runtime_builder(
         current: RwLock::new(runtime),
         signature: Mutex::new(signature),
         builder,
+        trace_sink,
     };
 
     let state = AppState {
@@ -601,6 +666,49 @@ fn file_signature(path: &Path) -> Result<FileSignature> {
         len: contents.len() as u64,
         hash: hasher.finish(),
     })
+}
+
+fn changed_signature_paths(before: &ProjectSignature, after: &ProjectSignature) -> Vec<PathBuf> {
+    let mut paths = BTreeSet::new();
+    paths.extend(before.files.keys().cloned());
+    paths.extend(after.files.keys().cloned());
+    paths
+        .into_iter()
+        .filter(|path| before.files.get(path) != after.files.get(path))
+        .collect()
+}
+
+fn stdout_watch_trace_sink() -> WatchTraceSink {
+    Arc::new(print_watch_trace_event)
+}
+
+fn print_watch_trace_event(event: &WatchTraceEvent) {
+    match event {
+        WatchTraceEvent::Reloaded {
+            revision,
+            changed_files,
+        } => {
+            println!(
+                "TRACE watch reload revision={revision} changed={}",
+                changed_files.len()
+            );
+            for path in changed_files {
+                println!("  changed: {}", path.display());
+            }
+        }
+        WatchTraceEvent::ReloadFailed {
+            changed_files,
+            message,
+        } => {
+            println!(
+                "FAULT watch reload changed={} {message}",
+                changed_files.len()
+            );
+            for path in changed_files {
+                println!("  changed: {}", path.display());
+            }
+        }
+    }
 }
 
 fn build_controller_registry(
@@ -1222,6 +1330,7 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     options.validate()?;
     let project_root = Path::new(".");
     let manifest = load_manifest(project_root)?;
+    let watch_trace_sink = (options.watch && options.debug).then(stdout_watch_trace_sink);
     let app = match (options.watch, manifest.database.default) {
         (true, Some(database)) => {
             if database.adapter != "postgres" {
@@ -1229,9 +1338,23 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
             }
             let url = database.resolved_url()?;
             let backend = PostgresDatabase::connect(&url).await?;
-            build_watched_app_from_dir_with_database(project_root, Arc::new(backend))?
+            if let Some(trace_sink) = watch_trace_sink.clone() {
+                build_watched_app_from_dir_with_database_and_trace(
+                    project_root,
+                    Arc::new(backend),
+                    trace_sink,
+                )?
+            } else {
+                build_watched_app_from_dir_with_database(project_root, Arc::new(backend))?
+            }
         }
-        (true, None) => build_watched_app_from_dir(project_root)?,
+        (true, None) => {
+            if let Some(trace_sink) = watch_trace_sink.clone() {
+                build_watched_app_from_dir_with_trace(project_root, trace_sink)?
+            } else {
+                build_watched_app_from_dir(project_root)?
+            }
+        }
         (false, Some(database)) => {
             if database.adapter != "postgres" {
                 bail!("unsupported database adapter {}", database.adapter);

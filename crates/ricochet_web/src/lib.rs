@@ -15,7 +15,9 @@ pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{
     build_app_from_dir_with_database, build_test_app, build_watched_app_from_dir,
-    build_watched_app_from_dir_with_database, routes_from_dir, serve_current_dir, ServeOptions,
+    build_watched_app_from_dir_with_database, build_watched_app_from_dir_with_database_and_trace,
+    build_watched_app_from_dir_with_trace, routes_from_dir, serve_current_dir, ServeOptions,
+    WatchTraceEvent, WatchTraceSink,
 };
 pub use template::{render_template, EscapeMode};
 

@@ -87,7 +87,9 @@ rco serve --watch
 
 `--watch` reloads Ricochet MVC routes, controllers, models, views, and the
 manifest between requests. If a reload fails, the request returns a clear MVC
-error and the next request retries after you fix the source.
+error and the next request retries after you fix the source. Combine `--watch`
+with `--debug` to print reload trace lines with the new revision and changed
+files.
 
 ## Developing Ricochet
 

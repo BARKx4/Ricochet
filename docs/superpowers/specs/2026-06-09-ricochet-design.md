@@ -650,8 +650,10 @@ Current implementation note: `rco serve --watch` reloads the MVC runtime between
 requests when `ricochet.toml`, `app/**/*.rco`, `app/**/*.html`, or
 `config/**/*.rco` changes. Routes, controllers, models, views, and manifest
 view settings are rebuilt together. If a reload fails, the request returns a
-clear MVC error and the next request retries after the source is fixed; debug
-trace events for reloads remain future work.
+clear MVC error and the next request retries after the source is fixed.
+`rco serve --debug --watch` prints reload trace lines with the new revision and
+changed files, and embedders can capture `WatchTraceEvent` reload events from
+watched app builders.
 
 The REPL is a live metaprogramming workspace from v1. It supports redefining classes/methods, open classes, live stack inspection, multiline declarations, and optional debug tracing.
 

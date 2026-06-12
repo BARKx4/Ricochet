@@ -5,7 +5,7 @@ use axum::{
 use ricochet_vm::Value;
 use ricochet_web::{
     ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping,
-    PostgresDatabase, RequestContext,
+    PostgresDatabase, RequestContext, WatchTraceEvent, WatchTraceSink,
 };
 use std::{
     collections::BTreeMap,
@@ -13,7 +13,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -1289,8 +1289,19 @@ end
     )
     .expect("controller should be written");
 
+    let trace_events = Arc::new(Mutex::new(Vec::new()));
+    let trace_sink: WatchTraceSink = {
+        let trace_events = Arc::clone(&trace_events);
+        Arc::new(move |event| {
+            trace_events
+                .lock()
+                .expect("trace events lock should not be poisoned")
+                .push(event.clone());
+        })
+    };
     let app =
-        ricochet_web::server::build_watched_app_from_dir(&project_root).expect("build watched app");
+        ricochet_web::server::build_watched_app_from_dir_with_trace(&project_root, trace_sink)
+            .expect("build watched app");
 
     let response = app
         .clone()
@@ -1304,6 +1315,13 @@ end
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
     assert_eq!(body, "before");
+    assert!(
+        trace_events
+            .lock()
+            .expect("trace events lock should not be poisoned")
+            .is_empty(),
+        "initial watched request should not emit a reload trace"
+    );
 
     fs::write(
         project_root.join("config/routes.rco"),
@@ -1333,6 +1351,22 @@ end
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
     assert_eq!(body, "after");
+    let trace_events = trace_events
+        .lock()
+        .expect("trace events lock should not be poisoned");
+    assert_eq!(trace_events.len(), 1);
+    assert_eq!(
+        trace_events[0],
+        WatchTraceEvent::Reloaded {
+            revision: 1,
+            changed_files: vec![
+                PathBuf::from("app")
+                    .join("Controllers")
+                    .join("HomeController.rco"),
+                PathBuf::from("config").join("routes.rco"),
+            ],
+        }
+    );
 }
 
 #[tokio::test]

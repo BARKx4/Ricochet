@@ -55,6 +55,8 @@ Implemented after this review:
 - `rco serve` now accepts `--host` and `--port` through `ServeOptions`.
 - `rco serve --watch` now reloads routes, controllers, models, views, and the
   manifest between requests.
+- `rco serve --debug --watch` now prints reload traces with the new revision and
+  changed files; watched app builders can also emit `WatchTraceEvent` values.
 - `scripts/acceptance.ps1` now invokes `scripts/live-server-smoke.ps1`, which
   starts a real `rco serve` process for the generated no-database scaffold and
   verifies the home page over HTTP.
@@ -98,8 +100,8 @@ Still open:
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
 - Scheduler-level task concurrency and async IO words remain future async work.
-- Watch-mode debug trace events are still planned; request-time hot reload is
-  implemented.
+- Watch-mode debug trace events are implemented for reload success/failure;
+  request-time hot reload is implemented.
 
 ## Critical / High Findings
 
@@ -282,12 +284,14 @@ Recommendation:
 ### 8. Resolved: `--watch` was advertised before implementation
 
 Status: resolved after this review. `rco serve --watch` now rebuilds the MVC
-runtime between requests when watched project files change.
+runtime between requests when watched project files change, and `--debug
+--watch` prints reload traces.
 
 Evidence:
 
 - CLI accepts `rco serve --watch` in `crates/ricochet_cli/src/lib.rs:43`.
-- Server only prints the watch value in `crates/ricochet_web/src/server.rs:385`.
+- Server rebuilds watched runtimes from `crates/ricochet_web/src/server.rs` and
+  emits `WatchTraceEvent` reload traces for debug/embedding use.
 - Reference docs advertise `rco serve [--debug] [--watch]` in
   `docs/reference/index.html:510`.
 - The design spec calls `rco serve --watch` a v1 feature in
@@ -295,8 +299,8 @@ Evidence:
 
 Impact:
 
-This is a feature gap, not a runtime bug. It can mislead testers into assuming
-hot reload is active.
+The earlier misleading `--watch` surface is now backed by reload behavior and
+debug traces, so testers can see when a changed project revision is picked up.
 
 Original recommendation:
 
@@ -421,9 +425,8 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Add watch-mode debug trace events.
-2. Decide whether default CLI filesystem/HTTP access should become opt-in.
-3. Expand Active Record pagination/querying beyond `.limit`, `.count`,
+1. Decide whether default CLI filesystem/HTTP access should become opt-in.
+2. Expand Active Record pagination/querying beyond `.limit`, `.count`,
    `.first`, and `.exists?`.
-4. Add signed/encrypted session/auth package helpers.
-5. Build the first-party AI package/provider capability.
+3. Add signed/encrypted session/auth package helpers.
+4. Build the first-party AI package/provider capability.
