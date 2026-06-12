@@ -65,8 +65,9 @@ Implemented after this review:
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
   request-time instruction budgets.
-- Async task values now support `.id`, `.status`, `.pending?`, and the `tasks`
-  word for basic pending/consumed inspection.
+- Async task values now support `.id`, `.status`, `.pending?`, `.completed?`,
+  `.failed?`, retained completed/failed status, and the `tasks` word for
+  pending-task inspection.
 - MVC 500 responses include the full error chain, so budget faults are visible
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at
@@ -402,8 +403,8 @@ design docs and the current implementation:
 - Migrations/schema management beyond existing-schema Active Record.
 - Filesystem capability sandboxing and broader capability policy.
 - Production PostgreSQL TLS configuration.
-- Scheduler-level task concurrency, async IO words, and richer debugger task
-  views.
+- Scheduler-level task concurrency, async IO words, and richer running or
+  suspended debugger task views.
 
 ## What Looks Solid
 

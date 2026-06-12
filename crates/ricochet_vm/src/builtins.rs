@@ -117,7 +117,12 @@ impl Vm {
             Value::Result(_) => {
                 matches!(method, "error?" | "unwrap-or" | "map-result" | "and-then")
             }
-            Value::Task(_) => matches!(method, "id" | "status" | "pending?"),
+            Value::Task(_) => {
+                matches!(
+                    method,
+                    "id" | "status" | "pending?" | "completed?" | "failed?"
+                )
+            }
             Value::Capability(Capability::FileSystem) => {
                 matches!(
                     method,
@@ -210,6 +215,8 @@ impl Vm {
             "id" => self.method_task_id(receiver, method),
             "status" => self.method_task_status(receiver, method),
             "pending?" => self.method_task_pending(receiver, method),
+            "completed?" => self.method_task_completed(receiver, method),
+            "failed?" => self.method_task_failed(receiver, method),
             "read-text" => self.method_fs_read_text(receiver, method),
             "write-text!" => self.method_fs_write_text(receiver, method),
             "exists?" => self.method_fs_exists(receiver, method),
@@ -892,11 +899,17 @@ impl Vm {
         }
     }
 
-    fn task_status(&self, task_id: u64) -> &'static str {
-        if self.task_pending(task_id) {
-            "pending"
-        } else {
-            "consumed"
+    fn method_task_completed(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => Ok(Value::Bool(self.task_completed(task_id))),
+            value => Err(method_type_error(method, "task", &value)),
+        }
+    }
+
+    fn method_task_failed(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => Ok(Value::Bool(self.task_failed(task_id))),
+            value => Err(method_type_error(method, "task", &value)),
         }
     }
 

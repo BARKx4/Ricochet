@@ -378,9 +378,11 @@ await
 
 Current implementation note: `[ ... ] spawn` creates a first-class task value
 that captures the spawn-time VM environment; `await` resolves it explicitly.
-Task handles expose `.id`, `.status`, and `.pending?`, while the `tasks` word
-returns pending task metadata for debugger-style inspection. Scheduler-level
-concurrency and async IO words remain future work.
+Task handles retain completed/failed status after `await`, expose `.id`,
+`.status`, `.pending?`, `.completed?`, and `.failed?`, and completed handles
+can be awaited again for the cached result. The `tasks` word returns pending
+task metadata for debugger-style inspection. Scheduler-level concurrency and
+async IO words remain future work.
 
 The debugger can inspect running, suspended, and failed tasks.
 
@@ -630,8 +632,9 @@ Debugger features from v1:
 - Source line, method, and word breakpoints.
 - Break-on-fault.
 - Configurable stack display: concise diff/top-N by default, full stack on request.
-- Basic task inspection for async/spawned work is implemented; richer running,
-  suspended, and failed task debugger views remain future work.
+- Basic task inspection for async/spawned work is implemented, including
+  retained completed/failed handle status; richer running and suspended task
+  debugger views remain future work.
 
 The terminal debugger is first, but the debugger should be protocol/event-stream based so a TUI or browser debugger can consume the same VM events later.
 

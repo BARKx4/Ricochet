@@ -1644,11 +1644,16 @@ fn run_inspects_spawned_task_status() {
 task get .id
 task get .status
 task get .pending?
+task get .completed?
+task get .failed?
 tasks
 tasks .count
 task get await
 task get .status
+task get .completed?
+task get .failed?
 task get .pending?
+task get await
 tasks .count
 "#,
     );
@@ -1672,8 +1677,16 @@ tasks .count
         "stdout should show the awaited task result, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("String(\"consumed\")") && stdout.contains("Bool(false)"),
-        "stdout should show the task consumed after await, got:\n{stdout}"
+        stdout.contains("String(\"completed\")"),
+        "stdout should show the task completed after await, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Bool(false)").count() >= 3 && stdout.contains("Bool(true)"),
+        "stdout should show pending/completed/failed task predicates, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(22)").count() >= 2,
+        "await should return the cached completed task result on reuse, got:\n{stdout}"
     );
 }
 

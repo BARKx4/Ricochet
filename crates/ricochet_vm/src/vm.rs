@@ -113,7 +113,7 @@ pub struct Vm {
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
     instructions_executed: u64,
-    tasks: BTreeMap<u64, Task>,
+    tasks: BTreeMap<u64, TaskState>,
     next_task_id: u64,
 }
 
@@ -132,6 +132,13 @@ struct Task {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     instruction_limit: Option<u64>,
+}
+
+#[derive(Clone)]
+enum TaskState {
+    Pending(Box<Task>),
+    Completed(Value),
+    Failed(VmError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1151,7 +1158,7 @@ impl Vm {
         self.next_task_id += 1;
         self.tasks.insert(
             task_id,
-            Task {
+            TaskState::Pending(Box::new(Task {
                 block,
                 variables: self.variables.clone(),
                 functions: self.functions.clone(),
@@ -1165,7 +1172,7 @@ impl Vm {
                 http_enabled: self.http_enabled,
                 http_allowed_hosts: self.http_allowed_hosts.clone(),
                 instruction_limit: self.instruction_limit,
-            },
+            })),
         );
         self.stack.push(Value::Task(task_id));
         Ok(())
@@ -1189,16 +1196,62 @@ impl Vm {
             return Err(VmError::UnknownTask(task_id));
         };
 
-        match self.run_task(task) {
-            Ok(value) => {
-                self.stack.push(value);
+        match task {
+            TaskState::Pending(task) => match self.run_task(*task) {
+                Ok(value) => {
+                    self.tasks
+                        .insert(task_id, TaskState::Completed(value.clone()));
+                    self.stack.push(value);
+                    Ok(())
+                }
+                Err(error) => {
+                    self.stack = stack_before;
+                    self.tasks.insert(task_id, TaskState::Failed(error.clone()));
+                    Err(error)
+                }
+            },
+            TaskState::Completed(value) => {
+                self.stack.push(value.clone());
+                self.tasks.insert(task_id, TaskState::Completed(value));
                 Ok(())
             }
-            Err(error) => {
+            TaskState::Failed(error) => {
                 self.stack = stack_before;
+                self.tasks.insert(task_id, TaskState::Failed(error.clone()));
                 Err(error)
             }
         }
+    }
+
+    pub(super) fn task_status(&self, task_id: u64) -> &'static str {
+        match self.tasks.get(&task_id) {
+            Some(TaskState::Pending(_)) => "pending",
+            Some(TaskState::Completed(_)) => "completed",
+            Some(TaskState::Failed(_)) => "failed",
+            None => "consumed",
+        }
+    }
+
+    pub(super) fn task_pending(&self, task_id: u64) -> bool {
+        matches!(self.tasks.get(&task_id), Some(TaskState::Pending(_)))
+    }
+
+    pub(super) fn task_completed(&self, task_id: u64) -> bool {
+        matches!(self.tasks.get(&task_id), Some(TaskState::Completed(_)))
+    }
+
+    pub(super) fn task_failed(&self, task_id: u64) -> bool {
+        matches!(self.tasks.get(&task_id), Some(TaskState::Failed(_)))
+    }
+
+    pub(super) fn pending_task_ids(&self) -> Vec<u64> {
+        self.tasks
+            .iter()
+            .filter_map(|(task_id, task)| match task {
+                TaskState::Pending(_) => Some(*task_id),
+                TaskState::Completed(_) | TaskState::Failed(_) => None,
+            })
+            .collect()
     }
 
     fn run_task(&mut self, task: Task) -> Result<Value, VmError> {
@@ -1223,14 +1276,6 @@ impl Vm {
         self.stdout.push_str(&task_vm.stdout);
         self.stderr.push_str(&task_vm.stderr);
         result
-    }
-
-    pub(super) fn task_pending(&self, task_id: u64) -> bool {
-        self.tasks.contains_key(&task_id)
-    }
-
-    pub(super) fn pending_task_ids(&self) -> Vec<u64> {
-        self.tasks.keys().copied().collect()
     }
 
     pub(super) fn filesystem_writes_enabled(&self) -> bool {
@@ -4014,6 +4059,37 @@ mod tests {
             vm.run_chunk(&chunk),
             Err(VmError::InstructionLimitExceeded { limit: 16 })
         );
+    }
+
+    #[test]
+    fn await_retains_failed_task_status_for_inspection() {
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::PushBool(true), span());
+        task.push(Op::JumpIfFalse(3), span());
+        task.push(Op::Jump(0), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_instruction_limit(16);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+
+        assert_eq!(vm.stack(), &[Value::Task(0)]);
+        assert_eq!(vm.task_status(0), "pending");
+
+        let expected = Err(VmError::InstructionLimitExceeded { limit: 16 });
+        assert_eq!(vm.call_word("await"), expected);
+        assert_eq!(vm.stack(), &[Value::Task(0)]);
+        assert_eq!(vm.task_status(0), "failed");
+        assert!(!vm.task_pending(0));
+        assert!(!vm.task_completed(0));
+        assert!(vm.task_failed(0));
+
+        assert_eq!(vm.call_word("await"), expected);
+        assert_eq!(vm.stack(), &[Value::Task(0)]);
     }
 
     #[test]
