@@ -64,19 +64,22 @@ not-implemented error.
 
 ## Verification
 
+Use a current stable Rust toolchain. For local verification, install the
+formatter, linter, and audit plugin explicitly:
+
+```powershell
+rustup component add rustfmt clippy
+cargo install cargo-audit --locked
+```
+
+Then run:
+
 ```powershell
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo audit
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
-```
-
-The repo includes `rust-toolchain.toml` to request the Clippy and Rustfmt
-components. `cargo-audit` is a Cargo plugin; install it with:
-
-```powershell
-cargo install cargo-audit --locked
 ```
 
 ## Reference Docs
