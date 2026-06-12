@@ -8,14 +8,15 @@ existing PostgreSQL schemas.
 
 ## Current Status
 
-This is an early but runnable vertical slice. You can write `.rco` scripts, run
-CLI programs, format source, build and run bytecode, package standalone
-executables, scaffold an MVC app, list routes, generate Markdown docs, run
-Ricochet tests, and serve a local web app. The VM has first-class task values
-with `spawn`, explicit `await`/`await-all`, retained completed/failed task
-status, eager background task execution, basic task inspection, and
-task-returning HTTP helpers. The CLI can record and install path/GitHub package
-dependencies, and static imports can load
+This is an early but runnable vertical slice. The v1 bar is a usable web app
+beta target for other developers to test, not a production deployment promise.
+You can write `.rco` scripts, run CLI programs, format source, build and run
+bytecode, package standalone executables, scaffold an MVC app, list routes,
+generate Markdown docs, run Ricochet tests, and serve a local web app. The VM
+has first-class task values with `spawn`, explicit `await`/`await-all`,
+retained completed/failed task status, eager background task execution, basic
+task inspection, and task-returning HTTP helpers. The CLI can record and
+install path/GitHub package dependencies, and static imports can load
 local package sources. Hot reload is available for MVC apps during local
 development, and controllers receive request, header, cookie, lightweight
 session, logger, and safe manifest config context. Session cookies can be

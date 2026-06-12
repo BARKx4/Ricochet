@@ -23,10 +23,13 @@ Ricochet now has a coherent first vertical slice:
 - `ricochet_cli`: `rco new`, `check`, `run`, `build`, `serve`, `routes`, `test`,
   and REPL entry points.
 
-The core language shape is already testable. The biggest remaining risks are
-around the host boundary: CLI capabilities are still powerful when enabled,
-filesystem roots are opt-in rather than default, and higher-level production
-policies are not yet in place.
+The core language shape is already testable. The v1 milestone should be judged
+as a usable web app beta target for other developers, not as a production
+deployment promise. The biggest remaining beta risks are the web-app ergonomics
+that affect developer testing loops: model/query composition, auth package
+shape, clear host capability policy, and enough docs/examples to build a small
+MVC app with confidence. Production-only hardening, such as PostgreSQL TLS and
+deployment policy, should remain visible but should not define the v1 beta bar.
 
 ## Verification Performed
 
@@ -420,10 +423,16 @@ design docs and the current implementation:
 
 - Richer AI package/provider helpers beyond the initial MVC `ai.chat`
   capability.
-- Higher-level auth helpers beyond signed/encrypted session cookies.
-- Migrations/schema management beyond existing-schema Active Record.
-- Capability-profile default decision and broader policy hardening.
-- Production PostgreSQL TLS configuration.
+- Higher-level auth helpers beyond signed/encrypted session cookies, enough for
+  beta testers to build ordinary login/session flows.
+- Active Record relation chaining or a default pagination policy for everyday
+  list pages.
+- Capability-profile default decision and clearer beta testing policy.
+- Migrations/schema management beyond existing-schema Active Record. Migrations
+  are not required for v1 beta if existing-schema Active Record remains clearly
+  documented.
+- Production PostgreSQL TLS configuration. This is a production-readiness item,
+  not a v1 beta blocker.
 - Richer suspended debugger task views and broader async IO helpers beyond the
   HTTP task methods.
 
@@ -443,8 +452,10 @@ design docs and the current implementation:
 ## Suggested Next Sprint Order
 
 1. Add Active Record relation chaining or default pagination policy.
-2. Add higher-level auth package helpers.
-3. Decide whether v1 should keep `trusted` as the CLI default or switch to
-   `sandboxed`.
-4. Extend AI with structured/schema helpers or streaming after the web/auth
+2. Add higher-level auth package helpers for ordinary beta web apps.
+3. Decide whether v1 beta should keep `trusted` as the CLI default or switch to
+   `sandboxed`, and document the beta testing policy either way.
+4. Add one end-to-end beta web-app example that uses routing, controllers,
+   views, sessions/auth, and Active Record.
+5. Extend AI with structured/schema helpers or streaming after the web/auth
    boundary is firmer.

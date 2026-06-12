@@ -464,7 +464,11 @@ CLI apps can use an MVC-like command/controller/action framework.
 
 ## Web MVC
 
-Web is part of the first serious milestone. The v1 vertical slice should support:
+Web is part of the first serious milestone. Ricochet v1 is defined as a usable
+web app beta target for other developers to test. It should let developers
+scaffold, run, iterate on, and exercise a real MVC app locally with clear
+failure modes; it is not a production hosting or security-hardening promise.
+The v1 vertical slice should support:
 
 - Standalone HTTP serving via `rco serve`.
 - CGI/FastCGI deployment path.
