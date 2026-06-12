@@ -1691,6 +1691,31 @@ tasks .count
 }
 
 #[test]
+fn run_awaits_multiple_tasks_with_await_all() {
+    let output = run_source(
+        r#"
+handles array
+[ 20 2 + ] spawn handles get .push! drop
+[ 30 4 + ] spawn handles get .push! drop
+handles get await-all
+handles get await-all
+tasks .count
+"#,
+    );
+    assert_run_success_for("rco run", "await-all", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches(r#"Array([Number(22), Number(34)])"#).count() >= 2,
+        "stdout should show await-all resolving and reusing task results, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(0)"),
+        "stdout should show no pending tasks after await-all, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_executes_dynamic_send_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

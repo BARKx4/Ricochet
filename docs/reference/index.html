@@ -611,7 +611,11 @@ task get .completed?
 tasks .count
 task get await
 task get .status
-task get await</code></pre>
+task get await
+handles array
+[ 20 2 + ] spawn handles get .push! drop
+[ 30 4 + ] spawn handles get .push! drop
+handles get await-all</code></pre>
           </article>
           <article class="example-panel">
             <h3>Capabilities</h3>
@@ -639,7 +643,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The built-in session map uses an unsigned JSON cookie named `ricochet_session`; use package-level signing/encryption before storing sensitive data.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support `spawn`, explicit `await`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.completed?`, `.failed?`, and `tasks`; scheduler-level concurrency and async IO words are still planned work.</li>
+          <li>Task values support `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.completed?`, `.failed?`, and `tasks`; scheduler-level concurrency and async IO words are still planned work.</li>
           <li>AI package words are not implemented yet.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>

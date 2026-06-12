@@ -775,6 +775,7 @@ impl Vm {
             "call" => self.call_block(word),
             "spawn" => self.call_spawn(word),
             "await" => self.call_await(word),
+            "await-all" => self.call_await_all(word),
             "tasks" => self.call_tasks(word),
             "send" => self.call_send(word),
             "println" => self.call_println(word),
@@ -1191,8 +1192,65 @@ impl Vm {
                 });
             }
         };
+        match self.resolve_task(task_id) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_await_all(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let values = match self.pop(word)? {
+            Value::Array(values) => values.snapshot(),
+            Value::List(values) => values.snapshot(),
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "array or list of tasks".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let mut task_ids = Vec::with_capacity(values.len());
+        for value in values {
+            match value {
+                Value::Task(task_id) => task_ids.push(task_id),
+                value => {
+                    self.stack = stack_before;
+                    return Err(VmError::TypeError {
+                        word: word.to_string(),
+                        expected: "task".to_string(),
+                        actual: value_kind(&value).to_string(),
+                    });
+                }
+            }
+        }
+
+        let mut results = Vec::with_capacity(task_ids.len());
+        for task_id in task_ids {
+            match self.resolve_task(task_id) {
+                Ok(value) => results.push(value),
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            }
+        }
+
+        self.stack.push(Value::Array(results.into()));
+        Ok(())
+    }
+
+    fn resolve_task(&mut self, task_id: u64) -> Result<Value, VmError> {
         let Some(task) = self.tasks.remove(&task_id) else {
-            self.stack = stack_before;
             return Err(VmError::UnknownTask(task_id));
         };
 
@@ -1201,22 +1259,19 @@ impl Vm {
                 Ok(value) => {
                     self.tasks
                         .insert(task_id, TaskState::Completed(value.clone()));
-                    self.stack.push(value);
-                    Ok(())
+                    Ok(value)
                 }
                 Err(error) => {
-                    self.stack = stack_before;
                     self.tasks.insert(task_id, TaskState::Failed(error.clone()));
                     Err(error)
                 }
             },
             TaskState::Completed(value) => {
-                self.stack.push(value.clone());
-                self.tasks.insert(task_id, TaskState::Completed(value));
-                Ok(())
+                self.tasks
+                    .insert(task_id, TaskState::Completed(value.clone()));
+                Ok(value)
             }
             TaskState::Failed(error) => {
-                self.stack = stack_before;
                 self.tasks.insert(task_id, TaskState::Failed(error.clone()));
                 Err(error)
             }
@@ -4090,6 +4145,91 @@ mod tests {
 
         assert_eq!(vm.call_word("await"), expected);
         assert_eq!(vm.stack(), &[Value::Task(0)]);
+    }
+
+    #[test]
+    fn await_all_resolves_tasks_in_order_and_retains_completed_status() {
+        let mut first = Chunk::new("test.rco");
+        first.push(Op::PushNumber(1), span());
+        let mut second = Chunk::new("test.rco");
+        second.push(Op::PushNumber(2), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let first_block = chunk.push_block(first);
+        let second_block = chunk.push_block(second);
+        chunk.push(Op::PushBlock(first_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+        chunk.push(Op::PushBlock(second_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+
+        assert_eq!(vm.stack(), &[Value::Task(0), Value::Task(1)]);
+        assert_eq!(vm.pending_task_ids(), vec![0, 1]);
+
+        vm.stack.clear();
+        vm.stack
+            .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
+        vm.call_word("await-all").expect("await-all resolves tasks");
+
+        assert_eq!(
+            vm.stack(),
+            &[Value::Array(
+                vec![Value::Number(1), Value::Number(2)].into()
+            )]
+        );
+        assert_eq!(vm.task_status(0), "completed");
+        assert_eq!(vm.task_status(1), "completed");
+        assert!(vm.pending_task_ids().is_empty());
+
+        vm.stack.clear();
+        vm.stack
+            .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
+        vm.call_word("await-all")
+            .expect("await-all reuses completed task results");
+        assert_eq!(
+            vm.stack(),
+            &[Value::Array(
+                vec![Value::Number(1), Value::Number(2)].into()
+            )]
+        );
+    }
+
+    #[test]
+    fn await_all_retains_failed_task_status_and_preserves_stack_on_error() {
+        let mut first = Chunk::new("test.rco");
+        first.push(Op::PushNumber(1), span());
+        let mut second = Chunk::new("test.rco");
+        second.push(Op::PushBool(true), span());
+        second.push(Op::JumpIfFalse(3), span());
+        second.push(Op::Jump(0), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let first_block = chunk.push_block(first);
+        let second_block = chunk.push_block(second);
+        chunk.push(Op::PushBlock(first_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+        chunk.push(Op::PushBlock(second_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_instruction_limit(16);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.stack.clear();
+        vm.stack
+            .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
+
+        assert_eq!(
+            vm.call_word("await-all"),
+            Err(VmError::InstructionLimitExceeded { limit: 16 })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[Value::Array(vec![Value::Task(0), Value::Task(1)].into())]
+        );
+        assert_eq!(vm.task_status(0), "completed");
+        assert_eq!(vm.task_status(1), "failed");
     }
 
     #[test]

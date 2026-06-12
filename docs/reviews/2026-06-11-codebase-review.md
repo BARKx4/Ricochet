@@ -68,8 +68,8 @@ Implemented after this review:
 - The VM has an instruction limit API, and web controllers/templates use
   request-time instruction budgets.
 - Async task values now support `.id`, `.status`, `.pending?`, `.completed?`,
-  `.failed?`, retained completed/failed status, and the `tasks` word for
-  pending-task inspection.
+  `.failed?`, retained completed/failed status, `await-all` batch awaiting,
+  and the `tasks` word for pending-task inspection.
 - MVC 500 responses include the full error chain, so budget faults are visible
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at

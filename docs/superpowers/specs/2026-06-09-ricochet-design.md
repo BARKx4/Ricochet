@@ -376,9 +376,20 @@ end
 await
 ```
 
+Multiple task handles can be awaited as a batch. Results are returned in input
+order, and completed handles can be awaited again from their cached result.
+
+```forth
+handles array
+[ sendWelcomeEmail ] spawn handles get .push! drop
+[ updateSearchIndex ] spawn handles get .push! drop
+handles get await-all
+```
+
 Current implementation note: `[ ... ] spawn` creates a first-class task value
-that captures the spawn-time VM environment; `await` resolves it explicitly.
-Task handles retain completed/failed status after `await`, expose `.id`,
+that captures the spawn-time VM environment; `await` resolves one handle and
+`await-all` resolves an array/list of handles. Task handles retain
+completed/failed status after awaiting, expose `.id`,
 `.status`, `.pending?`, `.completed?`, and `.failed?`, and completed handles
 can be awaited again for the cached result. The `tasks` word returns pending
 task metadata for debugger-style inspection. Scheduler-level concurrency and
