@@ -27,7 +27,23 @@ jobs:
         run: cargo test --workspace
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        shell: pwsh
+        run: |
+          $exitCode = 0
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            cargo install cargo-audit --locked
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              exit 0
+            }
+
+            if ($attempt -lt 3) {
+              Write-Warning "cargo-audit install failed with exit code $exitCode; retrying..."
+              Start-Sleep -Seconds (10 * $attempt)
+            }
+          }
+
+          exit $exitCode
 
       - name: Run cargo-audit
         run: cargo audit
