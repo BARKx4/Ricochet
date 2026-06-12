@@ -473,14 +473,15 @@ Web is part of the first serious milestone. Ricochet v1 is defined as a usable
 web app beta target for other developers to test. It should let developers
 scaffold, run, iterate on, and exercise a real MVC app locally with clear
 failure modes; it is not a production hosting or security-hardening promise.
-The v1 vertical slice should support:
+The v1 vertical slice is scoped as:
 
 - Standalone HTTP serving via `rco serve`.
-- CGI/FastCGI deployment path.
 - MVC routing, controllers, models, and views.
 - SQLite, PostgreSQL, or MySQL-backed Active Record against an existing schema.
 - Plain HTML templates with full Ricochet interpolation.
 - Capability-first request context.
+
+CGI/FastCGI deployment adapters are deferred beyond the local v1 beta target.
 
 Routes are Ricochet code in `config/routes.rco`.
 
@@ -570,6 +571,7 @@ Active Record operations are class methods with ordinary postfix arguments:
 
 ```forth
 User .all
+User .default-page
 42 User .find
 "email" "ada@example.com" User .where
 10 User .limit
@@ -587,9 +589,12 @@ updates map
 ```
 
 Active Record v1 supports connection configuration, basic table mapping, `find`,
-`all`, `where`, bounded reads with `limit`/`page`/`where-limit`/`where-page`,
-deterministic ordered reads with `order-page`/`where-order-page`, `count`,
-`first`, `exists?`, `insert`, and `update`. Every operation returns one
+`all`, `where`, a first-page list default with `default-page`, bounded reads
+with `limit`/`page`/`where-limit`/`where-page`, deterministic ordered reads
+with `order-page`/`where-order-page`, `count`, `first`, `exists?`, `insert`, and
+`update`. `default-page` returns up to 50 rows and orders by `id asc` when the
+model maps an `id` field; models without a mapped `id` field use the first
+bounded page. Every operation returns one
 `Result` object so expected database failures stay in the normal stack flow.
 
 ## Capabilities
@@ -619,8 +624,9 @@ the local-script default; `sandboxed` starts with filesystem and HTTP disabled
 unless `--fs-root <path>` or `--http-allow-host <host>` opens bounded access.
 The same commands accept `--no-fs` and `--no-http` to deny capabilities
 explicitly, and `--fs-readonly` to allow reads while denying writes and
-directory creation. Changing the global default to sandboxed remains a future
-compatibility decision.
+directory creation. V1 beta keeps `trusted` as the local-development default for
+compatibility, and uses `sandboxed` as the policy for untrusted examples,
+package review, bug repros, and third-party code.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 

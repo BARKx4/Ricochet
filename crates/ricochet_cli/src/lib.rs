@@ -766,7 +766,7 @@ fn user_controller_source(options: NewProjectOptions) -> &'static str {
     ctx var
     session var
     session get "last_page" "users" !put drop
-    "id" "asc" 20 0 User .order-page
+    User .default-page
     dup ok? if
       value users var
       users get .count userCount var

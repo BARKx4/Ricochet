@@ -19,17 +19,19 @@ Ricochet now has a coherent first vertical slice:
 - `ricochet_vm`: stack VM, dynamic classes/open classes, first-class blocks,
   collection words, results, debug events, CLI capabilities, and OOP dispatch.
 - `ricochet_web`: MVC manifest/routes/controllers/views, template expressions,
-  Active Record mapping, PostgreSQL adapter, and request revision skeleton.
+  session/config/logger/request capabilities, Active Record mapping, SQLite,
+  PostgreSQL, and MySQL/MariaDB adapters, AI capability, and request revision
+  snapshots.
 - `ricochet_cli`: `rco new`, `check`, `run`, `build`, `serve`, `routes`, `test`,
   and REPL entry points.
 
 The core language shape is already testable. The v1 milestone should be judged
 as a usable web app beta target for other developers, not as a production
-deployment promise. The biggest remaining beta risks are the web-app ergonomics
-that affect developer testing loops: model/query composition, auth package
-shape, clear host capability policy, and enough docs/examples to build a small
-MVC app with confidence. Production-only hardening, such as PostgreSQL TLS and
-deployment policy, should remain visible but should not define the v1 beta bar.
+deployment promise. The remaining post-beta risks are package and production
+ergonomics: reusable auth packages, relation-style query composition, migration
+tooling, richer AI helpers, and deployment hardening. Production-only hardening,
+such as PostgreSQL TLS and deployment policy, should remain visible but should
+not define the v1 beta bar.
 
 ## Verification Performed
 
@@ -92,23 +94,24 @@ Implemented after this review:
   `--http-allow-host`.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
-- Active Record now has parameterized `.limit`, `.page`, `.order-page`,
+- Active Record now has parameterized `.default-page`, `.limit`, `.page`, `.order-page`,
   `.where-limit`, `.where-page`, and `.where-order-page` plus `.count`,
   `.first`, and `.exists?` class methods for bounded/basic reads.
 - A root `README.md` and GitHub Actions CI workflow were added for repeatable
   verification. The repo-level `rust-toolchain.toml` was later removed in favor
   of README/CI toolchain instructions.
 
-Still open:
+Resolved or still open:
 
-- Changing the global CLI default from `trusted` to `sandboxed` remains a larger
-  compatibility decision.
+- The v1 beta capability policy is now explicit: `trusted` remains the local
+  development default for compatibility, while `sandboxed` is the profile for
+  untrusted examples, package review, bug repros, and third-party code.
 - Session cookie signing is implemented behind `[web.session] signing_secret_env`;
   encrypted v2 session cookies are implemented behind
   `[web.session] encryption_secret_env`; higher-level auth helpers remain
   package/framework work.
-- PostgreSQL TLS configuration, Active Record relation chaining/default
-  pagination policy, and schema/migration tooling are still backlog.
+- PostgreSQL TLS configuration, Active Record relation chaining, and
+  schema/migration tooling are still backlog.
 - HTTP capability calls can now be launched as task handles with `.get-task`
   and `.post-json-task`; richer suspended-task debugger views remain future
   async work.
@@ -178,10 +181,11 @@ Recommendation:
 
 ### 3. CLI filesystem and HTTP capabilities remain powerful host effects
 
-Status: partially resolved after this review. CLI execution still defaults to
-trusted-local filesystem and HTTP powers for compatibility, but `rco repl`,
-`rco run`, `rco run-bytecode`, and `rco test` now accept
-`--capability-profile trusted|sandboxed`. The `sandboxed` profile starts with
+Status: resolved for v1 beta policy after this review. CLI execution keeps
+`trusted` as the local-development default for compatibility, while
+`sandboxed` is the profile for untrusted examples, package review, bug repros,
+and third-party code. `rco repl`, `rco run`, `rco run-bytecode`, and `rco test`
+accept `--capability-profile trusted|sandboxed`; `sandboxed` starts with
 filesystem and HTTP disabled unless bounded by `--fs-root <path>` or
 `--http-allow-host <host>`. They also accept `--no-fs` and `--no-http` to deny
 those powers explicitly, `--fs-readonly` to deny writes and directory creation,
@@ -209,8 +213,8 @@ server context.
 
 Recommendation:
 
-- Keep the capability model, but consider whether v1 should switch the global
-  CLI default to `sandboxed` or keep it as an explicit profile.
+- Keep the v1 beta split: `trusted` for developer-owned local apps and
+  `sandboxed` for untrusted/reviewed code.
 - Consider a manifest-based trust prompt before enabling dangerous effects for
   arbitrary script files.
 - Keep documenting clearly that CLI commands execute trusted code with host
@@ -278,27 +282,32 @@ Recommendation:
 
 ### 7. Active Record reads need safer production defaults
 
-Status: partially fixed. `.limit`, `.page`, `.order-page`, `.where-limit`,
-`.where-page`, `.where-order-page`, `.count`, `.first`, and `.exists?` are now
-available as parameterized/basic model class methods; relation chaining and
-default pagination remain backlog.
+Status: fixed for v1 beta. `.default-page`, `.limit`, `.page`, `.order-page`,
+`.where-limit`, `.where-page`, `.where-order-page`, `.count`, `.first`, and `.exists?` are now
+available as parameterized/basic model class methods. `.default-page` gives
+ordinary list pages a bounded first page of up to 50 rows, ordered by `id asc`
+when an `id` field is mapped. Relation chaining remains future ergonomics, not
+a beta blocker.
 
 Evidence:
 
 - `select_all_sql` emits a full `select` in
   `crates/ricochet_web/src/active_record.rs:141`.
 - `all` executes it directly in `crates/ricochet_web/src/active_record.rs:299`.
-- Filtered queries now have bounded `.where-limit`, `.where-page`, and
-  `.where-order-page` variants, but no composable relation object exists yet.
+- Everyday list pages can use `.default-page`; filtered queries have bounded
+  `.where-limit`, `.where-page`, and `.where-order-page` variants. No
+  composable relation object exists yet.
 
 Impact:
 
-Small examples work, but production tables can be loaded entirely into memory.
+Unbounded `.all` remains available for explicit use, but generated beta app
+list pages now use `.default-page` and docs steer everyday list pages toward
+bounded reads.
 
 Recommendation:
 
-- Add relation-style chaining and/or default pagination helpers before
-  encouraging real apps to use `.all`.
+- Add relation-style chaining after beta feedback if repeated app code shows it
+  is worth the added runtime surface.
 
 ### 8. Resolved: `--watch` was advertised before implementation
 
@@ -426,9 +435,7 @@ design docs and the current implementation:
 - Higher-level auth packages beyond signed/encrypted session cookies. The
   SQLite beta scaffold now includes a copyable form/session login flow for
   local beta testing, but production auth remains future package work.
-- Active Record relation chaining or a default pagination policy for everyday
-  list pages.
-- Capability-profile default decision and clearer beta testing policy.
+- Active Record relation chaining for more expressive query composition.
 - Migrations/schema management beyond existing-schema Active Record. Migrations
   are not required for v1 beta if existing-schema Active Record remains clearly
   documented.
@@ -452,12 +459,10 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Add Active Record relation chaining or default pagination policy.
-2. Extract higher-level auth package helpers from the scaffolded form/session
+1. Extract higher-level auth package helpers from the scaffolded form/session
    flow when package conventions settle.
-3. Decide whether v1 beta should keep `trusted` as the CLI default or switch to
-   `sandboxed`, and document the beta testing policy either way.
-4. Consider adding a standalone end-to-end example project; the SQLite scaffold
+2. Consider adding relation-style Active Record chaining after beta feedback.
+3. Consider adding a standalone end-to-end example project; the SQLite scaffold
    now covers routing, controllers, views, sessions/auth, and Active Record.
-5. Extend AI with structured/schema helpers or streaming after the web/auth
+4. Extend AI with structured/schema helpers or streaming after the web/auth
    boundary is firmer.

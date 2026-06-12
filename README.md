@@ -21,11 +21,12 @@ local package sources. Hot reload is available for MVC apps during local
 development, and controllers receive request, header, cookie, lightweight
 session, logger, and safe manifest config context. Session cookies can be
 HMAC-signed or emitted as authenticated encrypted v2 cookies from
-environment-backed manifest secrets. Active Record has basic reads plus bounded
-`limit`, `page`, `order-page`, `where-limit`, `where-page`, and
-`where-order-page` helpers. MVC apps can opt into an OpenAI-compatible
-`[ai.default]` provider and receive an `ai` controller capability whose `.chat`
-method returns `Result` maps. The SQLite beta scaffold includes a copyable
+environment-backed manifest secrets. Active Record has basic reads plus a
+bounded `default-page` list helper and explicit `limit`, `page`, `order-page`,
+`where-limit`, `where-page`, and `where-order-page` helpers. MVC apps can opt
+into an OpenAI-compatible `[ai.default]` provider and receive an `ai` controller
+capability whose `.chat` method returns `Result` maps. The SQLite beta scaffold
+includes a copyable
 form/session login loop for local testing.
 Migrations, production auth packages, and structured AI/schema package helpers
 are still planned work.
@@ -195,3 +196,8 @@ HTTP only for named hosts. `--no-fs` and `--no-http` still deny those host power
 explicitly in either profile. Embedded hosts can leave capabilities disabled.
 HTTP calls use a timeout and response body cap; filesystem access remains
 powerful CLI behavior unless you deny or bound it with these flags.
+
+For v1 beta testing, keep `trusted` for your own local scripts and generated
+apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or
+third-party code, opening only the filesystem root or HTTP hosts the test
+actually needs.

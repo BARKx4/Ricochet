@@ -181,7 +181,7 @@ fn new_with_sqlite_creates_ready_database_project() {
             .join("UserController.rco"),
     )
     .expect("user controller should exist");
-    assert!(controller.contains("User .order-page"));
+    assert!(controller.contains("User .default-page"));
     assert!(controller.contains("firstEmail var"));
 
     let routes =

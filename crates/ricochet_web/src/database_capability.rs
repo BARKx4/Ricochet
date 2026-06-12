@@ -9,6 +9,11 @@ use crate::active_record::{
     ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,
 };
 
+const DEFAULT_PAGE_LIMIT: i64 = 50;
+const DEFAULT_PAGE_OFFSET: i64 = 0;
+const DEFAULT_PAGE_ORDER_FIELD: &str = "id";
+const DEFAULT_PAGE_ORDER_DIRECTION: &str = "asc";
+
 pub trait DatabaseBackend: Send + Sync {
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
     fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError>;
@@ -427,6 +432,24 @@ pub fn install_database_capability(
         })
     })?;
 
+    let default_page_backend = backend.clone();
+    let default_page_mappings = mappings.clone();
+    vm.add_native_method_with_arity("default-page", 1, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.default-page",
+            "model name",
+        )?;
+        let mapping = model_mapping(&default_page_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| default_page(default_page_backend.as_ref(), mapping)) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
     let count_backend = backend.clone();
     let count_mappings = mappings.clone();
     vm.add_native_method_with_arity("count", 1, move |arguments| {
@@ -725,6 +748,17 @@ fn install_model_active_record_methods(
                 })
             })?;
 
+            let default_page_backend = backend.clone();
+            let default_page_mapping = mapping.clone();
+            vm.add_native_method_with_arity("default-page", 0, move |_| {
+                Ok(
+                    match default_page(default_page_backend.as_ref(), &default_page_mapping) {
+                        Ok(values) => Value::result_ok(Value::Array(values.into())),
+                        Err(error) => database_result_error(error),
+                    },
+                )
+            })?;
+
             let count_backend = backend.clone();
             let count_mapping = mapping.clone();
             vm.add_native_method_with_arity("count", 0, move |_| {
@@ -947,6 +981,29 @@ fn install_model_active_record_methods(
     Ok(())
 }
 
+fn default_page(
+    backend: &dyn DatabaseBackend,
+    mapping: &ModelMapping,
+) -> Result<Vec<Value>, ActiveRecordError> {
+    if mapping
+        .fields
+        .iter()
+        .any(|field| field == DEFAULT_PAGE_ORDER_FIELD)
+    {
+        backend.order_page(
+            mapping,
+            OrderPage {
+                field: DEFAULT_PAGE_ORDER_FIELD,
+                direction: DEFAULT_PAGE_ORDER_DIRECTION,
+                limit: DEFAULT_PAGE_LIMIT,
+                offset: DEFAULT_PAGE_OFFSET,
+            },
+        )
+    } else {
+        backend.page(mapping, DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET)
+    }
+}
+
 fn block_on_postgres<F, T>(operation: &'static str, future: F) -> Result<T, ActiveRecordError>
 where
     F: Future<Output = Result<T, ActiveRecordError>>,
@@ -1086,6 +1143,7 @@ fn value_kind(value: &Value) -> &'static str {
 mod tests {
     use super::*;
     use ricochet_vm::RicochetResult;
+    use std::sync::Mutex;
 
     struct FixtureDatabase;
 
@@ -1234,6 +1292,154 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct DefaultPageRoutingDatabase {
+        calls: Mutex<Vec<&'static str>>,
+    }
+
+    impl DefaultPageRoutingDatabase {
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls
+                .lock()
+                .expect("call log lock should not be poisoned")
+                .clone()
+        }
+
+        fn record(&self, call: &'static str) {
+            self.calls
+                .lock()
+                .expect("call log lock should not be poisoned")
+                .push(call);
+        }
+    }
+
+    impl DatabaseBackend for DefaultPageRoutingDatabase {
+        fn find(
+            &self,
+            _mapping: &ModelMapping,
+            _id: &Value,
+        ) -> Result<Option<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("find"))
+        }
+
+        fn all(&self, _mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("all"))
+        }
+
+        fn count(&self, _mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+            Err(unused_default_page_method("count"))
+        }
+
+        fn first(&self, _mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("first"))
+        }
+
+        fn limit(
+            &self,
+            _mapping: &ModelMapping,
+            _limit: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("limit"))
+        }
+
+        fn page(
+            &self,
+            _mapping: &ModelMapping,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            self.record("page");
+            assert_eq!(limit, DEFAULT_PAGE_LIMIT);
+            assert_eq!(offset, DEFAULT_PAGE_OFFSET);
+            Ok(Vec::new())
+        }
+
+        fn order_page(
+            &self,
+            _mapping: &ModelMapping,
+            order: OrderPage<'_>,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            self.record("order-page");
+            assert_eq!(order.field, DEFAULT_PAGE_ORDER_FIELD);
+            assert_eq!(order.direction, DEFAULT_PAGE_ORDER_DIRECTION);
+            assert_eq!(order.limit, DEFAULT_PAGE_LIMIT);
+            assert_eq!(order.offset, DEFAULT_PAGE_OFFSET);
+            Ok(Vec::new())
+        }
+
+        fn exists_by_id(
+            &self,
+            _mapping: &ModelMapping,
+            _id: &Value,
+        ) -> Result<bool, ActiveRecordError> {
+            Err(unused_default_page_method("exists_by_id"))
+        }
+
+        fn where_eq(
+            &self,
+            _mapping: &ModelMapping,
+            _field: &str,
+            _value: &Value,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("where_eq"))
+        }
+
+        fn where_eq_limit(
+            &self,
+            _mapping: &ModelMapping,
+            _field: &str,
+            _value: &Value,
+            _limit: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("where_eq_limit"))
+        }
+
+        fn where_eq_page(
+            &self,
+            _mapping: &ModelMapping,
+            _field: &str,
+            _value: &Value,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("where_eq_page"))
+        }
+
+        fn where_eq_order_page(
+            &self,
+            _mapping: &ModelMapping,
+            _where_field: &str,
+            _value: &Value,
+            _order: OrderPage<'_>,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Err(unused_default_page_method("where_eq_order_page"))
+        }
+
+        fn insert(
+            &self,
+            _mapping: &ModelMapping,
+            _attributes: &BTreeMap<String, Value>,
+        ) -> Result<Value, ActiveRecordError> {
+            Err(unused_default_page_method("insert"))
+        }
+
+        fn update_by_id(
+            &self,
+            _mapping: &ModelMapping,
+            _id: Value,
+            _attributes: &BTreeMap<String, Value>,
+        ) -> Result<Value, ActiveRecordError> {
+            Err(unused_default_page_method("update_by_id"))
+        }
+    }
+
+    fn unused_default_page_method(operation: &'static str) -> ActiveRecordError {
+        ActiveRecordError::Database {
+            operation,
+            message: "default-page routing test called an unused database method".to_string(),
+        }
+    }
+
     fn user_mapping() -> ModelMapping {
         ModelMapping::try_new("User", "users", ["id", "email"]).expect("mapping is valid")
     }
@@ -1290,6 +1496,41 @@ mod tests {
             [Value::Result(RicochetResult::Ok(value))]
                 if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
         ));
+    }
+
+    #[test]
+    fn active_record_default_page_uses_beta_pagination_policy() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source("test.rco", "User .default-page")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn default_page_orders_by_id_when_id_is_mapped() {
+        let database = DefaultPageRoutingDatabase::default();
+
+        default_page(&database, &user_mapping()).expect("default page succeeds");
+
+        assert_eq!(database.calls(), vec!["order-page"]);
+    }
+
+    #[test]
+    fn default_page_uses_plain_page_when_id_is_not_mapped() {
+        let database = DefaultPageRoutingDatabase::default();
+        let mapping =
+            ModelMapping::try_new("AuditLog", "audit_logs", ["message"]).expect("mapping is valid");
+
+        default_page(&database, &mapping).expect("default page succeeds");
+
+        assert_eq!(database.calls(), vec!["page"]);
     }
 
     #[test]
@@ -1400,6 +1641,29 @@ mod tests {
 
         vm.run_chunk(&chunk)
             .expect("database capability limit method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn database_capability_default_page_accepts_model_name() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get .default-page")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability default-page method runs");
 
         assert!(matches!(
             vm.stack(),

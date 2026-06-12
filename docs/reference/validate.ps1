@@ -137,6 +137,7 @@ if ($failures.Count -eq 0) {
         '".select"',
         '".reduce"',
         '".find"',
+        '".default-page"',
         '".limit"',
         '".any?"',
         '".all?"',

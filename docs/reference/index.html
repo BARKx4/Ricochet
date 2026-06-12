@@ -466,6 +466,7 @@ end</code></pre>
           <article class="example-panel">
             <h3>Model Class Calls</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record calls example" title="Copy">copy</button><code>User .all
+User .default-page
 42 User .find
 "email" "ada@example.com" User .where
 10 User .limit
@@ -671,7 +672,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
         <ul class="limit-list">
           <li>Ricochet v1 is a developer beta target for building and testing usable local MVC web apps. It is not a production deployment promise.</li>
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>HTTP and filesystem access are host capabilities. The CLI uses `--capability-profile trusted` by default for local scripts; `--capability-profile sandboxed` starts with filesystem and HTTP disabled, then `--fs-root PATH` and `--http-allow-host HOST` can open bounded access. `--no-fs`, `--fs-readonly`, and `--no-http` further narrow host powers. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
+          <li>HTTP and filesystem access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH` and `--http-allow-host HOST` can open bounded access. `--no-fs`, `--fs-readonly`, and `--no-http` further narrow host powers. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>

@@ -568,6 +568,14 @@ const WORDS = [
     "example": "42 User .find"
   },
   {
+    "word": ".default-page",
+    "aliases": ["Active Record"],
+    "group": "web",
+    "stack": "ModelClass -> result(array) | modelName:string DatabaseCapability -> result(array)",
+    "body": "Loads the v1 beta default list page: up to 50 rows, ordered by `id asc` when the model maps an `id` field, otherwise the first bounded page.",
+    "example": "User .default-page\n\"User\" db get .default-page"
+  },
+  {
     "word": ".where",
     "aliases": ["Active Record"],
     "group": "web",
