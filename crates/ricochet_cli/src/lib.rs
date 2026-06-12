@@ -592,6 +592,10 @@ fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
         .with_context(|| format!("failed to create app/Views/home in {}", path.display()))?;
     fs::create_dir_all(path.join("app").join("Views").join("users"))
         .with_context(|| format!("failed to create app/Views/users in {}", path.display()))?;
+    if options.with_sqlite {
+        fs::create_dir_all(path.join("app").join("Views").join("auth"))
+            .with_context(|| format!("failed to create app/Views/auth in {}", path.display()))?;
+    }
     fs::create_dir_all(path.join("config"))
         .with_context(|| format!("failed to create config in {}", path.display()))?;
     fs::create_dir_all(path.join("tests"))
@@ -607,9 +611,7 @@ fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
     )?;
     write_project_file(
         path.join("config").join("routes.rco"),
-        r#"GET "/" HomeController "index" route
-GET "/users" UserController "index" route
-"#,
+        routes_source(options),
     )?;
     write_project_file(
         path.join("app")
@@ -634,6 +636,14 @@ end
             .join("UserController.rco"),
         user_controller_source(options),
     )?;
+    if options.with_sqlite {
+        write_project_file(
+            path.join("app")
+                .join("Controllers")
+                .join("AuthController.rco"),
+            auth_controller_source(),
+        )?;
+    }
     write_project_file(
         path.join("app")
             .join("Views")
@@ -648,6 +658,22 @@ end
             .join("index.html"),
         users_index_view_source(options),
     )?;
+    if options.with_sqlite {
+        write_project_file(
+            path.join("app")
+                .join("Views")
+                .join("auth")
+                .join("login.html"),
+            auth_login_view_source(),
+        )?;
+        write_project_file(
+            path.join("app")
+                .join("Views")
+                .join("auth")
+                .join("show.html"),
+            auth_show_view_source(),
+        )?;
+    }
     write_project_file(
         path.join("tests").join("ApplicationSmokeTest.rco"),
         r#"ApplicationSmokeTest TestCase subclass
@@ -681,6 +707,22 @@ end
         println!("created {}", path.display());
     }
     Ok(())
+}
+
+fn routes_source(options: NewProjectOptions) -> &'static str {
+    if options.with_sqlite {
+        r#"GET "/" HomeController "index" route
+GET "/users" UserController "index" route
+GET "/login" AuthController "login" route
+POST "/login" AuthController "create" route
+GET "/me" AuthController "show" route
+POST "/logout" AuthController "destroy" route
+"#
+    } else {
+        r#"GET "/" HomeController "index" route
+GET "/users" UserController "index" route
+"#
+    }
 }
 
 fn user_model_source(options: NewProjectOptions) -> &'static str {
@@ -757,12 +799,66 @@ end
     }
 }
 
+fn auth_controller_source() -> &'static str {
+    r#"AuthController Controller subclass
+  ( ctx ) "login" [
+    ctx var
+    "Sign in" title var
+    ctx get
+    "auth/login" swap view
+  ] !method
+
+  ( email session ) "create" [
+    session var
+    email var
+    email get nil? if
+      "Email is required" text 400 status
+    else
+      email get .blank? if
+        "Email is required" text 400 status
+      else
+        session get "user_email" email get !put drop
+        "/me" redirect
+      end
+    end
+  ] !method
+
+  ( session ctx ) "show" [
+    ctx var
+    session var
+    session get .user_email get nil? if
+      "Not signed in" text
+    else
+      session get .user_email get userEmail var
+      "Signed in" title var
+      ctx get
+      "auth/show" swap view
+    end
+  ] !method
+
+  ( session ) "destroy" [
+    session var
+    "user_email" session get .remove! drop
+    "/login" redirect
+  ] !method
+end
+"#
+}
+
 fn users_index_view_source(options: NewProjectOptions) -> &'static str {
     if options.with_sqlite {
         "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n<p>First user: { firstEmail get }</p>\n"
     } else {
         "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n"
     }
+}
+
+fn auth_login_view_source() -> &'static str {
+    "<h1>{ title get }</h1>\n<form method=\"post\" action=\"/login\">\n  <label>Email <input name=\"email\" type=\"email\" value=\"ada@example.com\"></label>\n  <button type=\"submit\">Sign in</button>\n</form>\n"
+}
+
+fn auth_show_view_source() -> &'static str {
+    "<h1>{ title get }</h1>\n<p>Signed in as { userEmail get }</p>\n<form method=\"post\" action=\"/logout\">\n  <button type=\"submit\">Sign out</button>\n</form>\n"
 }
 
 fn create_sqlite_development_database(path: &Path) -> Result<()> {

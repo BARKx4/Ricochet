@@ -25,8 +25,9 @@ environment-backed manifest secrets. Active Record has basic reads plus bounded
 `limit`, `page`, `order-page`, `where-limit`, `where-page`, and
 `where-order-page` helpers. MVC apps can opt into an OpenAI-compatible
 `[ai.default]` provider and receive an `ai` controller capability whose `.chat`
-method returns `Result` maps.
-Migrations, higher-level auth helpers, and structured AI/schema package helpers
+method returns `Result` maps. The SQLite beta scaffold includes a copyable
+form/session login loop for local testing.
+Migrations, production auth packages, and structured AI/schema package helpers
 are still planned work.
 
 ## Quickstart
@@ -115,8 +116,9 @@ with `--debug` to print reload trace lines with the new revision and changed
 files.
 
 For a zero-service local beta app, `rco new --with-sqlite my_beta_app`
-creates `db/development.sqlite3`, seeds `users`, and configures Active Record.
-The manifest shape is:
+creates `db/development.sqlite3`, seeds `users`, configures Active Record, and
+adds `/login`, `/me`, and `/logout` routes that exercise form params and the
+session cookie. The manifest shape is:
 
 ```toml
 [database.default]

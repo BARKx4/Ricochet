@@ -77,6 +77,9 @@ Invoke-Rco "check SQLite beta app" @("check", $sqliteProject)
 Invoke-Rco "test SQLite beta app" @("test", $sqliteProject)
 Write-Host "==> SQLite live server smoke"
 & $liveServerSmoke -Rco $Rco -Project $sqliteProject -RequestPath "/users" -ExpectedContent "ada@example.com"
+$betaAppSmoke = Join-Path $Root "scripts\beta-app-smoke.ps1"
+Write-Host "==> SQLite beta app smoke"
+& $betaAppSmoke -Rco $Rco -Project $sqliteProject
 
 Write-Host "Ricochet acceptance suite passed."
 Write-Host "Generated scaffold left at: $project"

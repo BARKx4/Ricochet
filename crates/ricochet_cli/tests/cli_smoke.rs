@@ -184,6 +184,35 @@ fn new_with_sqlite_creates_ready_database_project() {
     assert!(controller.contains("User .order-page"));
     assert!(controller.contains("firstEmail var"));
 
+    let routes =
+        fs::read_to_string(project_path.join("config/routes.rco")).expect("routes should exist");
+    assert!(routes.contains("GET \"/login\" AuthController \"login\" route"));
+    assert!(routes.contains("POST \"/login\" AuthController \"create\" route"));
+    assert!(routes.contains("GET \"/me\" AuthController \"show\" route"));
+    assert!(routes.contains("POST \"/logout\" AuthController \"destroy\" route"));
+
+    let auth_controller = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("AuthController.rco"),
+    )
+    .expect("auth controller should exist");
+    assert!(auth_controller.contains("session get \"user_email\""));
+    assert!(auth_controller.contains(".remove!"));
+    assert!(auth_controller.contains("\"/me\" redirect"));
+
+    let login_view = fs::read_to_string(
+        project_path
+            .join("app")
+            .join("Views")
+            .join("auth")
+            .join("login.html"),
+    )
+    .expect("login view should exist");
+    assert!(login_view.contains("method=\"post\""));
+    assert!(login_view.contains("ada@example.com"));
+
     let database_path = project_path.join("db").join("development.sqlite3");
     assert!(
         database_path.exists(),

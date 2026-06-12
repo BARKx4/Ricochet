@@ -449,7 +449,8 @@ rco install
 `rco new web` creates a minimal MVC skeleton, not a large opinionated application.
 `rco new --with-sqlite web` creates the same skeleton with a seeded
 `db/development.sqlite3` and a `/users` controller path that exercises Active
-Record for zero-service beta testing.
+Record for zero-service beta testing. It also adds `/login`, `/me`, and
+`/logout` routes that demonstrate form params plus the session cookie.
 
 The manifest decides the entry model:
 
@@ -535,7 +536,9 @@ not exposed. The built-in session map is stored in a cookie named
 `ricochet_session`; `[web.session] signing_secret_env` enables HMAC signing
 with a secret from the environment, and
 `[web.session] encryption_secret_env` emits authenticated encrypted v2 cookies.
-Higher-level auth remains package work.
+The SQLite beta scaffold includes a small form/session login loop so developers
+can exercise ordinary session flow locally; production auth remains package
+work.
 
 ## Active Record
 

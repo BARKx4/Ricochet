@@ -423,8 +423,9 @@ design docs and the current implementation:
 
 - Richer AI package/provider helpers beyond the initial MVC `ai.chat`
   capability.
-- Higher-level auth helpers beyond signed/encrypted session cookies, enough for
-  beta testers to build ordinary login/session flows.
+- Higher-level auth packages beyond signed/encrypted session cookies. The
+  SQLite beta scaffold now includes a copyable form/session login flow for
+  local beta testing, but production auth remains future package work.
 - Active Record relation chaining or a default pagination policy for everyday
   list pages.
 - Capability-profile default decision and clearer beta testing policy.
@@ -452,10 +453,11 @@ design docs and the current implementation:
 ## Suggested Next Sprint Order
 
 1. Add Active Record relation chaining or default pagination policy.
-2. Add higher-level auth package helpers for ordinary beta web apps.
+2. Extract higher-level auth package helpers from the scaffolded form/session
+   flow when package conventions settle.
 3. Decide whether v1 beta should keep `trusted` as the CLI default or switch to
    `sandboxed`, and document the beta testing policy either way.
-4. Add one end-to-end beta web-app example that uses routing, controllers,
-   views, sessions/auth, and Active Record.
+4. Consider adding a standalone end-to-end example project; the SQLite scaffold
+   now covers routing, controllers, views, sessions/auth, and Active Record.
 5. Extend AI with structured/schema helpers or streaming after the web/auth
    boundary is firmer.
