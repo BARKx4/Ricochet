@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use ricochet_bytecode::{ArgsSpec, Chunk};
 
 use crate::value::Value;
 use crate::vm::VmError;
 
-type NativeMethodFunction = Rc<dyn Fn(Vec<Value>) -> Result<Value, VmError>>;
+type NativeMethodFunction = Arc<dyn Fn(Vec<Value>) -> Result<Value, VmError> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct NativeMethod {
@@ -18,11 +18,11 @@ pub struct NativeMethod {
 impl NativeMethod {
     pub fn new<F>(input_count: usize, function: F) -> Self
     where
-        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + Send + Sync + 'static,
     {
         Self {
             input_count,
-            function: Rc::new(function),
+            function: Arc::new(function),
         }
     }
 

@@ -420,7 +420,7 @@ const WORDS = [
     "aliases": [],
     "group": "control",
     "stack": "block -> task",
-    "body": "Creates a first-class task value from a block. The current VM environment is captured when the task is spawned.",
+    "body": "Creates a first-class task value from a block and starts running it on a background worker. The current VM environment is captured when the task is spawned.",
     "example": "[ 40 2 + ] spawn"
   },
   {
@@ -428,7 +428,7 @@ const WORDS = [
     "aliases": [],
     "group": "control",
     "stack": "task -> result",
-    "body": "Resolves a spawned task explicitly. Await consumes the pending task handle.",
+    "body": "Waits for a spawned task if needed and returns its result. Completed handles can be awaited again from their cached value.",
     "example": "task get await"
   },
   {
@@ -436,7 +436,7 @@ const WORDS = [
     "aliases": [],
     "group": "inspect",
     "stack": "-> array",
-    "body": "Returns metadata maps for pending spawned tasks in the current VM.",
+    "body": "Returns metadata maps for active spawned tasks in the current VM.",
     "example": "tasks .count"
   },
   {
@@ -1452,7 +1452,7 @@ const WORDS = [
     "aliases": [],
     "group": "inspect",
     "stack": "task -> string",
-    "body": "Returns `pending` while a task can still be awaited, or `consumed` after it has been awaited.",
+    "body": "Returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
     "example": "task get .status"
   },
   {
@@ -1460,8 +1460,32 @@ const WORDS = [
     "aliases": [],
     "group": "inspect",
     "stack": "task -> bool",
-    "body": "Returns true while a task handle is still pending in the current VM.",
+    "body": "Returns true while a task is still running and not yet completed or failed.",
     "example": "task get .pending?"
+  },
+  {
+    "word": ".running?",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> bool",
+    "body": "Returns true while a spawned task is actively running.",
+    "example": "task get .running?"
+  },
+  {
+    "word": ".completed?",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> bool",
+    "body": "Returns true after a spawned task has completed successfully.",
+    "example": "task get .completed?"
+  },
+  {
+    "word": ".failed?",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> bool",
+    "body": "Returns true after a spawned task has failed.",
+    "example": "task get .failed?"
   },
   {
     "word": "fields",

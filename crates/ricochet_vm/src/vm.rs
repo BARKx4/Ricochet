@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
 
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
@@ -136,9 +139,148 @@ struct Task {
 
 #[derive(Clone)]
 enum TaskState {
-    Pending(Box<Task>),
-    Completed(Value),
-    Failed(VmError),
+    Running(RunningTask),
+    Finished(TaskCompletion),
+}
+
+#[derive(Clone)]
+struct RunningTask {
+    shared: Arc<RunningTaskShared>,
+}
+
+struct RunningTaskShared {
+    completion: Mutex<Option<TaskCompletion>>,
+    ready: Condvar,
+}
+
+#[derive(Clone)]
+struct TaskCompletion {
+    result: Result<Value, VmError>,
+    output: TaskOutput,
+    output_consumed: bool,
+}
+
+#[derive(Clone, Default)]
+struct TaskOutput {
+    output_lines: Vec<String>,
+    stdout: String,
+    stderr: String,
+}
+
+impl RunningTask {
+    fn spawn(task: Task) -> Self {
+        let shared = Arc::new(RunningTaskShared {
+            completion: Mutex::new(None),
+            ready: Condvar::new(),
+        });
+        let worker_shared = shared.clone();
+        thread::spawn(move || {
+            let completion = match catch_unwind(AssertUnwindSafe(|| run_task_to_completion(task))) {
+                Ok(completion) => completion,
+                Err(_) => TaskCompletion {
+                    result: Err(VmError::HostError {
+                        word: "spawn".to_string(),
+                        message: "task worker thread panicked".to_string(),
+                    }),
+                    output: TaskOutput::default(),
+                    output_consumed: false,
+                },
+            };
+            let mut slot = worker_shared
+                .completion
+                .lock()
+                .expect("task completion lock poisoned");
+            *slot = Some(completion);
+            worker_shared.ready.notify_all();
+        });
+
+        Self { shared }
+    }
+
+    fn status(&self) -> &'static str {
+        let completion = self
+            .shared
+            .completion
+            .lock()
+            .expect("task completion lock poisoned");
+        match completion.as_ref().map(|completion| &completion.result) {
+            Some(Ok(_)) => "completed",
+            Some(Err(_)) => "failed",
+            None => "running",
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        self.shared
+            .completion
+            .lock()
+            .expect("task completion lock poisoned")
+            .is_none()
+    }
+
+    fn is_completed(&self) -> bool {
+        matches!(self.status(), "completed")
+    }
+
+    fn is_failed(&self) -> bool {
+        matches!(self.status(), "failed")
+    }
+
+    fn wait(&self) -> TaskCompletion {
+        let mut completion = self
+            .shared
+            .completion
+            .lock()
+            .expect("task completion lock poisoned");
+        loop {
+            if let Some(completion) = completion.as_ref() {
+                return completion.clone();
+            }
+            completion = self
+                .shared
+                .ready
+                .wait(completion)
+                .expect("task completion lock poisoned");
+        }
+    }
+}
+
+impl TaskCompletion {
+    fn status(&self) -> &'static str {
+        match &self.result {
+            Ok(_) => "completed",
+            Err(_) => "failed",
+        }
+    }
+}
+
+fn run_task_to_completion(task: Task) -> TaskCompletion {
+    let mut task_vm = Vm {
+        variables: task.variables,
+        functions: task.functions,
+        classes: task.classes,
+        current_class: task.current_class,
+        self_stack: task.self_stack,
+        program_args: task.program_args,
+        filesystem_enabled: task.filesystem_enabled,
+        filesystem_root: task.filesystem_root,
+        filesystem_writes_enabled: task.filesystem_writes_enabled,
+        http_enabled: task.http_enabled,
+        http_allowed_hosts: task.http_allowed_hosts,
+        instruction_limit: task.instruction_limit,
+        ..Vm::default()
+    };
+
+    let result = task_vm.call_bytecode_block("<task>", &task.block);
+    TaskCompletion {
+        result,
+        output: TaskOutput {
+            output_lines: task_vm.output_lines,
+            stdout: task_vm.stdout,
+            stderr: task_vm.stderr,
+        },
+        output_consumed: false,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,7 +502,7 @@ impl Vm {
         method: F,
     ) -> Result<(), VmError>
     where
-        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + Send + Sync + 'static,
     {
         self.add_native_method_with_arity(name, 0, method)
     }
@@ -372,7 +514,7 @@ impl Vm {
         method: F,
     ) -> Result<(), VmError>
     where
-        F: Fn(Vec<Value>) -> Result<Value, VmError> + 'static,
+        F: Fn(Vec<Value>) -> Result<Value, VmError> + Send + Sync + 'static,
     {
         let method = NativeMethod::new(input_count, method);
         self.current_class_mut("add_native_method")?
@@ -1157,24 +1299,23 @@ impl Vm {
 
         let task_id = self.next_task_id;
         self.next_task_id += 1;
-        self.tasks.insert(
-            task_id,
-            TaskState::Pending(Box::new(Task {
-                block,
-                variables: self.variables.clone(),
-                functions: self.functions.clone(),
-                classes: self.classes.clone(),
-                current_class: self.current_class.clone(),
-                self_stack: self.self_stack.clone(),
-                program_args: self.program_args.clone(),
-                filesystem_enabled: self.filesystem_enabled,
-                filesystem_root: self.filesystem_root.clone(),
-                filesystem_writes_enabled: self.filesystem_writes_enabled,
-                http_enabled: self.http_enabled,
-                http_allowed_hosts: self.http_allowed_hosts.clone(),
-                instruction_limit: self.instruction_limit,
-            })),
-        );
+        let task = Task {
+            block,
+            variables: self.variables.clone(),
+            functions: self.functions.clone(),
+            classes: self.classes.clone(),
+            current_class: self.current_class.clone(),
+            self_stack: self.self_stack.clone(),
+            program_args: self.program_args.clone(),
+            filesystem_enabled: self.filesystem_enabled,
+            filesystem_root: self.filesystem_root.clone(),
+            filesystem_writes_enabled: self.filesystem_writes_enabled,
+            http_enabled: self.http_enabled,
+            http_allowed_hosts: self.http_allowed_hosts.clone(),
+            instruction_limit: self.instruction_limit,
+        };
+        self.tasks
+            .insert(task_id, TaskState::Running(RunningTask::spawn(task)));
         self.stack.push(Value::Task(task_id));
         Ok(())
     }
@@ -1254,83 +1395,67 @@ impl Vm {
             return Err(VmError::UnknownTask(task_id));
         };
 
-        match task {
-            TaskState::Pending(task) => match self.run_task(*task) {
-                Ok(value) => {
-                    self.tasks
-                        .insert(task_id, TaskState::Completed(value.clone()));
-                    Ok(value)
-                }
-                Err(error) => {
-                    self.tasks.insert(task_id, TaskState::Failed(error.clone()));
-                    Err(error)
-                }
-            },
-            TaskState::Completed(value) => {
-                self.tasks
-                    .insert(task_id, TaskState::Completed(value.clone()));
-                Ok(value)
-            }
-            TaskState::Failed(error) => {
-                self.tasks.insert(task_id, TaskState::Failed(error.clone()));
-                Err(error)
-            }
+        let mut completion = match task {
+            TaskState::Running(task) => task.wait(),
+            TaskState::Finished(completion) => completion,
+        };
+        self.merge_task_output(&mut completion);
+        let result = completion.result.clone();
+        self.tasks.insert(task_id, TaskState::Finished(completion));
+        result
+    }
+
+    fn merge_task_output(&mut self, completion: &mut TaskCompletion) {
+        if completion.output_consumed {
+            return;
         }
+        self.output_lines
+            .extend(completion.output.output_lines.clone());
+        self.stdout.push_str(&completion.output.stdout);
+        self.stderr.push_str(&completion.output.stderr);
+        completion.output_consumed = true;
     }
 
     pub(super) fn task_status(&self, task_id: u64) -> &'static str {
         match self.tasks.get(&task_id) {
-            Some(TaskState::Pending(_)) => "pending",
-            Some(TaskState::Completed(_)) => "completed",
-            Some(TaskState::Failed(_)) => "failed",
+            Some(TaskState::Running(task)) => task.status(),
+            Some(TaskState::Finished(completion)) => completion.status(),
             None => "consumed",
         }
     }
 
     pub(super) fn task_pending(&self, task_id: u64) -> bool {
-        matches!(self.tasks.get(&task_id), Some(TaskState::Pending(_)))
+        matches!(self.tasks.get(&task_id), Some(TaskState::Running(task)) if task.is_running())
+    }
+
+    pub(super) fn task_running(&self, task_id: u64) -> bool {
+        self.task_pending(task_id)
     }
 
     pub(super) fn task_completed(&self, task_id: u64) -> bool {
-        matches!(self.tasks.get(&task_id), Some(TaskState::Completed(_)))
+        match self.tasks.get(&task_id) {
+            Some(TaskState::Running(task)) => task.is_completed(),
+            Some(TaskState::Finished(completion)) => completion.result.is_ok(),
+            None => false,
+        }
     }
 
     pub(super) fn task_failed(&self, task_id: u64) -> bool {
-        matches!(self.tasks.get(&task_id), Some(TaskState::Failed(_)))
+        match self.tasks.get(&task_id) {
+            Some(TaskState::Running(task)) => task.is_failed(),
+            Some(TaskState::Finished(completion)) => completion.result.is_err(),
+            None => false,
+        }
     }
 
     pub(super) fn pending_task_ids(&self) -> Vec<u64> {
         self.tasks
             .iter()
             .filter_map(|(task_id, task)| match task {
-                TaskState::Pending(_) => Some(*task_id),
-                TaskState::Completed(_) | TaskState::Failed(_) => None,
+                TaskState::Running(task) if task.is_running() => Some(*task_id),
+                TaskState::Running(_) | TaskState::Finished(_) => None,
             })
             .collect()
-    }
-
-    fn run_task(&mut self, task: Task) -> Result<Value, VmError> {
-        let mut task_vm = Vm {
-            variables: task.variables,
-            functions: task.functions,
-            classes: task.classes,
-            current_class: task.current_class,
-            self_stack: task.self_stack,
-            program_args: task.program_args,
-            filesystem_enabled: task.filesystem_enabled,
-            filesystem_root: task.filesystem_root,
-            filesystem_writes_enabled: task.filesystem_writes_enabled,
-            http_enabled: task.http_enabled,
-            http_allowed_hosts: task.http_allowed_hosts,
-            instruction_limit: task.instruction_limit,
-            ..Vm::default()
-        };
-
-        let result = task_vm.call_bytecode_block("<task>", &task.block);
-        self.output_lines.extend(task_vm.output_lines);
-        self.stdout.push_str(&task_vm.stdout);
-        self.stderr.push_str(&task_vm.stderr);
-        result
     }
 
     pub(super) fn filesystem_writes_enabled(&self) -> bool {
@@ -4133,7 +4258,6 @@ mod tests {
         vm.run_chunk(&chunk).expect("spawn succeeds");
 
         assert_eq!(vm.stack(), &[Value::Task(0)]);
-        assert_eq!(vm.task_status(0), "pending");
 
         let expected = Err(VmError::InstructionLimitExceeded { limit: 16 });
         assert_eq!(vm.call_word("await"), expected);
@@ -4150,8 +4274,12 @@ mod tests {
     #[test]
     fn await_all_resolves_tasks_in_order_and_retains_completed_status() {
         let mut first = Chunk::new("test.rco");
+        first.push(Op::PushNumber(50), span());
+        first.push(Op::CallWord("sleep".to_string()), span());
         first.push(Op::PushNumber(1), span());
         let mut second = Chunk::new("test.rco");
+        second.push(Op::PushNumber(50), span());
+        second.push(Op::CallWord("sleep".to_string()), span());
         second.push(Op::PushNumber(2), span());
 
         let mut chunk = Chunk::new("test.rco");
@@ -4167,6 +4295,8 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::Task(0), Value::Task(1)]);
         assert_eq!(vm.pending_task_ids(), vec![0, 1]);
+        assert_eq!(vm.task_status(0), "running");
+        assert!(vm.task_running(0));
 
         vm.stack.clear();
         vm.stack

@@ -386,14 +386,14 @@ handles array
 handles get await-all
 ```
 
-Current implementation note: `[ ... ] spawn` creates a first-class task value
-that captures the spawn-time VM environment; `await` resolves one handle and
-`await-all` resolves an array/list of handles. Task handles retain
-completed/failed status after awaiting, expose `.id`,
-`.status`, `.pending?`, `.completed?`, and `.failed?`, and completed handles
-can be awaited again for the cached result. The `tasks` word returns pending
-task metadata for debugger-style inspection. Scheduler-level concurrency and
-async IO words remain future work.
+Current implementation note: `[ ... ] spawn` creates a first-class task value,
+captures the spawn-time VM environment, and starts the task on a background
+worker. `await` waits for one handle when needed, and `await-all` resolves an
+array/list of handles. Task handles retain completed/failed status, expose
+`.id`, `.status`, `.pending?`, `.running?`, `.completed?`, and `.failed?`, and
+completed handles can be awaited again for the cached result. The `tasks` word
+returns active running task metadata for debugger-style inspection. Richer async
+IO words remain future work.
 
 The debugger can inspect running, suspended, and failed tasks.
 
@@ -664,8 +664,8 @@ Debugger features from v1:
 - Break-on-fault.
 - Configurable stack display: concise diff/top-N by default, full stack on request.
 - Basic task inspection for async/spawned work is implemented, including
-  retained completed/failed handle status; richer running and suspended task
-  debugger views remain future work.
+  running/completed/failed handle status; richer suspended task debugger views
+  remain future work.
 
 The terminal debugger is first, but the debugger should be protocol/event-stream based so a TUI or browser debugger can consume the same VM events later.
 

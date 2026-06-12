@@ -13,12 +13,13 @@ CLI programs, format source, build and run bytecode, package standalone
 executables, scaffold an MVC app, list routes, generate Markdown docs, run
 Ricochet tests, and serve a local web app. The VM has first-class task values
 with `spawn`, explicit `await`/`await-all`, retained completed/failed task
-status, and basic task inspection. The CLI can record and install path/GitHub
-package dependencies, and static imports can load local package sources. Hot
-reload is available for MVC apps during local development, and controllers receive
-request, header, cookie, lightweight session, logger, and safe manifest config
-context. Session cookies can be HMAC-signed from an environment-backed manifest
-secret. Active Record has basic reads plus bounded `limit`, `page`,
+status, eager background task execution, and basic task inspection. The CLI can
+record and install path/GitHub package dependencies, and static imports can load
+local package sources. Hot reload is available for MVC apps during local
+development, and controllers receive request, header, cookie, lightweight
+session, logger, and safe manifest config context. Session cookies can be
+HMAC-signed from an environment-backed manifest secret. Active Record has basic
+reads plus bounded `limit`, `page`,
 `order-page`, `where-limit`, `where-page`, and `where-order-page` helpers.
 MVC apps can opt into an OpenAI-compatible `[ai.default]` provider and receive an
 `ai` controller capability whose `.chat` method returns `Result` maps.
@@ -77,6 +78,7 @@ Spawn a task and await its result:
 ```forth
 [ 40 2 + ] spawn answer var
 answer get .status
+answer get .running?
 tasks .count
 answer get await
 answer get .status

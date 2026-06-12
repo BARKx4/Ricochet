@@ -67,9 +67,10 @@ Implemented after this review:
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
   request-time instruction budgets.
-- Async task values now support `.id`, `.status`, `.pending?`, `.completed?`,
-  `.failed?`, retained completed/failed status, `await-all` batch awaiting,
-  and the `tasks` word for pending-task inspection.
+- Async task values now support eager background `spawn`, `.id`, `.status`,
+  `.pending?`, `.running?`, `.completed?`, `.failed?`, retained
+  completed/failed status, `await-all` batch awaiting, and the `tasks` word for
+  active-task inspection.
 - MVC 500 responses include the full error chain, so budget faults are visible
   to testers.
 - HTTP capability calls use a 10 second timeout and cap response bodies at
@@ -103,7 +104,8 @@ Still open:
   encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration, Active Record relation chaining/default
   pagination policy, and schema/migration tooling are still backlog.
-- Scheduler-level task concurrency and async IO words remain future async work.
+- Richer async IO words and suspended-task debugger views remain future async
+  work.
 - The first-party AI surface now has an initial MVC `ai` capability for
   OpenAI-compatible chat completions; streaming, schema validation, and richer
   provider packages are still backlog.
@@ -419,8 +421,7 @@ design docs and the current implementation:
 - Migrations/schema management beyond existing-schema Active Record.
 - Capability-profile default decision and broader policy hardening.
 - Production PostgreSQL TLS configuration.
-- Scheduler-level task concurrency, async IO words, and richer running or
-  suspended debugger task views.
+- Richer async IO words and suspended debugger task views.
 
 ## What Looks Solid
 

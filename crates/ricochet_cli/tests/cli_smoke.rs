@@ -1640,10 +1640,11 @@ task get await
 fn run_inspects_spawned_task_status() {
     let output = run_source(
         r#"
-[ 20 2 + ] spawn task var
+[ 100 sleep 20 2 + ] spawn task var
 task get .id
 task get .status
 task get .pending?
+task get .running?
 task get .completed?
 task get .failed?
 tasks
@@ -1665,12 +1666,12 @@ tasks .count
         "stdout should show the first task id, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("String(\"pending\")") && stdout.contains("Bool(true)"),
-        "stdout should show the task pending before await, got:\n{stdout}"
+        stdout.contains("String(\"running\")") && stdout.contains("Bool(true)"),
+        "stdout should show the task running before await, got:\n{stdout}"
     );
     assert!(
-        stdout.contains(r#"Map({"id": Number(0), "status": String("pending")})"#),
-        "stdout should include pending task metadata, got:\n{stdout}"
+        stdout.contains(r#"Map({"id": Number(0), "status": String("running")})"#),
+        "stdout should include running task metadata, got:\n{stdout}"
     );
     assert!(
         stdout.contains("Number(22)"),
@@ -1687,6 +1688,40 @@ tasks .count
     assert!(
         stdout.matches("Number(22)").count() >= 2,
         "await should return the cached completed task result on reuse, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_spawned_task_can_complete_before_await() {
+    let output = run_source(
+        r#"
+events array
+[
+  50 sleep
+  "done" events get .push! drop
+  7
+] spawn task var
+150 sleep
+events get .count
+task get .status
+task get .completed?
+task get await
+"#,
+    );
+    assert_run_success_for("rco run", "eager spawned task", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(1)"),
+        "spawned task should mutate shared collection before await, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"completed\")"),
+        "task should be completed before await, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(true)") && stdout.contains("Number(7)"),
+        "await should still return the cached task value, got:\n{stdout}"
     );
 }
 

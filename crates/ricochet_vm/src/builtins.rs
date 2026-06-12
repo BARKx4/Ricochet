@@ -120,7 +120,7 @@ impl Vm {
             Value::Task(_) => {
                 matches!(
                     method,
-                    "id" | "status" | "pending?" | "completed?" | "failed?"
+                    "id" | "status" | "pending?" | "running?" | "completed?" | "failed?"
                 )
             }
             Value::Capability(Capability::FileSystem) => {
@@ -215,6 +215,7 @@ impl Vm {
             "id" => self.method_task_id(receiver, method),
             "status" => self.method_task_status(receiver, method),
             "pending?" => self.method_task_pending(receiver, method),
+            "running?" => self.method_task_running(receiver, method),
             "completed?" => self.method_task_completed(receiver, method),
             "failed?" => self.method_task_failed(receiver, method),
             "read-text" => self.method_fs_read_text(receiver, method),
@@ -899,6 +900,13 @@ impl Vm {
         }
     }
 
+    fn method_task_running(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        match receiver {
+            Value::Task(task_id) => Ok(Value::Bool(self.task_running(task_id))),
+            value => Err(method_type_error(method, "task", &value)),
+        }
+    }
+
     fn method_task_completed(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
         match receiver {
             Value::Task(task_id) => Ok(Value::Bool(self.task_completed(task_id))),
@@ -917,7 +925,7 @@ impl Vm {
         let tasks = self
             .pending_task_ids()
             .into_iter()
-            .map(|task_id| task_info_map(word, task_id, "pending"))
+            .map(|task_id| task_info_map(word, task_id, self.task_status(task_id)))
             .collect::<Result<Vec<_>, _>>()?;
         self.stack.push(Value::Array(tasks.into()));
         Ok(())
