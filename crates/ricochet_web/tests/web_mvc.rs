@@ -10,12 +10,15 @@ use ricochet_web::{
 use std::{
     collections::BTreeMap,
     fs,
+    io::{Read, Write},
+    net::TcpListener,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tower::ServiceExt;
 
@@ -1882,6 +1885,93 @@ end
 }
 
 #[tokio::test]
+async fn serves_ai_capability_to_ricochet_controllers() {
+    let project_root = temp_project_path();
+    let (base_url, ai_server) = spawn_openai_compatible_server("hello from ai");
+    std::env::set_var("RICOCHET_TEST_AI_HTTP_KEY", "test-ai-key");
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        format!(
+            r#"
+[package]
+name = "ai_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[ai.default]
+provider = "openai"
+model = "test-model"
+api_key = "${{RICOCHET_TEST_AI_HTTP_KEY}}"
+base_url = "{base_url}"
+"#
+        ),
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/ai" AiController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/AiController.rco"),
+        r#"
+AiController Controller subclass
+  ( ai ) "index" [
+    ai var
+    "Say hello" ai get .chat result var
+    result get ok? if
+      result get value .text get text
+    else
+      result get error .message get text
+    end
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(Request::builder().uri("/ai").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "hello from ai");
+
+    let request = ai_server.join().expect("AI server thread should finish");
+    let request_lower = request.to_ascii_lowercase();
+    assert!(
+        request.starts_with("POST /v1/chat/completions "),
+        "request was {request}"
+    );
+    assert!(
+        request_lower.contains("authorization: bearer test-ai-key"),
+        "request was {request}"
+    );
+    assert!(
+        request.contains(r#""model":"test-model""#),
+        "request was {request}"
+    );
+    assert!(
+        request.contains(r#""content":"Say hello""#),
+        "request was {request}"
+    );
+}
+
+#[tokio::test]
 async fn serves_logger_capability_to_ricochet_controllers() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -1956,4 +2046,94 @@ fn temp_project_path() -> PathBuf {
 
     base.join("web-mvc")
         .join(format!("project-{}-{nanos}-{sequence}", std::process::id()))
+}
+
+fn spawn_openai_compatible_server(response_text: &str) -> (String, thread::JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("AI fixture should bind");
+    let base_url = format!(
+        "http://{}/v1",
+        listener
+            .local_addr()
+            .expect("AI fixture should have address")
+    );
+    let response_text = response_text.to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("AI fixture should accept one request");
+        let request = read_http_request(&mut stream);
+        let body = serde_json::json!({
+            "id": "chatcmpl-test",
+            "model": "test-model",
+            "choices": [
+                {
+                    "message": {
+                        "content": response_text,
+                    }
+                }
+            ],
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("AI fixture should write response");
+        request
+    });
+
+    (base_url, handle)
+}
+
+fn read_http_request(stream: &mut std::net::TcpStream) -> String {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("AI fixture should set read timeout");
+    let mut buffer = Vec::new();
+    loop {
+        let mut chunk = [0_u8; 1024];
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                buffer.extend_from_slice(&chunk[..read]);
+                if http_request_complete(&buffer) {
+                    break;
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                break;
+            }
+            Err(error) => panic!("AI fixture failed to read request: {error}"),
+        }
+    }
+
+    String::from_utf8(buffer).expect("AI fixture request should be UTF-8")
+}
+
+fn http_request_complete(buffer: &[u8]) -> bool {
+    let Some(header_end) = buffer.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let headers = String::from_utf8_lossy(&buffer[..header_end]);
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+    buffer.len() >= header_end + 4 + content_length
 }

@@ -20,8 +20,10 @@ request, header, cookie, lightweight session, logger, and safe manifest config
 context. Session cookies can be HMAC-signed from an environment-backed manifest
 secret. Active Record has basic reads plus bounded `limit`, `page`,
 `order-page`, `where-limit`, `where-page`, and `where-order-page` helpers.
-Migrations, encrypted auth helpers, and the first-party AI package are still
-planned work.
+MVC apps can opt into an OpenAI-compatible `[ai.default]` provider and receive an
+`ai` controller capability whose `.chat` method returns `Result` maps.
+Migrations, encrypted auth helpers, and structured AI/schema package helpers are
+still planned work.
 
 ## Quickstart
 

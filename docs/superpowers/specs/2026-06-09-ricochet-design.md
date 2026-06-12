@@ -620,16 +620,25 @@ model = "gpt-4.1-mini"
 api_key = "${OPENAI_API_KEY}"
 ```
 
+Current implementation note: MVC apps can configure `[ai.default]` and receive
+an `ai` controller capability. `ai .chat` posts to an OpenAI-compatible
+`/chat/completions` endpoint and returns a `Result` whose ok value is a map with
+`provider`, `model`, and `text`.
+
 Example Ricochet shape:
 
 ```forth
-ctx get ai
-"Extract name, email, and priority" prompt
-TicketSchema schema
-complete-json
+ai var
+"Extract name, email, and priority" ai get .chat result var
+result get ok? if
+  result get value .text get
+else
+  result get error .message get
+end
 ```
 
-AI calls should return `Result` objects and support structured JSON/schema validation.
+AI calls return `Result` objects today. Structured JSON/schema validation,
+streaming, and richer provider packages remain future AI package work.
 
 ## Debugger
 

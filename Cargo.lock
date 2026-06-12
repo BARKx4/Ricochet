@@ -1302,6 +1302,7 @@ dependencies = [
  "axum",
  "bytes",
  "hmac 0.12.1",
+ "reqwest",
  "ricochet_bytecode",
  "ricochet_compiler",
  "ricochet_syntax",

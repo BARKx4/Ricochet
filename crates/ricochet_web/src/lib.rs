@@ -1,4 +1,5 @@
 pub mod active_record;
+pub mod ai_capability;
 pub mod controller;
 pub mod database_capability;
 pub mod manifest;
@@ -8,9 +9,12 @@ pub mod server;
 pub mod template;
 
 pub use active_record::{ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase};
+pub use ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};
 pub use database_capability::{install_database_capability, DatabaseBackend};
-pub use manifest::{Database, DatabaseDefault, Manifest, Package, Session, Views, Web};
+pub use manifest::{
+    Ai, AiDefault, Database, DatabaseDefault, Manifest, Package, Session, Views, Web,
+};
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{

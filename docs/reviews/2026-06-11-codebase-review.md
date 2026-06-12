@@ -104,6 +104,9 @@ Still open:
 - PostgreSQL TLS configuration, Active Record relation chaining/default
   pagination policy, and schema/migration tooling are still backlog.
 - Scheduler-level task concurrency and async IO words remain future async work.
+- The first-party AI surface now has an initial MVC `ai` capability for
+  OpenAI-compatible chat completions; streaming, schema validation, and richer
+  provider packages are still backlog.
 - Watch-mode debug trace events are implemented for reload success/failure;
   request-time hot reload is implemented.
 
@@ -410,7 +413,8 @@ random source later.
 These are not defects by themselves, but they are the biggest gaps between the
 design docs and the current implementation:
 
-- First-party AI package/provider capability.
+- Richer AI package/provider helpers beyond the initial MVC `ai.chat`
+  capability.
 - Cookie/session encryption and higher-level auth helpers.
 - Migrations/schema management beyond existing-schema Active Record.
 - Capability-profile default decision and broader policy hardening.
@@ -435,6 +439,7 @@ design docs and the current implementation:
 
 1. Add Active Record relation chaining or default pagination policy.
 2. Add encrypted session/auth package helpers.
-3. Build the first-party AI package/provider capability.
-4. Decide whether v1 should keep `trusted` as the CLI default or switch to
+3. Decide whether v1 should keep `trusted` as the CLI default or switch to
    `sandboxed`.
+4. Extend AI with structured/schema helpers or streaming after the web/auth
+   boundary is firmer.

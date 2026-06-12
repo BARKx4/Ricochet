@@ -414,6 +414,28 @@ end</code></pre>
           </article>
 
           <article class="example-panel wide">
+            <h3>AI Capability</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy AI capability example" title="Copy">copy</button><code>(( ricochet.toml ))
+[ai.default]
+provider = "openai"
+model = "gpt-4.1-mini"
+api_key = "${OPENAI_API_KEY}"
+
+(( app/Controllers/AiController.rco ))
+AiController Controller subclass
+  ( ai ) "index" [
+    ai var
+    "Write one sentence about Ricochet" ai get .chat result var
+    result get ok? if
+      result get value .text get text
+    else
+      result get error .message get text
+    end
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
   &lt;h1&gt;{ title get }&lt;/h1&gt;
@@ -649,7 +671,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
           <li>Task values support `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.completed?`, `.failed?`, and `tasks`; scheduler-level concurrency and async IO words are still planned work.</li>
-          <li>AI package words are not implemented yet.</li>
+          <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
           <li>Active Record targets existing PostgreSQL schemas in v1. Schema migrations are a later branch.</li>

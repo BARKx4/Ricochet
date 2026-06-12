@@ -21,6 +21,7 @@ use serde_json::Value as JsonValue;
 use sha2::Sha256;
 
 use crate::active_record::{ModelMapping, PostgresDatabase};
+use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
 use crate::manifest::Manifest;
@@ -340,6 +341,13 @@ fn build_runtime_from_dir_internal(
         Some(setup) => Some(setup),
         None => model_vm_setup(project_root)?,
     };
+    let ai_provider = manifest
+        .ai
+        .default
+        .as_ref()
+        .map(|config| config.resolved_config().map(AiProvider::new))
+        .transpose()?;
+    let vm_setup = compose_ai_vm_setup(vm_setup, ai_provider);
     let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
 
     Ok(AppRuntime {
@@ -790,6 +798,27 @@ fn database_vm_setup(project_root: &Path, backend: Arc<dyn DatabaseBackend>) -> 
         }
         let database = install_database_capability(vm, backend.clone(), mappings.clone())?;
         Ok(BTreeMap::from([("db".to_string(), database)]))
+    }))
+}
+
+fn compose_ai_vm_setup(
+    vm_setup: Option<VmSetup>,
+    ai_provider: Option<AiProvider>,
+) -> Option<VmSetup> {
+    if vm_setup.is_none() && ai_provider.is_none() {
+        return None;
+    }
+
+    Some(Arc::new(move |vm| {
+        let mut capabilities = match &vm_setup {
+            Some(setup) => setup(vm)?,
+            None => BTreeMap::new(),
+        };
+        if let Some(provider) = &ai_provider {
+            let ai = install_ai_capability(vm, provider.clone())?;
+            capabilities.insert("ai".to_string(), ai);
+        }
+        Ok(capabilities)
     }))
 }
 
