@@ -16,6 +16,7 @@ use axum::{
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
 use ricochet_vm::{Value, Vm};
+use serde_json::Value as JsonValue;
 
 use crate::active_record::{ModelMapping, PostgresDatabase};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
@@ -64,6 +65,7 @@ struct WatchedRuntime {
 
 type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
 const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
+const SESSION_COOKIE_NAME: &str = "ricochet_session";
 
 enum RenderedAction {
     Html {
@@ -805,6 +807,7 @@ fn render_action(
     request: WebRequest,
 ) -> Result<RenderedAction> {
     let cookies = cookies_from_headers(&request.headers);
+    let initial_session = session_from_cookies(&cookies);
     let mut ctx = RequestContext {
         method: request.method,
         path: request.path,
@@ -813,68 +816,87 @@ fn render_action(
         form: request.form_params,
         headers: request.headers,
         cookies,
+        session: initial_session.clone(),
         config: runtime.config.clone(),
         ..RequestContext::default()
     };
     ctx.view_data
         .insert("revision".to_string(), Value::Number(revision.id as i64));
 
-    match runtime.controllers.call(controller, action, &mut ctx)? {
-        ActionResult::View(view) => Ok(RenderedAction::Html {
+    let action = runtime.controllers.call(controller, action, &mut ctx)?;
+    let mut rendered = match action {
+        ActionResult::View(view) => RenderedAction::Html {
             body: render_view(runtime, &view, &ctx)?,
             status: None,
             headers: BTreeMap::new(),
-        }),
-        ActionResult::Text(body) => Ok(RenderedAction::Text {
+        },
+        ActionResult::Text(body) => RenderedAction::Text {
             body,
             status: None,
             headers: BTreeMap::new(),
-        }),
-        ActionResult::Json(body) => Ok(RenderedAction::Json {
+        },
+        ActionResult::Json(body) => RenderedAction::Json {
             body,
             status: None,
             headers: BTreeMap::new(),
-        }),
+        },
         ActionResult::ViewResponse {
             view,
             status,
             headers,
-        } => Ok(RenderedAction::Html {
+        } => RenderedAction::Html {
             body: render_view(runtime, &view, &ctx)?,
             status,
             headers,
-        }),
+        },
         ActionResult::TextResponse {
             body,
             status,
             headers,
-        } => Ok(RenderedAction::Text {
+        } => RenderedAction::Text {
             body,
             status,
             headers,
-        }),
+        },
         ActionResult::JsonResponse {
             body,
             status,
             headers,
-        } => Ok(RenderedAction::Json {
+        } => RenderedAction::Json {
             body,
             status,
             headers,
-        }),
+        },
         ActionResult::Redirect {
             location,
             status,
             headers,
-        } => Ok(RenderedAction::Redirect {
+        } => RenderedAction::Redirect {
             location,
             status,
             headers,
-        }),
+        },
+    };
+
+    if ctx.session != initial_session {
+        rendered.insert_header("set-cookie", session_cookie_header(&ctx.session)?);
     }
+
+    Ok(rendered)
 }
 
 impl RenderedAction {
+    fn insert_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        match self {
+            RenderedAction::Html { headers, .. }
+            | RenderedAction::Text { headers, .. }
+            | RenderedAction::Json { headers, .. }
+            | RenderedAction::Redirect { headers, .. } => {
+                headers.insert(name.into(), value.into());
+            }
+        }
+    }
+
     fn into_response(self) -> Result<Response> {
         match self {
             RenderedAction::Html {
@@ -1021,6 +1043,86 @@ fn parse_cookie_header(header: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+fn session_from_cookies(cookies: &BTreeMap<String, String>) -> BTreeMap<String, Value> {
+    let Some(raw_session) = cookies.get(SESSION_COOKIE_NAME) else {
+        return BTreeMap::new();
+    };
+    let Ok(JsonValue::Object(values)) = serde_json::from_str::<JsonValue>(raw_session) else {
+        return BTreeMap::new();
+    };
+
+    values
+        .into_iter()
+        .filter_map(|(key, value)| json_to_session_value(value).map(|value| (key, value)))
+        .collect()
+}
+
+fn json_to_session_value(value: JsonValue) -> Option<Value> {
+    match value {
+        JsonValue::Null => Some(Value::Nil),
+        JsonValue::Bool(value) => Some(Value::Bool(value)),
+        JsonValue::Number(value) => value.as_i64().map(Value::Number),
+        JsonValue::String(value) => Some(Value::String(value)),
+        JsonValue::Array(values) => values
+            .into_iter()
+            .map(json_to_session_value)
+            .collect::<Option<Vec<_>>>()
+            .map(|values| Value::Array(values.into())),
+        JsonValue::Object(values) => values
+            .into_iter()
+            .map(|(key, value)| json_to_session_value(value).map(|value| (key, value)))
+            .collect::<Option<BTreeMap<_, _>>>()
+            .map(|values| Value::Map(values.into())),
+    }
+}
+
+fn session_cookie_header(session: &BTreeMap<String, Value>) -> Result<String> {
+    if session.is_empty() {
+        return Ok(format!(
+            "{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+        ));
+    }
+
+    let json = JsonValue::Object(
+        session
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
+            .collect::<Result<serde_json::Map<_, _>>>()?,
+    );
+    let encoded = encode_urlencoded_component(&serde_json::to_string(&json)?);
+    Ok(format!(
+        "{SESSION_COOKIE_NAME}={encoded}; Path=/; HttpOnly; SameSite=Lax"
+    ))
+}
+
+fn session_value_to_json(value: &Value) -> Result<JsonValue> {
+    match value {
+        Value::Nil => Ok(JsonValue::Null),
+        Value::Bool(value) => Ok(JsonValue::Bool(*value)),
+        Value::Number(value) => Ok(JsonValue::Number((*value).into())),
+        Value::String(value) => Ok(JsonValue::String(value.clone())),
+        Value::Array(values) => values
+            .snapshot()
+            .iter()
+            .map(session_value_to_json)
+            .collect::<Result<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::List(values) => values
+            .snapshot()
+            .iter()
+            .map(session_value_to_json)
+            .collect::<Result<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::Map(values) => values
+            .snapshot()
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
+            .collect::<Result<serde_json::Map<_, _>>>()
+            .map(JsonValue::Object),
+        value => bail!("session values must be JSON-serializable, got {value:?}"),
+    }
+}
+
 async fn form_params_from_body(
     method: &Method,
     headers: &axum::http::HeaderMap,
@@ -1092,6 +1194,19 @@ fn decode_urlencoded_component(source: &str) -> String {
     }
 
     String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn encode_urlencoded_component(source: &str) -> String {
+    let mut encoded = String::new();
+    for byte in source.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            byte => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }
 
 fn hex_value(byte: u8) -> Option<u8> {

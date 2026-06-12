@@ -386,6 +386,19 @@ end</code></pre>
           </article>
 
           <article class="example-panel wide">
+            <h3>Session Map</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy session example" title="Copy">copy</button><code>SessionController Controller subclass
+  ( session ) "show" [
+    session var
+    session get .user get nil? if
+      session get "user" "Ada" !put drop
+    end
+    session get .user get text
+  ] !method
+end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
   &lt;h1&gt;{ title get }&lt;/h1&gt;
@@ -603,6 +616,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
           <li>HTTP and filesystem access are host capabilities. The CLI enables them for trusted local scripts; embedded hosts can leave them disabled. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
+          <li>The built-in session map uses an unsigned JSON cookie named `ricochet_session`; use package-level signing/encryption before storing sensitive data.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
           <li>Task values support `spawn` and explicit `await`; scheduler-level concurrency, task inspection, and async IO words are still planned work.</li>

@@ -55,8 +55,8 @@ Implemented after this review:
 - `rco serve` now accepts `--host` and `--port` through `ServeOptions`.
 - `rco serve --watch` now reloads routes, controllers, models, views, and the
   manifest between requests.
-- Web controllers now receive request metadata, headers, cookies, and safe
-  manifest config through `ctx` and declared Args.
+- Web controllers now receive request metadata, headers, cookies, a lightweight
+  session map, and safe manifest config through `ctx` and declared Args.
 - The web router supports `DELETE`, `PUT`, and `PATCH` in addition to `GET` and
   `POST`.
 - The VM has an instruction limit API, and web controllers/templates use
@@ -76,6 +76,7 @@ Implemented after this review:
 Still open:
 
 - Filesystem capability sandboxing remains a larger trust-model decision.
+- Session signing/encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
 - Watch-mode debug trace events are still planned; request-time hot reload is

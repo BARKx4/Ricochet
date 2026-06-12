@@ -16,6 +16,7 @@ pub struct RequestContext {
     pub form: BTreeMap<String, String>,
     pub headers: BTreeMap<String, String>,
     pub cookies: BTreeMap<String, String>,
+    pub session: BTreeMap<String, Value>,
     pub config: BTreeMap<String, Value>,
     pub view_data: BTreeMap<String, Value>,
 }
@@ -112,6 +113,7 @@ impl ControllerRegistry {
                 .call_method_value_with_args(instance, &action_name, arg_values)
                 .with_context(|| format!("failed to call {controller_name}.{action_name}"))?;
 
+            copy_session(&context, ctx)?;
             copy_view_data(&vm, ctx);
             action_result_from_value(result)
         });
@@ -139,6 +141,7 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
     let form = string_map_value(&ctx.form);
     let headers = string_map_value(&ctx.headers);
     let cookies = string_map_value(&ctx.cookies);
+    let session = Value::Map(ctx.session.clone().into());
     let config = Value::Map(ctx.config.clone().into());
     let request = Value::Map(
         BTreeMap::from([
@@ -149,6 +152,7 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
             ("form".to_string(), form.clone()),
             ("headers".to_string(), headers.clone()),
             ("cookies".to_string(), cookies.clone()),
+            ("session".to_string(), session.clone()),
         ])
         .into(),
     );
@@ -158,6 +162,7 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
     context.insert("form".to_string(), form);
     context.insert("headers".to_string(), headers);
     context.insert("cookies".to_string(), cookies);
+    context.insert("session".to_string(), session);
     context.insert("request".to_string(), request);
     context.insert("config".to_string(), config);
     context.extend(capabilities.clone());
@@ -224,6 +229,23 @@ fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
         }
 
         ctx.view_data.insert(name.clone(), value.clone());
+    }
+}
+
+fn copy_session(context: &Value, ctx: &mut RequestContext) -> Result<()> {
+    let Value::Map(context) = context else {
+        return Ok(());
+    };
+    let Some(session) = context.get("session") else {
+        return Ok(());
+    };
+
+    match session {
+        Value::Map(session) => {
+            ctx.session = session.snapshot();
+            Ok(())
+        }
+        value => bail!("session context must be a map, got {value:?}"),
     }
 }
 

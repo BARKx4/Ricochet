@@ -1541,6 +1541,109 @@ end
     );
 }
 
+#[tokio::test]
+async fn serves_session_map_from_cookie_and_sets_cookie_after_mutation() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "session_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/session" SessionController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/SessionController.rco"),
+        r#"
+SessionController Controller subclass
+  ( session ) "show" [
+    session var
+    session get .user get nil? if
+      session get "user" "Ada" !put drop
+    end
+    session get .user get text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("session mutation should set a cookie")
+        .to_str()
+        .expect("set-cookie should be UTF-8")
+        .to_string();
+    assert!(
+        set_cookie.starts_with("ricochet_session="),
+        "set-cookie was {set_cookie}"
+    );
+    assert!(
+        set_cookie.contains("HttpOnly"),
+        "set-cookie was {set_cookie}"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "Ada");
+
+    let cookie = set_cookie
+        .split(';')
+        .next()
+        .expect("set-cookie should include cookie pair");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers().get(header::SET_COOKIE).is_none(),
+        "unchanged session should not rewrite the cookie"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "Ada");
+}
+
 fn temp_project_path() -> PathBuf {
     let base = std::env::var_os("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
