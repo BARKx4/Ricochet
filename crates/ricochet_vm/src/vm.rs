@@ -101,6 +101,7 @@ pub struct Vm {
     pub(super) input_reader: Option<InputReader>,
     filesystem_enabled: bool,
     filesystem_root: Option<PathBuf>,
+    filesystem_writes_enabled: bool,
     http_enabled: bool,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
@@ -126,6 +127,7 @@ struct Task {
     program_args: Vec<String>,
     filesystem_enabled: bool,
     filesystem_root: Option<PathBuf>,
+    filesystem_writes_enabled: bool,
     http_enabled: bool,
     instruction_limit: Option<u64>,
 }
@@ -187,16 +189,22 @@ impl Vm {
 
     pub fn enable_cli_capabilities(&mut self) {
         self.filesystem_enabled = true;
+        self.filesystem_writes_enabled = true;
         self.http_enabled = true;
     }
 
     pub fn set_host_capabilities(&mut self, filesystem_enabled: bool, http_enabled: bool) {
         self.filesystem_enabled = filesystem_enabled;
+        self.filesystem_writes_enabled = filesystem_enabled;
         self.http_enabled = http_enabled;
     }
 
     pub fn set_filesystem_root(&mut self, root: impl Into<PathBuf>) {
         self.filesystem_root = Some(normalize_path(&strip_verbatim_prefix(root.into())));
+    }
+
+    pub fn set_filesystem_writes_enabled(&mut self, enabled: bool) {
+        self.filesystem_writes_enabled = enabled;
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1142,6 +1150,7 @@ impl Vm {
                 program_args: self.program_args.clone(),
                 filesystem_enabled: self.filesystem_enabled,
                 filesystem_root: self.filesystem_root.clone(),
+                filesystem_writes_enabled: self.filesystem_writes_enabled,
                 http_enabled: self.http_enabled,
                 instruction_limit: self.instruction_limit,
             },
@@ -1190,6 +1199,7 @@ impl Vm {
             program_args: task.program_args,
             filesystem_enabled: task.filesystem_enabled,
             filesystem_root: task.filesystem_root,
+            filesystem_writes_enabled: task.filesystem_writes_enabled,
             http_enabled: task.http_enabled,
             instruction_limit: task.instruction_limit,
             ..Vm::default()
@@ -1208,6 +1218,10 @@ impl Vm {
 
     pub(super) fn pending_task_ids(&self) -> Vec<u64> {
         self.tasks.keys().copied().collect()
+    }
+
+    pub(super) fn filesystem_writes_enabled(&self) -> bool {
+        self.filesystem_enabled && self.filesystem_writes_enabled
     }
 
     pub(super) fn resolve_filesystem_path(

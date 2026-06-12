@@ -2371,6 +2371,57 @@ fn run_can_restrict_filesystem_capability_to_root() {
 }
 
 #[test]
+fn run_can_make_filesystem_capability_read_only() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let data_path = root.join("data.txt");
+    let directory_path = root.join("created");
+    fs::write(&data_path, "original").expect("data file should be written");
+    let data = escape_ricochet_string(&data_path.to_string_lossy());
+    let directory = escape_ricochet_string(&directory_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+"{data}" fs .read-text value
+"{data}" "changed" fs .write-text! error writeDenied var
+"kind" writeDenied get .at
+"{directory}" fs .create-dir! error createDenied var
+"kind" createDenied get .at
+"#
+        ),
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-readonly")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"original\")"),
+        "stdout should include readable file contents, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("String(\"PermissionError\")").count() >= 2,
+        "stdout should report write/create denials as PermissionError, got:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(&data_path).expect("data file should remain readable"),
+        "original"
+    );
+    assert!(
+        !directory_path.exists(),
+        "read-only filesystem policy should not create directories"
+    );
+}
+
+#[test]
 fn run_exposes_http_client_capability() {
     let (address, server) = spawn_single_response_http_server(
         b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),

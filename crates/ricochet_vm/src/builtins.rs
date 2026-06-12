@@ -1523,6 +1523,12 @@ impl Vm {
         require_capability(receiver, Capability::FileSystem, method)?;
         let contents = self.pop_string(method, "file contents string")?;
         let path = self.pop_string(method, "path string")?;
+        if !self.filesystem_writes_enabled() {
+            return Ok(Value::result_err(
+                "PermissionError",
+                "filesystem writes are disabled",
+            ));
+        }
         let path = match self.resolve_filesystem_path(method, &path) {
             Ok(path) => path,
             Err(error) => return Ok(Value::result_err("PermissionError", error.to_string())),
@@ -1570,6 +1576,12 @@ impl Vm {
     fn method_fs_create_dir(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::FileSystem, method)?;
         let path = self.pop_string(method, "directory path string")?;
+        if !self.filesystem_writes_enabled() {
+            return Ok(Value::result_err(
+                "PermissionError",
+                "filesystem writes are disabled",
+            ));
+        }
         let path = match self.resolve_filesystem_path(method, &path) {
             Ok(path) => path,
             Err(error) => return Ok(Value::result_err("PermissionError", error.to_string())),

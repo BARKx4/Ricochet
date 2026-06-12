@@ -117,14 +117,24 @@ struct CapabilityOptions {
     no_fs: bool,
     #[arg(long, value_name = "PATH", help = "Restrict filesystem access to PATH")]
     fs_root: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Allow filesystem reads but deny writes and directory creation"
+    )]
+    fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
 }
 
 impl CapabilityOptions {
     fn apply_to(&self, vm: &mut Vm) -> Result<()> {
-        if self.no_fs && self.fs_root.is_some() {
-            bail!("--fs-root cannot be used with --no-fs");
+        if self.no_fs {
+            if self.fs_root.is_some() {
+                bail!("--fs-root cannot be used with --no-fs");
+            }
+            if self.fs_readonly {
+                bail!("--fs-readonly cannot be used with --no-fs");
+            }
         }
 
         vm.set_host_capabilities(!self.no_fs, !self.no_http);
@@ -135,6 +145,9 @@ impl CapabilityOptions {
                 bail!("--fs-root must be a directory: {}", root.display());
             }
             vm.set_filesystem_root(root);
+        }
+        if self.fs_readonly {
+            vm.set_filesystem_writes_enabled(false);
         }
         Ok(())
     }

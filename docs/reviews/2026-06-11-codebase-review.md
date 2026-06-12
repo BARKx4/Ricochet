@@ -76,6 +76,8 @@ Implemented after this review:
   execution.
 - Those same commands now accept `--fs-root <path>` to bound filesystem access
   to a directory.
+- They also accept `--fs-readonly` to allow filesystem reads while denying
+  writes and directory creation.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
 - Active Record now has parameterized `.limit` plus `.count`, `.first`, and
@@ -86,9 +88,8 @@ Implemented after this review:
 
 Still open:
 
-- Default-off capability policy, filesystem read/write policy, and HTTP
-  allow/deny lists remain larger trust-model decisions beyond the per-execution
-  deny/root flags.
+- Default-off capability policy and HTTP allow/deny lists remain larger
+  trust-model decisions beyond the per-execution deny/root/read-only flags.
 - Session signing/encryption and auth helpers remain package/framework work.
 - PostgreSQL TLS configuration and richer Active Record pagination/querying
   beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
@@ -160,9 +161,9 @@ Status: partially resolved after this review. CLI execution still defaults to
 trusted-local filesystem and HTTP powers for compatibility, but `rco repl`,
 `rco run`, `rco run-bytecode`, and `rco test` now accept `--no-fs` and
 `--no-http` to deny those powers for a specific execution. They also accept
-`--fs-root <path>` to bound filesystem access to a directory. Default-off
-policy, filesystem read/write policy, and HTTP allow/deny lists remain future
-host-policy work.
+`--fs-root <path>` to bound filesystem access to a directory and
+`--fs-readonly` to deny writes and directory creation. Default-off policy and
+HTTP allow/deny lists remain future host-policy work.
 
 Evidence:
 
@@ -170,6 +171,8 @@ Evidence:
 - VM host capability toggles live in `crates/ricochet_vm/src/vm.rs`.
 - VM filesystem root resolution bounds read/write/list/create calls when
   `--fs-root` is set.
+- VM filesystem write policy returns `PermissionError` for `.write-text!` and
+  `.create-dir!` when `--fs-readonly` is set.
 - HTTP methods now have timeout/body limits, but no allow/deny list.
 
 Impact:
@@ -182,8 +185,8 @@ server context.
 Recommendation:
 
 - Keep the capability model, but introduce host policy objects:
-  read/write permissions, HTTP allow/deny lists, timeout, and max response
-  bytes.
+  HTTP allow/deny lists, timeout, max response bytes, and named profiles for
+  default-off or read-only execution.
 - Consider default-off execution, a manifest-based trust prompt, or a named
   policy profile before enabling dangerous effects for arbitrary script files.
 - Keep documenting clearly that CLI commands execute trusted code with host
@@ -414,8 +417,7 @@ design docs and the current implementation:
 ## Suggested Next Sprint Order
 
 1. Add watch-mode debug trace events.
-2. Design filesystem read/write policy and decide whether default CLI
-   filesystem access should become opt-in.
+2. Decide whether default CLI filesystem/HTTP access should become opt-in.
 3. Design HTTP allow/deny policy for host capability use.
 4. Expand Active Record pagination/querying beyond `.limit`, `.count`,
    `.first`, and `.exists?`.
