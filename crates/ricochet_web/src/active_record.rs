@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::BytesMut;
 use ricochet_vm::Value;
-use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
-use tokio_postgres::{Client, NoTls, Row};
+use rusqlite::types::{ToSqlOutput, Value as SqliteSqlValue, ValueRef};
+use rusqlite::{Connection, Row as SqliteRow};
+use tokio_postgres::types::{to_sql_checked, IsNull, ToSql as PostgresToSql, Type};
+use tokio_postgres::{Client, NoTls, Row as PostgresRow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelMapping {
@@ -22,6 +24,21 @@ pub struct OrderPage<'a> {
     pub direction: &'a str,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SqlDialect {
+    Postgres,
+    Sqlite,
+}
+
+impl SqlDialect {
+    fn placeholder(self, index: usize) -> String {
+        match self {
+            SqlDialect::Postgres => format!("${index}"),
+            SqlDialect::Sqlite => "?".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +70,7 @@ pub enum ActiveRecordError {
     },
     UnsupportedColumnType {
         field: String,
-        postgres_type: String,
+        database_type: String,
     },
     Database {
         operation: &'static str,
@@ -65,7 +82,7 @@ impl fmt::Display for ActiveRecordError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActiveRecordError::InvalidIdentifier { kind, name } => {
-                write!(f, "invalid PostgreSQL {kind} identifier {name:?}")
+                write!(f, "invalid SQL {kind} identifier {name:?}")
             }
             ActiveRecordError::UnknownField { class_name, field } => {
                 write!(f, "unknown field {field:?} on model {class_name}")
@@ -93,13 +110,13 @@ impl fmt::Display for ActiveRecordError {
             }
             ActiveRecordError::UnsupportedColumnType {
                 field,
-                postgres_type,
+                database_type,
             } => write!(
                 f,
-                "PostgreSQL field {field:?} has unsupported type {postgres_type}"
+                "database field {field:?} has unsupported type {database_type}"
             ),
             ActiveRecordError::Database { operation, message } => {
-                write!(f, "PostgreSQL {operation} failed: {message}")
+                write!(f, "database {operation} failed: {message}")
             }
         }
     }
@@ -148,10 +165,15 @@ impl ModelMapping {
     }
 
     pub fn select_by_id_sql(&self) -> String {
+        self.select_by_id_sql_for(SqlDialect::Postgres)
+    }
+
+    fn select_by_id_sql_for(&self, dialect: SqlDialect) -> String {
         format!(
-            "select {} from {} where id = $1 limit 1",
+            "select {} from {} where id = {} limit 1",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1)
         )
     }
 
@@ -172,18 +194,29 @@ impl ModelMapping {
     }
 
     pub fn select_limit_sql(&self) -> String {
+        self.select_limit_sql_for(SqlDialect::Postgres)
+    }
+
+    fn select_limit_sql_for(&self, dialect: SqlDialect) -> String {
         format!(
-            "select {} from {} limit $1",
+            "select {} from {} limit {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1)
         )
     }
 
     pub fn select_page_sql(&self) -> String {
+        self.select_page_sql_for(SqlDialect::Postgres)
+    }
+
+    fn select_page_sql_for(&self, dialect: SqlDialect) -> String {
         format!(
-            "select {} from {} limit $1 offset $2",
+            "select {} from {} limit {} offset {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1),
+            dialect.placeholder(2)
         )
     }
 
@@ -192,46 +225,92 @@ impl ModelMapping {
         field: &str,
         direction: &str,
     ) -> Result<String, ActiveRecordError> {
+        self.select_order_page_sql_for(field, direction, SqlDialect::Postgres)
+    }
+
+    fn select_order_page_sql_for(
+        &self,
+        field: &str,
+        direction: &str,
+        dialect: SqlDialect,
+    ) -> Result<String, ActiveRecordError> {
         self.require_field(field)?;
         let direction = validate_order_direction(direction)?;
         Ok(format!(
-            "select {} from {} order by {field} {direction} limit $1 offset $2",
+            "select {} from {} order by {field} {direction} limit {} offset {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1),
+            dialect.placeholder(2)
         ))
     }
 
     pub fn exists_by_id_sql(&self) -> String {
+        self.exists_by_id_sql_for(SqlDialect::Postgres)
+    }
+
+    fn exists_by_id_sql_for(&self, dialect: SqlDialect) -> String {
         format!(
-            "select exists(select 1 from {} where id = $1)",
-            self.table_name
+            "select exists(select 1 from {} where id = {})",
+            self.table_name,
+            dialect.placeholder(1)
         )
     }
 
     pub fn select_where_eq_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
+        self.select_where_eq_sql_for(field, SqlDialect::Postgres)
+    }
+
+    fn select_where_eq_sql_for(
+        &self,
+        field: &str,
+        dialect: SqlDialect,
+    ) -> Result<String, ActiveRecordError> {
         self.require_field(field)?;
         Ok(format!(
-            "select {} from {} where {field} = $1",
+            "select {} from {} where {field} = {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1)
         ))
     }
 
     pub fn select_where_eq_limit_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
+        self.select_where_eq_limit_sql_for(field, SqlDialect::Postgres)
+    }
+
+    fn select_where_eq_limit_sql_for(
+        &self,
+        field: &str,
+        dialect: SqlDialect,
+    ) -> Result<String, ActiveRecordError> {
         self.require_field(field)?;
         Ok(format!(
-            "select {} from {} where {field} = $1 limit $2",
+            "select {} from {} where {field} = {} limit {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1),
+            dialect.placeholder(2)
         ))
     }
 
     pub fn select_where_eq_page_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
+        self.select_where_eq_page_sql_for(field, SqlDialect::Postgres)
+    }
+
+    fn select_where_eq_page_sql_for(
+        &self,
+        field: &str,
+        dialect: SqlDialect,
+    ) -> Result<String, ActiveRecordError> {
         self.require_field(field)?;
         Ok(format!(
-            "select {} from {} where {field} = $1 limit $2 offset $3",
+            "select {} from {} where {field} = {} limit {} offset {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1),
+            dialect.placeholder(2),
+            dialect.placeholder(3)
         ))
     }
 
@@ -241,20 +320,42 @@ impl ModelMapping {
         order_field: &str,
         direction: &str,
     ) -> Result<String, ActiveRecordError> {
+        self.select_where_eq_order_page_sql_for(
+            where_field,
+            order_field,
+            direction,
+            SqlDialect::Postgres,
+        )
+    }
+
+    fn select_where_eq_order_page_sql_for(
+        &self,
+        where_field: &str,
+        order_field: &str,
+        direction: &str,
+        dialect: SqlDialect,
+    ) -> Result<String, ActiveRecordError> {
         self.require_field(where_field)?;
         self.require_field(order_field)?;
         let direction = validate_order_direction(direction)?;
         Ok(format!(
-            "select {} from {} where {where_field} = $1 order by {order_field} {direction} limit $2 offset $3",
+            "select {} from {} where {where_field} = {} order by {order_field} {direction} limit {} offset {}",
             self.fields.join(", "),
-            self.table_name
+            self.table_name,
+            dialect.placeholder(1),
+            dialect.placeholder(2),
+            dialect.placeholder(3)
         ))
     }
 
     pub fn insert_sql(&self) -> String {
+        self.insert_sql_for(SqlDialect::Postgres)
+    }
+
+    fn insert_sql_for(&self, dialect: SqlDialect) -> String {
         let fields = self.non_id_fields();
         let placeholders = (1..=fields.len())
-            .map(|index| format!("${index}"))
+            .map(|index| dialect.placeholder(index))
             .collect::<Vec<_>>();
 
         format!(
@@ -267,18 +368,23 @@ impl ModelMapping {
     }
 
     pub fn update_by_id_sql(&self) -> String {
+        self.update_by_id_sql_for(SqlDialect::Postgres)
+    }
+
+    fn update_by_id_sql_for(&self, dialect: SqlDialect) -> String {
         let fields = self.non_id_fields();
         let assignments = fields
             .iter()
             .enumerate()
-            .map(|(index, field)| format!("{field} = ${}", index + 1))
+            .map(|(index, field)| format!("{field} = {}", dialect.placeholder(index + 1)))
             .collect::<Vec<_>>();
         let id_parameter = fields.len() + 1;
 
         format!(
-            "update {} set {} where id = ${id_parameter} returning {}",
+            "update {} set {} where id = {} returning {}",
             self.table_name,
             assignments.join(", "),
+            dialect.placeholder(id_parameter),
             self.fields.join(", ")
         )
     }
@@ -631,6 +737,303 @@ impl PostgresDatabase {
     }
 }
 
+#[derive(Clone)]
+pub struct SqliteDatabase {
+    connection: Arc<Mutex<Connection>>,
+}
+
+impl fmt::Debug for SqliteDatabase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SqliteDatabase").finish_non_exhaustive()
+    }
+}
+
+impl SqliteDatabase {
+    pub fn connect(url: &str) -> Result<Self, ActiveRecordError> {
+        let connection = open_sqlite_connection(url)?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| sqlite_error("configure", error))?;
+
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
+    }
+
+    pub fn ping(&self) -> Result<(), ActiveRecordError> {
+        self.with_connection("ping", |connection| {
+            connection
+                .query_row("select 1", [], |_| Ok(()))
+                .map_err(|error| sqlite_error("ping", error))
+        })
+    }
+
+    pub fn find(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        self.query_optional(
+            mapping,
+            "find",
+            mapping.select_by_id_sql_for(SqlDialect::Sqlite),
+            vec![id.clone()],
+        )
+    }
+
+    pub fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(mapping, "all", mapping.select_all_sql(), Vec::new())
+    }
+
+    pub fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        self.with_connection("count", |connection| {
+            connection
+                .query_row(mapping.select_count_sql().as_str(), [], |row| row.get(0))
+                .map_err(|error| sqlite_error("count", error))
+        })
+    }
+
+    pub fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        self.query_optional(mapping, "first", mapping.select_first_sql(), Vec::new())
+    }
+
+    pub fn limit(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(
+            mapping,
+            "limit",
+            mapping.select_limit_sql_for(SqlDialect::Sqlite),
+            vec![Value::Number(limit)],
+        )
+    }
+
+    pub fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.query_many(
+            mapping,
+            "page",
+            mapping.select_page_sql_for(SqlDialect::Sqlite),
+            vec![Value::Number(limit), Value::Number(offset)],
+        )
+    }
+
+    pub fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql =
+            mapping.select_order_page_sql_for(order.field, order.direction, SqlDialect::Sqlite)?;
+        self.query_many(
+            mapping,
+            "order-page",
+            sql,
+            vec![Value::Number(order.limit), Value::Number(order.offset)],
+        )
+    }
+
+    pub fn exists_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: &Value,
+    ) -> Result<bool, ActiveRecordError> {
+        let parameter = SqliteParameter::try_from(id)?;
+        self.with_connection("exists", |connection| {
+            let references = vec![parameter.as_sql()];
+            let exists: i64 = connection
+                .query_row(
+                    mapping.exists_by_id_sql_for(SqlDialect::Sqlite).as_str(),
+                    references.as_slice(),
+                    |row| row.get(0),
+                )
+                .map_err(|error| sqlite_error("exists", error))?;
+            Ok(exists != 0)
+        })
+    }
+
+    pub fn where_eq(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_sql_for(field, SqlDialect::Sqlite)?;
+        self.query_many(mapping, "where", sql, vec![value.clone()])
+    }
+
+    pub fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_limit_sql_for(field, SqlDialect::Sqlite)?;
+        self.query_many(
+            mapping,
+            "where-limit",
+            sql,
+            vec![value.clone(), Value::Number(limit)],
+        )
+    }
+
+    pub fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_page_sql_for(field, SqlDialect::Sqlite)?;
+        self.query_many(
+            mapping,
+            "where-page",
+            sql,
+            vec![value.clone(), Value::Number(limit), Value::Number(offset)],
+        )
+    }
+
+    pub fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_order_page_sql_for(
+            where_field,
+            order.field,
+            order.direction,
+            SqlDialect::Sqlite,
+        )?;
+        self.query_many(
+            mapping,
+            "where-order-page",
+            sql,
+            vec![
+                value.clone(),
+                Value::Number(order.limit),
+                Value::Number(order.offset),
+            ],
+        )
+    }
+
+    pub fn insert(
+        &self,
+        mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.insert_values(attributes)?;
+        self.query_one(
+            mapping,
+            "insert",
+            mapping.insert_sql_for(SqlDialect::Sqlite),
+            values,
+        )
+    }
+
+    pub fn update_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        let values = mapping.update_values(id, attributes)?;
+        self.query_one(
+            mapping,
+            "update",
+            mapping.update_by_id_sql_for(SqlDialect::Sqlite),
+            values,
+        )
+    }
+
+    fn query_many(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let parameters = values
+            .iter()
+            .map(SqliteParameter::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.with_connection(operation, |connection| {
+            let mut statement = connection
+                .prepare(sql.as_str())
+                .map_err(|error| sqlite_error(operation, error))?;
+            let references = parameters
+                .iter()
+                .map(SqliteParameter::as_sql)
+                .collect::<Vec<_>>();
+            let mut rows = statement
+                .query(references.as_slice())
+                .map_err(|error| sqlite_error(operation, error))?;
+            let mut values = Vec::new();
+
+            while let Some(row) = rows
+                .next()
+                .map_err(|error| sqlite_error(operation, error))?
+            {
+                values.push(sqlite_row_to_value(row, mapping)?);
+            }
+
+            Ok(values)
+        })
+    }
+
+    fn query_optional(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Option<Value>, ActiveRecordError> {
+        Ok(self
+            .query_many(mapping, operation, sql, values)?
+            .into_iter()
+            .next())
+    }
+
+    fn query_one(
+        &self,
+        mapping: &ModelMapping,
+        operation: &'static str,
+        sql: String,
+        values: Vec<Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        self.query_optional(mapping, operation, sql, values)?
+            .ok_or_else(|| ActiveRecordError::Database {
+                operation,
+                message: "query returned no rows".to_string(),
+            })
+    }
+
+    fn with_connection<T>(
+        &self,
+        operation: &'static str,
+        callback: impl FnOnce(&Connection) -> Result<T, ActiveRecordError>,
+    ) -> Result<T, ActiveRecordError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| ActiveRecordError::Database {
+                operation,
+                message: "SQLite connection lock was poisoned".to_string(),
+            })?;
+        callback(&connection)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum PostgresParameter {
     Null,
@@ -640,12 +1043,12 @@ enum PostgresParameter {
 }
 
 impl PostgresParameter {
-    fn as_sql(&self) -> &(dyn ToSql + Sync) {
+    fn as_sql(&self) -> &(dyn PostgresToSql + Sync) {
         self
     }
 }
 
-impl ToSql for PostgresParameter {
+impl PostgresToSql for PostgresParameter {
     fn to_sql(
         &self,
         postgres_type: &Type,
@@ -733,7 +1136,93 @@ fn parameter_range_error(value: i64, postgres_type: &Type) -> io::Error {
     )
 }
 
-fn row_to_value(row: &Row, mapping: &ModelMapping) -> Result<Value, ActiveRecordError> {
+#[derive(Debug, Clone, PartialEq)]
+enum SqliteParameter {
+    Null,
+    Bool(bool),
+    Number(i64),
+    String(String),
+}
+
+impl SqliteParameter {
+    fn as_sql(&self) -> &dyn rusqlite::types::ToSql {
+        self
+    }
+}
+
+impl rusqlite::types::ToSql for SqliteParameter {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let value = match self {
+            SqliteParameter::Null => SqliteSqlValue::Null,
+            SqliteParameter::Bool(value) => SqliteSqlValue::Integer(if *value { 1 } else { 0 }),
+            SqliteParameter::Number(value) => SqliteSqlValue::Integer(*value),
+            SqliteParameter::String(value) => SqliteSqlValue::Text(value.clone()),
+        };
+
+        Ok(ToSqlOutput::Owned(value))
+    }
+}
+
+impl TryFrom<&Value> for SqliteParameter {
+    type Error = ActiveRecordError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Nil => Ok(SqliteParameter::Null),
+            Value::Bool(value) => Ok(SqliteParameter::Bool(*value)),
+            Value::Number(value) => Ok(SqliteParameter::Number(*value)),
+            Value::String(value) => Ok(SqliteParameter::String(value.clone())),
+            value => Err(ActiveRecordError::UnsupportedValue {
+                operation: "SQLite parameter",
+                actual: value_kind(value).to_string(),
+            }),
+        }
+    }
+}
+
+fn open_sqlite_connection(url: &str) -> Result<Connection, ActiveRecordError> {
+    let path = sqlite_path_from_url(url)?;
+    if path == ":memory:" {
+        Connection::open_in_memory().map_err(|error| sqlite_error("connect", error))
+    } else {
+        Connection::open(path).map_err(|error| sqlite_error("connect", error))
+    }
+}
+
+fn sqlite_path_from_url(url: &str) -> Result<String, ActiveRecordError> {
+    let trimmed = url.trim();
+    let path = trimmed
+        .strip_prefix("sqlite://")
+        .or_else(|| trimmed.strip_prefix("sqlite:"))
+        .unwrap_or(trimmed);
+    let path = normalize_sqlite_path(path);
+
+    if path.is_empty() {
+        return Err(ActiveRecordError::Database {
+            operation: "connect",
+            message: "SQLite database path is empty".to_string(),
+        });
+    }
+
+    Ok(path)
+}
+
+#[cfg(windows)]
+fn normalize_sqlite_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[2] == b':' {
+        path[1..].to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+#[cfg(not(windows))]
+fn normalize_sqlite_path(path: &str) -> String {
+    path.to_string()
+}
+
+fn row_to_value(row: &PostgresRow, mapping: &ModelMapping) -> Result<Value, ActiveRecordError> {
     let mut values = BTreeMap::new();
 
     for (index, field) in mapping.fields.iter().enumerate() {
@@ -752,7 +1241,7 @@ fn row_to_value(row: &Row, mapping: &ModelMapping) -> Result<Value, ActiveRecord
 }
 
 fn column_value(
-    row: &Row,
+    row: &PostgresRow,
     index: usize,
     field: &str,
     postgres_type: &Type,
@@ -780,7 +1269,7 @@ fn column_value(
         _ => {
             return Err(ActiveRecordError::UnsupportedColumnType {
                 field: field.to_string(),
-                postgres_type: postgres_type.name().to_string(),
+                database_type: postgres_type.name().to_string(),
             });
         }
     };
@@ -788,7 +1277,51 @@ fn column_value(
     result.map_err(|error| database_error("decode row", error))
 }
 
+fn sqlite_row_to_value(
+    row: &SqliteRow<'_>,
+    mapping: &ModelMapping,
+) -> Result<Value, ActiveRecordError> {
+    let mut values = BTreeMap::new();
+
+    for (index, field) in mapping.fields.iter().enumerate() {
+        let value = sqlite_column_value(row, index, field)?;
+        values.insert(field.clone(), value);
+    }
+
+    Ok(Value::Map(values.into()))
+}
+
+fn sqlite_column_value(
+    row: &SqliteRow<'_>,
+    index: usize,
+    field: &str,
+) -> Result<Value, ActiveRecordError> {
+    match row
+        .get_ref(index)
+        .map_err(|error| sqlite_error("decode row", error))?
+    {
+        ValueRef::Null => Ok(Value::Nil),
+        ValueRef::Integer(value) => Ok(Value::Number(value)),
+        ValueRef::Text(value) => Ok(Value::String(String::from_utf8_lossy(value).into_owned())),
+        ValueRef::Real(_) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "REAL".to_string(),
+        }),
+        ValueRef::Blob(_) => Err(ActiveRecordError::UnsupportedColumnType {
+            field: field.to_string(),
+            database_type: "BLOB".to_string(),
+        }),
+    }
+}
+
 fn database_error(operation: &'static str, error: tokio_postgres::Error) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation,
+        message: error.to_string(),
+    }
+}
+
+fn sqlite_error(operation: &'static str, error: rusqlite::Error) -> ActiveRecordError {
     ActiveRecordError::Database {
         operation,
         message: error.to_string(),
@@ -1104,6 +1637,120 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_sql_uses_question_mark_placeholders_and_returning() {
+        let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_by_id_sql_for(SqlDialect::Sqlite),
+            "select id, email, name from users where id = ? limit 1"
+        );
+        assert_eq!(
+            mapping.select_page_sql_for(SqlDialect::Sqlite),
+            "select id, email, name from users limit ? offset ?"
+        );
+        assert_eq!(
+            mapping
+                .select_where_eq_order_page_sql_for("email", "id", "desc", SqlDialect::Sqlite),
+            Ok(
+                "select id, email, name from users where email = ? order by id desc limit ? offset ?"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            mapping.insert_sql_for(SqlDialect::Sqlite),
+            "insert into users (email, name) values (?, ?) returning id, email, name"
+        );
+        assert_eq!(
+            mapping.update_by_id_sql_for(SqlDialect::Sqlite),
+            "update users set email = ?, name = ? where id = ? returning id, email, name"
+        );
+    }
+
+    #[test]
+    fn sqlite_database_runs_active_record_queries_against_real_database() {
+        let database = SqliteDatabase::connect(":memory:").expect("sqlite connects");
+        database
+            .with_connection("test setup", |connection| {
+                connection
+                    .execute_batch(
+                        r#"
+                        create table users (
+                            id integer primary key,
+                            email text not null,
+                            name text not null
+                        );
+                        insert into users (email, name) values
+                            ('ada@example.com', 'Ada'),
+                            ('grace@example.com', 'Grace');
+                        "#,
+                    )
+                    .map_err(|error| sqlite_error("test setup", error))
+            })
+            .expect("schema setup works");
+        let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(database.count(&mapping), Ok(2));
+        assert_eq!(database.exists_by_id(&mapping, &Value::Number(2)), Ok(true));
+        assert_eq!(
+            database.find(&mapping, &Value::Number(1)),
+            Ok(Some(user_row(1, "ada@example.com", "Ada")))
+        );
+        assert_eq!(
+            database.order_page(
+                &mapping,
+                OrderPage {
+                    field: "id",
+                    direction: "desc",
+                    limit: 1,
+                    offset: 0,
+                },
+            ),
+            Ok(vec![user_row(2, "grace@example.com", "Grace")])
+        );
+        assert_eq!(
+            database.where_eq_page(
+                &mapping,
+                "email",
+                &Value::String("ada@example.com".to_string()),
+                1,
+                0,
+            ),
+            Ok(vec![user_row(1, "ada@example.com", "Ada")])
+        );
+
+        let inserted = database
+            .insert(
+                &mapping,
+                &BTreeMap::from([
+                    (
+                        "email".to_string(),
+                        Value::String("katherine@example.com".to_string()),
+                    ),
+                    ("name".to_string(), Value::String("Katherine".to_string())),
+                ]),
+            )
+            .expect("insert returns row");
+        assert_eq!(inserted, user_row(3, "katherine@example.com", "Katherine"));
+
+        let updated = database
+            .update_by_id(
+                &mapping,
+                Value::Number(3),
+                &BTreeMap::from([
+                    (
+                        "email".to_string(),
+                        Value::String("kat@example.com".to_string()),
+                    ),
+                    ("name".to_string(), Value::String("Kat".to_string())),
+                ]),
+            )
+            .expect("update returns row");
+        assert_eq!(updated, user_row(3, "kat@example.com", "Kat"));
+    }
+
+    #[test]
     fn insert_values_follow_model_field_order() {
         let mapping = ModelMapping::try_new("User", "users", ["id", "email", "name"])
             .expect("mapping is valid");
@@ -1201,5 +1848,16 @@ mod tests {
                 fields: vec!["id".to_string(), "email".to_string()],
             }
         );
+    }
+
+    fn user_row(id: i64, email: &str, name: &str) -> Value {
+        Value::Map(
+            BTreeMap::from([
+                ("id".to_string(), Value::Number(id)),
+                ("email".to_string(), Value::String(email.to_string())),
+                ("name".to_string(), Value::String(name.to_string())),
+            ])
+            .into(),
+        )
     }
 }

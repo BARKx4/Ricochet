@@ -448,7 +448,7 @@ end</code></pre>
 
       <section id="active-record" class="section-band">
         <div class="section-heading">
-          <p class="eyebrow">PostgreSQL first</p>
+          <p class="eyebrow">SQLite + PostgreSQL</p>
           <h2>Active Record Examples</h2>
         </div>
         <div class="example-grid">
@@ -680,7 +680,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
-          <li>Active Record targets existing PostgreSQL schemas in v1. Schema migrations are a later branch.</li>
+          <li>Active Record targets existing SQLite and PostgreSQL schemas in v1. Schema migrations are a later branch.</li>
           <li>Template expressions must leave exactly one scalar renderable value: nil, bool, number, or string.</li>
         </ul>
       </section>

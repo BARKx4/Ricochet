@@ -258,6 +258,34 @@ escape = "none"
     }
 
     #[test]
+    fn manifest_parses_sqlite_database_adapter() {
+        let source = r#"
+[package]
+name = "sqlite_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#;
+
+        let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+        let database = manifest
+            .database
+            .default
+            .expect("sqlite default database should be present");
+
+        assert_eq!(database.adapter, "sqlite");
+        assert_eq!(database.url, "db/development.sqlite3");
+    }
+
+    #[test]
     fn session_signing_secret_resolves_environment_variable() {
         std::env::set_var("RICOCHET_TEST_SESSION_SECRET", "test-secret");
         let session = Session {

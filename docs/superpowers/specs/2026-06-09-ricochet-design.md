@@ -7,7 +7,7 @@ Status: Draft for review
 
 Ricochet is a modern, pure-postfix, stack-based programming language descended in spirit from MUF/MUCK-era Multi-User Forth. It is designed for people who still think in the stack, but it should be useful outside games: full CLI applications, server-side web scripting, MVC web apps, live debugging, and dynamic runtime metaprogramming.
 
-The first serious milestone is a Web MVC vertical slice, not a tiny calculator VM. The language should prove itself by serving a real PostgreSQL-backed MVC page with stack-aware debugging.
+The first serious milestone is a Web MVC vertical slice, not a tiny calculator VM. The language should prove itself by serving a real SQLite or PostgreSQL-backed MVC page with stack-aware debugging.
 
 ## Design Goals
 
@@ -176,7 +176,7 @@ amount var
 amount get
 ```
 
-Ricochet uses canonical `nil` for absence. JSON `null` and PostgreSQL `NULL` map to/from Ricochet `nil`.
+Ricochet uses canonical `nil` for absence. JSON `null` and SQL `NULL` map to/from Ricochet `nil`.
 
 Truthiness is dynamic-language style: `false`, `nil`, numeric zero, empty strings, and empty collections are falsey. `Result` values do not participate in truthiness; callers must use `ok?` explicitly.
 
@@ -473,7 +473,7 @@ The v1 vertical slice should support:
 - Standalone HTTP serving via `rco serve`.
 - CGI/FastCGI deployment path.
 - MVC routing, controllers, models, and views.
-- PostgreSQL-backed Active Record against an existing schema.
+- SQLite or PostgreSQL-backed Active Record against an existing schema.
 - Plain HTML templates with full Ricochet interpolation.
 - Capability-first request context.
 
@@ -535,7 +535,10 @@ Higher-level auth remains package work.
 
 ## Active Record
 
-PostgreSQL is the first database target. SQLite can come later as a convenience adapter, but Ricochet's first web framework should target real PostgreSQL semantics.
+SQLite and PostgreSQL are the v1 beta database targets. SQLite gives beta
+testers a zero-service local app path, while PostgreSQL keeps the
+production-style relational target visible. MySQL/MariaDB can be added after
+the beta floor without blocking the first usable web app target.
 
 Migrations are not v1. v1 maps models to an existing schema.
 
@@ -731,7 +734,7 @@ The first milestone is a thin but complete Web MVC slice in Rust:
 2. Compile to bytecode with debug metadata.
 3. Run bytecode in a stack VM with objects, classes, open classes, fields, methods, `Result`, and `nil`.
 4. Provide `rco run`, `rco repl`, `rco build`, `rco serve`, and `rco test` at a usable early level.
-5. Serve one MVC app end-to-end: route, controller, PostgreSQL Active Record model against existing schema, HTML template interpolation, and HTTP response.
+5. Serve one MVC app end-to-end: route, controller, SQLite or PostgreSQL Active Record model against existing schema, HTML template interpolation, and HTTP response.
 6. Support `--debug`, breakpoints, stack trace, and break-on-fault for that vertical slice.
 7. Support hot reload with stable request revision snapshots.
 
@@ -739,7 +742,6 @@ The first milestone is a thin but complete Web MVC slice in Rust:
 
 - Central package registry.
 - Migrations in SQL and Ricochet DSL.
-- SQLite adapter.
 - Template embedded script blocks beyond interpolation.
 - General compile-time macros.
 - Persistent REPL images and source emission.

@@ -8,7 +8,9 @@ pub mod router;
 pub mod server;
 pub mod template;
 
-pub use active_record::{ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase};
+pub use active_record::{
+    ActiveRecordError, ModelMapping, OrderPage, PostgresDatabase, SqliteDatabase,
+};
 pub use ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};
 pub use database_capability::{install_database_capability, DatabaseBackend};

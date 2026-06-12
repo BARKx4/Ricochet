@@ -5,7 +5,7 @@ use axum::{
 use ricochet_vm::Value;
 use ricochet_web::{
     ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping, OrderPage,
-    PostgresDatabase, RequestContext, WatchTraceEvent, WatchTraceSink,
+    PostgresDatabase, RequestContext, SqliteDatabase, WatchTraceEvent, WatchTraceSink,
 };
 use std::{
     collections::BTreeMap,
@@ -283,6 +283,109 @@ end
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
     assert!(body.contains("ada@example.com"));
+}
+
+#[tokio::test]
+async fn serves_active_record_results_from_sqlite_database() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Models")).expect("model directory should be created");
+    let database_path = project_root.join("development.sqlite3");
+    let connection =
+        rusqlite::Connection::open(&database_path).expect("sqlite database should open");
+    connection
+        .execute_batch(
+            r#"
+            create table users (
+                id integer primary key,
+                email text not null,
+                name text not null
+            );
+            insert into users (email, name) values
+                ('ada@example.com', 'Ada'),
+                ('grace@example.com', 'Grace');
+            "#,
+        )
+        .expect("sqlite schema should be created");
+    drop(connection);
+
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "sqlite_database_capability"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/users" UserController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Models/User.rco"),
+        r#"
+User Model subclass
+  users table
+  id field
+  email field
+  name field
+end
+"#,
+    )
+    .expect("model should be written");
+    fs::write(
+        project_root.join("app/Controllers/UserController.rco"),
+        r#"
+UserController Controller subclass
+  index method
+    "id" "asc" 10 0 User .order-page
+    dup ok? if
+      value json
+    else
+      error .message get text
+    end
+  end
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let backend = SqliteDatabase::connect(database_path.to_str().expect("path is UTF-8"))
+        .expect("sqlite backend connects");
+    let app =
+        ricochet_web::server::build_app_from_dir_with_database(&project_root, Arc::new(backend))
+            .expect("build app with sqlite database capability");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/users")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE),
+        Some(&header::HeaderValue::from_static("application/json"))
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(body.contains("ada@example.com"), "body was {body}");
+    assert!(body.contains("grace@example.com"), "body was {body}");
 }
 
 #[test]

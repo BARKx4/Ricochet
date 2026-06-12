@@ -4,7 +4,7 @@ Ricochet is a modern, pure-postfix, stack-based programming language descended
 in spirit from MUF/MUCK-era Multi-User Forth. The current implementation is a
 Rust bytecode VM with dynamic OOP, CLI scripting, MVC web app scaffolding,
 template rendering, stack/debug tracing, and early Active Record support for
-existing PostgreSQL schemas.
+existing SQLite and PostgreSQL schemas.
 
 ## Current Status
 
@@ -112,6 +112,25 @@ manifest between requests. If a reload fails, the request returns a clear MVC
 error and the next request retries after you fix the source. Combine `--watch`
 with `--debug` to print reload trace lines with the new revision and changed
 files.
+
+For a zero-service local beta app, point Active Record at SQLite:
+
+```toml
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+```
+
+For a Postgres-backed app, use the same manifest shape with a Postgres URL:
+
+```toml
+[database.default]
+adapter = "postgres"
+url = "${DATABASE_URL}"
+```
+
+Active Record maps model declarations to existing tables; schema migrations are
+still planned work.
 
 ## Developing Ricochet
 

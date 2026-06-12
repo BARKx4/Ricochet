@@ -22,11 +22,11 @@ use ricochet_vm::{Value, Vm};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use crate::active_record::{ModelMapping, PostgresDatabase};
+use crate::active_record::{ModelMapping, PostgresDatabase, SqliteDatabase};
 use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
-use crate::manifest::Manifest;
+use crate::manifest::{DatabaseDefault, Manifest};
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
@@ -1571,19 +1571,15 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     let watch_trace_sink = (options.watch && options.debug).then(stdout_watch_trace_sink);
     let app = match (options.watch, manifest.database.default) {
         (true, Some(database)) => {
-            if database.adapter != "postgres" {
-                bail!("unsupported database adapter {}", database.adapter);
-            }
-            let url = database.resolved_url()?;
-            let backend = PostgresDatabase::connect(&url).await?;
+            let backend = connect_database_backend(&database).await?;
             if let Some(trace_sink) = watch_trace_sink.clone() {
                 build_watched_app_from_dir_with_database_and_trace(
                     project_root,
-                    Arc::new(backend),
+                    backend,
                     trace_sink,
                 )?
             } else {
-                build_watched_app_from_dir_with_database(project_root, Arc::new(backend))?
+                build_watched_app_from_dir_with_database(project_root, backend)?
             }
         }
         (true, None) => {
@@ -1594,12 +1590,8 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
             }
         }
         (false, Some(database)) => {
-            if database.adapter != "postgres" {
-                bail!("unsupported database adapter {}", database.adapter);
-            }
-            let url = database.resolved_url()?;
-            let backend = PostgresDatabase::connect(&url).await?;
-            build_app_from_dir_with_database(project_root, Arc::new(backend))?
+            let backend = connect_database_backend(&database).await?;
+            build_app_from_dir_with_database(project_root, backend)?
         }
         (false, None) => build_app_from_dir(project_root)?,
     };
@@ -1614,6 +1606,20 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     Ok(())
 }
 
+async fn connect_database_backend(database: &DatabaseDefault) -> Result<Arc<dyn DatabaseBackend>> {
+    let adapter = database.adapter.trim().to_ascii_lowercase();
+    let url = database.resolved_url()?;
+
+    match adapter.as_str() {
+        "postgres" | "postgresql" => Ok(Arc::new(PostgresDatabase::connect(&url).await?)),
+        "sqlite" => Ok(Arc::new(SqliteDatabase::connect(&url)?)),
+        _ => bail!(
+            "unsupported database adapter {}; expected postgres or sqlite",
+            database.adapter
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1621,6 +1627,23 @@ mod tests {
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
+    }
+
+    #[tokio::test]
+    async fn database_backend_dispatch_accepts_sqlite_adapter() {
+        let backend = connect_database_backend(&DatabaseDefault {
+            adapter: "sqlite".to_string(),
+            url: ":memory:".to_string(),
+        })
+        .await
+        .expect("sqlite adapter should connect");
+        let mapping = ModelMapping::try_new("User", "users", ["id"]).expect("mapping is valid");
+
+        let error = backend
+            .count(&mapping)
+            .expect_err("empty in-memory database has no users table");
+
+        assert!(error.to_string().contains("no such table"));
     }
 
     #[test]
