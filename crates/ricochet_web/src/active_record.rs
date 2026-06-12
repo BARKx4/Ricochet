@@ -162,6 +162,14 @@ impl ModelMapping {
         )
     }
 
+    pub fn select_page_sql(&self) -> String {
+        format!(
+            "select {} from {} limit $1 offset $2",
+            self.fields.join(", "),
+            self.table_name
+        )
+    }
+
     pub fn exists_by_id_sql(&self) -> String {
         format!(
             "select exists(select 1 from {} where id = $1)",
@@ -173,6 +181,24 @@ impl ModelMapping {
         self.require_field(field)?;
         Ok(format!(
             "select {} from {} where {field} = $1",
+            self.fields.join(", "),
+            self.table_name
+        ))
+    }
+
+    pub fn select_where_eq_limit_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
+        self.require_field(field)?;
+        Ok(format!(
+            "select {} from {} where {field} = $1 limit $2",
+            self.fields.join(", "),
+            self.table_name
+        ))
+    }
+
+    pub fn select_where_eq_page_sql(&self, field: &str) -> Result<String, ActiveRecordError> {
+        self.require_field(field)?;
+        Ok(format!(
+            "select {} from {} where {field} = $1 limit $2 offset $3",
             self.fields.join(", "),
             self.table_name
         ))
@@ -368,6 +394,28 @@ impl PostgresDatabase {
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
 
+    pub async fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let limit = Value::Number(limit);
+        let offset = Value::Number(offset);
+        let limit = PostgresParameter::try_from(&limit)?;
+        let offset = PostgresParameter::try_from(&offset)?;
+        let rows = self
+            .client
+            .query(
+                mapping.select_page_sql().as_str(),
+                &[limit.as_sql(), offset.as_sql()],
+            )
+            .await
+            .map_err(|error| database_error("page", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
     pub async fn exists_by_id(
         &self,
         mapping: &ModelMapping,
@@ -396,6 +444,52 @@ impl PostgresDatabase {
             .query(sql.as_str(), &[parameter.as_sql()])
             .await
             .map_err(|error| database_error("where", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
+    pub async fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_limit_sql(field)?;
+        let value = PostgresParameter::try_from(value)?;
+        let limit = Value::Number(limit);
+        let limit = PostgresParameter::try_from(&limit)?;
+        let rows = self
+            .client
+            .query(sql.as_str(), &[value.as_sql(), limit.as_sql()])
+            .await
+            .map_err(|error| database_error("where-limit", error))?;
+
+        rows.iter().map(|row| row_to_value(row, mapping)).collect()
+    }
+
+    pub async fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let sql = mapping.select_where_eq_page_sql(field)?;
+        let value = PostgresParameter::try_from(value)?;
+        let limit = Value::Number(limit);
+        let offset = Value::Number(offset);
+        let limit = PostgresParameter::try_from(&limit)?;
+        let offset = PostgresParameter::try_from(&offset)?;
+        let rows = self
+            .client
+            .query(
+                sql.as_str(),
+                &[value.as_sql(), limit.as_sql(), offset.as_sql()],
+            )
+            .await
+            .map_err(|error| database_error("where-page", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -704,6 +798,20 @@ mod tests {
     }
 
     #[test]
+    fn select_page_sql_uses_existing_table_and_fields() {
+        let mapping = ModelMapping {
+            class_name: "User".to_string(),
+            table_name: "users".to_string(),
+            fields: vec!["id".to_string(), "email".to_string()],
+        };
+
+        assert_eq!(
+            mapping.select_page_sql(),
+            "select id, email from users limit $1 offset $2"
+        );
+    }
+
+    #[test]
     fn select_count_sql_uses_existing_table() {
         let mapping = ModelMapping {
             class_name: "User".to_string(),
@@ -771,6 +879,45 @@ mod tests {
         );
         assert_eq!(
             mapping.select_where_eq_sql("password_hash"),
+            Err(ActiveRecordError::UnknownField {
+                class_name: "User".to_string(),
+                field: "password_hash".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn select_where_eq_limit_sql_requires_mapped_field() {
+        let mapping = ModelMapping::try_new("User", "public.users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_where_eq_limit_sql("email"),
+            Ok("select id, email, name from public.users where email = $1 limit $2".to_string())
+        );
+        assert_eq!(
+            mapping.select_where_eq_limit_sql("password_hash"),
+            Err(ActiveRecordError::UnknownField {
+                class_name: "User".to_string(),
+                field: "password_hash".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn select_where_eq_page_sql_requires_mapped_field() {
+        let mapping = ModelMapping::try_new("User", "public.users", ["id", "email", "name"])
+            .expect("mapping is valid");
+
+        assert_eq!(
+            mapping.select_where_eq_page_sql("email"),
+            Ok(
+                "select id, email, name from public.users where email = $1 limit $2 offset $3"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            mapping.select_where_eq_page_sql("password_hash"),
             Err(ActiveRecordError::UnknownField {
                 class_name: "User".to_string(),
                 field: "password_hash".to_string(),

@@ -443,6 +443,9 @@ end</code></pre>
 42 User .find
 "email" "ada@example.com" User .where
 10 User .limit
+10 20 User .page
+"email" "ada@example.com" 10 User .where-limit
+"email" "ada@example.com" 10 20 User .where-page
 User .count
 User .first
 1 User .exists?

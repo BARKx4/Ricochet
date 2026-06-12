@@ -542,6 +542,10 @@ Active Record operations are class methods with ordinary postfix arguments:
 User .all
 42 User .find
 "email" "ada@example.com" User .where
+10 User .limit
+10 20 User .page
+"email" "ada@example.com" 10 User .where-limit
+"email" "ada@example.com" 10 20 User .where-page
 attributes map
 "email" "ada@example.com" attributes get .put! drop
 attributes get User .insert
@@ -551,8 +555,9 @@ updates map
 ```
 
 Active Record v1 supports connection configuration, basic table mapping, `find`,
-`all`, `where`, `insert`, and `update`. Every operation returns one `Result`
-object so expected database failures stay in the normal stack flow.
+`all`, `where`, bounded reads with `limit`/`page`/`where-limit`/`where-page`,
+`count`, `first`, `exists?`, `insert`, and `update`. Every operation returns
+one `Result` object so expected database failures stay in the normal stack flow.
 
 ## Capabilities
 

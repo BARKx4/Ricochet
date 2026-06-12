@@ -13,12 +13,33 @@ pub trait DatabaseBackend: Send + Sync {
     fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError>;
     fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError>;
     fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError>;
+    fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError>;
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError>;
     fn where_eq(
         &self,
         mapping: &ModelMapping,
         field: &str,
         value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError>;
+    fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError>;
+    fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<Value>, ActiveRecordError>;
     fn insert(
         &self,
@@ -54,6 +75,15 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres("limit", PostgresDatabase::limit(self, mapping, limit))
     }
 
+    fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres("page", PostgresDatabase::page(self, mapping, limit, offset))
+    }
+
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
         block_on_postgres("exists", PostgresDatabase::exists_by_id(self, mapping, id))
     }
@@ -67,6 +97,33 @@ impl DatabaseBackend for PostgresDatabase {
         block_on_postgres(
             "where",
             PostgresDatabase::where_eq(self, mapping, field, value),
+        )
+    }
+
+    fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres(
+            "where-limit",
+            PostgresDatabase::where_eq_limit(self, mapping, field, value, limit),
+        )
+    }
+
+    fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        block_on_postgres(
+            "where-page",
+            PostgresDatabase::where_eq_page(self, mapping, field, value, limit, offset),
         )
     }
 
@@ -154,6 +211,21 @@ pub fn install_database_capability(
         )
     })?;
 
+    let page_backend = backend.clone();
+    let page_mappings = mappings.clone();
+    vm.add_native_method_with_arity("page", 3, move |arguments| {
+        let model_name = string_argument(&arguments, 0, "DatabaseCapability.page", "model name")?;
+        let limit = limit_argument(&arguments, 1, "DatabaseCapability.page")?;
+        let offset = offset_argument(&arguments, 2, "DatabaseCapability.page")?;
+        let mapping = model_mapping(&page_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| page_backend.page(mapping, limit, offset)) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
     let exists_backend = backend.clone();
     let exists_mappings = mappings.clone();
     vm.add_native_method_with_arity("exists?", 2, move |arguments| {
@@ -198,6 +270,58 @@ pub fn install_database_capability(
         let mapping = model_mapping(&where_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| where_backend.where_eq(mapping, field, value)) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
+    let where_limit_backend = backend.clone();
+    let where_limit_mappings = mappings.clone();
+    vm.add_native_method_with_arity("where-limit", 4, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.where-limit",
+            "model name",
+        )?;
+        let field = string_argument(
+            &arguments,
+            1,
+            "DatabaseCapability.where-limit",
+            "field name",
+        )?;
+        let value = arguments.get(2).ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.where-limit", 4, arguments.len())
+        })?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where-limit")?;
+        let mapping = model_mapping(&where_limit_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| {
+                where_limit_backend.where_eq_limit(mapping, field, value, limit)
+            }) {
+                Ok(values) => Value::result_ok(Value::Array(values.into())),
+                Err(error) => database_result_error(error),
+            },
+        )
+    })?;
+
+    let where_page_backend = backend.clone();
+    let where_page_mappings = mappings.clone();
+    vm.add_native_method_with_arity("where-page", 5, move |arguments| {
+        let model_name =
+            string_argument(&arguments, 0, "DatabaseCapability.where-page", "model name")?;
+        let field = string_argument(&arguments, 1, "DatabaseCapability.where-page", "field name")?;
+        let value = arguments.get(2).ok_or_else(|| {
+            missing_native_argument("DatabaseCapability.where-page", 5, arguments.len())
+        })?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where-page")?;
+        let offset = offset_argument(&arguments, 4, "DatabaseCapability.where-page")?;
+        let mapping = model_mapping(&where_page_mappings, model_name);
+        Ok(
+            match mapping.and_then(|mapping| {
+                where_page_backend.where_eq_page(mapping, field, value, limit, offset)
+            }) {
                 Ok(values) => Value::result_ok(Value::Array(values.into())),
                 Err(error) => database_result_error(error),
             },
@@ -288,6 +412,18 @@ fn install_model_active_record_methods(
                 })
             })?;
 
+            let page_backend = backend.clone();
+            let page_mapping = mapping.clone();
+            let page_method = format!("{}.page", mapping.class_name);
+            vm.add_native_method_with_arity("page", 2, move |arguments| {
+                let limit = limit_argument(&arguments, 0, &page_method)?;
+                let offset = offset_argument(&arguments, 1, &page_method)?;
+                Ok(match page_backend.page(&page_mapping, limit, offset) {
+                    Ok(values) => Value::result_ok(Value::Array(values.into())),
+                    Err(error) => database_result_error(error),
+                })
+            })?;
+
             let exists_backend = backend.clone();
             let exists_mapping = mapping.clone();
             let exists_method = format!("{}.exists?", mapping.class_name);
@@ -326,6 +462,52 @@ fn install_model_active_record_methods(
                     Ok(values) => Value::result_ok(Value::Array(values.into())),
                     Err(error) => database_result_error(error),
                 })
+            })?;
+
+            let where_limit_backend = backend.clone();
+            let where_limit_mapping = mapping.clone();
+            let where_limit_method = format!("{}.where-limit", mapping.class_name);
+            vm.add_native_method_with_arity("where-limit", 3, move |arguments| {
+                let field = string_argument(&arguments, 0, &where_limit_method, "field name")?;
+                let value = arguments.get(1).ok_or_else(|| {
+                    missing_native_argument(&where_limit_method, 3, arguments.len())
+                })?;
+                let limit = limit_argument(&arguments, 2, &where_limit_method)?;
+                Ok(
+                    match where_limit_backend.where_eq_limit(
+                        &where_limit_mapping,
+                        field,
+                        value,
+                        limit,
+                    ) {
+                        Ok(values) => Value::result_ok(Value::Array(values.into())),
+                        Err(error) => database_result_error(error),
+                    },
+                )
+            })?;
+
+            let where_page_backend = backend.clone();
+            let where_page_mapping = mapping.clone();
+            let where_page_method = format!("{}.where-page", mapping.class_name);
+            vm.add_native_method_with_arity("where-page", 4, move |arguments| {
+                let field = string_argument(&arguments, 0, &where_page_method, "field name")?;
+                let value = arguments.get(1).ok_or_else(|| {
+                    missing_native_argument(&where_page_method, 4, arguments.len())
+                })?;
+                let limit = limit_argument(&arguments, 2, &where_page_method)?;
+                let offset = offset_argument(&arguments, 3, &where_page_method)?;
+                Ok(
+                    match where_page_backend.where_eq_page(
+                        &where_page_mapping,
+                        field,
+                        value,
+                        limit,
+                        offset,
+                    ) {
+                        Ok(values) => Value::result_ok(Value::Array(values.into())),
+                        Err(error) => database_result_error(error),
+                    },
+                )
             })?;
 
             let insert_backend = backend.clone();
@@ -448,6 +630,22 @@ fn limit_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64
     }
 }
 
+fn offset_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64, VmError> {
+    match arguments.get(index) {
+        Some(Value::Number(value)) if *value >= 0 => Ok(*value),
+        Some(Value::Number(value)) => Err(VmError::InvalidArgument {
+            word: method.to_string(),
+            message: format!("offset must be non-negative, got {value}"),
+        }),
+        Some(value) => Err(VmError::TypeError {
+            word: method.to_string(),
+            expected: "non-negative number".to_string(),
+            actual: value_kind(value).to_string(),
+        }),
+        None => Err(missing_native_argument(method, index + 1, arguments.len())),
+    }
+}
+
 fn missing_native_argument(method: &str, needed: usize, available: usize) -> VmError {
     VmError::StackUnderflow {
         word: method.to_string(),
@@ -524,6 +722,20 @@ mod tests {
             Ok(rows)
         }
 
+        fn page(
+            &self,
+            mapping: &ModelMapping,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Ok(self
+                .all(mapping)?
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect())
+        }
+
         fn exists_by_id(
             &self,
             mapping: &ModelMapping,
@@ -537,11 +749,46 @@ mod tests {
 
         fn where_eq(
             &self,
-            _mapping: &ModelMapping,
-            _field: &str,
-            _value: &Value,
+            mapping: &ModelMapping,
+            field: &str,
+            value: &Value,
         ) -> Result<Vec<Value>, ActiveRecordError> {
-            Ok(Vec::new())
+            Ok(self
+                .all(mapping)?
+                .into_iter()
+                .filter(|row| match row {
+                    Value::Map(row) => row.get(field).as_ref() == Some(value),
+                    _ => false,
+                })
+                .collect())
+        }
+
+        fn where_eq_limit(
+            &self,
+            mapping: &ModelMapping,
+            field: &str,
+            value: &Value,
+            limit: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            let mut rows = self.where_eq(mapping, field, value)?;
+            rows.truncate(limit as usize);
+            Ok(rows)
+        }
+
+        fn where_eq_page(
+            &self,
+            mapping: &ModelMapping,
+            field: &str,
+            value: &Value,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<Value>, ActiveRecordError> {
+            Ok(self
+                .where_eq(mapping, field, value)?
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect())
         }
 
         fn insert(
@@ -636,6 +883,21 @@ mod tests {
     }
 
     #[test]
+    fn active_record_page_accepts_limit_and_offset_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source("test.rco", "1 1 User .page")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
+    }
+
+    #[test]
     fn active_record_count_returns_a_number_result() {
         let mut vm = vm_with_active_record();
         let chunk =
@@ -706,6 +968,29 @@ mod tests {
     }
 
     #[test]
+    fn database_capability_page_accepts_model_name_limit_and_offset() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 1 db get .page")
+            .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability page method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
+    }
+
+    #[test]
     fn database_capability_supports_count_first_and_exists() {
         let mut vm = Vm::default();
         let capability = install_database_capability(
@@ -762,9 +1047,82 @@ mod tests {
         assert_eq!(
             vm.stack(),
             &[Value::Result(RicochetResult::Ok(Box::new(Value::Array(
-                Vec::new().into()
+                vec![Value::Map(
+                    BTreeMap::from([
+                        ("id".to_string(), Value::Number(1)),
+                        (
+                            "email".to_string(),
+                            Value::String("ada@example.com".to_string())
+                        )
+                    ])
+                    .into()
+                )]
+                .into()
             ))))]
         );
+    }
+
+    #[test]
+    fn active_record_where_limit_accepts_field_value_and_limit_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"email\" \"ada@example.com\" 1 User .where-limit",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn active_record_where_page_accepts_field_value_limit_and_offset_before_the_model_class() {
+        let mut vm = vm_with_active_record();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"email\" \"ada@example.com\" 1 1 User .where-page",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk).expect("active record method runs");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(value))]
+                if matches!(value.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
+    }
+
+    #[test]
+    fn database_capability_supports_bounded_where_queries() {
+        let mut vm = Vm::default();
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(FixtureDatabase),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("capability installs");
+        vm.set_variable("db", capability);
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            "\"User\" \"email\" \"ada@example.com\" 1 db get .where-limit\n\"User\" \"email\" \"ada@example.com\" 1 1 db get .where-page",
+        )
+        .expect("source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("database capability bounded where methods run");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(first)), Value::Result(RicochetResult::Ok(second))]
+                if matches!(first.as_ref(), Value::Array(rows) if rows.len() == 1)
+                    && matches!(second.as_ref(), Value::Array(rows) if rows.is_empty())
+        ));
     }
 
     #[test]

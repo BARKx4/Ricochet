@@ -99,6 +99,20 @@ impl DatabaseBackend for FixtureDatabase {
         Ok(rows)
     }
 
+    fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        Ok(self
+            .all(mapping)?
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect())
+    }
+
     fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
         Ok(self.all(mapping)?.iter().any(|row| match row {
             Value::Map(row) => row.get("id").as_ref() == Some(id),
@@ -108,11 +122,46 @@ impl DatabaseBackend for FixtureDatabase {
 
     fn where_eq(
         &self,
-        _mapping: &ModelMapping,
-        _field: &str,
-        _value: &Value,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
     ) -> Result<Vec<Value>, ActiveRecordError> {
-        Ok(Vec::new())
+        Ok(self
+            .all(mapping)?
+            .into_iter()
+            .filter(|row| match row {
+                Value::Map(row) => row.get(field).as_ref() == Some(value),
+                _ => false,
+            })
+            .collect())
+    }
+
+    fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        let mut rows = self.where_eq(mapping, field, value)?;
+        rows.truncate(limit as usize);
+        Ok(rows)
+    }
+
+    fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        Ok(self
+            .where_eq(mapping, field, value)?
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect())
     }
 
     fn insert(

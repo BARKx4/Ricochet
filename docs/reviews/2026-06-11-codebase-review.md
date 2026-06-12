@@ -88,8 +88,9 @@ Implemented after this review:
   `--http-allow-host`.
 - `rco test --filter` now pre-skips test files that cannot match the filter
   before running top-level code.
-- Active Record now has parameterized `.limit` plus `.count`, `.first`, and
-  `.exists?` class methods for bounded/basic reads.
+- Active Record now has parameterized `.limit`, `.page`, `.where-limit`, and
+  `.where-page` plus `.count`, `.first`, and `.exists?` class methods for
+  bounded/basic reads.
 - A root `README.md` and GitHub Actions CI workflow were added for repeatable
   verification. The repo-level `rust-toolchain.toml` was later removed in favor
   of README/CI toolchain instructions.
@@ -99,8 +100,8 @@ Still open:
 - Changing the global CLI default from `trusted` to `sandboxed` remains a larger
   compatibility decision.
 - Session signing/encryption and auth helpers remain package/framework work.
-- PostgreSQL TLS configuration and richer Active Record pagination/querying
-  beyond `.limit`/`.count`/`.first`/`.exists?` are still backlog.
+- PostgreSQL TLS configuration, Active Record ordering/relation chaining, and
+  schema/migration tooling are still backlog.
 - Scheduler-level task concurrency and async IO words remain future async work.
 - Watch-mode debug trace events are implemented for reload success/failure;
   request-time hot reload is implemented.
@@ -263,18 +264,20 @@ Recommendation:
 - Add manifest options for TLS mode, or document that v1 PostgreSQL is local/dev
   only until TLS support lands.
 
-### 7. Active Record reads are unbounded
+### 7. Active Record reads need safer production defaults
 
-Status: partially fixed. `.limit`, `.count`, `.first`, and `.exists?` are now
-available as parameterized/basic model class methods; offset/order/default
-pagination remain backlog.
+Status: partially fixed. `.limit`, `.page`, `.where-limit`, `.where-page`,
+`.count`, `.first`, and `.exists?` are now available as parameterized/basic
+model class methods; ordering, relation chaining, and default pagination remain
+backlog.
 
 Evidence:
 
 - `select_all_sql` emits a full `select` in
   `crates/ricochet_web/src/active_record.rs:141`.
 - `all` executes it directly in `crates/ricochet_web/src/active_record.rs:299`.
-- `where_eq` has no limit/pagination in `crates/ricochet_web/src/active_record.rs:308`.
+- Filtered queries now have bounded `.where-limit` and `.where-page` variants,
+  but no composable relation object or ordering API exists yet.
 
 Impact:
 
@@ -282,8 +285,8 @@ Small examples work, but production tables can be loaded entirely into memory.
 
 Recommendation:
 
-- Add `.limit`, `.offset`, and/or default pagination helpers before encouraging
-  real apps to use `.all`.
+- Add ordering, relation-style chaining, and/or default pagination helpers
+  before encouraging real apps to use `.all`.
 
 ### 8. Resolved: `--watch` was advertised before implementation
 
@@ -409,7 +412,7 @@ design docs and the current implementation:
 - First-party AI package/provider capability.
 - Signed/encrypted auth/session/cookie helpers.
 - Migrations/schema management beyond existing-schema Active Record.
-- Filesystem capability sandboxing and broader capability policy.
+- Capability-profile default decision and broader policy hardening.
 - Production PostgreSQL TLS configuration.
 - Scheduler-level task concurrency, async IO words, and richer running or
   suspended debugger task views.
@@ -429,8 +432,7 @@ design docs and the current implementation:
 
 ## Suggested Next Sprint Order
 
-1. Expand Active Record pagination/querying beyond `.limit`, `.count`,
-   `.first`, and `.exists?`.
+1. Add Active Record ordering/relation chaining or default pagination policy.
 2. Add signed/encrypted session/auth package helpers.
 3. Build the first-party AI package/provider capability.
 4. Decide whether v1 should keep `trusted` as the CLI default or switch to
