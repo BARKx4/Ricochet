@@ -1465,6 +1465,12 @@ impl Vm {
     }
 
     pub(super) fn call_env(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.environment_enabled {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "environment capability is not enabled".to_string(),
+            });
+        }
         let name = self.pop_string(word, "environment variable name string")?;
         self.stack.push(match std::env::var(&name) {
             Ok(value) => Value::result_ok(Value::String(value)),
@@ -1474,6 +1480,12 @@ impl Vm {
     }
 
     pub(super) fn call_cwd(&mut self) -> Result<(), VmError> {
+        if !self.environment_enabled {
+            return Err(VmError::HostError {
+                word: "cwd".to_string(),
+                message: "environment capability is not enabled".to_string(),
+            });
+        }
         self.stack.push(match std::env::current_dir() {
             Ok(path) => Value::result_ok(Value::String(path.to_string_lossy().into_owned())),
             Err(error) => Value::result_err("IoError", error.to_string()),
@@ -1497,6 +1509,12 @@ impl Vm {
     }
 
     pub(super) fn call_sleep(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.sleep_enabled {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "sleep capability is not enabled".to_string(),
+            });
+        }
         let millis = self.pop_number(word)?;
         let millis = u64::try_from(millis).map_err(|_| VmError::InvalidArgument {
             word: word.to_string(),
@@ -1647,12 +1665,10 @@ impl Vm {
             .check_http_url_allowed(method, &url)
             .err()
             .map(|error| error.to_string());
-        Ok(
-            self.spawn_value_task(method, move || match permission_error {
-                Some(error) => Value::result_err("PermissionError", error),
-                None => perform_http_get(url),
-            }),
-        )
+        self.spawn_value_task(method, move || match permission_error {
+            Some(error) => Value::result_err("PermissionError", error),
+            None => perform_http_get(url),
+        })
     }
 
     fn method_http_post_json_task(
@@ -1671,12 +1687,10 @@ impl Vm {
             .check_http_url_allowed(method, &url)
             .err()
             .map(|error| error.to_string());
-        Ok(
-            self.spawn_value_task(method, move || match permission_error {
-                Some(error) => Value::result_err("PermissionError", error),
-                None => perform_http_post_json(url, body),
-            }),
-        )
+        self.spawn_value_task(method, move || match permission_error {
+            Some(error) => Value::result_err("PermissionError", error),
+            None => perform_http_post_json(url, body),
+        })
     }
 
     fn pop_string(&mut self, word: &str, expected: &str) -> Result<String, VmError> {
@@ -2054,6 +2068,7 @@ fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) 
 fn http_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
     reqwest::blocking::Client::builder()
         .timeout(HTTP_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
 }
 

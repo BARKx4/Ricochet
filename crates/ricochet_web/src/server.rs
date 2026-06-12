@@ -1,7 +1,7 @@
 use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -26,7 +26,7 @@ use crate::active_record::{ModelMapping, MysqlDatabase, PostgresDatabase, Sqlite
 use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
-use crate::manifest::{DatabaseDefault, Manifest};
+use crate::manifest::{DatabaseDefault, Manifest, SessionSecure};
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
@@ -43,6 +43,7 @@ struct AppRuntime {
     config: BTreeMap<String, Value>,
     session_signing_key: Option<SessionSigningKey>,
     session_encryption_key: Option<SessionEncryptionKey>,
+    session_secure: SessionSecure,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
 }
@@ -88,6 +89,15 @@ impl SessionSigningKey {
         Self {
             secret: Arc::from(secret.into_bytes()),
         }
+    }
+
+    fn random() -> Result<Self> {
+        let mut secret = [0_u8; 32];
+        getrandom::fill(&mut secret)
+            .map_err(|error| anyhow!("failed to generate session signing key: {error}"))?;
+        Ok(Self {
+            secret: Arc::from(secret.to_vec()),
+        })
     }
 
     fn sign(&self, payload: &[u8]) -> String {
@@ -396,20 +406,29 @@ fn build_runtime_from_dir_internal(
     let vm_setup = compose_ai_vm_setup(vm_setup, ai_provider);
     let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
 
+    let session_encryption_key = manifest
+        .web
+        .session
+        .resolved_encryption_secret()?
+        .map(SessionEncryptionKey::new);
+    let configured_signing_key = manifest
+        .web
+        .session
+        .resolved_signing_secret()?
+        .map(SessionSigningKey::new);
+    let session_signing_key = match (configured_signing_key, session_encryption_key.is_some()) {
+        (Some(signing_key), _) => Some(signing_key),
+        (None, true) => None,
+        (None, false) => Some(SessionSigningKey::random()?),
+    };
+
     Ok(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
         config: manifest_config(&manifest),
-        session_signing_key: manifest
-            .web
-            .session
-            .resolved_signing_secret()?
-            .map(SessionSigningKey::new),
-        session_encryption_key: manifest
-            .web
-            .session
-            .resolved_encryption_secret()?
-            .map(SessionEncryptionKey::new),
+        session_signing_key,
+        session_encryption_key,
+        session_secure: manifest.web.session.secure,
         routes,
         controllers,
     })
@@ -677,6 +696,20 @@ fn manifest_config(manifest: &Manifest) -> BTreeMap<String, Value> {
                             Value::String(match manifest.web.views.escape {
                                 EscapeMode::Html => "html".to_string(),
                                 EscapeMode::None => "none".to_string(),
+                            }),
+                        )])
+                        .into(),
+                    ),
+                ),
+                (
+                    "session".to_string(),
+                    Value::Map(
+                        BTreeMap::from([(
+                            "secure".to_string(),
+                            Value::String(match manifest.web.session.secure {
+                                SessionSecure::Auto => "auto".to_string(),
+                                SessionSecure::Always => "always".to_string(),
+                                SessionSecure::Never => "never".to_string(),
                             }),
                         )])
                         .into(),
@@ -1116,6 +1149,8 @@ fn render_action(
                 &ctx.session,
                 runtime.session_signing_key.as_ref(),
                 runtime.session_encryption_key.as_ref(),
+                runtime.session_secure,
+                &ctx.headers,
             )?,
         );
     }
@@ -1194,14 +1229,65 @@ fn response_with_meta(
 }
 
 fn render_view(runtime: &AppRuntime, view: &str, ctx: &RequestContext) -> Result<String> {
+    let template_path = resolve_view_template_path(runtime, view)?;
+    let template = fs::read_to_string(&template_path)
+        .with_context(|| format!("failed to read {}", template_path.display()))?;
+    render_template(&template, &ctx.view_data, runtime.escape)
+}
+
+fn resolve_view_template_path(runtime: &AppRuntime, view: &str) -> Result<PathBuf> {
+    validate_view_name(view)?;
+    let views_root =
+        fs::canonicalize(runtime.root.join("app").join("Views")).with_context(|| {
+            format!(
+                "failed to resolve views root for {}",
+                runtime.root.display()
+            )
+        })?;
     let template_path = runtime
         .root
         .join("app")
         .join("Views")
         .join(format!("{view}.html"));
-    let template = fs::read_to_string(&template_path)
-        .with_context(|| format!("failed to read {}", template_path.display()))?;
-    render_template(&template, &ctx.view_data, runtime.escape)
+    let template_path = fs::canonicalize(&template_path)
+        .with_context(|| format!("failed to resolve {}", template_path.display()))?;
+    if !template_path.starts_with(&views_root) {
+        bail!("view {view:?} resolves outside app/Views");
+    }
+    Ok(template_path)
+}
+
+fn validate_view_name(view: &str) -> Result<()> {
+    if view.is_empty() || view.contains('\\') {
+        bail!("invalid view name {view:?}");
+    }
+    let path = Path::new(view);
+    if path.is_absolute() {
+        bail!("invalid view name {view:?}");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => {
+                let Some(segment) = segment.to_str() else {
+                    bail!("invalid view name {view:?}");
+                };
+                if segment.is_empty()
+                    || !segment
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+                {
+                    bail!("invalid view name {view:?}");
+                }
+            }
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => {
+                bail!("invalid view name {view:?}");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn matching_route<'a>(
@@ -1326,11 +1412,12 @@ fn session_cookie_header(
     session: &BTreeMap<String, Value>,
     signing_key: Option<&SessionSigningKey>,
     encryption_key: Option<&SessionEncryptionKey>,
+    secure_policy: SessionSecure,
+    request_headers: &BTreeMap<String, String>,
 ) -> Result<String> {
+    let attributes = session_cookie_attributes(secure_policy, request_headers);
     if session.is_empty() {
-        return Ok(format!(
-            "{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
-        ));
+        return Ok(format!("{SESSION_COOKIE_NAME}=; Max-Age=0; {attributes}"));
     }
 
     let json = JsonValue::Object(
@@ -1348,9 +1435,41 @@ fn session_cookie_header(
         },
     };
     let encoded = encode_urlencoded_component(&cookie_value);
-    Ok(format!(
-        "{SESSION_COOKIE_NAME}={encoded}; Path=/; HttpOnly; SameSite=Lax"
-    ))
+    Ok(format!("{SESSION_COOKIE_NAME}={encoded}; {attributes}"))
+}
+
+fn session_cookie_attributes(
+    secure_policy: SessionSecure,
+    request_headers: &BTreeMap<String, String>,
+) -> String {
+    let secure = match secure_policy {
+        SessionSecure::Always => true,
+        SessionSecure::Never => false,
+        SessionSecure::Auto => session_request_requires_secure_cookie(request_headers),
+    };
+    if secure {
+        "Path=/; HttpOnly; SameSite=Lax; Secure".to_string()
+    } else {
+        "Path=/; HttpOnly; SameSite=Lax".to_string()
+    }
+}
+
+fn session_request_requires_secure_cookie(request_headers: &BTreeMap<String, String>) -> bool {
+    if request_headers
+        .get("x-forwarded-proto")
+        .is_some_and(|value| value.eq_ignore_ascii_case("https"))
+    {
+        return true;
+    }
+    let Some(host) = request_headers.get("host") else {
+        return true;
+    };
+    let host = host
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(host.as_str())
+        .trim_matches(['[', ']']);
+    !matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 fn session_json_from_cookie(
@@ -1366,10 +1485,7 @@ fn session_json_from_cookie(
             .and_then(|signing_key| verified_signed_session_json(cookie_value, signing_key));
     }
 
-    match signing_key {
-        Some(signing_key) => verified_signed_session_json(cookie_value, signing_key),
-        None => Some(cookie_value.to_string()),
-    }
+    signing_key.and_then(|signing_key| verified_signed_session_json(cookie_value, signing_key))
 }
 
 fn encrypted_session_cookie_value(

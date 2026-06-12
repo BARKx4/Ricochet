@@ -49,6 +49,7 @@ pub fn render_template(
                 let expression_end = expression_start + expression_close;
                 let expression = template[expression_start..expression_end].trim();
 
+                ensure_text_context(template, pos + open)?;
                 rendered.push_str(&evaluate_expression(expression, data, escape)?);
                 pos = expression_end + 1;
             }
@@ -63,6 +64,32 @@ fn normalize_template_newlines(template: &str) -> Cow<'_, str> {
         Cow::Owned(template.replace("\r\n", "\n").replace('\r', "\n"))
     } else {
         Cow::Borrowed(template)
+    }
+}
+
+fn ensure_text_context(template: &str, open_index: usize) -> Result<()> {
+    let before = &template[..open_index];
+    let lower_before = before.to_ascii_lowercase();
+    if unclosed_tag_before(&lower_before, "<script", "</script") {
+        bail!("template expressions are not allowed inside script blocks");
+    }
+    if unclosed_tag_before(&lower_before, "<style", "</style") {
+        bail!("template expressions are not allowed inside style blocks");
+    }
+    let last_open = before.rfind('<');
+    let last_close = before.rfind('>');
+    if last_open.is_some() && last_open > last_close {
+        bail!("template expressions are not allowed inside HTML tags or attributes");
+    }
+    Ok(())
+}
+
+fn unclosed_tag_before(source: &str, open: &str, close: &str) -> bool {
+    match source.rfind(open) {
+        Some(open_index) => source
+            .rfind(close)
+            .is_none_or(|close_index| close_index < open_index),
+        None => false,
     }
 }
 
@@ -212,6 +239,36 @@ mod tests {
         .expect("template should navigate map values");
 
         assert_eq!(rendered, "<strong>Ada &lt;Lovelace&gt;</strong>");
+    }
+
+    #[test]
+    fn template_expressions_fail_inside_attributes() {
+        let data = BTreeMap::from([("url".to_string(), Value::String("/safe".to_string()))]);
+
+        let error = render_template("<a href=\"{ url get }\">link</a>", &data, EscapeMode::Html)
+            .expect_err("attribute interpolation should fail closed");
+
+        assert!(
+            error
+                .to_string()
+                .contains("template expressions are not allowed inside HTML tags or attributes"),
+            "error was {error:#}"
+        );
+    }
+
+    #[test]
+    fn template_expressions_fail_inside_script_blocks() {
+        let data = BTreeMap::from([("name".to_string(), Value::String("Ada".to_string()))]);
+
+        let error = render_template("<script>{ name get }</script>", &data, EscapeMode::Html)
+            .expect_err("script interpolation should fail closed");
+
+        assert!(
+            error
+                .to_string()
+                .contains("template expressions are not allowed inside script blocks"),
+            "error was {error:#}"
+        );
     }
 
     #[test]

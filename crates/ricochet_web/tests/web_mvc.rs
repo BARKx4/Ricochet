@@ -903,6 +903,62 @@ end
 }
 
 #[tokio::test]
+async fn controller_sleep_is_disabled_for_web_requests() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "sleep_disabled"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  "index" [
+    1000 sleep
+    "done" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        body.contains("sleep capability is not enabled"),
+        "expected sleep denial, got: {body}"
+    );
+}
+
+#[tokio::test]
 async fn serves_mvc_controller_that_uses_project_model_without_database() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -1064,6 +1120,97 @@ end
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert_eq!(body.trim(), "<h1>42</h1>");
+}
+
+#[tokio::test]
+async fn rejects_request_selected_view_path_traversal() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Views/home"))
+        .expect("view directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "view_traversal"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/show" HomeController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  ( template ctx ) "show" [
+    ctx var
+    template var
+    template get nil? if
+      "home/safe" templateName var
+    else
+      template get templateName var
+    end
+    ctx get
+    templateName get swap view
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+    fs::write(project_root.join("app/Views/home/safe.html"), "safe")
+        .expect("safe view should be written");
+    fs::write(project_root.join("outside.html"), "outside marker")
+        .expect("outside marker should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/show").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(std::str::from_utf8(&body).unwrap(), "safe");
+
+    for traversal in [
+        "/show?template=../../outside",
+        "/show?template=..%2F..%2Foutside",
+        "/show?template=..%5C..%5Coutside",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(traversal)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+        assert!(
+            body.contains("invalid view name") && !body.contains("outside marker"),
+            "traversal {traversal} should fail closed, body was {body}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1856,9 +2003,14 @@ end
         "set-cookie was {set_cookie}"
     );
     assert!(
+        set_cookie.starts_with("ricochet_session=v1%3A"),
+        "default session cookie should be signed, got {set_cookie}"
+    );
+    assert!(
         set_cookie.contains("HttpOnly"),
         "set-cookie was {set_cookie}"
     );
+    assert!(set_cookie.contains("Secure"), "set-cookie was {set_cookie}");
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("body bytes");
@@ -1890,6 +2042,83 @@ end
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
     assert_eq!(body, "Ada");
+}
+
+#[tokio::test]
+async fn default_session_rejects_forged_raw_json_cookie() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "session_context"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/session" SessionController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/SessionController.rco"),
+        r#"
+SessionController Controller subclass
+  ( session ) "show" [
+    session var
+    session get .user get nil? if
+      session get "user" "Ada" !put drop
+      "new" text
+    else
+      session get .user get text
+    end
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/session")
+                .header(
+                    "cookie",
+                    "ricochet_session=%7B%22user%22%3A%22Mallory%22%7D",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("forged raw cookie should be replaced")
+        .to_str()
+        .expect("set-cookie should be UTF-8");
+    assert!(
+        set_cookie.starts_with("ricochet_session=v1%3A"),
+        "replacement cookie should be signed, got {set_cookie}"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "new");
 }
 
 #[tokio::test]
@@ -1967,6 +2196,7 @@ end
         set_cookie.starts_with("ricochet_session=v1%3A"),
         "set-cookie was {set_cookie}"
     );
+    assert!(set_cookie.contains("Secure"), "set-cookie was {set_cookie}");
     assert!(
         !set_cookie.contains("Ada") && !set_cookie.contains("%7B"),
         "signed cookie should not expose raw JSON, got {set_cookie}"
@@ -2103,6 +2333,7 @@ end
         set_cookie.starts_with("ricochet_session=v2%3A"),
         "set-cookie was {set_cookie}"
     );
+    assert!(set_cookie.contains("Secure"), "set-cookie was {set_cookie}");
     assert!(
         !set_cookie.contains("Ada") && !set_cookie.contains("%7B"),
         "encrypted cookie should not expose raw JSON, got {set_cookie}"

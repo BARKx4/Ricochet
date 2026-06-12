@@ -20,8 +20,9 @@ install path/GitHub package dependencies, and static imports can load
 local package sources. Hot reload is available for MVC apps during local
 development, and controllers receive request, header, cookie, lightweight
 session, logger, and safe manifest config context. Session cookies can be
-HMAC-signed or emitted as authenticated encrypted v2 cookies from
-environment-backed manifest secrets. Active Record has basic reads plus a
+HMAC-signed with a manifest secret or a per-process beta key, and can be
+emitted as authenticated encrypted v2 cookies from environment-backed manifest
+secrets. Active Record has basic reads plus a
 bounded `default-page` list helper and explicit `limit`, `page`, `order-page`,
 `where-limit`, `where-page`, and `where-order-page` helpers. MVC apps can opt
 into an OpenAI-compatible `[ai.default]` provider and receive an `ai` controller
@@ -132,8 +133,11 @@ For a Postgres-backed app, use the same manifest shape with a Postgres URL:
 ```toml
 [database.default]
 adapter = "postgres"
-url = "${DATABASE_URL}"
+url = "${DATABASE_URL}" # use sslmode=require for remote databases
 ```
+
+Ricochet requires TLS for remote Postgres connections. `sslmode=disable` is
+accepted only for `localhost` or loopback development databases.
 
 For a MySQL or MariaDB-backed app, use the MySQL adapter with a `mysql://` URL:
 
@@ -193,9 +197,11 @@ Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
 sandboxed profile, `--fs-root <path>` enables filesystem access only under that
 directory, `--fs-readonly` denies writes, and `--http-allow-host <host>` enables
 HTTP only for named hosts. `--no-fs` and `--no-http` still deny those host powers
-explicitly in either profile. Embedded hosts can leave capabilities disabled.
-HTTP calls use a timeout and response body cap; filesystem access remains
-powerful CLI behavior unless you deny or bound it with these flags.
+explicitly in either profile. `--no-env` denies environment/current-directory
+reads, and `--no-sleep` denies script sleeps. Embedded hosts can leave
+capabilities disabled. HTTP calls do not follow redirects, use a timeout and
+response body cap, and filesystem access remains powerful CLI behavior unless
+you deny or bound it with these flags.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

@@ -757,6 +757,135 @@ fn run_loads_static_string_imports_before_main_source() {
 }
 
 #[test]
+fn run_rejects_absolute_static_imports() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "lib/math.rco", "\"triple\" function\n  3 *\nend\n");
+    let absolute = path_to_slash_for_test(&root.join("lib/math.rco"));
+    write_source_at(
+        root,
+        "main.rco",
+        &format!("\"{absolute}\" import\n7 triple\n"),
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject absolute imports"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("absolute imports are not allowed"),
+        "stderr should explain absolute import rejection, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_rejects_static_import_parent_escape() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "outside.rco",
+        "\"outside\" function\n  \"outside\"\nend\n",
+    );
+    write_source_at(root, "app/main.rco", "\"../outside\" import\noutside\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(root.join("app/main.rco"))
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject parent imports"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("resolves outside allowed root"),
+        "stderr should explain parent import rejection, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_rejects_package_import_parent_escape() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "secret.rco",
+        "\"secret\" function\n  \"secret\"\nend\n",
+    );
+    write_source_at(root, "main.rco", "\"greeter/../secret\" import\nsecret\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject package parent imports"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("import path must not contain . or .. components"),
+        "stderr should explain package import rejection, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_rejects_manifest_dependency_paths_outside_project_root() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"../outside\"\n",
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject outside dependency paths"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dependency \"greeter\" path must not contain .. components"),
+        "stderr should explain outside dependency path rejection, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn add_records_local_path_dependency_and_package_imports_are_runnable() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -834,10 +963,10 @@ fn add_records_github_dependency_link_without_fetching() {
     assert!(manifest.contains("rev = \"v0.1.0\""));
     assert!(manifest.contains("path = \".ricochet/packages/ricochet_auth\""));
 
-    let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
-    assert!(lock.contains("[package.ricochet_auth]"));
-    assert!(lock.contains("source = \"git+https://github.com/BARKx4/ricochet_auth.git\""));
-    assert!(lock.contains("rev = \"v0.1.0\""));
+    assert!(
+        !root.join("ricochet.lock").exists(),
+        "--no-fetch cannot create an immutable lock entry before rco install resolves a commit"
+    );
 }
 
 #[test]
@@ -876,6 +1005,133 @@ fn install_locks_existing_local_path_dependencies() {
     assert!(lock.contains("[package.greeter]"));
     assert!(lock.contains("source = \"path+./packages/greeter\""));
     assert!(lock.contains("path = \"./packages/greeter\""));
+}
+
+#[test]
+fn install_uses_locked_git_commit_when_branch_moves() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let upstream = base.join("upstream_greeter");
+    fs::create_dir_all(&upstream).expect("upstream repo should be created");
+    run_git(&upstream, &["init", "-b", "main"]);
+    run_git(
+        &upstream,
+        &["config", "user.email", "ricochet@example.test"],
+    );
+    run_git(&upstream, &["config", "user.name", "Ricochet Test"]);
+    write_source_at(
+        &upstream,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from first commit\"\nend\n",
+    );
+    run_git(&upstream, &["add", "."]);
+    run_git(&upstream, &["commit", "-m", "first"]);
+    let first_commit = git_stdout(&upstream, &["rev-parse", "HEAD"]);
+
+    let app_one = base.join("app_one");
+    let git_source = escape_toml_string(&path_to_slash_for_test(&upstream));
+    write_source_at(
+        &app_one,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\ngit = \"{git_source}\"\nrev = \"main\"\n"
+        ),
+    );
+    write_source_at(
+        &app_one,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let first_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app_one)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "first locked git install", &first_install);
+    let first_lock = fs::read_to_string(app_one.join("ricochet.lock")).expect("lock should exist");
+    assert!(
+        first_lock.contains(&format!("commit = \"{first_commit}\"")),
+        "lock should pin the first commit, got:\n{first_lock}"
+    );
+
+    fs::write(
+        upstream.join("greeting.rco"),
+        "\"packageHello\" function\n  \"hello from moved branch\"\nend\n",
+    )
+    .expect("upstream source should update");
+    run_git(&upstream, &["add", "."]);
+    run_git(&upstream, &["commit", "-m", "second"]);
+
+    let app_two = base.join("app_two");
+    write_source_at(
+        &app_two,
+        "ricochet.toml",
+        &fs::read_to_string(app_one.join("ricochet.toml")).expect("manifest should exist"),
+    );
+    write_source_at(
+        &app_two,
+        "ricochet.lock",
+        &fs::read_to_string(app_one.join("ricochet.lock")).expect("lock should exist"),
+    );
+    write_source_at(
+        &app_two,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let second_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app_two)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "second locked git install", &second_install);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app_two)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"hello from first commit\")")
+            && !stdout.contains("hello from moved branch"),
+        "locked clean install should use the original commit, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn install_rejects_git_dependency_path_outside_project_root() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"../outside\"\ngit = \"https://github.com/example/greeter.git\"\nrev = \"main\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco install should reject outside git package paths"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("git package cache path must not contain .. components"),
+        "stderr should explain rejected package path, got:\n{stderr}"
+    );
+    assert!(
+        !root.join("..").join("outside").exists(),
+        "rejected install must not create the outside package directory"
+    );
 }
 
 #[test]
@@ -2553,6 +2809,83 @@ fn run_sandboxed_capability_profile_disables_host_powers() {
         stderr.contains("HTTP capability is not enabled"),
         "stderr should explain sandboxed HTTP denial, got:\n{stderr}"
     );
+
+    let env_source_path = write_source("\"RICOCHET_QOL_TEST\" env drop\n");
+    let env_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg(&env_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !env_output.status.success(),
+        "rco run should fail when sandboxed env is not explicitly trusted"
+    );
+    let stderr = String::from_utf8_lossy(&env_output.stderr);
+    assert!(
+        stderr.contains("environment capability is not enabled"),
+        "stderr should explain sandboxed env denial, got:\n{stderr}"
+    );
+
+    let cwd_source_path = write_source("cwd drop\n");
+    let cwd_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg(&cwd_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !cwd_output.status.success(),
+        "rco run should fail when sandboxed cwd is not explicitly trusted"
+    );
+    let stderr = String::from_utf8_lossy(&cwd_output.stderr);
+    assert!(
+        stderr.contains("environment capability is not enabled"),
+        "stderr should explain sandboxed cwd denial, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_can_disable_environment_and_sleep_capabilities() {
+    let env_source_path = write_source("\"RICOCHET_QOL_TEST\" env drop\n");
+    let env_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-env")
+        .arg(&env_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !env_output.status.success(),
+        "rco run should fail when env is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&env_output.stderr);
+    assert!(
+        stderr.contains("environment capability is not enabled"),
+        "stderr should explain disabled env, got:\n{stderr}"
+    );
+
+    let sleep_source_path = write_source("1 sleep\n");
+    let sleep_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-sleep")
+        .arg(&sleep_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !sleep_output.status.success(),
+        "rco run should fail when sleep is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&sleep_output.stderr);
+    assert!(
+        stderr.contains("sleep capability is not enabled"),
+        "stderr should explain disabled sleep, got:\n{stderr}"
+    );
 }
 
 #[test]
@@ -2855,6 +3188,128 @@ fn run_can_allow_http_capability_by_host() {
 }
 
 #[test]
+fn run_http_get_does_not_follow_redirects_past_allowlist() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 302 Found\r\nLocation: http://example.com/blocked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+"http://{address}/redirect" http .get value response var
+"status" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(302)"),
+        "stdout should expose the redirect response without following it, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_http_post_json_does_not_follow_redirects_past_allowlist() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 302 Found\r\nLocation: http://example.com/blocked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+payload map
+"message" "hello" payload get .put! drop
+"http://{address}/redirect" payload get http .post-json value response var
+"status" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(302)"),
+        "stdout should expose the redirect response without following it, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_http_get_task_does_not_follow_redirects_past_allowlist() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 302 Found\r\nLocation: http://example.com/blocked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+"http://{address}/redirect" http .get-task task var
+task get await value response var
+"status" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(302)"),
+        "stdout should expose the async redirect response without following it, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_http_post_json_task_does_not_follow_redirects_past_allowlist() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 302 Found\r\nLocation: http://example.com/blocked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+payload map
+"message" "hello" payload get .put! drop
+"http://{address}/redirect" payload get http .post-json-task task var
+task get await value response var
+"status" response get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(302)"),
+        "stdout should expose the async POST redirect response without following it, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_can_restrict_http_capability_by_host() {
     let source_path = write_source(
         r#"
@@ -2938,6 +3393,31 @@ fn run_limits_http_response_body_size() {
 }
 
 #[test]
+fn run_limits_concurrent_spawned_tasks() {
+    let mut source = String::new();
+    for _ in 0..65 {
+        source.push_str("[ 250 sleep ] spawn drop\n");
+    }
+    let source_path = write_source(&source);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject too many concurrent tasks"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("task limit exceeded"),
+        "stderr should explain the task limit, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_exit_uses_requested_process_status() {
     let source_path = write_source("7 exit\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
@@ -2978,6 +3458,47 @@ fn write_source_at(root: &Path, relative_path: &str, source: &str) -> PathBuf {
         .expect("source directory should be created");
     fs::write(&source_path, source).expect("source should be written");
     source_path
+}
+
+fn run_git(repo: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .expect("git should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "git {:?} failed in {}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        args,
+        repo.display()
+    );
+}
+
+fn git_stdout(repo: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .expect("git should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "git {:?} failed in {}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        args,
+        repo.display()
+    );
+    stdout.trim().to_string()
+}
+
+fn path_to_slash_for_test(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn escape_toml_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn spawn_single_response_http_server(

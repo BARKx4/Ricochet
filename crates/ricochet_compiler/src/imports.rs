@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::{Chunk, Op};
@@ -33,7 +33,10 @@ impl SourceResolver {
             .with_context(|| format!("failed to scan imports in {}", source_path.display()))?;
         let source_without_imports = strip_static_imports(&source)?;
         let mut combined = Chunk::new(file.clone());
-        let parent = source_path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = source_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
 
         for import in imports {
             let import_path = resolve_import(parent, &import)?;
@@ -125,9 +128,11 @@ fn parse_string_prefix(source: &str) -> Result<Option<(String, &str)>> {
 }
 
 fn resolve_import(parent: &Path, import: &str) -> Result<PathBuf> {
+    validate_import_path(import)?;
+    let import_root = import_root_for_parent(parent)?;
     let relative_path = relative_import_path(parent, import);
     if relative_path.is_file() {
-        return Ok(relative_path);
+        return contained_file(&import_root, &relative_path, import);
     }
 
     if let Some(package_import) = parse_package_import(import) {
@@ -139,13 +144,22 @@ fn resolve_import(parent: &Path, import: &str) -> Result<PathBuf> {
     Ok(relative_path)
 }
 
+fn import_root_for_parent(parent: &Path) -> Result<PathBuf> {
+    if let Some(manifest_path) = find_nearest_manifest(parent) {
+        let manifest_dir = manifest_path
+            .parent()
+            .expect("manifest path should have a parent");
+        return fs::canonicalize(manifest_dir)
+            .with_context(|| format!("failed to resolve project root {}", manifest_dir.display()));
+    }
+
+    fs::canonicalize(parent)
+        .with_context(|| format!("failed to resolve import root {}", parent.display()))
+}
+
 fn relative_import_path(parent: &Path, import: &str) -> PathBuf {
     let import_path = Path::new(import);
-    let mut path = if import_path.is_absolute() {
-        import_path.to_path_buf()
-    } else {
-        parent.join(import_path)
-    };
+    let mut path = parent.join(import_path);
     if path.extension().is_none() {
         path.set_extension("rco");
     }
@@ -165,7 +179,7 @@ fn parse_package_import(import: &str) -> Option<PackageImport<'_>> {
     }
 
     if let Some((package, module)) = import.split_once('/') {
-        if !package.is_empty() && !module.is_empty() {
+        if !package.is_empty() && !module.is_empty() && package_module_is_safe(module) {
             return Some(PackageImport {
                 package,
                 module: module.to_string(),
@@ -177,11 +191,12 @@ fn parse_package_import(import: &str) -> Option<PackageImport<'_>> {
     if package.is_empty() || module.is_empty() {
         return None;
     }
+    let module = module.replace('.', "/");
+    if !package_module_is_safe(&module) {
+        return None;
+    }
 
-    Some(PackageImport {
-        package,
-        module: module.replace('.', "/"),
-    })
+    Some(PackageImport { package, module })
 }
 
 fn resolve_package_import(
@@ -195,9 +210,10 @@ fn resolve_package_import(
         return Ok(None);
     };
 
+    let base_path = contained_dependency_base(&manifest_path, &base_path, package_import.package)?;
     let candidates = package_import_candidates(&base_path, &package_import.module);
     if let Some(candidate) = candidates.iter().find(|candidate| candidate.is_file()) {
-        return Ok(Some(candidate.clone()));
+        return contained_file(&base_path, candidate, &package_import.module).map(Some);
     }
 
     bail!(
@@ -236,6 +252,7 @@ fn dependency_base_path(manifest_path: &Path, package: &str) -> Result<Option<Pa
         .parent()
         .expect("manifest path should have a parent");
     if let Some(path) = dependency.get("path").and_then(|path| path.as_str()) {
+        validate_dependency_path(path, package)?;
         let path = Path::new(path);
         return Ok(Some(if path.is_absolute() {
             path.to_path_buf()
@@ -266,6 +283,104 @@ fn package_import_candidates(base_path: &Path, module: &str) -> Vec<PathBuf> {
             candidate
         })
         .collect()
+}
+
+fn validate_import_path(import: &str) -> Result<()> {
+    if import.is_empty() {
+        bail!("import path must not be empty");
+    }
+    if import.contains('\\') {
+        bail!("import path must use forward slashes: {import:?}");
+    }
+    let path = Path::new(import);
+    if path.is_absolute() {
+        bail!("absolute imports are not allowed: {import:?}");
+    }
+    let explicit_relative = import.starts_with("./") || import.starts_with("../");
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => {}
+            Component::CurDir | Component::ParentDir if explicit_relative => {}
+            Component::CurDir | Component::ParentDir => {
+                bail!("import path must not contain . or .. components: {import:?}");
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("absolute imports are not allowed: {import:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_dependency_path(path: &str, package: &str) -> Result<()> {
+    if path.contains('\\') {
+        bail!("dependency {package:?} path must use forward slashes");
+    }
+    let path = Path::new(path);
+    if path.is_absolute() {
+        bail!("dependency {package:?} path must be inside the project");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => {
+                bail!("dependency {package:?} path must not contain .. components");
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("dependency {package:?} path must be inside the project");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn package_module_is_safe(module: &str) -> bool {
+    !module.is_empty()
+        && !module.contains('\\')
+        && Path::new(module)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn contained_dependency_base(
+    manifest_path: &Path,
+    base_path: &Path,
+    package: &str,
+) -> Result<PathBuf> {
+    let manifest_dir = manifest_path
+        .parent()
+        .expect("manifest path should have a parent");
+    let manifest_dir = fs::canonicalize(manifest_dir)
+        .with_context(|| format!("failed to resolve {}", manifest_dir.display()))?;
+    let canonical_base = fs::canonicalize(base_path).with_context(|| {
+        format!(
+            "failed to resolve dependency {package:?} at {}",
+            base_path.display()
+        )
+    })?;
+    if !canonical_base.starts_with(&manifest_dir) {
+        bail!(
+            "dependency {package:?} resolves outside the project root: {}",
+            base_path.display()
+        );
+    }
+    Ok(canonical_base)
+}
+
+fn contained_file(root: &Path, candidate: &Path, import: &str) -> Result<PathBuf> {
+    let canonical = fs::canonicalize(candidate).with_context(|| {
+        format!(
+            "failed to resolve import {import:?} at {}",
+            candidate.display()
+        )
+    })?;
+    if !canonical.starts_with(root) {
+        bail!(
+            "import {import:?} resolves outside allowed root {}",
+            root.display()
+        );
+    }
+    Ok(canonical)
 }
 
 fn append_chunk(target: &mut Chunk, chunk: Chunk) {

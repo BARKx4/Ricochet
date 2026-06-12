@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -16,6 +17,9 @@ use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
 use crate::result::RicochetResult;
 use crate::value::Value;
+
+const DEFAULT_MAX_RUNNING_TASKS: usize = 64;
+static GLOBAL_RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum VmError {
@@ -89,7 +93,7 @@ type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
 type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Vm {
     pub(super) stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
@@ -107,6 +111,9 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    pub(super) environment_enabled: bool,
+    pub(super) sleep_enabled: bool,
+    max_running_tasks: usize,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
     debug_sink: Option<DebugSink>,
@@ -118,6 +125,43 @@ pub struct Vm {
     instructions_executed: u64,
     tasks: BTreeMap<u64, TaskState>,
     next_task_id: u64,
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        Self {
+            stack: Vec::new(),
+            variables: BTreeMap::new(),
+            functions: BTreeMap::new(),
+            classes: BTreeMap::new(),
+            current_class: None,
+            self_stack: Vec::new(),
+            output_lines: Vec::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            program_args: Vec::new(),
+            input_reader: None,
+            filesystem_enabled: false,
+            filesystem_root: None,
+            filesystem_writes_enabled: false,
+            http_enabled: false,
+            http_allowed_hosts: None,
+            environment_enabled: false,
+            sleep_enabled: false,
+            max_running_tasks: DEFAULT_MAX_RUNNING_TASKS,
+            debug_enabled: false,
+            debug_events: Vec::new(),
+            debug_sink: None,
+            debug_controller: None,
+            step_mode: false,
+            breakpoints: BTreeSet::new(),
+            suppressed_breakpoint: None,
+            instruction_limit: None,
+            instructions_executed: 0,
+            tasks: BTreeMap::new(),
+            next_task_id: 0,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -134,6 +178,8 @@ struct Task {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    environment_enabled: bool,
+    sleep_enabled: bool,
     instruction_limit: Option<u64>,
 }
 
@@ -153,6 +199,35 @@ struct RunningTaskShared {
     ready: Condvar,
 }
 
+struct TaskPermit;
+
+impl Drop for TaskPermit {
+    fn drop(&mut self) {
+        GLOBAL_RUNNING_TASKS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn acquire_task_permit(word: &str, limit: usize) -> Result<TaskPermit, VmError> {
+    let mut current = GLOBAL_RUNNING_TASKS.load(Ordering::Acquire);
+    loop {
+        if current >= limit {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("task limit exceeded: at most {limit} tasks may run at once"),
+            });
+        }
+        match GLOBAL_RUNNING_TASKS.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return Ok(TaskPermit),
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct TaskCompletion {
     result: Result<Value, VmError>,
@@ -168,12 +243,18 @@ struct TaskOutput {
 }
 
 impl RunningTask {
-    fn spawn(task: Task) -> Self {
-        Self::spawn_completion("spawn".to_string(), move || run_task_to_completion(task))
+    fn spawn(task: Task, permit: TaskPermit) -> Self {
+        Self::spawn_completion("spawn".to_string(), permit, move || {
+            run_task_to_completion(task)
+        })
     }
 
-    fn spawn_value(word: String, operation: impl FnOnce() -> Value + Send + 'static) -> Self {
-        Self::spawn_completion(word, move || TaskCompletion {
+    fn spawn_value(
+        word: String,
+        permit: TaskPermit,
+        operation: impl FnOnce() -> Value + Send + 'static,
+    ) -> Self {
+        Self::spawn_completion(word, permit, move || TaskCompletion {
             result: Ok(operation()),
             output: TaskOutput::default(),
             output_consumed: false,
@@ -182,6 +263,7 @@ impl RunningTask {
 
     fn spawn_completion(
         panic_word: String,
+        permit: TaskPermit,
         operation: impl FnOnce() -> TaskCompletion + Send + 'static,
     ) -> Self {
         let shared = Arc::new(RunningTaskShared {
@@ -190,6 +272,7 @@ impl RunningTask {
         });
         let worker_shared = shared.clone();
         thread::spawn(move || {
+            let _permit = permit;
             let completion = match catch_unwind(AssertUnwindSafe(operation)) {
                 Ok(completion) => completion,
                 Err(_) => TaskCompletion {
@@ -282,6 +365,8 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         filesystem_writes_enabled: task.filesystem_writes_enabled,
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
+        environment_enabled: task.environment_enabled,
+        sleep_enabled: task.sleep_enabled,
         instruction_limit: task.instruction_limit,
         ..Vm::default()
     };
@@ -357,12 +442,26 @@ impl Vm {
         self.filesystem_enabled = true;
         self.filesystem_writes_enabled = true;
         self.http_enabled = true;
+        self.environment_enabled = true;
+        self.sleep_enabled = true;
     }
 
     pub fn set_host_capabilities(&mut self, filesystem_enabled: bool, http_enabled: bool) {
         self.filesystem_enabled = filesystem_enabled;
         self.filesystem_writes_enabled = filesystem_enabled;
         self.http_enabled = http_enabled;
+    }
+
+    pub fn set_environment_enabled(&mut self, enabled: bool) {
+        self.environment_enabled = enabled;
+    }
+
+    pub fn set_sleep_enabled(&mut self, enabled: bool) {
+        self.sleep_enabled = enabled;
+    }
+
+    pub fn set_max_running_tasks(&mut self, limit: usize) {
+        self.max_running_tasks = limit;
     }
 
     pub fn set_filesystem_root(&mut self, root: impl Into<PathBuf>) {
@@ -1312,8 +1411,13 @@ impl Vm {
             }
         };
 
-        let task_id = self.next_task_id;
-        self.next_task_id += 1;
+        let (task_id, permit) = match self.reserve_task_slot(word) {
+            Ok(slot) => slot,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
         let task = Task {
             block,
             variables: self.variables.clone(),
@@ -1327,10 +1431,14 @@ impl Vm {
             filesystem_writes_enabled: self.filesystem_writes_enabled,
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
+            environment_enabled: self.environment_enabled,
+            sleep_enabled: self.sleep_enabled,
             instruction_limit: self.instruction_limit,
         };
-        self.tasks
-            .insert(task_id, TaskState::Running(RunningTask::spawn(task)));
+        self.tasks.insert(
+            task_id,
+            TaskState::Running(RunningTask::spawn(task, permit)),
+        );
         self.stack.push(Value::Task(task_id));
         Ok(())
     }
@@ -1339,14 +1447,24 @@ impl Vm {
         &mut self,
         word: &str,
         operation: impl FnOnce() -> Value + Send + 'static,
-    ) -> Value {
-        let task_id = self.next_task_id;
-        self.next_task_id += 1;
+    ) -> Result<Value, VmError> {
+        let (task_id, permit) = self.reserve_task_slot(word)?;
         self.tasks.insert(
             task_id,
-            TaskState::Running(RunningTask::spawn_value(word.to_string(), operation)),
+            TaskState::Running(RunningTask::spawn_value(
+                word.to_string(),
+                permit,
+                operation,
+            )),
         );
-        Value::Task(task_id)
+        Ok(Value::Task(task_id))
+    }
+
+    fn reserve_task_slot(&mut self, word: &str) -> Result<(u64, TaskPermit), VmError> {
+        let permit = acquire_task_permit(word, self.max_running_tasks)?;
+        let task_id = self.next_task_id;
+        self.next_task_id += 1;
+        Ok((task_id, permit))
     }
 
     fn call_await(&mut self, word: &str) -> Result<(), VmError> {
@@ -1500,6 +1618,12 @@ impl Vm {
             word: word.to_string(),
             message: format!("invalid HTTP URL {url:?}: {error}"),
         })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("unsupported HTTP URL scheme: {}", parsed.scheme()),
+            });
+        }
         let host = parsed.host_str().ok_or_else(|| VmError::InvalidArgument {
             word: word.to_string(),
             message: format!("HTTP URL has no host: {url:?}"),
@@ -4320,6 +4444,7 @@ mod tests {
         chunk.push(Op::CallWord("spawn".to_string()), span());
 
         let mut vm = Vm::default();
+        vm.set_sleep_enabled(true);
         vm.run_chunk(&chunk).expect("spawn succeeds");
 
         assert_eq!(vm.stack(), &[Value::Task(0), Value::Task(1)]);

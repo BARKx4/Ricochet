@@ -37,6 +37,17 @@ pub struct Views {
 pub struct Session {
     pub signing_secret_env: Option<String>,
     pub encryption_secret_env: Option<String>,
+    #[serde(default)]
+    pub secure: SessionSecure,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionSecure {
+    #[default]
+    Auto,
+    Always,
+    Never,
 }
 
 impl Session {
@@ -319,6 +330,7 @@ url = "${MYSQL_URL}"
         let session = Session {
             signing_secret_env: Some("RICOCHET_TEST_SESSION_SECRET".to_string()),
             encryption_secret_env: None,
+            secure: SessionSecure::Auto,
         };
 
         let secret = session
@@ -334,6 +346,7 @@ url = "${MYSQL_URL}"
         let session = Session {
             signing_secret_env: Some("RICOCHET_MISSING_SESSION_SECRET".to_string()),
             encryption_secret_env: None,
+            secure: SessionSecure::Auto,
         };
 
         let error = session
@@ -354,6 +367,7 @@ url = "${MYSQL_URL}"
         let session = Session {
             signing_secret_env: None,
             encryption_secret_env: Some("RICOCHET_TEST_SESSION_ENCRYPTION_SECRET".to_string()),
+            secure: SessionSecure::Auto,
         };
 
         let secret = session
@@ -369,6 +383,7 @@ url = "${MYSQL_URL}"
         let session = Session {
             signing_secret_env: None,
             encryption_secret_env: Some("RICOCHET_MISSING_SESSION_ENCRYPTION_SECRET".to_string()),
+            secure: SessionSecure::Auto,
         };
 
         let error = session

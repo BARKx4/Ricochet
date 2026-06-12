@@ -106,6 +106,7 @@ impl ControllerRegistry {
                 Some(setup) => setup(&mut vm)?,
                 None => BTreeMap::new(),
             };
+            vm.set_sleep_enabled(false);
             vm.run_chunk(&chunk)
                 .with_context(|| format!("failed to load controller {controller_name}"))?;
             let log_entries = Arc::new(Mutex::new(Vec::new()));

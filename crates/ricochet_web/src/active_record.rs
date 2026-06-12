@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use bytes::BytesMut;
@@ -10,8 +11,10 @@ use mysql_async::{Pool as MysqlPool, Row as MysqlRow, Value as MysqlSqlValue};
 use ricochet_vm::Value;
 use rusqlite::types::{ToSqlOutput, Value as SqliteSqlValue, ValueRef};
 use rusqlite::{Connection, Row as SqliteRow};
+use tokio_postgres::config::{Host as PostgresHost, SslMode};
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql as PostgresToSql, Type};
-use tokio_postgres::{Client, NoTls, Row as PostgresRow};
+use tokio_postgres::{Client, Config as PostgresConfig, Row as PostgresRow};
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelMapping {
@@ -493,7 +496,12 @@ impl fmt::Debug for PostgresDatabase {
 
 impl PostgresDatabase {
     pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
-        let (client, connection) = tokio_postgres::connect(url, NoTls)
+        let mut config = url
+            .parse::<PostgresConfig>()
+            .map_err(|error| database_error("parse connection string", error))?;
+        apply_postgres_tls_policy(&mut config)?;
+        let (client, connection) = config
+            .connect(postgres_tls_connector())
             .await
             .map_err(|error| database_error("connect", error))?;
 
@@ -768,6 +776,49 @@ impl PostgresDatabase {
             .await
             .map_err(|error| database_error(operation, error))?;
         row_to_value(&row, mapping)
+    }
+}
+
+fn postgres_tls_connector() -> MakeRustlsConnect {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    MakeRustlsConnect::with_webpki_roots()
+}
+
+fn apply_postgres_tls_policy(config: &mut PostgresConfig) -> Result<(), ActiveRecordError> {
+    if config.get_ssl_mode() == SslMode::Disable {
+        if postgres_hosts_are_local(config) {
+            return Ok(());
+        }
+
+        return Err(postgres_configuration_error(
+            "PostgreSQL sslmode=disable is only allowed for localhost or loopback connections",
+        ));
+    }
+
+    config.ssl_mode(SslMode::Require);
+    Ok(())
+}
+
+fn postgres_hosts_are_local(config: &PostgresConfig) -> bool {
+    let hostaddrs = config.get_hostaddrs();
+    if !hostaddrs.is_empty() {
+        return hostaddrs.iter().all(IpAddr::is_loopback);
+    }
+
+    let hosts = config.get_hosts();
+    !hosts.is_empty() && hosts.iter().all(postgres_host_is_local)
+}
+
+fn postgres_host_is_local(host: &PostgresHost) -> bool {
+    match host {
+        PostgresHost::Tcp(host) => {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<IpAddr>()
+                    .is_ok_and(|address| address.is_loopback())
+        }
+        #[cfg(unix)]
+        PostgresHost::Unix(_) => true,
     }
 }
 
@@ -1820,6 +1871,13 @@ fn database_error(operation: &'static str, error: tokio_postgres::Error) -> Acti
     }
 }
 
+fn postgres_configuration_error(message: impl Into<String>) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation: "configure postgres tls",
+        message: message.into(),
+    }
+}
+
 fn sqlite_error(operation: &'static str, error: rusqlite::Error) -> ActiveRecordError {
     ActiveRecordError::Database {
         operation,
@@ -2032,6 +2090,50 @@ mod tests {
             Err(ActiveRecordError::InvalidIdentifier {
                 kind: "field",
                 name: "email-address".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn postgres_tls_policy_requires_tls_for_remote_hosts() {
+        let mut config = "postgres://app:secret@db.example.com/app"
+            .parse::<PostgresConfig>()
+            .expect("postgres config parses");
+
+        assert_eq!(config.get_ssl_mode(), SslMode::Prefer);
+        apply_postgres_tls_policy(&mut config).expect("tls policy applies");
+        assert_eq!(config.get_ssl_mode(), SslMode::Require);
+    }
+
+    #[test]
+    fn postgres_tls_policy_allows_disable_for_local_development() {
+        for url in [
+            "postgres://app:secret@localhost/app?sslmode=disable",
+            "postgres://app:secret@127.0.0.1/app?sslmode=disable",
+            "postgres://app:secret@[::1]/app?sslmode=disable",
+        ] {
+            let mut config = url
+                .parse::<PostgresConfig>()
+                .expect("postgres config parses");
+
+            apply_postgres_tls_policy(&mut config).expect("loopback may disable tls");
+            assert_eq!(config.get_ssl_mode(), SslMode::Disable);
+        }
+    }
+
+    #[test]
+    fn postgres_tls_policy_rejects_disable_for_remote_hosts() {
+        let mut config = "postgres://app:secret@db.example.com/app?sslmode=disable"
+            .parse::<PostgresConfig>()
+            .expect("postgres config parses");
+
+        assert_eq!(
+            apply_postgres_tls_policy(&mut config),
+            Err(ActiveRecordError::Database {
+                operation: "configure postgres tls",
+                message:
+                    "PostgreSQL sslmode=disable is only allowed for localhost or loopback connections"
+                        .to_string(),
             })
         );
     }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -136,6 +136,10 @@ struct CapabilityOptions {
     fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
+    #[arg(long, help = "Disable process environment access for this run")]
+    no_env: bool,
+    #[arg(long, help = "Disable blocking sleep for this run")]
+    no_sleep: bool,
     #[arg(
         long = "http-allow-host",
         value_name = "HOST",
@@ -176,8 +180,13 @@ impl CapabilityOptions {
         let http_enabled = !self.no_http
             && (self.capability_profile == CapabilityProfile::Trusted
                 || !self.http_allow_hosts.is_empty());
+        let environment_enabled =
+            !self.no_env && self.capability_profile == CapabilityProfile::Trusted;
+        let sleep_enabled = !self.no_sleep && self.capability_profile == CapabilityProfile::Trusted;
 
         vm.set_host_capabilities(filesystem_enabled, http_enabled);
+        vm.set_environment_enabled(environment_enabled);
+        vm.set_sleep_enabled(sleep_enabled);
         if let Some(root) = &self.fs_root {
             let root = fs::canonicalize(root)
                 .with_context(|| format!("failed to resolve --fs-root {}", root.display()))?;
@@ -967,6 +976,7 @@ struct DependencySpec {
     source: String,
     git: Option<String>,
     rev: Option<String>,
+    commit: Option<String>,
     display_source: String,
 }
 
@@ -988,14 +998,16 @@ fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()
         .parent()
         .expect("project manifest should have a parent");
     let dependency_source = parse_dependency_source(source)?;
-    let spec = dependency_spec(project_root, source, dependency_source, name)?;
+    let mut spec = dependency_spec(project_root, source, dependency_source, name)?;
 
     if spec.git.is_some() && !no_fetch {
-        fetch_git_dependency(project_root, &spec)?;
+        spec.commit = Some(fetch_git_dependency(project_root, &spec)?);
     }
 
     write_dependency_manifest(&manifest_path, &spec)?;
-    write_lockfile(&project_root.join("ricochet.lock"), &spec)?;
+    if !(spec.git.is_some() && no_fetch) {
+        write_lockfile(&project_root.join("ricochet.lock"), &spec)?;
+    }
 
     if spec.git.is_some() && no_fetch {
         println!(
@@ -1046,8 +1058,13 @@ fn install_dependencies() -> Result<()> {
             .to_string();
         let git = table.get("git").and_then(Item::as_str).map(str::to_string);
         let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let commit = git
+            .as_ref()
+            .map(|_| locked_git_commit(&lock_path, name))
+            .transpose()?
+            .flatten();
         let display_source = git.clone().unwrap_or_else(|| path.clone());
-        let spec = DependencySpec {
+        let mut spec = DependencySpec {
             name: name.to_string(),
             source: git
                 .as_ref()
@@ -1056,13 +1073,25 @@ fn install_dependencies() -> Result<()> {
             path: path.clone(),
             git,
             rev,
+            commit,
             display_source,
         };
 
         if spec.git.is_some() {
-            let package_dir = project_root.join(&spec.path);
+            let package_dir =
+                project_dependency_path(project_root, &spec.path, "git package cache")?;
             if !package_dir.is_dir() {
-                fetch_git_dependency(project_root, &spec)?;
+                spec.commit = Some(fetch_git_dependency(project_root, &spec)?);
+            } else if let Some(commit) = spec.commit.as_deref() {
+                let actual = current_git_commit(&package_dir)?;
+                if actual != commit {
+                    bail!(
+                        "package cache for {} is at {actual}, expected locked commit {commit}",
+                        spec.name
+                    );
+                }
+            } else {
+                spec.commit = Some(current_git_commit(&package_dir)?);
             }
         } else {
             let dependency_dir = PathBuf::from(&spec.path);
@@ -1071,6 +1100,7 @@ fn install_dependencies() -> Result<()> {
             } else {
                 project_root.join(dependency_dir)
             };
+            ensure_existing_project_dir(project_root, &dependency_dir, "local dependency")?;
             if !dependency_dir.is_dir() {
                 bail!(
                     "local Ricochet dependency {name} is not a directory: {}",
@@ -1162,6 +1192,7 @@ fn dependency_spec(
                 source: format!("path+{path}"),
                 git: None,
                 rev: None,
+                commit: None,
                 display_source: path,
             })
         }
@@ -1177,6 +1208,7 @@ fn dependency_spec(
                 source: format!("git+{git}"),
                 git: Some(git),
                 rev,
+                commit: None,
                 display_source: original_source.to_string(),
             })
         }
@@ -1233,19 +1265,23 @@ fn dependency_path_value(
         return Ok(format!("./{relative}"));
     }
 
-    Ok(fallback.replace('\\', "/"))
+    let _ = fallback;
+    bail!(
+        "local dependency must be inside the project root: {}",
+        absolute_path.display()
+    )
 }
 
 fn path_to_slash(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<()> {
+fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<String> {
     let git = spec
         .git
         .as_deref()
         .expect("fetch_git_dependency only handles git dependencies");
-    let package_dir = project_root.join(&spec.path);
+    let package_dir = project_dependency_path(project_root, &spec.path, "git package cache")?;
     if package_dir.exists() {
         bail!(
             "package cache already exists: {}; remove it or choose a different --name",
@@ -1256,12 +1292,16 @@ fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<()
     if let Some(parent) = package_dir.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
+        ensure_existing_project_dir(project_root, parent, "package cache parent")?;
     }
 
     let mut command = std::process::Command::new("git");
-    command.arg("clone").arg("--depth").arg("1");
-    if let Some(rev) = spec.rev.as_deref() {
-        command.arg("--branch").arg(rev);
+    command.arg("clone");
+    if spec.commit.is_none() {
+        command.arg("--depth").arg("1");
+        if let Some(rev) = spec.rev.as_deref() {
+            command.arg("--branch").arg(rev);
+        }
     }
     command.arg(git).arg(&package_dir);
 
@@ -1277,6 +1317,128 @@ fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<()
         );
     }
 
+    ensure_existing_project_dir(project_root, &package_dir, "git package cache")?;
+    if let Some(commit) = spec.commit.as_deref() {
+        checkout_git_commit(&package_dir, commit)?;
+    }
+
+    current_git_commit(&package_dir)
+}
+
+fn project_dependency_path(project_root: &Path, path: &str, description: &str) -> Result<PathBuf> {
+    validate_project_relative_path(path, description)?;
+    let candidate = project_root.join(Path::new(path));
+    ensure_contained_candidate(project_root, &candidate, description)?;
+    Ok(candidate)
+}
+
+fn validate_project_relative_path(path: &str, description: &str) -> Result<()> {
+    if path.contains('\\') {
+        bail!("{description} path must use forward slashes");
+    }
+    let path = Path::new(path);
+    if path.is_absolute() {
+        bail!("{description} path must be relative to the project root");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => bail!("{description} path must not contain .. components"),
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("{description} path must be relative to the project root")
+            }
+        }
+    }
+    Ok(())
+}
+
+fn ensure_contained_candidate(
+    project_root: &Path,
+    candidate: &Path,
+    description: &str,
+) -> Result<()> {
+    let canonical_root = fs::canonicalize(project_root)
+        .with_context(|| format!("failed to resolve {}", project_root.display()))?;
+    let existing = nearest_existing_ancestor(candidate);
+    let canonical_existing = fs::canonicalize(existing)
+        .with_context(|| format!("failed to resolve {}", existing.display()))?;
+    if !canonical_existing.starts_with(&canonical_root) {
+        bail!(
+            "{description} resolves outside the project root: {}",
+            candidate.display()
+        );
+    }
+    Ok(())
+}
+
+fn ensure_existing_project_dir(project_root: &Path, path: &Path, description: &str) -> Result<()> {
+    ensure_contained_candidate(project_root, path, description)?;
+    let canonical_root = fs::canonicalize(project_root)
+        .with_context(|| format!("failed to resolve {}", project_root.display()))?;
+    let canonical_path =
+        fs::canonicalize(path).with_context(|| format!("failed to resolve {}", path.display()))?;
+    if !canonical_path.starts_with(&canonical_root) {
+        bail!(
+            "{description} resolves outside the project root: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn nearest_existing_ancestor(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|ancestor| ancestor.exists())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn current_git_commit(package_dir: &Path) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(package_dir)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg("HEAD^{commit}")
+        .output()
+        .with_context(|| format!("failed to resolve git commit in {}", package_dir.display()))?;
+    if !output.status.success() {
+        bail!(
+            "failed to resolve git commit in {}\nstdout:\n{}\nstderr:\n{}",
+            package_dir.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    validate_git_commit(&commit)?;
+    Ok(commit)
+}
+
+fn checkout_git_commit(package_dir: &Path, commit: &str) -> Result<()> {
+    validate_git_commit(commit)?;
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(package_dir)
+        .arg("checkout")
+        .arg("--detach")
+        .arg(commit)
+        .output()
+        .with_context(|| format!("failed to checkout {commit} in {}", package_dir.display()))?;
+    if !output.status.success() {
+        bail!(
+            "failed to checkout locked commit {commit} in {}\nstdout:\n{}\nstderr:\n{}",
+            package_dir.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn validate_git_commit(commit: &str) -> Result<()> {
+    if commit.len() != 40 || !commit.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        bail!("invalid Git commit object id {commit:?}");
+    }
     Ok(())
 }
 
@@ -1323,10 +1485,36 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     if let Some(rev) = &spec.rev {
         package["rev"] = value(rev.clone());
     }
+    if let Some(commit) = &spec.commit {
+        package["commit"] = value(commit.clone());
+    }
     packages.insert(&spec.name, Item::Table(package));
 
     fs::write(lock_path, doc.to_string())
         .with_context(|| format!("failed to write {}", lock_path.display()))
+}
+
+fn locked_git_commit(lock_path: &Path, name: &str) -> Result<Option<String>> {
+    if !lock_path.is_file() {
+        return Ok(None);
+    }
+    let source = fs::read_to_string(lock_path)
+        .with_context(|| format!("failed to read {}", lock_path.display()))?;
+    let doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", lock_path.display()))?;
+    let commit = doc
+        .get("package")
+        .and_then(Item::as_table)
+        .and_then(|packages| packages.get(name))
+        .and_then(Item::as_table)
+        .and_then(|package| package.get("commit"))
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(commit) = commit.as_deref() {
+        validate_git_commit(commit)?;
+    }
+    Ok(commit)
 }
 
 fn ensure_table<'a>(root: &'a mut Table, key: &str, path: &Path) -> Result<&'a mut Table> {

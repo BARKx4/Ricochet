@@ -534,9 +534,12 @@ and the session map. `logger` supports `debug`, `info`, `warn`, `error`, and
 manifest metadata such as package name, web mode/routes/views, and database
 adapter; database URLs and session signing/encryption secrets are intentionally
 not exposed. The built-in session map is stored in a cookie named
-`ricochet_session`; `[web.session] signing_secret_env` enables HMAC signing
-with a secret from the environment, and
-`[web.session] encryption_secret_env` emits authenticated encrypted v2 cookies.
+`ricochet_session`; default beta sessions are HMAC-signed with a per-process
+ephemeral key, `[web.session] signing_secret_env` enables stable HMAC signing
+with a secret from the environment, and `[web.session] encryption_secret_env`
+emits authenticated encrypted v2 cookies. Session cookies use `Secure`
+automatically for non-local requests unless the manifest explicitly opts out for
+local development.
 The SQLite beta scaffold includes a small form/session login loop so developers
 can exercise ordinary session flow locally; production auth remains package
 work.
@@ -547,6 +550,8 @@ SQLite, PostgreSQL, and MySQL/MariaDB are the v1 beta database targets. SQLite
 gives beta testers a zero-service local app path, PostgreSQL keeps the
 production-style relational target visible, and MySQL/MariaDB keeps the beta
 credible for developers bringing established web stacks or hosted MySQL apps.
+Remote PostgreSQL connections require TLS by default; `sslmode=disable` is
+accepted only for `localhost` or loopback development databases.
 
 Migrations are not v1. v1 maps models to an existing schema.
 
