@@ -289,8 +289,8 @@ builds Apple Silicon and Intel tarballs on separate macOS runners.
 To publish a GitHub release, push a version tag:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 The release workflow packages the Windows, Linux, and macOS artifacts, writes a
