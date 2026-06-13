@@ -36,7 +36,7 @@
             <code>rco routes my_app</code>
             <code>rco test my_app</code>
             <code>rco run --debug --step app.rco</code>
-            <code>rco package app.rco --output app.exe</code>
+            <code>rco package app.rco --output app --linux-package deb</code>
             <code>rco serve --debug --port 3000</code>
           </div>
         </div>
@@ -617,7 +617,7 @@ end</code></pre>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
-          <div><code>rco package [path] --output &lt;exe&gt;</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`.</span></div>
+          <div><code>rco package [path] --output &lt;exe&gt; [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages from the `.rco` file.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>

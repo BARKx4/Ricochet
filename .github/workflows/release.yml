@@ -76,11 +76,27 @@ jobs:
       - name: Smoke-test package executable
         shell: bash
         run: |
+          version='${{ inputs.version }}'
+          if [[ -z "$version" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "$version" ]]; then
+            version="$(awk -F '"' '/^\[workspace\.package\]/{found=1; next} found && /^[[:space:]]*version[[:space:]]*=/{print $2; exit}' Cargo.toml)"
+          fi
+
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
+          "$package_dir/rco" package examples/basic-oop.rco \
+            --output "$tmp/basic-oop" \
+            --linux-package tar \
+            --linux-package deb \
+            --package-name basic-oop \
+            --package-version "$version"
           "$tmp/basic-oop" | grep -q 'ada@example.com'
+          test -f "$tmp/basic-oop-v${version}-linux-x64.tar.gz"
+          test -f "$tmp/basic-oop_${version}_amd64.deb"
+          dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" | grep -q 'Package: basic-oop'
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4

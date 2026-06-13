@@ -105,6 +105,18 @@ rco run-bytecode build/app.rcob
 rco package examples/basic-oop.rco --output basic-oop.exe
 ```
 
+On Linux, the same `package` command can also create portable tarballs or
+Debian packages for a `.rco` file:
+
+```bash
+rco package examples/basic-oop.rco \
+  --output basic-oop \
+  --linux-package tar \
+  --linux-package deb \
+  --package-name basic-oop \
+  --package-version 0.1.0
+```
+
 Add a package dependency from a Ricochet project:
 
 ```powershell

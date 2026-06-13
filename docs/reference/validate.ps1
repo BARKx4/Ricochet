@@ -238,7 +238,7 @@ if ($failures.Count -eq 0) {
         "rco run --debug --step app.rco",
         "rco fmt [--check] [path]",
         "rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]",
-        "rco package [path] --output &lt;exe&gt;",
+        "rco package [path] --output &lt;exe&gt; [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]",
         "rco add &lt;source&gt; [--name NAME] [--no-fetch]",
         "`"lib/math`" import",
         "`"greeter/greeting`" import",

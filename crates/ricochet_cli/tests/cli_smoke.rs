@@ -1270,6 +1270,43 @@ fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
 }
 
 #[test]
+fn package_rejects_linux_package_artifacts_on_non_linux_hosts() {
+    if cfg!(target_os = "linux") {
+        return;
+    }
+
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "\"packaged\" println\n20 2 +\n");
+    let output_path = root.join(format!("hello-app{}", std::env::consts::EXE_SUFFIX));
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--linux-package")
+        .arg("tar")
+        .current_dir(root)
+        .output()
+        .expect("rco package should launch");
+
+    assert!(
+        !package_output.status.success(),
+        "rco package should reject Linux artifacts on non-Linux hosts"
+    );
+    let stderr = String::from_utf8_lossy(&package_output.stderr);
+    assert!(
+        stderr.contains("Linux package artifacts can only be built on Linux"),
+        "stderr should explain the Linux host requirement, got:\n{stderr}"
+    );
+    assert!(
+        !output_path.exists(),
+        "rejected Linux package request should not create the executable"
+    );
+}
+
+#[test]
 fn run_debug_prints_readable_stack_trace() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

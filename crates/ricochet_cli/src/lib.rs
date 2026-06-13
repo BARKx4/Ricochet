@@ -75,6 +75,22 @@ enum Command {
         path: Option<String>,
         #[arg(short, long)]
         output: PathBuf,
+        #[arg(
+            long = "linux-package",
+            value_enum,
+            value_name = "FORMAT",
+            help = "Also create a Linux package artifact: tar or deb. Repeat for both."
+        )]
+        linux_packages: Vec<LinuxPackageFormat>,
+        #[arg(long = "package-name", value_name = "NAME")]
+        package_name: Option<String>,
+        #[arg(long = "package-version", default_value = "0.1.0")]
+        package_version: String,
+        #[arg(
+            long = "package-description",
+            default_value = "Packaged Ricochet application"
+        )]
+        package_description: String,
     },
     Add {
         source: String,
@@ -114,6 +130,12 @@ enum Command {
         capabilities: CapabilityOptions,
         path: Option<String>,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum LinuxPackageFormat {
+    Tar,
+    Deb,
 }
 
 #[derive(Clone, Debug, Default, Args)]
@@ -259,9 +281,21 @@ pub async fn run_cli() -> Result<()> {
             args,
         } => run_bytecode(&path, debug, args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
-        Command::Package { path, output } => {
-            package(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE), &output)?
-        }
+        Command::Package {
+            path,
+            output,
+            linux_packages,
+            package_name,
+            package_version,
+            package_description,
+        } => package(
+            path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE),
+            &output,
+            &linux_packages,
+            package_name.as_deref(),
+            &package_version,
+            &package_description,
+        )?,
         Command::Add {
             source,
             name,
@@ -1845,9 +1879,19 @@ fn build(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn package(path: &str, output: &Path) -> Result<()> {
+fn package(
+    path: &str,
+    output: &Path,
+    linux_packages: &[LinuxPackageFormat],
+    package_name: Option<&str>,
+    package_version: &str,
+    package_description: &str,
+) -> Result<()> {
     if output.is_dir() {
         bail!("package output is a directory: {}", output.display());
+    }
+    if !linux_packages.is_empty() {
+        ensure_linux_package_host()?;
     }
 
     let chunk = compile_source_file(Path::new(path))?;
@@ -1868,6 +1912,17 @@ fn package(path: &str, output: &Path) -> Result<()> {
     append_embedded_chunk(output, &bytes)?;
 
     println!("packaged {}", output.display());
+
+    if !linux_packages.is_empty() {
+        create_linux_package_artifacts(
+            output,
+            linux_packages,
+            package_name,
+            package_version,
+            package_description,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -1883,6 +1938,333 @@ fn append_embedded_chunk(path: &Path, chunk_bytes: &[u8]) -> Result<()> {
     file.write_all(&(chunk_bytes.len() as u64).to_le_bytes())
         .with_context(|| format!("failed to append package length to {}", path.display()))?;
     Ok(())
+}
+
+fn ensure_linux_package_host() -> Result<()> {
+    if std::env::consts::OS != "linux" {
+        bail!(
+            "Linux package artifacts can only be built on Linux; run this command on a Linux host or in the release workflow"
+        );
+    }
+    Ok(())
+}
+
+fn create_linux_package_artifacts(
+    executable: &Path,
+    formats: &[LinuxPackageFormat],
+    package_name: Option<&str>,
+    package_version: &str,
+    package_description: &str,
+) -> Result<()> {
+    let artifact_dir = artifact_directory_for(executable);
+    fs::create_dir_all(&artifact_dir)
+        .with_context(|| format!("failed to create {}", artifact_dir.display()))?;
+
+    let name = match package_name {
+        Some(name) => name.to_string(),
+        None => default_linux_package_name(executable),
+    };
+    validate_linux_package_name(&name)?;
+    validate_linux_package_version(package_version)?;
+    let description = linux_package_description(package_description);
+    let staging_root = linux_package_staging_root(&name, package_version)?;
+    let unique_formats: BTreeSet<_> = formats.iter().copied().collect();
+
+    for format in unique_formats {
+        match format {
+            LinuxPackageFormat::Tar => create_linux_tarball(
+                executable,
+                &artifact_dir,
+                &staging_root,
+                &name,
+                package_version,
+                &description,
+            )?,
+            LinuxPackageFormat::Deb => create_linux_deb(
+                executable,
+                &artifact_dir,
+                &staging_root,
+                &name,
+                package_version,
+                &description,
+            )?,
+        }
+    }
+
+    Ok(())
+}
+
+fn artifact_directory_for(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+fn default_linux_package_name(executable: &Path) -> String {
+    let stem = executable
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("ricochet-app");
+    sanitize_linux_package_name(stem)
+}
+
+fn sanitize_linux_package_name(value: &str) -> String {
+    let mut output = String::new();
+    for ch in value.chars() {
+        let ch = ch.to_ascii_lowercase();
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '+' | '-' | '.') {
+            output.push(ch);
+        } else if ch == '_' || ch.is_ascii_whitespace() {
+            output.push('-');
+        }
+    }
+
+    while output
+        .chars()
+        .next()
+        .is_some_and(|ch| !ch.is_ascii_lowercase() && !ch.is_ascii_digit())
+    {
+        output.remove(0);
+    }
+    while output
+        .chars()
+        .last()
+        .is_some_and(|ch| !ch.is_ascii_lowercase() && !ch.is_ascii_digit())
+    {
+        output.pop();
+    }
+
+    if output.len() < 2 {
+        "ricochet-app".to_string()
+    } else {
+        output
+    }
+}
+
+fn validate_linux_package_name(name: &str) -> Result<()> {
+    if name.len() < 2 {
+        bail!("Linux package name must contain at least two characters");
+    }
+    let mut chars = name.chars();
+    let first = chars
+        .next()
+        .expect("name length was checked before reading first char");
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        bail!("Linux package name must start with a lowercase letter or digit");
+    }
+    if !name
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '+' | '-' | '.'))
+    {
+        bail!("Linux package name may only contain lowercase letters, digits, '+', '-', or '.'");
+    }
+    Ok(())
+}
+
+fn validate_linux_package_version(version: &str) -> Result<()> {
+    if version.trim().is_empty() {
+        bail!("Linux package version must not be empty");
+    }
+    if version
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '/' | '\\'))
+    {
+        bail!("Linux package version must not contain whitespace or path separators");
+    }
+    Ok(())
+}
+
+fn linux_package_description(description: &str) -> String {
+    let description = description
+        .lines()
+        .next()
+        .unwrap_or("Packaged Ricochet application")
+        .trim();
+    if description.is_empty() {
+        "Packaged Ricochet application".to_string()
+    } else {
+        description.to_string()
+    }
+}
+
+fn linux_package_staging_root(name: &str, version: &str) -> Result<PathBuf> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system clock is before Unix epoch")?
+        .as_nanos();
+    let root = Path::new("target")
+        .join("ricochet-package")
+        .join(format!("{name}-{version}-{}-{nanos}", std::process::id()));
+    fs::create_dir_all(&root).with_context(|| format!("failed to create {}", root.display()))?;
+    Ok(root)
+}
+
+fn create_linux_tarball(
+    executable: &Path,
+    artifact_dir: &Path,
+    staging_root: &Path,
+    name: &str,
+    version: &str,
+    description: &str,
+) -> Result<()> {
+    let package_dir_name = format!("{name}-v{version}-linux-x64");
+    let package_dir = staging_root.join(&package_dir_name);
+    let archive = artifact_dir.join(format!("{package_dir_name}.tar.gz"));
+    assert_new_artifact(&archive)?;
+
+    fs::create_dir_all(&package_dir)
+        .with_context(|| format!("failed to create {}", package_dir.display()))?;
+    copy_executable(executable, &package_dir.join(name))?;
+    fs::write(
+        package_dir.join("README.txt"),
+        format!(
+            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n"
+        ),
+    )
+    .with_context(|| format!("failed to write {}", package_dir.join("README.txt").display()))?;
+    write_linux_install_script(&package_dir.join("install.sh"), name)?;
+
+    let output = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(staging_root)
+        .arg(&package_dir_name)
+        .output()
+        .context("failed to launch tar for Linux package")?;
+    ensure_command_success("tar", &output)?;
+
+    println!("packaged {}", archive.display());
+    Ok(())
+}
+
+fn create_linux_deb(
+    executable: &Path,
+    artifact_dir: &Path,
+    staging_root: &Path,
+    name: &str,
+    version: &str,
+    description: &str,
+) -> Result<()> {
+    let deb_path = artifact_dir.join(format!("{name}_{version}_amd64.deb"));
+    assert_new_artifact(&deb_path)?;
+
+    let deb_root = staging_root.join(format!("{name}-deb-root"));
+    let control_dir = deb_root.join("DEBIAN");
+    let bin_dir = deb_root.join("usr/bin");
+    let doc_dir = deb_root.join("usr/share/doc").join(name);
+
+    fs::create_dir_all(&control_dir)
+        .with_context(|| format!("failed to create {}", control_dir.display()))?;
+    fs::create_dir_all(&bin_dir)
+        .with_context(|| format!("failed to create {}", bin_dir.display()))?;
+    fs::create_dir_all(&doc_dir)
+        .with_context(|| format!("failed to create {}", doc_dir.display()))?;
+
+    copy_executable(executable, &bin_dir.join(name))?;
+    fs::write(
+        doc_dir.join("README.txt"),
+        format!("{description}\n\nThis package was generated from a Ricochet .rco file.\n"),
+    )
+    .with_context(|| format!("failed to write {}", doc_dir.join("README.txt").display()))?;
+    fs::write(
+        control_dir.join("control"),
+        format!(
+            "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\nMaintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n"
+        ),
+    )
+    .with_context(|| format!("failed to write {}", control_dir.join("control").display()))?;
+
+    let output = std::process::Command::new("dpkg-deb")
+        .arg("--root-owner-group")
+        .arg("--build")
+        .arg(&deb_root)
+        .arg(&deb_path)
+        .output()
+        .context("failed to launch dpkg-deb for Linux package")?;
+    ensure_command_success("dpkg-deb", &output)?;
+
+    println!("packaged {}", deb_path.display());
+    Ok(())
+}
+
+fn assert_new_artifact(path: &Path) -> Result<()> {
+    if path.exists() {
+        bail!(
+            "package artifact already exists: {}; choose a different --output, --package-name, or --package-version",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn copy_executable(source: &Path, destination: &Path) -> Result<()> {
+    fs::copy(source, destination).with_context(|| {
+        format!(
+            "failed to copy executable {} to {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    set_executable_permissions(destination)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_executable_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .with_context(|| format!("failed to read permissions for {}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions)
+        .with_context(|| format!("failed to set executable permissions on {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_executable_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn write_linux_install_script(path: &Path, binary_name: &str) -> Result<()> {
+    fs::write(
+        path,
+        format!(
+            r#"#!/usr/bin/env sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+prefix="${{PREFIX:-$HOME/.local}}"
+bin_dir="$prefix/bin"
+
+mkdir -p "$bin_dir"
+cp "$script_dir/{binary_name}" "$bin_dir/{binary_name}"
+chmod 755 "$bin_dir/{binary_name}"
+
+printf 'Installed {binary_name} to %s\n' "$bin_dir"
+printf 'Make sure %s is on your PATH.\n' "$bin_dir"
+"#
+        ),
+    )
+    .with_context(|| format!("failed to write {}", path.display()))?;
+    set_executable_permissions(path)?;
+    Ok(())
+}
+
+fn ensure_command_success(command: &str, output: &std::process::Output) -> Result<()> {
+    if output.status.success() {
+        return Ok(());
+    }
+
+    bail!(
+        "{command} failed with status {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn embedded_chunk_from_current_exe() -> Result<Option<Chunk>> {
