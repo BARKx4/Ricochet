@@ -106,12 +106,62 @@ jobs:
             dist/*.tar.gz
             dist/*.deb
 
+  package-macos:
+    name: Package macOS release (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-15
+          - target: macos-x64
+            runner: macos-15-intel
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release package
+        shell: bash
+        run: |
+          version='${{ inputs.version }}'
+          if [[ -z "$version" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          args=(--target '${{ matrix.target }}')
+          if [[ -n "$version" ]]; then
+            args+=(--version "$version")
+          fi
+          bash scripts/package-release-macos.sh "${args[@]}"
+
+      - name: Smoke-test package executable
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          tar -xzf dist/ricochet-v*-${{ matrix.target }}.tar.gz -C "$tmp"
+          package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
+          "$tmp/basic-oop" | grep -q 'ada@example.com'
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricochet-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+
   publish-release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - package-windows
       - package-linux
+      - package-macos
     runs-on: ubuntu-latest
 
     steps:
@@ -138,4 +188,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Ricochet $GITHUB_REF_NAME" \
-            --notes "Windows and Linux release packages for Ricochet $GITHUB_REF_NAME."
+            --notes "Windows, Linux, and unsigned macOS release packages for Ricochet $GITHUB_REF_NAME."

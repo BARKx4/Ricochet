@@ -74,6 +74,12 @@ sudo apt install ./ricochet_X.Y.Z_amd64.deb
 Portable Linux tarballs are also available. Extract the tarball and run
 `./install.sh`, or add the extracted folder to your `PATH`.
 
+On macOS, choose the unsigned tarball for your Mac:
+`ricochet-vX.Y.Z-macos-arm64.tar.gz` for Apple Silicon or
+`ricochet-vX.Y.Z-macos-x64.tar.gz` for Intel. Extract it and run
+`./install.sh`, or add the extracted folder to your `PATH`. These beta tarballs
+are not notarized by Apple.
+
 For an uninstalled source checkout, install the CLI once:
 
 ```powershell
@@ -269,6 +275,17 @@ The script builds `rco` and `ricochet`, creates a portable tarball with an
 `install.sh` helper, writes `SHA256SUMS-linux-x64.txt`, and creates a Debian
 `.deb` package with `dpkg-deb`.
 
+Unsigned macOS release tarballs are built on macOS with:
+
+```bash
+bash scripts/package-release-macos.sh --target macos-arm64
+bash scripts/package-release-macos.sh --target macos-x64
+```
+
+The script builds `rco` and `ricochet`, creates a portable tarball with an
+`install.sh` helper, and writes a target-specific checksum file. GitHub Actions
+builds Apple Silicon and Intel tarballs on separate macOS runners.
+
 To publish a GitHub release, push a version tag:
 
 ```powershell
@@ -276,9 +293,10 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow packages the Windows and Linux artifacts, writes a combined
-`SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux tarball, Debian
-package, and checksums to the GitHub release.
+The release workflow packages the Windows, Linux, and macOS artifacts, writes a
+combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
+tarball, Debian package, unsigned macOS tarballs, and checksums to the GitHub
+release.
 
 ## Reference Docs
 
