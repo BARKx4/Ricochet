@@ -10,6 +10,8 @@ Rust bytecode VM with dynamic OOP, CLI scripting, MVC web app scaffolding,
 template rendering, stack/debug tracing, and early Active Record support for
 existing SQLite, PostgreSQL, and MySQL/MariaDB schemas.
 
+Website: [try.ricochet.today](https://try.ricochet.today/)
+
 ## Current Features
 
 Ricochet is currently aimed at a developer-facing v1 beta: a usable web app
