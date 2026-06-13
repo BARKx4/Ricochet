@@ -5,7 +5,7 @@
 # Ricochet
 
 Ricochet is a modern, pure-postfix, stack-based programming language descended
-in spirit from MUF/MUCK-era Multi-User Forth. The current implementation is a
+in spirit from Forth. The current implementation is a
 Rust bytecode VM with dynamic OOP, CLI scripting, MVC web app scaffolding,
 template rendering, stack/debug tracing, and early Active Record support for
 existing SQLite, PostgreSQL, and MySQL/MariaDB schemas.
