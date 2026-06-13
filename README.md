@@ -56,13 +56,23 @@ package helpers.
 
 ## Quickstart
 
-For published Windows releases, download the installer from
-the [GitHub Releases](https://github.com/BARKx4/Ricochet/releases) page and run
-`ricochet-vX.Y.Z-windows-x64-setup.exe`. The installer adds Start Menu entries,
-including a Ricochet Shell that opens a command prompt with `rco` available.
+For published releases, download the package for your platform from
+the [GitHub Releases](https://github.com/BARKx4/Ricochet/releases) page.
 
-Portable release ZIPs are also available from the same release page. Extract the
-ZIP and run `Ricochet Shell.cmd`, or add the extracted folder to your `PATH`.
+On Windows, run `ricochet-vX.Y.Z-windows-x64-setup.exe`. The installer adds
+Start Menu entries, including a Ricochet Shell that opens a command prompt with
+`rco` available. Portable release ZIPs are also available from the same release
+page. Extract the ZIP and run `Ricochet Shell.cmd`, or add the extracted folder
+to your `PATH`.
+
+On Linux, install the Debian package with:
+
+```bash
+sudo apt install ./ricochet_X.Y.Z_amd64.deb
+```
+
+Portable Linux tarballs are also available. Extract the tarball and run
+`./install.sh`, or add the extracted folder to your `PATH`.
 
 For an uninstalled source checkout, install the CLI once:
 
@@ -237,6 +247,16 @@ The script builds `rco.exe` and `ricochet.exe`, creates a portable ZIP, writes
 `makensis.exe` is installed. GitHub Actions installs NSIS automatically in the
 release workflow.
 
+Linux release packages are built on Linux with:
+
+```bash
+bash scripts/package-release-linux.sh
+```
+
+The script builds `rco` and `ricochet`, creates a portable tarball with an
+`install.sh` helper, writes `SHA256SUMS-linux-x64.txt`, and creates a Debian
+`.deb` package with `dpkg-deb`.
+
 To publish a GitHub release, push a version tag:
 
 ```powershell
@@ -244,8 +264,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow packages the Windows artifacts and attaches the ZIP,
-installer, and checksums to the GitHub release.
+The release workflow packages the Windows and Linux artifacts, writes a combined
+`SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux tarball, Debian
+package, and checksums to the GitHub release.
 
 ## Reference Docs
 

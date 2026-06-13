@@ -47,16 +47,79 @@ jobs:
           path: |
             dist/*.zip
             dist/*-setup.exe
-            dist/SHA256SUMS.txt
+
+  package-linux:
+    name: Package Linux release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release package
+        shell: bash
+        run: |
+          version='${{ inputs.version }}'
+          if [[ -z "$version" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          args=(--target linux-x64)
+          if [[ -n "$version" ]]; then
+            args+=(--version "$version")
+          fi
+          bash scripts/package-release-linux.sh "${args[@]}"
+
+      - name: Smoke-test package executable
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
+          package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
+          "$tmp/basic-oop" | grep -q 'ada@example.com'
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricochet-linux-x64
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+
+  publish-release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - package-windows
+      - package-linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write checksums
+        shell: bash
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+            | sort \
+            | xargs sha256sum > SHA256SUMS.txt
 
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = Get-ChildItem -LiteralPath dist -File | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME @assets `
-            --repo $env:GITHUB_REPOSITORY `
-            --title "Ricochet $env:GITHUB_REF_NAME" `
-            --notes "Windows release package for Ricochet $env:GITHUB_REF_NAME."
+          mapfile -t assets < <(find dist -maxdepth 1 -type f | sort)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Ricochet $GITHUB_REF_NAME" \
+            --notes "Windows and Linux release packages for Ricochet $GITHUB_REF_NAME."
