@@ -1,4 +1,5 @@
 target/
+dist/
 .serena/
 **/*.rs.bk
 *.pdb

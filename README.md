@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/ricochet-logo.png" alt="Ricochet logo" width="420">
+</p>
+
 # Ricochet
 
 Ricochet is a modern, pure-postfix, stack-based programming language descended
@@ -50,7 +54,15 @@ package helpers.
 
 ## Quickstart
 
-Until packaged releases exist, install the CLI from this checkout once:
+For published Windows releases, download the installer from
+the [GitHub Releases](https://github.com/BARKx4/Ricochet/releases) page and run
+`ricochet-vX.Y.Z-windows-x64-setup.exe`. The installer adds Start Menu entries,
+including a Ricochet Shell that opens a command prompt with `rco` available.
+
+Portable release ZIPs are also available from the same release page. Extract the
+ZIP and run `Ricochet Shell.cmd`, or add the extracted folder to your `PATH`.
+
+For an uninstalled source checkout, install the CLI once:
 
 ```powershell
 cargo install --path crates/ricochet_cli --bin rco --locked
@@ -209,6 +221,29 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 The acceptance suite validates the static reference docs, examples, scaffolded
 project checks/tests, and a live `rco serve` smoke request against the generated
 no-database scaffold.
+
+## Release Packaging
+
+Windows release packages are built from this repository with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
+```
+
+The script builds `rco.exe` and `ricochet.exe`, creates a portable ZIP, writes
+`SHA256SUMS.txt`, and creates a Windows `.exe` installer when NSIS
+`makensis.exe` is installed. GitHub Actions installs NSIS automatically in the
+release workflow.
+
+To publish a GitHub release, push a version tag:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow packages the Windows artifacts and attaches the ZIP,
+installer, and checksums to the GitHub release.
 
 ## Reference Docs
 
