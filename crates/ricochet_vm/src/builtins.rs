@@ -1,11 +1,18 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    execute, queue,
+    style::Print,
+    terminal::{self, ClearType},
+};
 use regex::Match as RegexMatch;
 use ricochet_bytecode::Chunk;
 use serde_json::Value as JsonValue;
@@ -132,6 +139,18 @@ impl Vm {
             Value::Capability(Capability::Http) => {
                 matches!(method, "get" | "post-json" | "get-task" | "post-json-task")
             }
+            Value::Capability(Capability::Terminal) => matches!(
+                method,
+                "enter!"
+                    | "leave!"
+                    | "clear!"
+                    | "move-to!"
+                    | "write!"
+                    | "flush!"
+                    | "size"
+                    | "poll-key"
+                    | "read-key"
+            ),
             Value::Capability(Capability::Webview) => matches!(
                 method,
                 "text"
@@ -182,7 +201,10 @@ impl Vm {
             "insert!" => self.method_insert(receiver, method),
             "remove!" => self.method_remove(receiver, method),
             "remove-at!" => self.method_remove_at(receiver, method),
-            "clear!" => self.method_clear(receiver, method),
+            "clear!" => match receiver {
+                Value::Capability(Capability::Terminal) => self.method_tui_clear(receiver, method),
+                receiver => self.method_clear(receiver, method),
+            },
             "each" => self.method_each(receiver, method),
             "transform" => self.method_transform(receiver, method),
             "select" => self.method_select(receiver, method),
@@ -240,6 +262,14 @@ impl Vm {
             "post-json" => self.method_http_post_json(receiver, method),
             "get-task" => self.method_http_get_task(receiver, method),
             "post-json-task" => self.method_http_post_json_task(receiver, method),
+            "enter!" => self.method_tui_enter(receiver, method),
+            "leave!" => self.method_tui_leave(receiver, method),
+            "move-to!" => self.method_tui_move_to(receiver, method),
+            "write!" => self.method_tui_write(receiver, method),
+            "flush!" => self.method_tui_flush(receiver, method),
+            "size" => self.method_tui_size(receiver, method),
+            "poll-key" => self.method_tui_poll_key(receiver, method),
+            "read-key" => self.method_tui_read_key(receiver, method),
             "text" => self.method_webview_text(receiver, method),
             "heading" => self.method_webview_heading(receiver, method),
             "button" => self.method_webview_button(receiver, method),
@@ -1711,6 +1741,114 @@ impl Vm {
         })
     }
 
+    fn method_tui_enter(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        Ok(tui_io_result((|| {
+            terminal::enable_raw_mode()?;
+            let mut stdout = io::stdout();
+            execute!(
+                stdout,
+                terminal::EnterAlternateScreen,
+                cursor::Hide,
+                terminal::Clear(ClearType::All),
+                cursor::MoveTo(0, 0)
+            )?;
+            stdout.flush()
+        })()))
+    }
+
+    fn method_tui_leave(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        Ok(tui_io_result((|| {
+            let mut stdout = io::stdout();
+            execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen)?;
+            stdout.flush()?;
+            terminal::disable_raw_mode()
+        })()))
+    }
+
+    fn method_tui_clear(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        Ok(tui_io_result((|| {
+            let mut stdout = io::stdout();
+            execute!(
+                stdout,
+                terminal::Clear(ClearType::All),
+                cursor::MoveTo(0, 0)
+            )?;
+            stdout.flush()
+        })()))
+    }
+
+    fn method_tui_move_to(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        let row = self.pop_terminal_coordinate(method, "terminal row")?;
+        let column = self.pop_terminal_coordinate(method, "terminal column")?;
+        Ok(tui_io_result((|| {
+            let mut stdout = io::stdout();
+            queue!(stdout, cursor::MoveTo(column, row))?;
+            Ok(())
+        })()))
+    }
+
+    fn method_tui_write(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        let text = self.pop_string(method, "terminal text string")?;
+        Ok(tui_io_result((|| {
+            let mut stdout = io::stdout();
+            queue!(stdout, Print(text))?;
+            Ok(())
+        })()))
+    }
+
+    fn method_tui_flush(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        Ok(tui_io_result(io::stdout().flush()))
+    }
+
+    fn method_tui_size(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        Ok(match terminal::size() {
+            Ok((columns, rows)) => Value::result_ok(Value::Map(
+                BTreeMap::from([
+                    ("columns".to_string(), Value::Number(i64::from(columns))),
+                    ("rows".to_string(), Value::Number(i64::from(rows))),
+                ])
+                .into(),
+            )),
+            Err(error) => Value::result_err("TerminalError", error.to_string()),
+        })
+    }
+
+    fn method_tui_poll_key(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        let timeout = self.pop_number(method)?;
+        let timeout = u64::try_from(timeout).map_err(|_| VmError::InvalidArgument {
+            word: method.to_string(),
+            message: "poll timeout cannot be negative".to_string(),
+        })?;
+        Ok(match event::poll(Duration::from_millis(timeout)) {
+            Ok(false) => Value::result_ok(Value::Nil),
+            Ok(true) => match event::read() {
+                Ok(Event::Key(key)) => Value::result_ok(terminal_key_event_value(key)),
+                Ok(_) => Value::result_ok(Value::Nil),
+                Err(error) => Value::result_err("TerminalError", error.to_string()),
+            },
+            Err(error) => Value::result_err("TerminalError", error.to_string()),
+        })
+    }
+
+    fn method_tui_read_key(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Terminal, method)?;
+        loop {
+            match event::read() {
+                Ok(Event::Key(key)) => return Ok(Value::result_ok(terminal_key_event_value(key))),
+                Ok(_) => continue,
+                Err(error) => return Ok(Value::result_err("TerminalError", error.to_string())),
+            }
+        }
+    }
+
     fn method_webview_text(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Webview, method)?;
         let text = self.pop_string(method, "text string")?;
@@ -1816,6 +1954,22 @@ impl Vm {
                 message: format!("index cannot be negative: {value}"),
             }),
             value => Err(method_type_error(word, "non-negative index", &value)),
+        }
+    }
+
+    fn pop_terminal_coordinate(&mut self, word: &str, expected: &str) -> Result<u16, VmError> {
+        match self.pop(word)? {
+            Value::Number(value) if value >= 0 => {
+                u16::try_from(value).map_err(|_| VmError::InvalidArgument {
+                    word: word.to_string(),
+                    message: format!("{expected} is too large"),
+                })
+            }
+            Value::Number(value) => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("{expected} cannot be negative: {value}"),
+            }),
+            value => Err(method_type_error(word, expected, &value)),
         }
     }
 
@@ -2185,6 +2339,76 @@ fn require_capability(value: Value, expected: Capability, word: &str) -> Result<
     }
 }
 
+fn tui_io_result(result: io::Result<()>) -> Value {
+    match result {
+        Ok(()) => Value::result_ok(Value::Nil),
+        Err(error) => Value::result_err("TerminalError", error.to_string()),
+    }
+}
+
+fn terminal_key_event_value(key: KeyEvent) -> Value {
+    let (code, character) = terminal_key_code_value(key.code);
+    Value::Map(
+        BTreeMap::from([
+            ("type".to_string(), Value::String("key".to_string())),
+            ("code".to_string(), Value::String(code)),
+            ("char".to_string(), character),
+            (
+                "modifiers".to_string(),
+                Value::Array(terminal_modifier_values(key.modifiers).into()),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn terminal_key_code_value(code: KeyCode) -> (String, Value) {
+    match code {
+        KeyCode::Backspace => ("backspace".to_string(), Value::Nil),
+        KeyCode::Enter => ("enter".to_string(), Value::Nil),
+        KeyCode::Left => ("left".to_string(), Value::Nil),
+        KeyCode::Right => ("right".to_string(), Value::Nil),
+        KeyCode::Up => ("up".to_string(), Value::Nil),
+        KeyCode::Down => ("down".to_string(), Value::Nil),
+        KeyCode::Home => ("home".to_string(), Value::Nil),
+        KeyCode::End => ("end".to_string(), Value::Nil),
+        KeyCode::PageUp => ("page-up".to_string(), Value::Nil),
+        KeyCode::PageDown => ("page-down".to_string(), Value::Nil),
+        KeyCode::Tab => ("tab".to_string(), Value::Nil),
+        KeyCode::BackTab => ("back-tab".to_string(), Value::Nil),
+        KeyCode::Delete => ("delete".to_string(), Value::Nil),
+        KeyCode::Insert => ("insert".to_string(), Value::Nil),
+        KeyCode::F(number) => (format!("f{number}"), Value::Nil),
+        KeyCode::Char(character) => ("char".to_string(), Value::String(character.to_string())),
+        KeyCode::Null => ("null".to_string(), Value::Nil),
+        KeyCode::Esc => ("escape".to_string(), Value::Nil),
+        KeyCode::CapsLock => ("caps-lock".to_string(), Value::Nil),
+        KeyCode::ScrollLock => ("scroll-lock".to_string(), Value::Nil),
+        KeyCode::NumLock => ("num-lock".to_string(), Value::Nil),
+        KeyCode::PrintScreen => ("print-screen".to_string(), Value::Nil),
+        KeyCode::Pause => ("pause".to_string(), Value::Nil),
+        KeyCode::Menu => ("menu".to_string(), Value::Nil),
+        KeyCode::KeypadBegin => ("keypad-begin".to_string(), Value::Nil),
+        KeyCode::Media(key) => (format!("media:{key:?}"), Value::Nil),
+        KeyCode::Modifier(key) => (format!("modifier:{key:?}"), Value::Nil),
+    }
+}
+
+fn terminal_modifier_values(modifiers: KeyModifiers) -> Vec<Value> {
+    [
+        (KeyModifiers::SHIFT, "shift"),
+        (KeyModifiers::CONTROL, "control"),
+        (KeyModifiers::ALT, "alt"),
+        (KeyModifiers::SUPER, "super"),
+        (KeyModifiers::HYPER, "hyper"),
+        (KeyModifiers::META, "meta"),
+    ]
+    .into_iter()
+    .filter(|(modifier, _)| modifiers.contains(*modifier))
+    .map(|(_, name)| Value::String(name.to_string()))
+    .collect()
+}
+
 fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) -> Value {
     let response = match response {
         Ok(response) => response,
@@ -2276,5 +2500,35 @@ fn next_random() -> u64 {
             Ok(_) => return next,
             Err(observed) => current = observed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_key_events_are_ricochet_maps() {
+        let value = terminal_key_event_value(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
+        let Value::Map(map) = value else {
+            panic!("terminal key event should be a map");
+        };
+
+        assert_eq!(map.get("type"), Some(Value::String("key".to_string())));
+        assert_eq!(map.get("code"), Some(Value::String("char".to_string())));
+        assert_eq!(map.get("char"), Some(Value::String("q".to_string())));
+        assert_eq!(
+            map.get("modifiers"),
+            Some(Value::Array(
+                vec![
+                    Value::String("control".to_string()),
+                    Value::String("alt".to_string())
+                ]
+                .into()
+            ))
+        );
     }
 }

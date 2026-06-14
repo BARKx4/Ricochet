@@ -213,7 +213,7 @@
       "patterns": [
         {
           "name": "support.function.word.ricochet",
-          "match": "(?<!\\S)(?:add|subtract|multiply|divide|modulo|negate|abs|min|max|clamp|not|and|or|equals|not-equals\\?|less-than\\?|greater-than\\?|less-or-equals\\?|greater-or-equals\\?|assert|assert-true|assert-false|assert-ok|assert-error|assert-equals|self|get|set|new|send|call|value|error|ok|fail|swap|dup|drop|over|rot|nip|tuck|pick|roll|depth|clear|println|inspect|debug|print|eprint|read-line|args|env|cwd|now|sleep|random|exit|fs|http|webview|view|text|json|redirect|status|header|range|regex|to-string|json-encode|json-decode|type|class-of|instance-of\\?|responds-to\\?|fields|methods|callable\\?)(?!\\S)"
+          "match": "(?<!\\S)(?:add|subtract|multiply|divide|modulo|negate|abs|min|max|clamp|not|and|or|equals|not-equals\\?|less-than\\?|greater-than\\?|less-or-equals\\?|greater-or-equals\\?|assert|assert-true|assert-false|assert-ok|assert-error|assert-equals|self|get|set|new|send|call|value|error|ok|fail|swap|dup|drop|over|rot|nip|tuck|pick|roll|depth|clear|println|inspect|debug|print|eprint|read-line|args|env|cwd|now|sleep|random|exit|fs|http|tui|webview|view|text|json|redirect|status|header|range|regex|to-string|json-encode|json-decode|type|class-of|instance-of\\?|responds-to\\?|fields|methods|callable\\?)(?!\\S)"
         }
       ]
     },

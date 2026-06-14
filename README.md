@@ -27,6 +27,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   or macOS WebView executables with `rco package --gui`. MVC projects can also
   be packaged as local-server desktop WebView apps with
   `rco package --gui --mvc`.
+- Terminal UI beta: trusted local scripts can use the `tui` capability for
+  alternate-screen terminal apps with drawing, cursor movement, flushing, size
+  checks, and key polling/reading through `rco tui` or `rco package --tui`.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
@@ -125,6 +128,13 @@ Preview and package a desktop GUI app:
 ```powershell
 rco gui examples/webview_ui.rco
 rco package examples/webview_ui.rco --gui --output webview-ui.exe
+```
+
+Run and package an interactive terminal UI app:
+
+```powershell
+rco tui examples/tui_counter.rco
+rco package examples/tui_counter.rco --tui --output tui-counter.exe
 ```
 
 Package an MVC app directory as a desktop beta build:
@@ -354,17 +364,18 @@ step.
 
 The CLI uses the `trusted` capability profile by default for local scripts.
 Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
-`rco repl`, or `rco test` to start with filesystem, HTTP, and webview disabled.
+`rco repl`, or `rco test` to start with filesystem, HTTP, TUI, and webview
+disabled.
 In the sandboxed profile, `--fs-root <path>` enables filesystem access only
 under that directory, `--fs-readonly` denies writes,
 `--http-allow-host <host>` enables HTTP only for named hosts, and
-`--allow-webview` enables webview document building. `--no-fs`, `--no-http`,
-and `--no-webview` still deny those host powers explicitly in either profile.
+`--allow-tui` enables terminal UI access, while `--allow-webview` enables
+webview document building. `--no-fs`, `--no-http`, `--no-tui`, and
+`--no-webview` still deny those host powers explicitly in either profile.
 `--no-env` denies environment/current-directory reads, and `--no-sleep` denies
-script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do
-not follow redirects, use a timeout and response body cap, and filesystem
-access remains powerful CLI behavior unless you deny or bound it with these
-flags.
+script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do not
+follow redirects, use a timeout and response body cap, and filesystem access
+remains powerful CLI behavior unless you deny or bound it with these flags.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

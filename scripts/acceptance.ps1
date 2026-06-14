@@ -46,6 +46,8 @@ foreach ($example in $examples) {
     Invoke-Rco "example $example" @("run", (Join-Path $examplesRoot $example))
 }
 
+Invoke-Rco "check example tui_counter.rco" @("check", (Join-Path $examplesRoot "tui_counter.rco"))
+
 $env:RICOCHET_EXAMPLE_TEST = "present"
 Invoke-Rco "example cli_system.rco" @(
     "run",

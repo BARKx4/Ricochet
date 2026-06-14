@@ -111,6 +111,7 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    terminal_enabled: bool,
     webview_enabled: bool,
     pub(super) environment_enabled: bool,
     pub(super) sleep_enabled: bool,
@@ -147,6 +148,7 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            terminal_enabled: false,
             webview_enabled: false,
             environment_enabled: false,
             sleep_enabled: false,
@@ -180,6 +182,7 @@ struct Task {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    terminal_enabled: bool,
     webview_enabled: bool,
     environment_enabled: bool,
     sleep_enabled: bool,
@@ -368,6 +371,7 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         filesystem_writes_enabled: task.filesystem_writes_enabled,
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
+        terminal_enabled: task.terminal_enabled,
         webview_enabled: task.webview_enabled,
         environment_enabled: task.environment_enabled,
         sleep_enabled: task.sleep_enabled,
@@ -446,6 +450,7 @@ impl Vm {
         self.filesystem_enabled = true;
         self.filesystem_writes_enabled = true;
         self.http_enabled = true;
+        self.terminal_enabled = true;
         self.webview_enabled = true;
         self.environment_enabled = true;
         self.sleep_enabled = true;
@@ -455,6 +460,10 @@ impl Vm {
         self.filesystem_enabled = filesystem_enabled;
         self.filesystem_writes_enabled = filesystem_enabled;
         self.http_enabled = http_enabled;
+    }
+
+    pub fn set_terminal_enabled(&mut self, enabled: bool) {
+        self.terminal_enabled = enabled;
     }
 
     pub fn set_environment_enabled(&mut self, enabled: bool) {
@@ -1078,6 +1087,17 @@ impl Vm {
                     })
                 }
             }
+            "tui" => {
+                if self.terminal_enabled {
+                    self.stack.push(Value::Capability(Capability::Terminal));
+                    Ok(())
+                } else {
+                    Err(VmError::HostError {
+                        word: word.to_string(),
+                        message: "terminal UI capability is not enabled".to_string(),
+                    })
+                }
+            }
             "webview" => {
                 if self.webview_enabled {
                     self.stack.push(Value::Capability(Capability::Webview));
@@ -1451,6 +1471,7 @@ impl Vm {
             filesystem_writes_enabled: self.filesystem_writes_enabled,
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
+            terminal_enabled: self.terminal_enabled,
             webview_enabled: self.webview_enabled,
             environment_enabled: self.environment_enabled,
             sleep_enabled: self.sleep_enabled,

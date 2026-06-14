@@ -1416,6 +1416,86 @@ const WORDS = [
     "example": "\"https://api.example\" payload get http .post-json-task await value"
   },
   {
+    "word": "tui",
+    "aliases": ["terminal", "UI"],
+    "group": "system",
+    "stack": "-> tuiCapability",
+    "body": "Pushes the terminal UI capability when the host enabled it. Trusted CLI runs enable it by default; sandboxed runs require `--allow-tui`.",
+    "example": "\"Hello\" tui .write! value drop"
+  },
+  {
+    "word": ".enter!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(nil)",
+    "body": "Enters the alternate screen, enables raw mode, hides the cursor, clears the terminal, and moves to the top-left cell.",
+    "example": "tui .enter! value drop"
+  },
+  {
+    "word": ".leave!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(nil)",
+    "body": "Shows the cursor, leaves the alternate screen, and disables raw mode.",
+    "example": "tui .leave! value drop"
+  },
+  {
+    "word": ".clear!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(nil)",
+    "body": "Clears the terminal and moves to the top-left cell.",
+    "example": "tui .clear! value drop"
+  },
+  {
+    "word": ".move-to!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "column:number row:number tui -> result(nil)",
+    "body": "Queues a cursor move to a zero-based terminal column and row.",
+    "example": "0 2 tui .move-to! value drop"
+  },
+  {
+    "word": ".write!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "text:string tui -> result(nil)",
+    "body": "Queues text for terminal output. Use `.flush!` to force queued output to the host stream.",
+    "example": "\"Hello TUI\" tui .write! value drop"
+  },
+  {
+    "word": ".flush!",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(nil)",
+    "body": "Flushes queued terminal output.",
+    "example": "tui .flush! value drop"
+  },
+  {
+    "word": ".size",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(map)",
+    "body": "Returns terminal size as a result map with `columns` and `rows`.",
+    "example": "tui .size value"
+  },
+  {
+    "word": ".poll-key",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "timeoutMs:number tui -> result(map|nil)",
+    "body": "Polls for a key with a non-negative timeout in milliseconds and returns nil when no key is ready.",
+    "example": "0 tui .poll-key value"
+  },
+  {
+    "word": ".read-key",
+    "aliases": ["tui"],
+    "group": "system",
+    "stack": "tui -> result(map)",
+    "body": "Blocks until a key is read and returns a map with `type`, `code`, `char`, and `modifiers`.",
+    "example": "tui .read-key value"
+  },
+  {
     "word": "webview",
     "aliases": ["desktop", "UI"],
     "group": "system",

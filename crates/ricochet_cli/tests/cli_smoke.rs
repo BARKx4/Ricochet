@@ -1276,6 +1276,96 @@ fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
     );
 }
 
+#[test]
+fn tui_command_runs_without_printing_final_stack() {
+    let source_path = write_source("\"TUI beta\" tui .write! value drop tui .flush! value drop\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("tui")
+        .arg(&source_path)
+        .output()
+        .expect("rco tui should launch");
+
+    assert_run_success_for("rco tui", "source", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "TUI beta",
+        "rco tui should write terminal UI output without a final stack dump"
+    );
+}
+
+#[test]
+fn tui_capability_respects_sandbox_flags() {
+    let source_path = write_source("\"blocked\" tui .write! value drop tui .flush! value drop\n");
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !blocked.status.success(),
+        "sandboxed rco run should deny TUI capability by default"
+    );
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains("terminal UI capability is not enabled"),
+        "stderr should explain disabled TUI, got:\n{stderr}"
+    );
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--allow-tui")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success_for("rco run --allow-tui", "source", &allowed);
+    let stdout = String::from_utf8_lossy(&allowed.stdout);
+    assert!(
+        stdout.contains("blocked") && stdout.contains("[]"),
+        "allowed sandboxed run should write TUI output and still print final stack, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn package_tui_creates_terminal_executable_without_final_stack() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"Packaged TUI\" tui .write! value drop tui .flush! value drop\n",
+    );
+    let output_path = root.join(format!("tui-app{}", std::env::consts::EXE_SUFFIX));
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--tui")
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --tui should launch");
+    assert_run_success_for("rco package --tui", "main.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .output()
+        .expect("packaged Ricochet TUI executable should launch");
+    assert_run_success_for("packaged TUI executable", "tui-app", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "Packaged TUI",
+        "packaged TUI should not print a final stack dump"
+    );
+}
+
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn package_gui_creates_standalone_executable_that_exports_webview_document() {

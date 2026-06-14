@@ -20,6 +20,7 @@ use toml_edit::{value, DocumentMut, Item, Table};
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
+const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
@@ -88,10 +89,22 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    Tui {
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     Package {
         path: Option<String>,
         #[arg(short, long)]
         output: PathBuf,
+        #[arg(
+            long,
+            help = "Package as a terminal UI app using the console launcher without final stack output"
+        )]
+        tui: bool,
         #[arg(
             long,
             help = "Package as a native desktop GUI app using the rco-gui launcher"
@@ -174,6 +187,7 @@ enum LinuxPackageFormat {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EmbeddedAppKind {
     Console,
+    Tui,
     Gui,
     MvcGui,
 }
@@ -182,6 +196,7 @@ impl EmbeddedAppKind {
     fn marker(self) -> &'static [u8] {
         match self {
             EmbeddedAppKind::Console => EMBEDDED_APP_MARKER,
+            EmbeddedAppKind::Tui => EMBEDDED_TUI_APP_MARKER,
             EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
             EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
         }
@@ -225,7 +240,7 @@ struct CapabilityOptions {
         long = "capability-profile",
         value_enum,
         default_value = "trusted",
-        help = "Select host capability defaults: trusted enables filesystem/HTTP/webview, sandboxed disables them unless bounded by flags"
+        help = "Select host capability defaults: trusted enables filesystem/HTTP/TUI/webview, sandboxed disables them unless bounded by flags"
     )]
     capability_profile: CapabilityProfile,
     #[arg(long, help = "Disable the filesystem host capability for this run")]
@@ -239,6 +254,13 @@ struct CapabilityOptions {
     fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
+    #[arg(long, help = "Disable the terminal UI host capability for this run")]
+    no_tui: bool,
+    #[arg(
+        long,
+        help = "Enable the terminal UI host capability under the sandboxed profile"
+    )]
+    allow_tui: bool,
     #[arg(long, help = "Disable the webview UI host capability for this run")]
     no_webview: bool,
     #[arg(
@@ -281,6 +303,9 @@ impl CapabilityOptions {
         if self.no_webview && self.allow_webview {
             bail!("--allow-webview cannot be used with --no-webview");
         }
+        if self.no_tui && self.allow_tui {
+            bail!("--allow-tui cannot be used with --no-tui");
+        }
         if self.capability_profile == CapabilityProfile::Sandboxed
             && self.fs_readonly
             && self.fs_root.is_none()
@@ -293,6 +318,8 @@ impl CapabilityOptions {
         let http_enabled = !self.no_http
             && (self.capability_profile == CapabilityProfile::Trusted
                 || !self.http_allow_hosts.is_empty());
+        let terminal_enabled = !self.no_tui
+            && (self.capability_profile == CapabilityProfile::Trusted || self.allow_tui);
         let webview_enabled = !self.no_webview
             && (self.capability_profile == CapabilityProfile::Trusted || self.allow_webview);
         let environment_enabled =
@@ -300,6 +327,7 @@ impl CapabilityOptions {
         let sleep_enabled = !self.no_sleep && self.capability_profile == CapabilityProfile::Trusted;
 
         vm.set_host_capabilities(filesystem_enabled, http_enabled);
+        vm.set_terminal_enabled(terminal_enabled);
         vm.set_webview_enabled(webview_enabled);
         vm.set_environment_enabled(environment_enabled);
         vm.set_sleep_enabled(sleep_enabled);
@@ -331,13 +359,19 @@ pub async fn run_cli() -> Result<()> {
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Console => {
                 run_chunk_cli(
                     &chunk,
-                    false,
-                    false,
-                    &[],
-                    None,
-                    std::env::args().skip(1).collect(),
-                    CapabilityOptions::default(),
+                    RunChunkCliOptions {
+                        debug: false,
+                        step: false,
+                        breakpoints: &[],
+                        breakpoint_file: None,
+                        args: std::env::args().skip(1).collect(),
+                        capabilities: CapabilityOptions::default(),
+                        print_final_stack: true,
+                    },
                 )?
+            }
+            EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Tui => {
+                run_embedded_tui_app(&chunk, std::env::args().skip(1).collect())?
             }
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
                 run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
@@ -391,9 +425,15 @@ pub async fn run_cli() -> Result<()> {
             path,
             args,
         } => run_gui_file(&path, args, capabilities)?,
+        Command::Tui {
+            capabilities,
+            path,
+            args,
+        } => run_tui_file(&path, args, capabilities)?,
         Command::Package {
             path,
             output,
+            tui,
             gui,
             mvc,
             gui_launcher,
@@ -405,6 +445,7 @@ pub async fn run_cli() -> Result<()> {
             path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE),
             &output,
             PackageOptions {
+                tui,
                 gui,
                 mvc,
                 gui_launcher: gui_launcher.as_deref(),
@@ -1716,12 +1757,15 @@ fn run_file(
     let chunk = compile_source_file(Path::new(path))?;
     run_chunk_cli(
         &chunk,
-        debug,
-        step,
-        breakpoints,
-        Some(&chunk.file),
-        args,
-        capabilities,
+        RunChunkCliOptions {
+            debug,
+            step,
+            breakpoints,
+            breakpoint_file: Some(&chunk.file),
+            args,
+            capabilities,
+            print_final_stack: true,
+        },
     )
 }
 
@@ -1733,7 +1777,18 @@ fn run_bytecode(
 ) -> Result<()> {
     let bytes = fs::read(path).with_context(|| format!("failed to read {path}"))?;
     let chunk = Chunk::from_bytes(&bytes).with_context(|| format!("failed to decode {path}"))?;
-    run_chunk_cli(&chunk, debug, false, &[], None, args, capabilities)
+    run_chunk_cli(
+        &chunk,
+        RunChunkCliOptions {
+            debug,
+            step: false,
+            breakpoints: &[],
+            breakpoint_file: None,
+            args,
+            capabilities,
+            print_final_stack: true,
+        },
+    )
 }
 
 fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
@@ -1741,8 +1796,39 @@ fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
     run_gui_chunk(&chunk, args, capabilities)
 }
 
+fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
+    let chunk = compile_source_file(Path::new(path))?;
+    run_chunk_cli(
+        &chunk,
+        RunChunkCliOptions {
+            debug: false,
+            step: false,
+            breakpoints: &[],
+            breakpoint_file: None,
+            args,
+            capabilities,
+            print_final_stack: false,
+        },
+    )
+}
+
 fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     run_gui_chunk(chunk, args, CapabilityOptions::default())
+}
+
+fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
+    run_chunk_cli(
+        chunk,
+        RunChunkCliOptions {
+            debug: false,
+            step: false,
+            breakpoints: &[],
+            breakpoint_file: None,
+            args,
+            capabilities: CapabilityOptions::default(),
+            print_final_stack: false,
+        },
+    )
 }
 
 async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Result<()> {
@@ -2072,32 +2158,34 @@ fn open_native_webview_url(_title: &str, _url: &str, _width: u32, _height: u32) 
     bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
-fn run_chunk_cli(
-    chunk: &Chunk,
+struct RunChunkCliOptions<'a> {
     debug: bool,
     step: bool,
-    breakpoints: &[usize],
-    breakpoint_file: Option<&str>,
+    breakpoints: &'a [usize],
+    breakpoint_file: Option<&'a str>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
-) -> Result<()> {
-    let mut vm = cli_vm(args, &capabilities)?;
-    let debugger_enabled = debug || step || !breakpoints.is_empty();
+    print_final_stack: bool,
+}
+
+fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
+    let mut vm = cli_vm(options.args, &options.capabilities)?;
+    let debugger_enabled = options.debug || options.step || !options.breakpoints.is_empty();
     if debugger_enabled {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
     }
-    if step {
+    if options.step {
         vm.enable_step_debugging();
     }
-    for &line in breakpoints {
+    for &line in options.breakpoints {
         if line == 0 {
             bail!("breakpoint lines are 1-based");
         }
-        let file = breakpoint_file.unwrap_or(&chunk.file);
+        let file = options.breakpoint_file.unwrap_or(&chunk.file);
         vm.add_line_breakpoint(file.to_string(), line);
     }
-    if step || !breakpoints.is_empty() {
+    if options.step || !options.breakpoints.is_empty() {
         vm.set_debug_controller(|_| read_terminal_debug_action());
     }
 
@@ -2109,7 +2197,9 @@ fn run_chunk_cli(
     }
     result?;
 
-    println!("{:?}", vm.stack());
+    if options.print_final_stack {
+        println!("{:?}", vm.stack());
+    }
 
     Ok(())
 }
@@ -2363,6 +2453,12 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if output.is_dir() {
         bail!("package output is a directory: {}", output.display());
     }
+    if options.tui && options.gui {
+        bail!("--tui cannot be used with --gui");
+    }
+    if options.tui && options.mvc {
+        bail!("--mvc requires --gui and cannot be used with --tui");
+    }
     if options.mvc && !options.gui {
         bail!("--mvc requires --gui");
     }
@@ -2380,6 +2476,8 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
         EmbeddedAppKind::MvcGui
     } else if options.gui {
         EmbeddedAppKind::Gui
+    } else if options.tui {
+        EmbeddedAppKind::Tui
     } else {
         EmbeddedAppKind::Console
     };
@@ -2419,6 +2517,7 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
 }
 
 struct PackageOptions<'a> {
+    tui: bool,
     gui: bool,
     mvc: bool,
     gui_launcher: Option<&'a Path>,
@@ -3117,6 +3216,7 @@ fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
     for kind in [
         EmbeddedAppKind::MvcGui,
         EmbeddedAppKind::Gui,
+        EmbeddedAppKind::Tui,
         EmbeddedAppKind::Console,
     ] {
         if let Some(app) = embedded_app_from_bytes_with_marker(bytes, kind)? {
@@ -3151,7 +3251,7 @@ fn embedded_app_from_bytes_with_marker(
     let payload_start = marker_start - chunk_len;
     let payload_bytes = &bytes[payload_start..marker_start];
     let payload = match kind {
-        EmbeddedAppKind::Console | EmbeddedAppKind::Gui => {
+        EmbeddedAppKind::Console | EmbeddedAppKind::Tui | EmbeddedAppKind::Gui => {
             EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
         }
         EmbeddedAppKind::MvcGui => {
