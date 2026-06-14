@@ -1416,6 +1416,70 @@ const WORDS = [
     "example": "\"https://api.example\" payload get http .post-json-task await value"
   },
   {
+    "word": "webview",
+    "aliases": ["desktop", "UI"],
+    "group": "system",
+    "stack": "-> webviewCapability",
+    "body": "Pushes the webview UI capability when the host enabled it. Trusted CLI runs enable it by default; sandboxed runs require `--allow-webview`.",
+    "example": "\"Counter\" 1 webview .heading"
+  },
+  {
+    "word": ".text",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "text:string webview -> html:string",
+    "body": "Escapes plain text for insertion into a webview HTML fragment.",
+    "example": "\"Ada <Lovelace>\" webview .text"
+  },
+  {
+    "word": ".heading",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "text:string level:number webview -> html:string",
+    "body": "Builds an escaped `<h1>` through `<h6>` webview heading fragment.",
+    "example": "\"Counter\" 1 webview .heading"
+  },
+  {
+    "word": ".button",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "label:string action:string webview -> html:string",
+    "body": "Builds an escaped button with a `data-rco-action` attribute for future host event dispatch.",
+    "example": "\"Increment\" \"increment\" webview .button"
+  },
+  {
+    "word": ".input",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "name:string value:string webview -> html:string",
+    "body": "Builds an escaped text input fragment.",
+    "example": "\"name\" \"Ada\" webview .input"
+  },
+  {
+    "word": ".link",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "label:string href:string webview -> html:string",
+    "body": "Builds an escaped anchor fragment.",
+    "example": "\"Docs\" \"https://try.ricochet.today\" webview .link"
+  },
+  {
+    "word": ".container",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "bodyHtml:string webview -> html:string",
+    "body": "Wraps already-built webview HTML in a container element.",
+    "example": "$body webview .container"
+  },
+  {
+    "word": ".window",
+    "aliases": [".document", "webview"],
+    "group": "system",
+    "stack": "title:string bodyHtml:string webview -> result(map)",
+    "body": "Builds a webview document map with `type`, `title`, `body`, full `html`, and default `width`/`height` fields for `rco gui` and `rco package --gui` hosts.",
+    "example": "\"Counter\" $body webview .window value"
+  },
+  {
     "word": "inspect",
     "aliases": [],
     "group": "inspect",

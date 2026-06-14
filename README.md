@@ -22,6 +22,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Task model: first-class task values with `spawn`, `await`, `await-all`,
   retained completed/failed status, eager background execution, task inspection,
   and task-returning HTTP helpers.
+- Desktop GUI beta: trusted local scripts can build escaped `webview` document
+  maps, preview them with `rco gui`, and package them as native Windows, Linux,
+  or macOS WebView executables with `rco package --gui`.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
@@ -51,8 +54,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: migrations, production auth packages, and structured AI/schema
-package helpers.
+Still planned: GUI event/state callbacks, migrations, production auth packages,
+and structured AI/schema package helpers.
 
 ## Quickstart
 
@@ -110,6 +113,17 @@ rco build examples/basic-oop.rco
 rco run-bytecode build/app.rcob
 rco package examples/basic-oop.rco --output basic-oop.exe
 ```
+
+Preview and package a desktop GUI app:
+
+```powershell
+rco gui examples/webview_ui.rco
+rco package examples/webview_ui.rco --gui --output webview-ui.exe
+```
+
+Use `--output webview-ui` on Linux and macOS. Linux GUI launchers use
+WebKitGTK 4.1; Debian packages generated for GUI apps declare the
+`libwebkit2gtk-4.1-0` and `libgtk-3-0` runtime dependencies.
 
 On Linux, the same `package` command can also create portable tarballs or
 Debian packages for a `.rco` file:
@@ -173,6 +187,17 @@ $request await value response var
 "status" $response .at println
 ```
 
+Build a webview document for desktop UI hosts:
+
+```forth
+"Counter" 1 webview .heading heading var
+"Increment" "increment" webview .button button var
+$heading "<main>" .concat
+$button swap .concat
+"</main>" swap .concat body var
+"Counter" $body webview .window value document var
+```
+
 Serve an MVC app from its project directory:
 
 ```powershell
@@ -219,6 +244,14 @@ url = "${MYSQL_URL}"
 Active Record maps model declarations to existing tables; schema migrations are
 still planned work.
 
+## Editor Support
+
+A VS Code-compatible TextMate grammar for `.rco` files lives in
+`editors/vscode`. It registers the `source.ricochet` scope and highlights
+Ricochet comments, strings, `$name` binding reads, dot-method dispatch, bang
+words, declarations, control flow, async words, route verbs, core built-ins,
+and collection types.
+
 ## Developing Ricochet
 
 Use Cargo when changing the Rust implementation itself. For an uninstalled
@@ -260,8 +293,8 @@ Windows release packages are built from this repository with:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1
 ```
 
-The script builds `rco.exe` and `ricochet.exe`, creates a portable ZIP, writes
-`SHA256SUMS.txt`, and creates a Windows `.exe` installer when NSIS
+The script builds `rco.exe`, `rco-gui.exe`, and `ricochet.exe`, creates a
+portable ZIP, writes `SHA256SUMS.txt`, and creates a Windows `.exe` installer when NSIS
 `makensis.exe` is installed. GitHub Actions installs NSIS automatically in the
 release workflow.
 
@@ -271,9 +304,9 @@ Linux release packages are built on Linux with:
 bash scripts/package-release-linux.sh
 ```
 
-The script builds `rco` and `ricochet`, creates a portable tarball with an
-`install.sh` helper, writes `SHA256SUMS-linux-x64.txt`, and creates a Debian
-`.deb` package with `dpkg-deb`.
+The script builds `rco`, `rco-gui`, and `ricochet`, creates a portable tarball
+with an `install.sh` helper, writes `SHA256SUMS-linux-x64.txt`, and creates a
+Debian `.deb` package with `dpkg-deb`.
 
 Unsigned macOS release tarballs are built on macOS with:
 
@@ -282,9 +315,9 @@ bash scripts/package-release-macos.sh --target macos-arm64
 bash scripts/package-release-macos.sh --target macos-x64
 ```
 
-The script builds `rco` and `ricochet`, creates a portable tarball with an
-`install.sh` helper, and writes a target-specific checksum file. GitHub Actions
-builds Apple Silicon and Intel tarballs on separate macOS runners.
+The script builds `rco`, `rco-gui`, and `ricochet`, creates a portable tarball
+with an `install.sh` helper, and writes a target-specific checksum file. GitHub
+Actions builds Apple Silicon and Intel tarballs on separate macOS runners.
 
 To publish a GitHub release, push a version tag:
 
@@ -308,15 +341,17 @@ step.
 
 The CLI uses the `trusted` capability profile by default for local scripts.
 Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
-`rco repl`, or `rco test` to start with filesystem and HTTP disabled. In the
-sandboxed profile, `--fs-root <path>` enables filesystem access only under that
-directory, `--fs-readonly` denies writes, and `--http-allow-host <host>` enables
-HTTP only for named hosts. `--no-fs` and `--no-http` still deny those host powers
-explicitly in either profile. `--no-env` denies environment/current-directory
-reads, and `--no-sleep` denies script sleeps. Embedded hosts can leave
-capabilities disabled. HTTP calls do not follow redirects, use a timeout and
-response body cap, and filesystem access remains powerful CLI behavior unless
-you deny or bound it with these flags.
+`rco repl`, or `rco test` to start with filesystem, HTTP, and webview disabled.
+In the sandboxed profile, `--fs-root <path>` enables filesystem access only
+under that directory, `--fs-readonly` denies writes,
+`--http-allow-host <host>` enables HTTP only for named hosts, and
+`--allow-webview` enables webview document building. `--no-fs`, `--no-http`,
+and `--no-webview` still deny those host powers explicitly in either profile.
+`--no-env` denies environment/current-directory reads, and `--no-sleep` denies
+script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do
+not follow redirects, use a timeout and response body cap, and filesystem
+access remains powerful CLI behavior unless you deny or bound it with these
+flags.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

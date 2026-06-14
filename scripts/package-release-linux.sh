@@ -136,6 +136,7 @@ fi
 target_dir="$repo_root/target/$configuration"
 binaries=(
   "$target_dir/rco"
+  "$target_dir/rco-gui"
   "$target_dir/ricochet"
 )
 
@@ -148,7 +149,8 @@ done
 
 mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
-install -m 755 "${binaries[1]}" "$package_dir/ricochet"
+install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
+install -m 755 "${binaries[2]}" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
@@ -160,6 +162,8 @@ Ricochet v$version ($target)
 
 Commands:
   rco --help
+  rco gui examples/webview_ui.rco
+  rco package examples/webview_ui.rco --gui --output webview-ui
   ricochet --help
 
 Install locally:
@@ -179,8 +183,9 @@ bin_dir="$prefix/bin"
 
 mkdir -p "$bin_dir"
 cp "$script_dir/rco" "$bin_dir/rco"
+cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
-chmod 755 "$bin_dir/rco" "$bin_dir/ricochet"
+chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
 
 printf 'Installed Ricochet CLI tools to %s\n' "$bin_dir"
 printf 'Make sure %s is on your PATH.\n' "$bin_dir"
@@ -202,7 +207,8 @@ if [[ "$build_deb" -eq 1 ]]; then
     "$deb_root/usr/share/ricochet"
 
   install -m 755 "${binaries[0]}" "$deb_root/usr/bin/rco"
-  install -m 755 "${binaries[1]}" "$deb_root/usr/bin/ricochet"
+  install -m 755 "${binaries[1]}" "$deb_root/usr/bin/rco-gui"
+  install -m 755 "${binaries[2]}" "$deb_root/usr/bin/ricochet"
   cp "$repo_root/README.md" "$deb_root/usr/share/doc/ricochet/README.md"
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
   copy_release_directory "$repo_root/examples" "$deb_root/usr/share/ricochet/examples"
@@ -215,12 +221,13 @@ Version: $version
 Section: devel
 Priority: optional
 Architecture: amd64
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
 Maintainer: Ricochet <noreply@ricochet.today>
 Installed-Size: $installed_size
 Description: Ricochet stack-based web language CLI
  Ricochet is a pure-postfix, stack-based programming language with a Rust
- bytecode VM, CLI scripting, MVC web scaffolding, and beta Active Record
- support.
+ bytecode VM, CLI scripting, MVC web scaffolding, beta Active Record support,
+ and a desktop WebView GUI launcher.
 EOF
 
   dpkg-deb --build "$deb_root" "$deb_path"

@@ -1,0 +1,249 @@
+{
+  "name": "Ricochet",
+  "scopeName": "source.ricochet",
+  "fileTypes": [
+    "rco"
+  ],
+  "firstLineMatch": "(?:^#!.*\\brco\\b|^\\s*\\(\\(.*Ricochet)",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#references"
+    },
+    {
+      "include": "#dot-methods"
+    },
+    {
+      "include": "#bang-words"
+    },
+    {
+      "include": "#route-verbs"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#control-flow"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#async"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.ricochet",
+          "begin": "\\(\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.ricochet"
+            }
+          },
+          "end": "\\)\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.ricochet"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.ricochet",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.ricochet"
+            }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.ricochet"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.ricochet",
+              "match": "\\\\[\"\\\\nrt]"
+            },
+            {
+              "name": "invalid.illegal.escape.ricochet",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "references": {
+      "patterns": [
+        {
+          "name": "variable.other.read.ricochet",
+          "match": "(?<!\\S)(\\$)([^\\s()\\[\\]]+)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.variable.ricochet"
+            },
+            "2": {
+              "name": "variable.other.ricochet"
+            }
+          }
+        }
+      ]
+    },
+    "dot-methods": {
+      "patterns": [
+        {
+          "name": "entity.name.function.method.ricochet",
+          "match": "(?<!\\S)(\\.)([^\\s()\\[\\]]+)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.dot.ricochet"
+            },
+            "2": {
+              "name": "entity.name.function.method.ricochet"
+            }
+          }
+        }
+      ]
+    },
+    "bang-words": {
+      "patterns": [
+        {
+          "name": "support.function.mutator.ricochet",
+          "match": "(?<!\\S)(!)([^\\s()\\[\\]]+)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.mutator.ricochet"
+            },
+            "2": {
+              "name": "support.function.mutator.ricochet"
+            }
+          }
+        }
+      ]
+    },
+    "route-verbs": {
+      "patterns": [
+        {
+          "name": "constant.language.http-method.ricochet",
+          "match": "(?<!\\S)(?:GET|POST|PUT|PATCH|DELETE)(?!\\S)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.ricochet",
+          "match": "(?<!\\S)(?:true|false)(?!\\S)"
+        },
+        {
+          "name": "constant.language.nil.ricochet",
+          "match": "(?<!\\S)nil(?!\\S)"
+        }
+      ]
+    },
+    "control-flow": {
+      "patterns": [
+        {
+          "name": "keyword.control.ricochet",
+          "match": "(?<!\\S)(?:if|else|while|end|return|break|continue)(?!\\S)"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.ricochet",
+          "match": "(?<!\\S)(?:subclass|open-class|function|method|field|table|var|array|list|map|route|import)(?!\\S)"
+        }
+      ]
+    },
+    "async": {
+      "patterns": [
+        {
+          "name": "keyword.control.async.ricochet",
+          "match": "(?<!\\S)(?:spawn|await|await-all|tasks)(?!\\S)"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.ricochet",
+          "match": "(?<!\\S)(?:\\+|-|\\*|/|%)(?!\\S)"
+        },
+        {
+          "name": "keyword.operator.comparison.ricochet",
+          "match": "(?<!\\S)(?:!=|<=|>=|=|<|>)(?!\\S)"
+        },
+        {
+          "name": "punctuation.separator.return-type.ricochet",
+          "match": "->"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.word.ricochet",
+          "match": "(?<!\\S)(?:add|subtract|multiply|divide|modulo|negate|abs|min|max|clamp|not|and|or|equals|not-equals\\?|less-than\\?|greater-than\\?|less-or-equals\\?|greater-or-equals\\?|assert|assert-true|assert-false|assert-ok|assert-error|assert-equals|self|get|set|new|send|call|value|error|ok|fail|swap|dup|drop|over|rot|nip|tuck|pick|roll|depth|clear|println|inspect|debug|print|eprint|read-line|args|env|cwd|now|sleep|random|exit|fs|http|webview|view|text|json|redirect|status|header|range|regex|to-string|json-encode|json-decode|type|class-of|instance-of\\?|responds-to\\?|fields|methods|callable\\?)(?!\\S)"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.class.ricochet",
+          "match": "(?<!\\S)(?:Object|Model|Controller|Result|Array|List|Map|Set)(?!\\S)"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.ricochet",
+          "match": "(?<!\\S)\\d+(?!\\S)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.block.ricochet",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.arguments.ricochet",
+          "match": "[()]"
+        }
+      ]
+    }
+  }
+}

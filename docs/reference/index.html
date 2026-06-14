@@ -189,6 +189,13 @@ packageHello</code></pre>
             <p>Each `{ ... }` expression runs Ricochet and must leave exactly one renderable value.</p>
           </article>
           <article>
+            <h3>Desktop Webview</h3>
+            <pre><code>"Counter" 1 webview .heading heading var
+"Increment" "increment" webview .button button var
+"Counter" $button webview .window value document var</code></pre>
+            <p>The `webview` capability builds escaped HTML fragments and document maps for desktop webview hosts.</p>
+          </article>
+          <article>
             <h3>Routes</h3>
             <pre><code>GET "/" HomeController "index" route
 POST "/users" UserController "create" route
@@ -613,16 +620,17 @@ end</code></pre>
           <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
-          <div><code>rco repl [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
-          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
-          <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
+          <div><code>rco repl [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
+          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
+          <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
-          <div><code>rco package [path] --output &lt;exe&gt; [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages from the `.rco` file.</span></div>
+          <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview .window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
+          <div><code>rco package [path] --output &lt;exe&gt; [--gui] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`. `--gui` uses the `rco-gui` launcher and expects the app to produce a webview document. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages from the `.rco` file.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>
           <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch]</code><span>Run the current directory as an MVC web app. `--watch` reloads routes, controllers, models, views, and the manifest between requests; `--debug --watch` prints reload trace lines.</span></div>
-          <div><code>rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
+          <div><code>rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
           <article class="example-panel">

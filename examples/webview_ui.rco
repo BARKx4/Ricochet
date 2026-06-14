@@ -1,0 +1,14 @@
+(( Preview with: rco gui examples/webview_ui.rco ))
+(( Package with: rco package examples/webview_ui.rco --gui --output webview-ui.exe ))
+(( Use --output webview-ui on Linux/macOS. ))
+
+"Ricochet Desktop UI" 1 webview .heading heading var
+"Name" "Ada" webview .input nameInput var
+"Save" "save-profile" webview .button saveButton var
+
+$heading "<main>" .concat
+$nameInput swap .concat
+$saveButton swap .concat
+"</main>" swap .concat body var
+
+"Ricochet Desktop UI" $body webview .window value document var

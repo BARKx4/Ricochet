@@ -132,6 +132,17 @@ impl Vm {
             Value::Capability(Capability::Http) => {
                 matches!(method, "get" | "post-json" | "get-task" | "post-json-task")
             }
+            Value::Capability(Capability::Webview) => matches!(
+                method,
+                "text"
+                    | "heading"
+                    | "button"
+                    | "input"
+                    | "link"
+                    | "container"
+                    | "window"
+                    | "document"
+            ),
             Value::Regex(_) => matches!(method, "matches?" | "find" | "captures" | "replace"),
             _ => false,
         }
@@ -229,6 +240,13 @@ impl Vm {
             "post-json" => self.method_http_post_json(receiver, method),
             "get-task" => self.method_http_get_task(receiver, method),
             "post-json-task" => self.method_http_post_json_task(receiver, method),
+            "text" => self.method_webview_text(receiver, method),
+            "heading" => self.method_webview_heading(receiver, method),
+            "button" => self.method_webview_button(receiver, method),
+            "input" => self.method_webview_input(receiver, method),
+            "link" => self.method_webview_link(receiver, method),
+            "container" => self.method_webview_container(receiver, method),
+            "window" | "document" => self.method_webview_window(receiver, method),
             "matches?" => self.method_regex_matches(receiver, method),
             "captures" => self.method_regex_captures(receiver, method),
             _ => Err(VmError::UnknownMethod {
@@ -1693,6 +1711,91 @@ impl Vm {
         })
     }
 
+    fn method_webview_text(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let text = self.pop_string(method, "text string")?;
+        Ok(Value::String(escape_html_text(&text)))
+    }
+
+    fn method_webview_heading(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let level = self.pop_number(method)?;
+        let text = self.pop_string(method, "heading text string")?;
+        if !(1..=6).contains(&level) {
+            return Err(VmError::InvalidArgument {
+                word: method.to_string(),
+                message: format!("heading level must be between 1 and 6, got {level}"),
+            });
+        }
+        Ok(Value::String(format!(
+            "<h{level}>{}</h{level}>",
+            escape_html_text(&text)
+        )))
+    }
+
+    fn method_webview_button(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let action = self.pop_string(method, "action name string")?;
+        let label = self.pop_string(method, "button label string")?;
+        Ok(Value::String(format!(
+            r#"<button type="button" data-rco-action="{}">{}</button>"#,
+            escape_html_attribute(&action),
+            escape_html_text(&label)
+        )))
+    }
+
+    fn method_webview_input(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let value = self.pop_string(method, "input value string")?;
+        let name = self.pop_string(method, "input name string")?;
+        Ok(Value::String(format!(
+            r#"<input type="text" name="{}" value="{}">"#,
+            escape_html_attribute(&name),
+            escape_html_attribute(&value)
+        )))
+    }
+
+    fn method_webview_link(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let href = self.pop_string(method, "link href string")?;
+        let label = self.pop_string(method, "link label string")?;
+        Ok(Value::String(format!(
+            r#"<a href="{}">{}</a>"#,
+            escape_html_attribute(&href),
+            escape_html_text(&label)
+        )))
+    }
+
+    fn method_webview_container(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let body = self.pop_string(method, "HTML body string")?;
+        Ok(Value::String(format!(
+            r#"<div data-rco-container="true">{body}</div>"#
+        )))
+    }
+
+    fn method_webview_window(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let body = self.pop_string(method, "webview body HTML string")?;
+        let title = self.pop_string(method, "webview title string")?;
+        let html = webview_document_html(&title, &body);
+        Ok(Value::result_ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("webview".to_string())),
+                ("title".to_string(), Value::String(title)),
+                ("body".to_string(), Value::String(body)),
+                ("html".to_string(), Value::String(html)),
+                ("width".to_string(), Value::Number(800)),
+                ("height".to_string(), Value::Number(600)),
+            ])
+            .into(),
+        )))
+    }
+
     fn pop_string(&mut self, word: &str, expected: &str) -> Result<String, VmError> {
         match self.pop(word)? {
             Value::String(value) => Ok(value),
@@ -1983,6 +2086,66 @@ fn json_to_value(value: JsonValue) -> Value {
                 .into(),
         ),
     }
+}
+
+fn escape_html_text(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+fn escape_html_attribute(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+fn webview_document_html(title: &str, body: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{}</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    body {{
+      margin: 0;
+      padding: 24px;
+    }}
+    button,
+    input {{
+      font: inherit;
+    }}
+  </style>
+</head>
+<body>
+{}
+</body>
+</html>"#,
+        escape_html_text(title),
+        body
+    )
 }
 
 fn builtin_class_name(value: &Value) -> Option<&'static str> {

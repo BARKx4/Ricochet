@@ -628,16 +628,37 @@ config
 Current implementation includes `request`, `cookies`, `session`, `logger`,
 `config`, `db` when a database backend is configured, and response construction
 through `view`, `text`, `json`, `redirect`, `status`, and `header` words.
-CLI script execution enables filesystem and HTTP host capabilities for trusted
-local scripts by default, and `rco repl`, `rco run`, `rco run-bytecode`, and
-`rco test` accept `--capability-profile trusted|sandboxed`. `trusted` preserves
-the local-script default; `sandboxed` starts with filesystem and HTTP disabled
-unless `--fs-root <path>` or `--http-allow-host <host>` opens bounded access.
-The same commands accept `--no-fs` and `--no-http` to deny capabilities
-explicitly, and `--fs-readonly` to allow reads while denying writes and
-directory creation. V1 beta keeps `trusted` as the local-development default for
-compatibility, and uses `sandboxed` as the policy for untrusted examples,
-package review, bug repros, and third-party code.
+CLI script execution enables filesystem, HTTP, and webview host capabilities for
+trusted local scripts by default, and `rco repl`, `rco run`, `rco run-bytecode`,
+and `rco test` accept `--capability-profile trusted|sandboxed`. `trusted`
+preserves the local-script default; `sandboxed` starts with filesystem, HTTP,
+and webview disabled unless `--fs-root <path>`, `--http-allow-host <host>`, or
+`--allow-webview` opens specific access. The same commands accept `--no-fs`,
+`--no-http`, and `--no-webview` to deny capabilities explicitly, and
+`--fs-readonly` to allow reads while denying writes and directory creation. V1
+beta keeps `trusted` as the local-development default for compatibility, and
+uses `sandboxed` as the policy for untrusted examples, package review, bug
+repros, and third-party code.
+
+Desktop UI starts as a webview capability. The current core words build escaped
+HTML fragments and a document map that a desktop webview host can consume:
+
+```forth
+"Counter" 1 webview .heading heading var
+"Increment" "increment" webview .button button var
+$heading "<main>" .concat
+$button swap .concat
+"</main>" swap .concat body var
+"Counter" $body webview .window value document var
+```
+
+`.window` and its `.document` alias return a `Result` whose ok value contains
+`type = "webview"`, `title`, raw `body`, full `html`, and default `width` and
+`height` fields. `rco gui` can preview these documents in the native desktop
+host, and `rco package --gui` embeds the app into the dedicated `rco-gui`
+launcher. The native launcher host targets Windows, Linux, and macOS; Linux uses
+the GTK-backed Wry path and therefore requires WebKitGTK 4.1. The VM surface
+stays portable and testable while GUI host details live in the CLI layer.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 
