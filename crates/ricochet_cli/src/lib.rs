@@ -12,12 +12,14 @@ use ricochet_syntax::{
     format_source, parse_module, ArgsDecl, Expr, Item as SyntaxItem, LexError, Module, ParseError,
     SpannedExpr, TokenKind,
 };
-use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, Vm};
+use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
+const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
+const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
@@ -71,10 +73,28 @@ enum Command {
     Build {
         path: Option<String>,
     },
+    Gui {
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     Package {
         path: Option<String>,
         #[arg(short, long)]
         output: PathBuf,
+        #[arg(
+            long,
+            help = "Package as a native desktop GUI app using the rco-gui launcher"
+        )]
+        gui: bool,
+        #[arg(
+            long = "gui-launcher",
+            value_name = "PATH",
+            help = "Use a specific rco-gui launcher executable for --gui packages"
+        )]
+        gui_launcher: Option<PathBuf>,
         #[arg(
             long = "linux-package",
             value_enum,
@@ -138,13 +158,42 @@ enum LinuxPackageFormat {
     Deb,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmbeddedAppKind {
+    Console,
+    Gui,
+}
+
+impl EmbeddedAppKind {
+    fn marker(self) -> &'static [u8] {
+        match self {
+            EmbeddedAppKind::Console => EMBEDDED_APP_MARKER,
+            EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EmbeddedApp {
+    kind: EmbeddedAppKind,
+    chunk: Chunk,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebviewDocument {
+    title: String,
+    html: String,
+    width: u32,
+    height: u32,
+}
+
 #[derive(Clone, Debug, Default, Args)]
 struct CapabilityOptions {
     #[arg(
         long = "capability-profile",
         value_enum,
         default_value = "trusted",
-        help = "Select host capability defaults: trusted enables filesystem/HTTP, sandboxed disables them unless bounded by flags"
+        help = "Select host capability defaults: trusted enables filesystem/HTTP/webview, sandboxed disables them unless bounded by flags"
     )]
     capability_profile: CapabilityProfile,
     #[arg(long, help = "Disable the filesystem host capability for this run")]
@@ -158,6 +207,13 @@ struct CapabilityOptions {
     fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
+    #[arg(long, help = "Disable the webview UI host capability for this run")]
+    no_webview: bool,
+    #[arg(
+        long,
+        help = "Enable the webview UI host capability under the sandboxed profile"
+    )]
+    allow_webview: bool,
     #[arg(long, help = "Disable process environment access for this run")]
     no_env: bool,
     #[arg(long, help = "Disable blocking sleep for this run")]
@@ -190,6 +246,9 @@ impl CapabilityOptions {
         if self.no_http && !self.http_allow_hosts.is_empty() {
             bail!("--http-allow-host cannot be used with --no-http");
         }
+        if self.no_webview && self.allow_webview {
+            bail!("--allow-webview cannot be used with --no-webview");
+        }
         if self.capability_profile == CapabilityProfile::Sandboxed
             && self.fs_readonly
             && self.fs_root.is_none()
@@ -202,11 +261,14 @@ impl CapabilityOptions {
         let http_enabled = !self.no_http
             && (self.capability_profile == CapabilityProfile::Trusted
                 || !self.http_allow_hosts.is_empty());
+        let webview_enabled = !self.no_webview
+            && (self.capability_profile == CapabilityProfile::Trusted || self.allow_webview);
         let environment_enabled =
             !self.no_env && self.capability_profile == CapabilityProfile::Trusted;
         let sleep_enabled = !self.no_sleep && self.capability_profile == CapabilityProfile::Trusted;
 
         vm.set_host_capabilities(filesystem_enabled, http_enabled);
+        vm.set_webview_enabled(webview_enabled);
         vm.set_environment_enabled(environment_enabled);
         vm.set_sleep_enabled(sleep_enabled);
         if let Some(root) = &self.fs_root {
@@ -232,16 +294,21 @@ pub fn crate_version() -> &'static str {
 }
 
 pub async fn run_cli() -> Result<()> {
-    if let Some(chunk) = embedded_chunk_from_current_exe()? {
-        run_chunk_cli(
-            &chunk,
-            false,
-            false,
-            &[],
-            None,
-            std::env::args().skip(1).collect(),
-            CapabilityOptions::default(),
-        )?;
+    if let Some(app) = embedded_app_from_current_exe()? {
+        match app.kind {
+            EmbeddedAppKind::Console => run_chunk_cli(
+                &app.chunk,
+                false,
+                false,
+                &[],
+                None,
+                std::env::args().skip(1).collect(),
+                CapabilityOptions::default(),
+            )?,
+            EmbeddedAppKind::Gui => {
+                run_embedded_gui_app(&app.chunk, std::env::args().skip(1).collect())?
+            }
+        }
         return Ok(());
     }
 
@@ -281,9 +348,16 @@ pub async fn run_cli() -> Result<()> {
             args,
         } => run_bytecode(&path, debug, args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
+        Command::Gui {
+            capabilities,
+            path,
+            args,
+        } => run_gui_file(&path, args, capabilities)?,
         Command::Package {
             path,
             output,
+            gui,
+            gui_launcher,
             linux_packages,
             package_name,
             package_version,
@@ -291,10 +365,14 @@ pub async fn run_cli() -> Result<()> {
         } => package(
             path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE),
             &output,
-            &linux_packages,
-            package_name.as_deref(),
-            &package_version,
-            &package_description,
+            PackageOptions {
+                gui,
+                gui_launcher: gui_launcher.as_deref(),
+                linux_packages: &linux_packages,
+                package_name: package_name.as_deref(),
+                package_version: &package_version,
+                package_description: &package_description,
+            },
         )?,
         Command::Add {
             source,
@@ -334,6 +412,15 @@ pub async fn run_cli() -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn run_gui_launcher() -> Result<()> {
+    let app = embedded_app_from_current_exe()?
+        .context("rco-gui must be packaged with `rco package --gui` before it can launch an app")?;
+    if app.kind != EmbeddedAppKind::Gui {
+        bail!("rco-gui can only launch apps packaged with `rco package --gui`");
+    }
+    run_embedded_gui_app(&app.chunk, std::env::args().skip(1).collect())
 }
 
 fn run_repl<R: BufRead, W: Write>(
@@ -1592,6 +1679,182 @@ fn run_bytecode(
     run_chunk_cli(&chunk, debug, false, &[], None, args, capabilities)
 }
 
+fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
+    let chunk = compile_source_file(Path::new(path))?;
+    run_gui_chunk(&chunk, args, capabilities)
+}
+
+fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
+    run_gui_chunk(chunk, args, CapabilityOptions::default())
+}
+
+fn run_gui_chunk(chunk: &Chunk, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
+    let document = render_webview_document(chunk, args, capabilities)?;
+    if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
+        fs::write(&path, &document.html).with_context(|| {
+            format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
+        })?;
+        return Ok(());
+    }
+    open_native_webview(document)
+}
+
+fn render_webview_document(
+    chunk: &Chunk,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<WebviewDocument> {
+    let mut vm = cli_vm(args, &capabilities)?;
+    let result = vm.run_chunk(chunk);
+    print!("{}", vm.stdout());
+    eprint!("{}", vm.stderr());
+    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
+        std::process::exit(code);
+    }
+    result?;
+    webview_document_from_vm(&vm)
+}
+
+fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
+    for value in vm.stack().iter().rev() {
+        if let Some(document) = webview_document_from_value(value)? {
+            return Ok(document);
+        }
+    }
+
+    if let Some(value) = vm.variable("document") {
+        if let Some(document) = webview_document_from_value(value)? {
+            return Ok(document);
+        }
+    }
+
+    bail!(
+        "GUI apps must leave a `webview .window` result on the stack or store it in a variable named `document`"
+    )
+}
+
+fn webview_document_from_value(value: &Value) -> Result<Option<WebviewDocument>> {
+    match value {
+        Value::Result(RicochetResult::Ok(inner)) => webview_document_from_value(inner),
+        Value::Result(RicochetResult::Err(error)) => {
+            bail!(
+                "GUI app returned an error result: {}: {}",
+                error.kind,
+                error.message
+            )
+        }
+        Value::Map(map) => webview_document_from_map(map),
+        _ => Ok(None),
+    }
+}
+
+fn webview_document_from_map(map: &MapValue) -> Result<Option<WebviewDocument>> {
+    if map.get("type") != Some(Value::String("webview".to_string())) {
+        return Ok(None);
+    }
+
+    Ok(Some(WebviewDocument {
+        title: required_document_string(map, "title")?,
+        html: required_document_string(map, "html")?,
+        width: required_document_dimension(map, "width")?,
+        height: required_document_dimension(map, "height")?,
+    }))
+}
+
+fn required_document_string(map: &MapValue, key: &str) -> Result<String> {
+    match map.get(key) {
+        Some(Value::String(value)) => Ok(value),
+        Some(value) => bail!("webview document `{key}` must be a string, got {value:?}"),
+        None => bail!("webview document is missing `{key}`"),
+    }
+}
+
+fn required_document_dimension(map: &MapValue, key: &str) -> Result<u32> {
+    match map.get(key) {
+        Some(Value::Number(value)) if value > 0 => u32::try_from(value)
+            .with_context(|| format!("webview document `{key}` is too large: {value}")),
+        Some(Value::Number(value)) => {
+            bail!("webview document `{key}` must be positive, got {value}")
+        }
+        Some(value) => bail!("webview document `{key}` must be a number, got {value:?}"),
+        None => bail!("webview document is missing `{key}`"),
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn open_native_webview(document: WebviewDocument) -> Result<()> {
+    use tao::dpi::LogicalSize;
+    use tao::event::{Event, WindowEvent};
+    use tao::event_loop::{ControlFlow, EventLoop};
+    use tao::window::WindowBuilder;
+    use wry::WebViewBuilder;
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title(document.title.clone())
+        .with_inner_size(LogicalSize::new(
+            f64::from(document.width),
+            f64::from(document.height),
+        ))
+        .build(&event_loop)
+        .context("failed to create native GUI window")?;
+    let _webview = WebViewBuilder::new()
+        .with_html(document.html)
+        .build(&window)
+        .context("failed to create native WebView")?;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn open_native_webview(document: WebviewDocument) -> Result<()> {
+    use tao::dpi::LogicalSize;
+    use tao::event::{Event, WindowEvent};
+    use tao::event_loop::{ControlFlow, EventLoop};
+    use tao::platform::unix::WindowExtUnix;
+    use tao::window::WindowBuilder;
+    use wry::{WebViewBuilder, WebViewBuilderExtUnix};
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title(document.title.clone())
+        .with_inner_size(LogicalSize::new(
+            f64::from(document.width),
+            f64::from(document.height),
+        ))
+        .build(&event_loop)
+        .context("failed to create native GUI window")?;
+    let _webview = WebViewBuilder::new()
+        .with_html(document.html)
+        .build_gtk(window.gtk_window())
+        .context("failed to create native WebView")?;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn open_native_webview(_document: WebviewDocument) -> Result<()> {
+    bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
+}
+
 fn run_chunk_cli(
     chunk: &Chunk,
     debug: bool,
@@ -1879,61 +2142,114 @@ fn build(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn package(
-    path: &str,
-    output: &Path,
-    linux_packages: &[LinuxPackageFormat],
-    package_name: Option<&str>,
-    package_version: &str,
-    package_description: &str,
-) -> Result<()> {
+fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()> {
     if output.is_dir() {
         bail!("package output is a directory: {}", output.display());
     }
-    if !linux_packages.is_empty() {
+    if options.gui_launcher.is_some() && !options.gui {
+        bail!("--gui-launcher requires --gui");
+    }
+    if options.gui && !native_gui_packaging_supported() {
+        bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
+    }
+    if !options.linux_packages.is_empty() {
         ensure_linux_package_host()?;
     }
 
     let chunk = compile_source_file(Path::new(path))?;
     let bytes = chunk.to_bytes()?;
-    let current_exe =
-        std::env::current_exe().context("failed to locate current Ricochet executable")?;
+    let launcher = package_launcher(options.gui, options.gui_launcher)?;
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    fs::copy(&current_exe, output).with_context(|| {
+    fs::copy(&launcher, output).with_context(|| {
         format!(
             "failed to copy launcher {} to {}",
-            current_exe.display(),
+            launcher.display(),
             output.display()
         )
     })?;
-    append_embedded_chunk(output, &bytes)?;
+    append_embedded_chunk(
+        output,
+        &bytes,
+        if options.gui {
+            EmbeddedAppKind::Gui
+        } else {
+            EmbeddedAppKind::Console
+        },
+    )?;
 
     println!("packaged {}", output.display());
 
-    if !linux_packages.is_empty() {
+    if !options.linux_packages.is_empty() {
         create_linux_package_artifacts(
             output,
-            linux_packages,
-            package_name,
-            package_version,
-            package_description,
+            options.linux_packages,
+            options.package_name,
+            options.package_version,
+            options.package_description,
+            options.gui,
         )?;
     }
 
     Ok(())
 }
 
-fn append_embedded_chunk(path: &Path, chunk_bytes: &[u8]) -> Result<()> {
+struct PackageOptions<'a> {
+    gui: bool,
+    gui_launcher: Option<&'a Path>,
+    linux_packages: &'a [LinuxPackageFormat],
+    package_name: Option<&'a str>,
+    package_version: &'a str,
+    package_description: &'a str,
+}
+
+fn native_gui_packaging_supported() -> bool {
+    cfg!(any(windows, target_os = "linux", target_os = "macos"))
+}
+
+fn package_launcher(gui: bool, gui_launcher: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = gui_launcher {
+        if !path.is_file() {
+            bail!("GUI launcher does not exist: {}", path.display());
+        }
+        return Ok(path.to_path_buf());
+    }
+
+    let current_exe =
+        std::env::current_exe().context("failed to locate current Ricochet executable")?;
+    if !gui {
+        return Ok(current_exe);
+    }
+
+    if current_exe
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem == "rco-gui")
+    {
+        return Ok(current_exe);
+    }
+
+    let gui_launcher =
+        current_exe.with_file_name(format!("rco-gui{}", std::env::consts::EXE_SUFFIX));
+    if gui_launcher.is_file() {
+        return Ok(gui_launcher);
+    }
+
+    bail!(
+        "rco package --gui requires the rco-gui launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-gui` or pass --gui-launcher PATH"
+    )
+}
+
+fn append_embedded_chunk(path: &Path, chunk_bytes: &[u8], kind: EmbeddedAppKind) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .append(true)
         .open(path)
         .with_context(|| format!("failed to open {} for packaging", path.display()))?;
     file.write_all(chunk_bytes)
         .with_context(|| format!("failed to append bytecode to {}", path.display()))?;
-    file.write_all(EMBEDDED_APP_MARKER)
+    file.write_all(kind.marker())
         .with_context(|| format!("failed to append package marker to {}", path.display()))?;
     file.write_all(&(chunk_bytes.len() as u64).to_le_bytes())
         .with_context(|| format!("failed to append package length to {}", path.display()))?;
@@ -1955,6 +2271,7 @@ fn create_linux_package_artifacts(
     package_name: Option<&str>,
     package_version: &str,
     package_description: &str,
+    gui: bool,
 ) -> Result<()> {
     let artifact_dir = artifact_directory_for(executable);
     fs::create_dir_all(&artifact_dir)
@@ -1979,6 +2296,7 @@ fn create_linux_package_artifacts(
                 &name,
                 package_version,
                 &description,
+                gui,
             )?,
             LinuxPackageFormat::Deb => create_linux_deb(
                 executable,
@@ -1987,6 +2305,7 @@ fn create_linux_package_artifacts(
                 &name,
                 package_version,
                 &description,
+                gui,
             )?,
         }
     }
@@ -2107,6 +2426,7 @@ fn create_linux_tarball(
     name: &str,
     version: &str,
     description: &str,
+    gui: bool,
 ) -> Result<()> {
     let package_dir_name = format!("{name}-v{version}-linux-x64");
     let package_dir = staging_root.join(&package_dir_name);
@@ -2119,7 +2439,12 @@ fn create_linux_tarball(
     fs::write(
         package_dir.join("README.txt"),
         format!(
-            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n"
+            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n{}",
+            if gui {
+                "\nLinux GUI apps require the WebKitGTK 4.1 runtime package, for example `libwebkit2gtk-4.1-0` on Debian/Ubuntu.\n"
+            } else {
+                ""
+            }
         ),
     )
     .with_context(|| format!("failed to write {}", package_dir.join("README.txt").display()))?;
@@ -2146,6 +2471,7 @@ fn create_linux_deb(
     name: &str,
     version: &str,
     description: &str,
+    gui: bool,
 ) -> Result<()> {
     let deb_path = artifact_dir.join(format!("{name}_{version}_amd64.deb"));
     assert_new_artifact(&deb_path)?;
@@ -2171,7 +2497,12 @@ fn create_linux_deb(
     fs::write(
         control_dir.join("control"),
         format!(
-            "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\nMaintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n"
+            "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
+            if gui {
+                "Depends: libwebkit2gtk-4.1-0, libgtk-3-0\n"
+            } else {
+                ""
+            }
         ),
     )
     .with_context(|| format!("failed to write {}", control_dir.join("control").display()))?;
@@ -2267,24 +2598,37 @@ fn ensure_command_success(command: &str, output: &std::process::Output) -> Resul
     );
 }
 
-fn embedded_chunk_from_current_exe() -> Result<Option<Chunk>> {
+fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
     let current_exe =
         std::env::current_exe().context("failed to locate current Ricochet executable")?;
     let bytes = fs::read(&current_exe)
         .with_context(|| format!("failed to read {}", current_exe.display()))?;
-    embedded_chunk_from_bytes(&bytes)
+    embedded_app_from_bytes(&bytes)
         .with_context(|| format!("failed to load embedded app from {}", current_exe.display()))
 }
 
-fn embedded_chunk_from_bytes(bytes: &[u8]) -> Result<Option<Chunk>> {
-    let trailer_len = EMBEDDED_APP_MARKER.len() + 8;
+fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
+    for kind in [EmbeddedAppKind::Gui, EmbeddedAppKind::Console] {
+        if let Some(app) = embedded_app_from_bytes_with_marker(bytes, kind)? {
+            return Ok(Some(app));
+        }
+    }
+    Ok(None)
+}
+
+fn embedded_app_from_bytes_with_marker(
+    bytes: &[u8],
+    kind: EmbeddedAppKind,
+) -> Result<Option<EmbeddedApp>> {
+    let marker = kind.marker();
+    let trailer_len = marker.len() + 8;
     if bytes.len() < trailer_len {
         return Ok(None);
     }
 
     let length_start = bytes.len() - 8;
-    let marker_start = length_start - EMBEDDED_APP_MARKER.len();
-    if &bytes[marker_start..length_start] != EMBEDDED_APP_MARKER {
+    let marker_start = length_start - marker.len();
+    if &bytes[marker_start..length_start] != marker {
         return Ok(None);
     }
 
@@ -2296,7 +2640,7 @@ fn embedded_chunk_from_bytes(bytes: &[u8]) -> Result<Option<Chunk>> {
     }
     let chunk_start = marker_start - chunk_len;
     let chunk = Chunk::from_bytes(&bytes[chunk_start..marker_start])?;
-    Ok(Some(chunk))
+    Ok(Some(EmbeddedApp { kind, chunk }))
 }
 
 fn format_path(path: &str, check: bool) -> Result<()> {

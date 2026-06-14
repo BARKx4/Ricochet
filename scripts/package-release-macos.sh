@@ -126,6 +126,7 @@ fi
 target_dir="$repo_root/target/$configuration"
 binaries=(
   "$target_dir/rco"
+  "$target_dir/rco-gui"
   "$target_dir/ricochet"
 )
 
@@ -138,7 +139,8 @@ done
 
 mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
-install -m 755 "${binaries[1]}" "$package_dir/ricochet"
+install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
+install -m 755 "${binaries[2]}" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
@@ -150,6 +152,8 @@ Ricochet v$version ($target)
 
 Commands:
   rco --help
+  rco gui examples/webview_ui.rco
+  rco package examples/webview_ui.rco --gui --output webview-ui
   ricochet --help
 
 This is an unsigned developer beta tarball. It is not notarized by Apple.
@@ -171,11 +175,12 @@ bin_dir="$prefix/bin"
 
 mkdir -p "$bin_dir"
 cp "$script_dir/rco" "$bin_dir/rco"
+cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
-chmod 755 "$bin_dir/rco" "$bin_dir/ricochet"
+chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
 
 if command -v xattr >/dev/null 2>&1; then
-  xattr -d com.apple.quarantine "$bin_dir/rco" "$bin_dir/ricochet" 2>/dev/null || true
+  xattr -d com.apple.quarantine "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet" 2>/dev/null || true
 fi
 
 printf 'Installed Ricochet CLI tools to %s\n' "$bin_dir"

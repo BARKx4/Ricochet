@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -41,7 +41,7 @@ jobs:
           .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ricochet-windows-x64
           path: |
@@ -54,10 +54,16 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux GUI build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: Build release package
         shell: bash
@@ -98,8 +104,19 @@ jobs:
           test -f "$tmp/basic-oop_${version}_amd64.deb"
           dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" | grep -q 'Package: basic-oop'
 
+          "$package_dir/rco" package examples/webview_ui.rco \
+            --gui \
+            --output "$tmp/webview-ui" \
+            --linux-package deb \
+            --package-name webview-ui \
+            --package-version "$version"
+          RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
+          grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
+          test -f "$tmp/webview-ui_${version}_amd64.deb"
+          dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'Depends: libwebkit2gtk-4.1-0, libgtk-3-0'
+
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ricochet-linux-x64
           path: |
@@ -120,7 +137,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -147,9 +164,12 @@ jobs:
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
           "$tmp/basic-oop" | grep -q 'ada@example.com'
+          "$package_dir/rco" package examples/webview_ui.rco --gui --output "$tmp/webview-ui"
+          RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
+          grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ricochet-${{ matrix.target }}
           path: |
@@ -166,7 +186,7 @@ jobs:
 
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

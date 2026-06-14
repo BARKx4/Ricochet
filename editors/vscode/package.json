@@ -1,0 +1,35 @@
+{
+  "name": "ricochet-language",
+  "displayName": "Ricochet Language",
+  "description": "Syntax highlighting for Ricochet .rco files.",
+  "version": "0.1.0",
+  "publisher": "ricochet",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ricochet",
+        "aliases": [
+          "Ricochet",
+          "ricochet"
+        ],
+        "extensions": [
+          ".rco"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ricochet",
+        "scopeName": "source.ricochet",
+        "path": "./syntaxes/ricochet.tmLanguage.json"
+      }
+    ]
+  }
+}

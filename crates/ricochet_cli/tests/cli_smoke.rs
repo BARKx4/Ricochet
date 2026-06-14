@@ -1269,6 +1269,94 @@ fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
     );
 }
 
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn package_gui_creates_standalone_executable_that_exports_webview_document() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview .window value document var\n",
+    );
+    let output_path = root.join(format!("gui-app{}", std::env::consts::EXE_SUFFIX));
+    let preview_export_path = root.join("gui-preview.html");
+    let package_export_path = root.join("gui-package.html");
+
+    let preview_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &preview_export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch");
+    assert_run_success_for("rco gui", "main.rco", &preview_output);
+    let preview_html = fs::read_to_string(&preview_export_path).expect("preview HTML should exist");
+    assert!(preview_html.contains("<title>GUI Smoke</title>"));
+    assert!(preview_html.contains("Hello desktop"));
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--gui")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --gui should launch");
+    assert_run_success_for("rco package --gui", "main.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &package_export_path)
+        .output()
+        .expect("packaged Ricochet GUI executable should launch");
+    assert_run_success_for("packaged GUI executable", "gui-app", &output);
+
+    let html =
+        fs::read_to_string(package_export_path).expect("packaged GUI HTML should be exported");
+    assert!(
+        html.contains("<title>GUI Smoke</title>") && html.contains("Hello desktop"),
+        "exported HTML should include the GUI document, got:\n{html}"
+    );
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+#[test]
+fn package_gui_rejects_unsupported_hosts() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview .window\n",
+    );
+    let output_path = root.join("gui-app");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--gui")
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --gui should launch");
+
+    assert!(
+        !package_output.status.success(),
+        "rco package --gui should reject unsupported hosts"
+    );
+    let stderr = String::from_utf8_lossy(&package_output.stderr);
+    assert!(
+        stderr.contains(
+            "rco package --gui is currently available from Windows, Linux, and macOS builds"
+        ),
+        "stderr should explain the GUI host requirement, got:\n{stderr}"
+    );
+}
+
 #[test]
 fn package_rejects_linux_package_artifacts_on_non_linux_hosts() {
     if cfg!(target_os = "linux") {
@@ -2731,6 +2819,67 @@ now 0 >
             "stdout should contain {expected}, got:\n{stdout}"
         );
     }
+}
+
+#[test]
+fn run_exposes_webview_builder_words_with_capability_controls() {
+    let source_path = write_source(
+        r#"
+"Save <Now>" "save" webview .button println
+"Counter" "<main>Ready</main>" webview .window value document var
+"html" $document .at println
+"width" $document .at println
+"height" $document .at println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        r#"<button type="button" data-rco-action="save">Save &lt;Now&gt;</button>"#,
+        "<title>Counter</title>",
+        "<main>Ready</main>",
+        "800",
+        "600",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+
+    let denied = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-webview")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        !denied.status.success(),
+        "--no-webview should deny webview access"
+    );
+    assert!(
+        stderr.contains("webview capability is not enabled"),
+        "stderr should mention webview denial, got:\n{stderr}"
+    );
+
+    let sandboxed = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--allow-webview")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success_for("rco run", "sandboxed webview", &sandboxed);
 }
 
 #[test]

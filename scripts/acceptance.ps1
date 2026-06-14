@@ -37,6 +37,7 @@ $examples = @(
     "collections.rco",
     "text_regex.rco",
     "loop_control.rco",
+    "webview_ui.rco",
     "turing_complete.rco",
     "unary_counter.rco"
 )

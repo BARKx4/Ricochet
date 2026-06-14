@@ -2,4 +2,5 @@
 pub enum Capability {
     FileSystem,
     Http,
+    Webview,
 }
