@@ -111,6 +111,7 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    webview_enabled: bool,
     pub(super) environment_enabled: bool,
     pub(super) sleep_enabled: bool,
     max_running_tasks: usize,
@@ -146,6 +147,7 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            webview_enabled: false,
             environment_enabled: false,
             sleep_enabled: false,
             max_running_tasks: DEFAULT_MAX_RUNNING_TASKS,
@@ -178,6 +180,7 @@ struct Task {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    webview_enabled: bool,
     environment_enabled: bool,
     sleep_enabled: bool,
     instruction_limit: Option<u64>,
@@ -365,6 +368,7 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         filesystem_writes_enabled: task.filesystem_writes_enabled,
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
+        webview_enabled: task.webview_enabled,
         environment_enabled: task.environment_enabled,
         sleep_enabled: task.sleep_enabled,
         instruction_limit: task.instruction_limit,
@@ -442,6 +446,7 @@ impl Vm {
         self.filesystem_enabled = true;
         self.filesystem_writes_enabled = true;
         self.http_enabled = true;
+        self.webview_enabled = true;
         self.environment_enabled = true;
         self.sleep_enabled = true;
     }
@@ -479,6 +484,10 @@ impl Vm {
                 .map(|host| host.to_ascii_lowercase())
                 .collect(),
         );
+    }
+
+    pub fn set_webview_enabled(&mut self, enabled: bool) {
+        self.webview_enabled = enabled;
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1069,6 +1078,17 @@ impl Vm {
                     })
                 }
             }
+            "webview" => {
+                if self.webview_enabled {
+                    self.stack.push(Value::Capability(Capability::Webview));
+                    Ok(())
+                } else {
+                    Err(VmError::HostError {
+                        word: word.to_string(),
+                        message: "webview capability is not enabled".to_string(),
+                    })
+                }
+            }
             "view" => self.call_view(word),
             "text" => self.call_text(word),
             "json" => self.call_json(word),
@@ -1431,6 +1451,7 @@ impl Vm {
             filesystem_writes_enabled: self.filesystem_writes_enabled,
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
+            webview_enabled: self.webview_enabled,
             environment_enabled: self.environment_enabled,
             sleep_enabled: self.sleep_enabled,
             instruction_limit: self.instruction_limit,
@@ -4301,6 +4322,78 @@ mod tests {
     }
 
     #[test]
+    fn webview_word_requires_enabled_capability() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::CallWord("webview".to_string()), span());
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::HostError {
+                word: "webview".to_string(),
+                message: "webview capability is not enabled".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn webview_words_build_escaped_document_map() {
+        let mut button = Chunk::new("test.rco");
+        button.push(Op::PushString("Save <Now>".to_string()), span());
+        button.push(Op::PushString("save\"now".to_string()), span());
+        button.push(Op::CallWord("webview".to_string()), span());
+        button.push(Op::CallMethod("button".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&button).expect("button builds");
+
+        let button_html = vm.pop("test").expect("button html is on the stack");
+        assert_eq!(
+            button_html,
+            Value::String(
+                r#"<button type="button" data-rco-action="save&quot;now">Save &lt;Now&gt;</button>"#
+                    .to_string()
+            )
+        );
+
+        let mut window = Chunk::new("test.rco");
+        window.push(Op::PushString("Counter & Tools".to_string()), span());
+        window.push(Op::PushString("<h1>Ready</h1>".to_string()), span());
+        window.push(Op::CallWord("webview".to_string()), span());
+        window.push(Op::CallMethod("window".to_string()), span());
+
+        vm.run_chunk(&window).expect("window builds");
+
+        let [Value::Result(RicochetResult::Ok(document))] = vm.stack() else {
+            panic!(
+                "expected one document result on stack, got {:?}",
+                vm.stack()
+            );
+        };
+        let Value::Map(document) = document.as_ref() else {
+            panic!("expected webview document map, got {document:?}");
+        };
+        assert_eq!(
+            document.get("type"),
+            Some(Value::String("webview".to_string()))
+        );
+        assert_eq!(
+            document.get("title"),
+            Some(Value::String("Counter & Tools".to_string()))
+        );
+        assert_eq!(document.get("width"), Some(Value::Number(800)));
+        assert_eq!(document.get("height"), Some(Value::Number(600)));
+
+        let Some(Value::String(html)) = document.get("html") else {
+            panic!("expected document html, got {document:?}");
+        };
+        assert!(html.contains("<title>Counter &amp; Tools</title>"));
+        assert!(html.contains("<h1>Ready</h1>"));
+    }
+
+    #[test]
     fn get_fails_loudly_for_unknown_variables() {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("typo".to_string()), span());
@@ -4769,5 +4862,278 @@ mod tests {
                 available: 0,
             })
         );
+    }
+
+    #[test]
+    fn webview_text_method_escapes_html_special_chars() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Hello <World> & \"Rust\"".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("text".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("text builds");
+
+        let result = vm.pop("test").expect("text html on stack");
+        assert_eq!(
+            result,
+            Value::String("Hello &lt;World&gt; &amp; &quot;Rust&quot;".to_string())
+        );
+    }
+
+    #[test]
+    fn webview_heading_method_builds_h1_through_h6() {
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+
+        for level in 1..=6_i64 {
+            let mut chunk = Chunk::new("test.rco");
+            chunk.push(Op::PushString("Section Title".to_string()), span());
+            chunk.push(Op::PushNumber(level), span());
+            chunk.push(Op::CallWord("webview".to_string()), span());
+            chunk.push(Op::CallMethod("heading".to_string()), span());
+
+            vm.run_chunk(&chunk).expect("heading builds");
+            let result = vm.pop("test").expect("heading html on stack");
+            assert_eq!(
+                result,
+                Value::String(format!("<h{level}>Section Title</h{level}>"))
+            );
+        }
+    }
+
+    #[test]
+    fn webview_heading_method_escapes_html_in_text() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("<script>alert(1)</script>".to_string()), span());
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("heading".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("heading builds");
+
+        let result = vm.pop("test").expect("heading html on stack");
+        assert_eq!(
+            result,
+            Value::String(
+                "<h2>&lt;script&gt;alert(1)&lt;/script&gt;</h2>".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn webview_heading_method_rejects_level_zero() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Title".to_string()), span());
+        chunk.push(Op::PushNumber(0), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("heading".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::InvalidArgument {
+                word: "heading".to_string(),
+                message: "heading level must be between 1 and 6, got 0".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn webview_heading_method_rejects_level_seven() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Title".to_string()), span());
+        chunk.push(Op::PushNumber(7), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("heading".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::InvalidArgument {
+                word: "heading".to_string(),
+                message: "heading level must be between 1 and 6, got 7".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn webview_input_method_builds_escaped_input_element() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("user<name>".to_string()), span());
+        chunk.push(Op::PushString("Ada & \"Lovelace\"".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("input".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("input builds");
+
+        let result = vm.pop("test").expect("input html on stack");
+        assert_eq!(
+            result,
+            Value::String(
+                r#"<input type="text" name="user&lt;name&gt;" value="Ada &amp; &quot;Lovelace&quot;">"#
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn webview_link_method_builds_escaped_anchor_element() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Click <here>".to_string()), span());
+        chunk.push(Op::PushString("https://example.com?q=1&r=2".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("link".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("link builds");
+
+        let result = vm.pop("test").expect("link html on stack");
+        assert_eq!(
+            result,
+            Value::String(
+                r#"<a href="https://example.com?q=1&amp;r=2">Click &lt;here&gt;</a>"#.to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn webview_container_method_wraps_content_in_div() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("<p>Content</p>".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("container".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("container builds");
+
+        let result = vm.pop("test").expect("container html on stack");
+        assert_eq!(
+            result,
+            Value::String(r#"<div data-rco-container="true"><p>Content</p></div>"#.to_string())
+        );
+    }
+
+    #[test]
+    fn webview_text_method_blocked_when_webview_disabled() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("hello".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("text".to_string()), span());
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::HostError {
+                word: "webview".to_string(),
+                message: "webview capability is not enabled".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn webview_heading_method_blocked_when_webview_disabled() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Title".to_string()), span());
+        chunk.push(Op::PushNumber(1), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("heading".to_string()), span());
+
+        let mut vm = Vm::default();
+
+        assert_eq!(
+            vm.run_chunk(&chunk),
+            Err(VmError::HostError {
+                word: "webview".to_string(),
+                message: "webview capability is not enabled".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn set_webview_enabled_can_be_toggled_on_and_off() {
+        let mut vm = Vm::default();
+
+        let mut chunk_on = Chunk::new("test.rco");
+        chunk_on.push(Op::PushString("hi".to_string()), span());
+        chunk_on.push(Op::CallWord("webview".to_string()), span());
+        chunk_on.push(Op::CallMethod("text".to_string()), span());
+
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk_on).expect("text works when enabled");
+        let _ = vm.pop("test").expect("result on stack");
+
+        let mut chunk_off = Chunk::new("test.rco");
+        chunk_off.push(Op::PushString("hi".to_string()), span());
+        chunk_off.push(Op::CallWord("webview".to_string()), span());
+        chunk_off.push(Op::CallMethod("text".to_string()), span());
+
+        vm.set_webview_enabled(false);
+        assert!(
+            vm.run_chunk(&chunk_off).is_err(),
+            "text should fail when webview disabled"
+        );
+    }
+
+    #[test]
+    fn webview_window_html_contains_title_and_body() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("My App".to_string()), span());
+        chunk.push(Op::PushString("<main><p>Hello</p></main>".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("window".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("window builds");
+
+        let [Value::Result(RicochetResult::Ok(doc))] = vm.stack() else {
+            panic!("expected ok result on stack, got {:?}", vm.stack());
+        };
+        let Value::Map(doc) = doc.as_ref() else {
+            panic!("expected map, got {doc:?}");
+        };
+
+        let Some(Value::String(html)) = doc.get("html") else {
+            panic!("expected html string, got {:?}", doc.get("html"));
+        };
+        assert!(html.contains("<title>My App</title>"), "html should include title");
+        assert!(html.contains("<p>Hello</p>"), "html should include body");
+        assert!(html.starts_with("<!doctype html>"), "html should start with doctype");
+    }
+
+    #[test]
+    fn webview_window_sets_default_dimensions() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("App".to_string()), span());
+        chunk.push(Op::PushString("<p>body</p>".to_string()), span());
+        chunk.push(Op::CallWord("webview".to_string()), span());
+        chunk.push(Op::CallMethod("window".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_webview_enabled(true);
+        vm.run_chunk(&chunk).expect("window builds");
+
+        let [Value::Result(RicochetResult::Ok(doc))] = vm.stack() else {
+            panic!("expected ok result, got {:?}", vm.stack());
+        };
+        let Value::Map(doc) = doc.as_ref() else {
+            panic!("expected map, got {doc:?}");
+        };
+
+        assert_eq!(doc.get("width"), Some(Value::Number(800)));
+        assert_eq!(doc.get("height"), Some(Value::Number(600)));
     }
 }
