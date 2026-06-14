@@ -313,6 +313,10 @@ routes = "config/routes.rco"
 [web.views]
 escape = "html"
 
+[web.static]
+dir = "public"
+mount = "/assets"
+
 [web.session]
 signing_secret_env = "RICOCHET_SESSION_SECRET"
 encryption_secret_env = "RICOCHET_SESSION_ENCRYPTION_SECRET"
@@ -625,7 +629,7 @@ end</code></pre>
           <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview .window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
-          <div><code>rco package [path] --output &lt;exe&gt; [--gui] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable with embedded bytecode; defaults to `main.rco`. `--gui` uses the `rco-gui` launcher and expects the app to produce a webview document. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages from the `.rco` file.</span></div>
+          <div><code>rco package [path] --output &lt;exe&gt; [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable; defaults to embedding bytecode from `main.rco`. `--gui` uses the `rco-gui` launcher for a webview document. Add `--mvc` with `--gui` to package an MVC project directory as a local-server desktop WebView app. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>

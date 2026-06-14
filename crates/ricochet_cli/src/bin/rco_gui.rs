@@ -1,5 +1,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-fn main() -> anyhow::Result<()> {
-    ricochet_cli::run_gui_launcher()
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    ricochet_cli::run_gui_launcher().await
 }

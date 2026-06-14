@@ -15,15 +15,16 @@ pub use ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};
 pub use database_capability::{install_database_capability, DatabaseBackend};
 pub use manifest::{
-    Ai, AiDefault, Database, DatabaseDefault, Manifest, Package, Session, Views, Web,
+    Ai, AiDefault, Database, DatabaseDefault, Manifest, Package, Session, StaticFiles, Views, Web,
 };
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{
-    build_app_from_dir_with_database, build_test_app, build_watched_app_from_dir,
-    build_watched_app_from_dir_with_database, build_watched_app_from_dir_with_database_and_trace,
-    build_watched_app_from_dir_with_trace, routes_from_dir, serve_current_dir, ServeOptions,
-    WatchTraceEvent, WatchTraceSink,
+    build_app_from_dir_with_database, build_served_app_from_dir, build_test_app,
+    build_watched_app_from_dir, build_watched_app_from_dir_with_database,
+    build_watched_app_from_dir_with_database_and_trace, build_watched_app_from_dir_with_trace,
+    routes_from_dir, serve_app_on_listener, serve_current_dir, ServeOptions, WatchTraceEvent,
+    WatchTraceSink,
 };
 pub use template::{render_template, EscapeMode};
 

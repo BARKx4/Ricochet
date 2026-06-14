@@ -1350,6 +1350,288 @@ end
 }
 
 #[tokio::test]
+async fn serves_static_assets_from_public_directory() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("public/styles"))
+        .expect("public styles directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "static_assets"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller subclass
+  "index" [
+    "ok" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+    fs::write(
+        project_root.join("public/styles/app.css"),
+        "body { color: #312e81; }\n",
+    )
+    .expect("static asset should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/styles/app.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("static asset response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/css; charset=utf-8")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "body { color: #312e81; }\n");
+
+    let route_response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("route response");
+    assert_eq!(route_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn static_assets_reject_encoded_traversal() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("public")).expect("public directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "static_traversal"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        "HomeController Controller subclass\nend\n",
+    )
+    .expect("controller should be written");
+    fs::write(project_root.join("public/app.css"), "safe").expect("static asset should be written");
+    fs::write(project_root.join("secret.txt"), "secret marker").expect("secret should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/assets/%2e%2e/secret.txt")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("traversal response");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        !body.contains("secret marker"),
+        "traversal response must not expose project files"
+    );
+}
+
+#[tokio::test]
+async fn serves_custom_static_asset_mount_and_rejects_invalid_static_dir() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("frontend/dist"))
+        .expect("asset directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "custom_static"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.static]
+dir = "frontend/dist"
+mount = "/static"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        "HomeController Controller subclass\nend\n",
+    )
+    .expect("controller should be written");
+    fs::write(
+        project_root.join("frontend/dist/app.js"),
+        "console.log('ricochet');",
+    )
+    .expect("asset should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/static/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("static asset response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(body, "console.log('ricochet');");
+
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "custom_static"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.static]
+dir = "../outside"
+mount = "/static"
+"#,
+    )
+    .expect("manifest should be rewritten");
+
+    let error = ricochet_web::server::build_app_from_dir(&project_root)
+        .expect_err("traversing static directory should be rejected");
+    assert!(
+        error.to_string().contains("web.static.dir"),
+        "error should mention static dir validation, got: {error:#}"
+    );
+}
+
+#[tokio::test]
+async fn watched_static_assets_reflect_file_updates_without_restart() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("public")).expect("public directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "watched_static"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        "HomeController Controller subclass\nend\n",
+    )
+    .expect("controller should be written");
+    fs::write(project_root.join("public/app.css"), "before").expect("asset should be written");
+
+    let app =
+        ricochet_web::server::build_watched_app_from_dir(&project_root).expect("build watched app");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/app.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("first static response");
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(std::str::from_utf8(&body).unwrap(), "before");
+
+    fs::write(project_root.join("public/app.css"), "after").expect("asset should be rewritten");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/assets/app.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("second static response");
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(std::str::from_utf8(&body).unwrap(), "after");
+}
+
+#[tokio::test]
 async fn serves_ricochet_json_response() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

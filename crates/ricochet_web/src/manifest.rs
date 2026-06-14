@@ -24,8 +24,27 @@ pub struct Web {
     pub mode: String,
     pub routes: String,
     pub views: Views,
+    #[serde(default, rename = "static")]
+    pub static_files: StaticFiles,
     #[serde(default)]
     pub session: Session,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StaticFiles {
+    #[serde(default = "default_static_dir")]
+    pub dir: String,
+    #[serde(default = "default_static_mount")]
+    pub mount: String,
+}
+
+impl Default for StaticFiles {
+    fn default() -> Self {
+        Self {
+            dir: default_static_dir(),
+            mount: default_static_mount(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -48,6 +67,14 @@ pub enum SessionSecure {
     Auto,
     Always,
     Never,
+}
+
+fn default_static_dir() -> String {
+    "public".to_string()
+}
+
+fn default_static_mount() -> String {
+    "/assets".to_string()
 }
 
 impl Session {
@@ -221,6 +248,7 @@ api_key = "${RICOCHET_TEST_OPENAI_API_KEY}"
         assert_eq!(manifest.web.mode, "mvc");
         assert_eq!(manifest.web.routes, "config/routes.rco");
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::Html);
+        assert_eq!(manifest.web.static_files, StaticFiles::default());
         assert_eq!(
             manifest.web.session.signing_secret_env.as_deref(),
             Some("RICOCHET_SESSION_SECRET")
@@ -265,7 +293,33 @@ escape = "none"
         assert!(manifest.database.default.is_none());
         assert!(manifest.ai.default.is_none());
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::None);
+        assert_eq!(manifest.web.static_files.dir, "public");
+        assert_eq!(manifest.web.static_files.mount, "/assets");
         assert_eq!(manifest.web.session, Session::default());
+    }
+
+    #[test]
+    fn manifest_parses_static_asset_config() {
+        let source = r#"
+[package]
+name = "static_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.static]
+dir = "frontend/dist"
+mount = "/static"
+"#;
+
+        let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+
+        assert_eq!(manifest.web.static_files.dir, "frontend/dist");
+        assert_eq!(manifest.web.static_files.mount, "/static");
     }
 
     #[test]

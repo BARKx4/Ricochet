@@ -52,6 +52,8 @@ fn new_creates_mvc_project_skeleton() {
             .join("index.html"),
     )
     .expect("view should exist");
+    let stylesheet =
+        fs::read_to_string(project_path.join("public").join("app.css")).expect("css should exist");
     let model = fs::read_to_string(project_path.join("app").join("Models").join("User.rco"))
         .expect("model should exist");
     let user_controller = fs::read_to_string(
@@ -73,6 +75,9 @@ fn new_creates_mvc_project_skeleton() {
         .expect("test should exist");
 
     assert!(manifest.contains("routes = \"config/routes.rco\""));
+    assert!(manifest.contains("[web.static]"));
+    assert!(manifest.contains("dir = \"public\""));
+    assert!(manifest.contains("mount = \"/assets\""));
     assert!(
         !manifest.contains("[database.default]"),
         "fresh scaffolds should not require a database before rco serve can boot"
@@ -84,7 +89,9 @@ fn new_creates_mvc_project_skeleton() {
     assert!(routes.contains("GET \"/\" HomeController \"index\" route"));
     assert!(routes.contains("GET \"/users\" UserController \"index\" route"));
     assert!(controller.contains("HomeController Controller subclass"));
+    assert!(view.contains("href=\"/assets/app.css\""));
     assert!(view.contains("{ title get }"));
+    assert!(stylesheet.contains("font-family"));
     assert!(model.contains("User Model subclass"));
     assert!(model.contains("\"displayName\""));
     assert!(user_controller.contains("UserController Controller subclass"));
@@ -1319,6 +1326,69 @@ fn package_gui_creates_standalone_executable_that_exports_webview_document() {
     assert!(
         html.contains("<title>GUI Smoke</title>") && html.contains("Hello desktop"),
         "exported HTML should include the GUI document, got:\n{html}"
+    );
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    let project_path = root.join("mvc_app");
+    let output_path = root.join(format!("mvc-app{}", std::env::consts::EXE_SUFFIX));
+    let package_export_path = root.join("mvc-package.html");
+    let asset_export_path = root.join("mvc-package.css");
+
+    let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+    assert_run_success_for("rco new", "mvc_app", &new_output);
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg(&project_path)
+        .arg("--gui")
+        .arg("--mvc")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --gui --mvc should launch");
+    assert_run_success_for("rco package --gui --mvc", "mvc_app", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &package_export_path)
+        .output()
+        .expect("packaged Ricochet MVC GUI executable should launch");
+    assert_run_success_for("packaged MVC GUI executable", "mvc-app", &output);
+
+    let html =
+        fs::read_to_string(package_export_path).expect("packaged MVC GUI HTML should be exported");
+    assert!(
+        html.contains("<h1>Hello Ricochet</h1>"),
+        "exported MVC HTML should include the scaffolded root route, got:\n{html}"
+    );
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &asset_export_path)
+        .env("RICOCHET_GUI_EXPORT_PATH", "/assets/app.css")
+        .output()
+        .expect("packaged Ricochet MVC GUI executable should export static asset");
+    assert_run_success_for(
+        "packaged MVC GUI executable",
+        "mvc-app static asset",
+        &output,
+    );
+
+    let css =
+        fs::read_to_string(asset_export_path).expect("packaged MVC CSS asset should be exported");
+    assert!(
+        css.contains("font-family: system-ui"),
+        "exported MVC CSS should include scaffolded stylesheet, got:\n{css}"
     );
 }
 

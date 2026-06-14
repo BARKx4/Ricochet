@@ -26,7 +26,7 @@ use crate::active_record::{ModelMapping, MysqlDatabase, PostgresDatabase, Sqlite
 use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
-use crate::manifest::{DatabaseDefault, Manifest, SessionSecure};
+use crate::manifest::{DatabaseDefault, Manifest, SessionSecure, StaticFiles};
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
@@ -40,12 +40,19 @@ struct AppState {
 struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
+    static_files: StaticFileConfig,
     config: BTreeMap<String, Value>,
     session_signing_key: Option<SessionSigningKey>,
     session_encryption_key: Option<SessionEncryptionKey>,
     session_secure: SessionSecure,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
+}
+
+#[derive(Debug, Clone)]
+struct StaticFileConfig {
+    mount: String,
+    dir: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -421,10 +428,12 @@ fn build_runtime_from_dir_internal(
         (None, true) => None,
         (None, false) => Some(SessionSigningKey::random()?),
     };
+    let static_files = static_file_config(project_root, &manifest.web.static_files)?;
 
     Ok(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
+        static_files,
         config: manifest_config(&manifest),
         session_signing_key,
         session_encryption_key,
@@ -656,7 +665,9 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
         }
     }
 
-    Ok(app.with_state(state))
+    Ok(app
+        .fallback(any(render_static_asset_or_not_found))
+        .with_state(state))
 }
 
 fn load_manifest(project_root: &Path) -> Result<Manifest> {
@@ -665,6 +676,206 @@ fn load_manifest(project_root: &Path) -> Result<Manifest> {
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
     toml::from_str(&manifest_source)
         .with_context(|| format!("failed to parse {}", manifest_path.display()))
+}
+
+fn static_file_config(project_root: &Path, config: &StaticFiles) -> Result<StaticFileConfig> {
+    validate_static_mount(&config.mount)?;
+    let dir = validate_project_relative_static_dir(&config.dir)?;
+    Ok(StaticFileConfig {
+        mount: config.mount.clone(),
+        dir: project_root.join(dir),
+    })
+}
+
+fn validate_static_mount(mount: &str) -> Result<()> {
+    if mount != "/"
+        && mount.starts_with('/')
+        && !mount.ends_with('/')
+        && !mount.contains('\\')
+        && !mount.contains("//")
+        && mount
+            .split('/')
+            .skip(1)
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+    {
+        return Ok(());
+    }
+
+    bail!("web.static.mount must be a dedicated absolute path like /assets");
+}
+
+fn validate_project_relative_static_dir(dir: &str) -> Result<PathBuf> {
+    if dir.trim().is_empty() || dir.contains('\\') {
+        bail!("web.static.dir must be a project-relative directory path");
+    }
+    let path = Path::new(dir);
+    if path.is_absolute() {
+        bail!("web.static.dir must be project-relative");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => {
+                if segment.to_str().is_none_or(str::is_empty) {
+                    bail!("web.static.dir must contain valid UTF-8 path segments");
+                }
+            }
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => {
+                bail!("web.static.dir must not contain traversal components");
+            }
+        }
+    }
+    Ok(path.to_path_buf())
+}
+
+fn static_asset_response(
+    runtime: &AppRuntime,
+    method: &Method,
+    request_path: &str,
+) -> Result<Option<Response>> {
+    let Some(relative_path) =
+        static_request_relative_path(&runtime.static_files.mount, request_path)
+    else {
+        return Ok(None);
+    };
+
+    if method != Method::GET && method != Method::HEAD {
+        return Ok(Some(StatusCode::METHOD_NOT_ALLOWED.into_response()));
+    }
+
+    let Some(relative_path) = relative_path else {
+        return Ok(Some(StatusCode::NOT_FOUND.into_response()));
+    };
+    let static_root = match fs::canonicalize(&runtime.static_files.dir) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(StatusCode::NOT_FOUND.into_response()));
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("failed to resolve {}", runtime.static_files.dir.display())
+            })
+        }
+    };
+    let requested_asset_path = runtime.static_files.dir.join(&relative_path);
+    let asset_path = match fs::canonicalize(&requested_asset_path) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(StatusCode::NOT_FOUND.into_response()));
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to resolve {}", requested_asset_path.display()))
+        }
+    };
+    if !asset_path.starts_with(&static_root) || !asset_path.is_file() {
+        return Ok(Some(StatusCode::NOT_FOUND.into_response()));
+    }
+
+    let content_type = static_content_type(&asset_path);
+    let body = if method == Method::HEAD {
+        Body::empty()
+    } else {
+        Body::from(
+            fs::read(&asset_path)
+                .with_context(|| format!("failed to read static asset {}", asset_path.display()))?,
+        )
+    };
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(body)
+        .context("failed to build static asset response")?;
+    Ok(Some(response))
+}
+
+fn static_request_relative_path(mount: &str, request_path: &str) -> Option<Option<PathBuf>> {
+    let rest = if request_path == mount {
+        ""
+    } else {
+        request_path
+            .strip_prefix(mount)
+            .and_then(|rest| rest.strip_prefix('/'))?
+    };
+    if rest.is_empty() {
+        return Some(None);
+    }
+
+    let mut path = PathBuf::new();
+    for segment in rest.split('/') {
+        let Ok(segment) = percent_decode_path_segment(segment) else {
+            return Some(None);
+        };
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains('\\')
+            || segment.contains('/')
+            || segment.contains('\0')
+        {
+            return Some(None);
+        }
+        path.push(segment);
+    }
+    Some(Some(path))
+}
+
+fn percent_decode_path_segment(segment: &str) -> Result<String> {
+    let bytes = segment.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                bail!("invalid percent-encoded path segment");
+            }
+            let high = hex_value(bytes[index + 1]).context("invalid percent-encoded path")?;
+            let low = hex_value(bytes[index + 2]).context("invalid percent-encoded path")?;
+            output.push((high << 4) | low);
+            index += 3;
+        } else {
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).context("static asset path is not UTF-8")
+}
+
+fn static_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "txt" => "text/plain; charset=utf-8",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "wasm" => "application/wasm",
+        _ => "application/octet-stream",
+    }
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn manifest_config(manifest: &Manifest) -> BTreeMap<String, Value> {
@@ -712,6 +923,22 @@ fn manifest_config(manifest: &Manifest) -> BTreeMap<String, Value> {
                                 SessionSecure::Never => "never".to_string(),
                             }),
                         )])
+                        .into(),
+                    ),
+                ),
+                (
+                    "static".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            (
+                                "dir".to_string(),
+                                Value::String(manifest.web.static_files.dir.clone()),
+                            ),
+                            (
+                                "mount".to_string(),
+                                Value::String(manifest.web.static_files.mount.clone()),
+                            ),
+                        ])
                         .into(),
                     ),
                 ),
@@ -1009,6 +1236,23 @@ async fn render_route(
     }
 }
 
+async fn render_static_asset_or_not_found(
+    State(state): State<AppState>,
+    request: Request<Body>,
+) -> Response {
+    let (parts, _body) = request.into_parts();
+    let (runtime, _revision) = match state.runtime.snapshot(&state.revisions) {
+        Ok(snapshot) => snapshot,
+        Err(err) => return mvc_error_response(err),
+    };
+
+    match static_asset_response(&runtime, &parts.method, parts.uri.path()) {
+        Ok(Some(response)) => response,
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(err) => mvc_error_response(err),
+    }
+}
+
 async fn render_watched_route(
     State(state): State<AppState>,
     request: Request<Body>,
@@ -1018,13 +1262,20 @@ async fn render_watched_route(
     let path = parts.uri.path().to_string();
     let headers = headers_to_map(&parts.headers);
     let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
-    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
-        Ok(params) => params,
-        Err(err) => return mvc_error_response(err),
-    };
 
     let (runtime, revision) = match state.runtime.snapshot(&state.revisions) {
         Ok(snapshot) => snapshot,
+        Err(err) => return mvc_error_response(err),
+    };
+
+    match static_asset_response(&runtime, &method, &path) {
+        Ok(Some(response)) => return response,
+        Ok(None) => {}
+        Err(err) => return mvc_error_response(err),
+    }
+
+    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
+        Ok(params) => params,
         Err(err) => return mvc_error_response(err),
     };
 
@@ -1671,46 +1922,10 @@ fn hex_decode(source: &str) -> Result<Vec<u8>, ()> {
     Ok(decoded)
 }
 
-fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
 pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     options.validate()?;
     let project_root = Path::new(".");
-    let manifest = load_manifest(project_root)?;
-    let watch_trace_sink = (options.watch && options.debug).then(stdout_watch_trace_sink);
-    let app = match (options.watch, manifest.database.default) {
-        (true, Some(database)) => {
-            let backend = connect_database_backend(&database).await?;
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_database_and_trace(
-                    project_root,
-                    backend,
-                    trace_sink,
-                )?
-            } else {
-                build_watched_app_from_dir_with_database(project_root, backend)?
-            }
-        }
-        (true, None) => {
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_trace(project_root, trace_sink)?
-            } else {
-                build_watched_app_from_dir(project_root)?
-            }
-        }
-        (false, Some(database)) => {
-            let backend = connect_database_backend(&database).await?;
-            build_app_from_dir_with_database(project_root, backend)?
-        }
-        (false, None) => build_app_from_dir(project_root)?,
-    };
+    let app = build_served_app_from_dir(project_root, options.debug, options.watch).await?;
     let bind_addr = options.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
@@ -1718,6 +1933,46 @@ pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
         "Ricochet web server listening on http://{bind_addr} debug={} watch={}",
         options.debug, options.watch
     );
+    serve_app_on_listener(listener, app).await
+}
+
+pub async fn build_served_app_from_dir(
+    project_root: impl AsRef<Path>,
+    debug: bool,
+    watch: bool,
+) -> Result<Router> {
+    let project_root = project_root.as_ref();
+    let manifest = load_manifest(project_root)?;
+    let watch_trace_sink = (watch && debug).then(stdout_watch_trace_sink);
+    match (watch, manifest.database.default) {
+        (true, Some(database)) => {
+            let backend = connect_database_backend(&database).await?;
+            if let Some(trace_sink) = watch_trace_sink.clone() {
+                build_watched_app_from_dir_with_database_and_trace(
+                    project_root,
+                    backend,
+                    trace_sink,
+                )
+            } else {
+                build_watched_app_from_dir_with_database(project_root, backend)
+            }
+        }
+        (true, None) => {
+            if let Some(trace_sink) = watch_trace_sink.clone() {
+                build_watched_app_from_dir_with_trace(project_root, trace_sink)
+            } else {
+                build_watched_app_from_dir(project_root)
+            }
+        }
+        (false, Some(database)) => {
+            let backend = connect_database_backend(&database).await?;
+            build_app_from_dir_with_database(project_root, backend)
+        }
+        (false, None) => build_app_from_dir(project_root),
+    }
+}
+
+pub async fn serve_app_on_listener(listener: tokio::net::TcpListener, app: Router) -> Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }

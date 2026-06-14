@@ -24,7 +24,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   and task-returning HTTP helpers.
 - Desktop GUI beta: trusted local scripts can build escaped `webview` document
   maps, preview them with `rco gui`, and package them as native Windows, Linux,
-  or macOS WebView executables with `rco package --gui`.
+  or macOS WebView executables with `rco package --gui`. MVC projects can also
+  be packaged as local-server desktop WebView apps with
+  `rco package --gui --mvc`.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
@@ -32,8 +34,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   dependencies to immutable commits in `ricochet.lock`, and import local package
   sources by package name.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
-  during local development, and render templates with controller-provided view
-  data.
+  during local development, serve static assets from `public/` under `/assets`,
+  and render templates with controller-provided view data.
 - Controller context: request params, query, form data, headers, cookies,
   lightweight session state, logger, safe manifest config, database capability,
   and optional AI capability are available to controllers.
@@ -46,7 +48,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   `where-page`, and `where-order-page`.
 - Local beta scaffold: `rco new --with-sqlite` creates a zero-service app with
   a seeded SQLite database, `/users` Active Record page, and copyable
-  form/session login loop.
+  form/session login loop. New apps include `public/app.css` served at
+  `/assets/app.css`.
 - AI integration: MVC apps can opt into an OpenAI-compatible `[ai.default]`
   provider and receive an `ai` controller capability whose `.chat` method
   returns `Result` maps.
@@ -99,6 +102,9 @@ rco doc my_app
 rco test my_app
 ```
 
+MVC apps serve static files from `public/` at `/assets` by default. Override
+that with `[web.static] dir = "..."` and `mount = "/..."` in `ricochet.toml`.
+
 Run a script:
 
 ```powershell
@@ -119,6 +125,13 @@ Preview and package a desktop GUI app:
 ```powershell
 rco gui examples/webview_ui.rco
 rco package examples/webview_ui.rco --gui --output webview-ui.exe
+```
+
+Package an MVC app directory as a desktop beta build:
+
+```powershell
+rco new my_desktop_app
+rco package my_desktop_app --gui --mvc --output my-desktop-app.exe
 ```
 
 Use `--output webview-ui` on Linux and macOS. Linux GUI launchers use

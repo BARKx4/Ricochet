@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
+use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -19,7 +21,13 @@ const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
+const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
+const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
+const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
+const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
+const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
+const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
 
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
@@ -89,6 +97,11 @@ enum Command {
             help = "Package as a native desktop GUI app using the rco-gui launcher"
         )]
         gui: bool,
+        #[arg(
+            long,
+            help = "Package an MVC app directory as a local-server desktop GUI app; requires --gui"
+        )]
+        mvc: bool,
         #[arg(
             long = "gui-launcher",
             value_name = "PATH",
@@ -162,6 +175,7 @@ enum LinuxPackageFormat {
 enum EmbeddedAppKind {
     Console,
     Gui,
+    MvcGui,
 }
 
 impl EmbeddedAppKind {
@@ -169,6 +183,7 @@ impl EmbeddedAppKind {
         match self {
             EmbeddedAppKind::Console => EMBEDDED_APP_MARKER,
             EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
+            EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
         }
     }
 }
@@ -176,7 +191,24 @@ impl EmbeddedAppKind {
 #[derive(Debug)]
 struct EmbeddedApp {
     kind: EmbeddedAppKind,
-    chunk: Chunk,
+    payload: EmbeddedAppPayload,
+}
+
+#[derive(Debug)]
+enum EmbeddedAppPayload {
+    Chunk(Chunk),
+    MvcBundle(MvcBundle),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MvcBundle {
+    files: Vec<MvcBundleFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MvcBundleFile {
+    relative_path: PathBuf,
+    bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,19 +327,25 @@ pub fn crate_version() -> &'static str {
 
 pub async fn run_cli() -> Result<()> {
     if let Some(app) = embedded_app_from_current_exe()? {
-        match app.kind {
-            EmbeddedAppKind::Console => run_chunk_cli(
-                &app.chunk,
-                false,
-                false,
-                &[],
-                None,
-                std::env::args().skip(1).collect(),
-                CapabilityOptions::default(),
-            )?,
-            EmbeddedAppKind::Gui => {
-                run_embedded_gui_app(&app.chunk, std::env::args().skip(1).collect())?
+        match app.payload {
+            EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Console => {
+                run_chunk_cli(
+                    &chunk,
+                    false,
+                    false,
+                    &[],
+                    None,
+                    std::env::args().skip(1).collect(),
+                    CapabilityOptions::default(),
+                )?
             }
+            EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
+                run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
+            }
+            EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
+                run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await?
+            }
+            _ => bail!("embedded Ricochet app payload does not match its marker"),
         }
         return Ok(());
     }
@@ -357,6 +395,7 @@ pub async fn run_cli() -> Result<()> {
             path,
             output,
             gui,
+            mvc,
             gui_launcher,
             linux_packages,
             package_name,
@@ -367,6 +406,7 @@ pub async fn run_cli() -> Result<()> {
             &output,
             PackageOptions {
                 gui,
+                mvc,
                 gui_launcher: gui_launcher.as_deref(),
                 linux_packages: &linux_packages,
                 package_name: package_name.as_deref(),
@@ -414,13 +454,20 @@ pub async fn run_cli() -> Result<()> {
     Ok(())
 }
 
-pub fn run_gui_launcher() -> Result<()> {
+pub async fn run_gui_launcher() -> Result<()> {
     let app = embedded_app_from_current_exe()?
         .context("rco-gui must be packaged with `rco package --gui` before it can launch an app")?;
-    if app.kind != EmbeddedAppKind::Gui {
-        bail!("rco-gui can only launch apps packaged with `rco package --gui`");
+    match app.payload {
+        EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
+            run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())
+        }
+        EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
+            run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await
+        }
+        _ => {
+            bail!("rco-gui can only launch apps packaged with `rco package --gui`");
+        }
     }
-    run_embedded_gui_app(&app.chunk, std::env::args().skip(1).collect())
 }
 
 fn run_repl<R: BufRead, W: Write>(
@@ -730,6 +777,8 @@ fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
         .with_context(|| format!("failed to create config in {}", path.display()))?;
     fs::create_dir_all(path.join("tests"))
         .with_context(|| format!("failed to create tests in {}", path.display()))?;
+    fs::create_dir_all(path.join("public"))
+        .with_context(|| format!("failed to create public in {}", path.display()))?;
     if options.with_sqlite {
         fs::create_dir_all(path.join("db"))
             .with_context(|| format!("failed to create db in {}", path.display()))?;
@@ -779,7 +828,7 @@ end
             .join("Views")
             .join("home")
             .join("index.html"),
-        "<h1>{ title get }</h1>\n",
+        "<link rel=\"stylesheet\" href=\"/assets/app.css\">\n<h1>{ title get }</h1>\n",
     )?;
     write_project_file(
         path.join("app")
@@ -824,6 +873,10 @@ end
   ] !method
 end
 "#,
+    )?;
+    write_project_file(
+        path.join("public").join("app.css"),
+        "body {\n  font-family: system-ui, sans-serif;\n  margin: 2rem;\n}\n",
     )?;
 
     if options.with_sqlite {
@@ -1054,6 +1107,10 @@ routes = "config/routes.rco"
 
 [web.views]
 escape = "html"
+
+[web.static]
+dir = "public"
+mount = "/assets"
 "#
     );
 
@@ -1688,6 +1745,98 @@ fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     run_gui_chunk(chunk, args, CapabilityOptions::default())
 }
 
+async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Result<()> {
+    let project_root = extract_embedded_mvc_bundle(&bundle)?;
+    std::env::set_current_dir(&project_root).with_context(|| {
+        format!(
+            "failed to use embedded MVC project directory {}",
+            project_root.display()
+        )
+    })?;
+
+    let app = ricochet_web::build_served_app_from_dir(&project_root, false, false).await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("failed to bind local MVC GUI server")?;
+    let address = listener
+        .local_addr()
+        .context("failed to read local MVC GUI server address")?;
+    let server = tokio::spawn(async move {
+        if let Err(error) = ricochet_web::serve_app_on_listener(listener, app).await {
+            eprintln!("Ricochet MVC GUI server stopped: {error:?}");
+        }
+    });
+    let url = format!("http://{address}/");
+
+    if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
+        let export_request_path =
+            std::env::var(GUI_EXPORT_PATH_ENV).unwrap_or_else(|_| "/".to_string());
+        if !export_request_path.starts_with('/') {
+            bail!("{GUI_EXPORT_PATH_ENV} must start with /");
+        }
+        let html = fetch_http_body(address, &export_request_path).await?;
+        fs::write(&path, html).with_context(|| {
+            format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
+        })?;
+        server.abort();
+        return Ok(());
+    }
+
+    let result = open_native_webview_url(
+        DEFAULT_MVC_GUI_TITLE,
+        &url,
+        DEFAULT_MVC_GUI_WIDTH,
+        DEFAULT_MVC_GUI_HEIGHT,
+    );
+    server.abort();
+    result
+}
+
+async fn fetch_http_body(address: SocketAddr, path: &str) -> Result<String> {
+    let mut last_error = None;
+    for _ in 0..50 {
+        match try_fetch_http_body(address, path).await {
+            Ok(body) => return Ok(body),
+            Err(error) => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("local MVC GUI server did not respond"))
+        .context(format!("failed to fetch http://{address}{path}")))
+}
+
+async fn try_fetch_http_body(address: SocketAddr, path: &str) -> Result<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stream = tokio::net::TcpStream::connect(address)
+        .await
+        .context("failed to connect to local MVC GUI server")?;
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .context("failed to send MVC GUI export request")?;
+
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .context("failed to read MVC GUI export response")?;
+    let response = String::from_utf8_lossy(&response);
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .context("MVC GUI export response was not valid HTTP")?;
+    let status_line = headers.lines().next().unwrap_or_default();
+    if !status_line.contains(" 200 ") {
+        bail!("MVC GUI export request returned {status_line}");
+    }
+    Ok(body.to_string())
+}
+
 fn run_gui_chunk(chunk: &Chunk, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
     let document = render_webview_document(chunk, args, capabilities)?;
     if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
@@ -1815,6 +1964,37 @@ fn open_native_webview(document: WebviewDocument) -> Result<()> {
     });
 }
 
+#[cfg(any(windows, target_os = "macos"))]
+fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
+    use tao::dpi::LogicalSize;
+    use tao::event::{Event, WindowEvent};
+    use tao::event_loop::{ControlFlow, EventLoop};
+    use tao::window::WindowBuilder;
+    use wry::WebViewBuilder;
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title(title.to_string())
+        .with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
+        .build(&event_loop)
+        .context("failed to create native GUI window")?;
+    let _webview = WebViewBuilder::new()
+        .with_url(url)
+        .build(&window)
+        .context("failed to create native WebView")?;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
+}
+
 #[cfg(target_os = "linux")]
 fn open_native_webview(document: WebviewDocument) -> Result<()> {
     use tao::dpi::LogicalSize;
@@ -1850,8 +2030,45 @@ fn open_native_webview(document: WebviewDocument) -> Result<()> {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
+    use tao::dpi::LogicalSize;
+    use tao::event::{Event, WindowEvent};
+    use tao::event_loop::{ControlFlow, EventLoop};
+    use tao::platform::unix::WindowExtUnix;
+    use tao::window::WindowBuilder;
+    use wry::{WebViewBuilder, WebViewBuilderExtUnix};
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title(title.to_string())
+        .with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
+        .build(&event_loop)
+        .context("failed to create native GUI window")?;
+    let _webview = WebViewBuilder::new()
+        .with_url(url)
+        .build_gtk(window.gtk_window())
+        .context("failed to create native WebView")?;
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
+}
+
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn open_native_webview(_document: WebviewDocument) -> Result<()> {
+    bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn open_native_webview_url(_title: &str, _url: &str, _width: u32, _height: u32) -> Result<()> {
     bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
@@ -2146,6 +2363,9 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if output.is_dir() {
         bail!("package output is a directory: {}", output.display());
     }
+    if options.mvc && !options.gui {
+        bail!("--mvc requires --gui");
+    }
     if options.gui_launcher.is_some() && !options.gui {
         bail!("--gui-launcher requires --gui");
     }
@@ -2156,8 +2376,18 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
         ensure_linux_package_host()?;
     }
 
-    let chunk = compile_source_file(Path::new(path))?;
-    let bytes = chunk.to_bytes()?;
+    let package_kind = if options.mvc {
+        EmbeddedAppKind::MvcGui
+    } else if options.gui {
+        EmbeddedAppKind::Gui
+    } else {
+        EmbeddedAppKind::Console
+    };
+    let bytes = if options.mvc {
+        build_mvc_bundle(Path::new(path), output)?.to_bytes()?
+    } else {
+        compile_source_file(Path::new(path))?.to_bytes()?
+    };
     let launcher = package_launcher(options.gui, options.gui_launcher)?;
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
@@ -2170,15 +2400,7 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
             output.display()
         )
     })?;
-    append_embedded_chunk(
-        output,
-        &bytes,
-        if options.gui {
-            EmbeddedAppKind::Gui
-        } else {
-            EmbeddedAppKind::Console
-        },
-    )?;
+    append_embedded_payload(output, &bytes, package_kind)?;
 
     println!("packaged {}", output.display());
 
@@ -2198,11 +2420,295 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
 
 struct PackageOptions<'a> {
     gui: bool,
+    mvc: bool,
     gui_launcher: Option<&'a Path>,
     linux_packages: &'a [LinuxPackageFormat],
     package_name: Option<&'a str>,
     package_version: &'a str,
     package_description: &'a str,
+}
+
+impl MvcBundle {
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut output = Vec::new();
+        output.extend_from_slice(MVC_BUNDLE_MAGIC);
+        write_u64(&mut output, self.files.len() as u64);
+        for file in &self.files {
+            validate_bundle_relative_path(&file.relative_path)?;
+            let path = path_to_bundle_string(&file.relative_path)?;
+            let path_bytes = path.as_bytes();
+            write_u32(&mut output, path_bytes.len() as u32);
+            write_u64(&mut output, file.bytes.len() as u64);
+            output.extend_from_slice(path_bytes);
+            output.extend_from_slice(&file.bytes);
+        }
+        Ok(output)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut cursor = ByteCursor::new(bytes);
+        cursor.expect_bytes(MVC_BUNDLE_MAGIC)?;
+        let file_count = cursor.read_u64()? as usize;
+        let mut files = Vec::with_capacity(file_count);
+        for _ in 0..file_count {
+            let path_len = cursor.read_u32()? as usize;
+            let file_len = cursor.read_u64()? as usize;
+            let path = cursor.read_bytes(path_len)?;
+            let path = std::str::from_utf8(path).context("MVC bundle path is not UTF-8")?;
+            let relative_path = bundle_string_to_path(path)?;
+            validate_bundle_relative_path(&relative_path)?;
+            let bytes = cursor.read_bytes(file_len)?.to_vec();
+            files.push(MvcBundleFile {
+                relative_path,
+                bytes,
+            });
+        }
+        cursor.finish()?;
+        Ok(Self { files })
+    }
+
+    fn extract_to(&self, root: &Path) -> Result<()> {
+        for file in &self.files {
+            validate_bundle_relative_path(&file.relative_path)?;
+            let destination = root.join(&file.relative_path);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            fs::write(&destination, &file.bytes)
+                .with_context(|| format!("failed to extract {}", destination.display()))?;
+        }
+        Ok(())
+    }
+}
+
+struct ByteCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ByteCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn expect_bytes(&mut self, expected: &[u8]) -> Result<()> {
+        let actual = self.read_bytes(expected.len())?;
+        if actual != expected {
+            bail!("embedded MVC bundle has an unsupported format");
+        }
+        Ok(())
+    }
+
+    fn read_u32(&mut self) -> Result<u32> {
+        let bytes = self.read_bytes(4)?;
+        Ok(u32::from_le_bytes(
+            bytes.try_into().expect("u32 byte count"),
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64> {
+        let bytes = self.read_bytes(8)?;
+        Ok(u64::from_le_bytes(
+            bytes.try_into().expect("u64 byte count"),
+        ))
+    }
+
+    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .context("embedded MVC bundle length overflow")?;
+        if end > self.bytes.len() {
+            bail!("embedded MVC bundle ended unexpectedly");
+        }
+        let bytes = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    fn finish(&self) -> Result<()> {
+        if self.offset != self.bytes.len() {
+            bail!("embedded MVC bundle has trailing bytes");
+        }
+        Ok(())
+    }
+}
+
+fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
+    if !project_root.is_dir() {
+        bail!(
+            "rco package --mvc expects a Ricochet MVC project directory, got {}",
+            project_root.display()
+        );
+    }
+    let manifest_path = project_root.join("ricochet.toml");
+    if !manifest_path.is_file() {
+        bail!(
+            "rco package --mvc expects {} to contain ricochet.toml",
+            project_root.display()
+        );
+    }
+
+    let project_root = project_root
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
+    let output_path = absolute_package_output_path(output)?;
+    let mut files = Vec::new();
+    collect_mvc_bundle_files(&project_root, &project_root, &output_path, &mut files)?;
+    files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(MvcBundle { files })
+}
+
+fn absolute_package_output_path(output: &Path) -> Result<PathBuf> {
+    if output.is_absolute() {
+        Ok(output.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .context("failed to read current directory")?
+            .join(output))
+    }
+}
+
+fn collect_mvc_bundle_files(
+    project_root: &Path,
+    current: &Path,
+    output_path: &Path,
+    files: &mut Vec<MvcBundleFile>,
+) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed to read {}", current.display()))?;
+        let path = entry.path();
+        let relative_path = path
+            .strip_prefix(project_root)
+            .with_context(|| format!("failed to make {} project-relative", path.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_dir() {
+            if should_skip_mvc_bundle_directory(relative_path) {
+                continue;
+            }
+            collect_mvc_bundle_files(project_root, &path, output_path, files)?;
+        } else if file_type.is_file() {
+            if same_package_output_file(&path, output_path) {
+                continue;
+            }
+            validate_bundle_relative_path(relative_path)?;
+            let bytes =
+                fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+            files.push(MvcBundleFile {
+                relative_path: relative_path.to_path_buf(),
+                bytes,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn should_skip_mvc_bundle_directory(relative_path: &Path) -> bool {
+    relative_path.components().next().is_some_and(|component| {
+        matches!(
+            component,
+            Component::Normal(name) if name == ".git" || name == "target"
+        )
+    })
+}
+
+fn same_package_output_file(path: &Path, output_path: &Path) -> bool {
+    if path == output_path {
+        return true;
+    }
+    match (path.canonicalize(), output_path.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn validate_bundle_relative_path(path: &Path) -> Result<()> {
+    if path.as_os_str().is_empty() {
+        bail!("MVC bundle path must not be empty");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => {}
+            _ => bail!(
+                "MVC bundle path must stay project-relative: {}",
+                path.display()
+            ),
+        }
+    }
+    Ok(())
+}
+
+fn path_to_bundle_string(path: &Path) -> Result<String> {
+    validate_bundle_relative_path(path)?;
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) => {
+                let value = value
+                    .to_str()
+                    .with_context(|| format!("MVC bundle path is not UTF-8: {}", path.display()))?;
+                parts.push(value.to_string());
+            }
+            _ => bail!(
+                "MVC bundle path must stay project-relative: {}",
+                path.display()
+            ),
+        }
+    }
+    Ok(parts.join("/"))
+}
+
+fn bundle_string_to_path(path: &str) -> Result<PathBuf> {
+    if path.is_empty() || path.split('/').any(|part| part.is_empty()) {
+        bail!("MVC bundle path must not be empty");
+    }
+    let mut result = PathBuf::new();
+    for part in path.split('/') {
+        if part == "." || part == ".." || part.contains('\\') {
+            bail!("MVC bundle path must stay project-relative: {path}");
+        }
+        result.push(part);
+    }
+    Ok(result)
+}
+
+fn write_u32(output: &mut Vec<u8>, value: u32) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_u64(output: &mut Vec<u8>, value: u64) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn extract_embedded_mvc_bundle(bundle: &MvcBundle) -> Result<PathBuf> {
+    let root = unique_mvc_extract_dir()?;
+    bundle.extract_to(&root)?;
+    Ok(root)
+}
+
+fn unique_mvc_extract_dir() -> Result<PathBuf> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let base = std::env::temp_dir();
+    for attempt in 0..100 {
+        let path = base.join(format!(
+            "ricochet-mvc-{}-{millis}-{attempt}",
+            std::process::id()
+        ));
+        if !path.exists() {
+            fs::create_dir_all(&path)
+                .with_context(|| format!("failed to create {}", path.display()))?;
+            return Ok(path);
+        }
+    }
+    bail!("failed to find an unused MVC extraction directory")
 }
 
 fn native_gui_packaging_supported() -> bool {
@@ -2242,16 +2748,16 @@ fn package_launcher(gui: bool, gui_launcher: Option<&Path>) -> Result<PathBuf> {
     )
 }
 
-fn append_embedded_chunk(path: &Path, chunk_bytes: &[u8], kind: EmbeddedAppKind) -> Result<()> {
+fn append_embedded_payload(path: &Path, payload: &[u8], kind: EmbeddedAppKind) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .append(true)
         .open(path)
         .with_context(|| format!("failed to open {} for packaging", path.display()))?;
-    file.write_all(chunk_bytes)
-        .with_context(|| format!("failed to append bytecode to {}", path.display()))?;
+    file.write_all(payload)
+        .with_context(|| format!("failed to append embedded app to {}", path.display()))?;
     file.write_all(kind.marker())
         .with_context(|| format!("failed to append package marker to {}", path.display()))?;
-    file.write_all(&(chunk_bytes.len() as u64).to_le_bytes())
+    file.write_all(&(payload.len() as u64).to_le_bytes())
         .with_context(|| format!("failed to append package length to {}", path.display()))?;
     Ok(())
 }
@@ -2608,7 +3114,11 @@ fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
 }
 
 fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
-    for kind in [EmbeddedAppKind::Gui, EmbeddedAppKind::Console] {
+    for kind in [
+        EmbeddedAppKind::MvcGui,
+        EmbeddedAppKind::Gui,
+        EmbeddedAppKind::Console,
+    ] {
         if let Some(app) = embedded_app_from_bytes_with_marker(bytes, kind)? {
             return Ok(Some(app));
         }
@@ -2638,9 +3148,17 @@ fn embedded_app_from_bytes_with_marker(
     if marker_start < chunk_len {
         bail!("embedded Ricochet app length exceeds executable size");
     }
-    let chunk_start = marker_start - chunk_len;
-    let chunk = Chunk::from_bytes(&bytes[chunk_start..marker_start])?;
-    Ok(Some(EmbeddedApp { kind, chunk }))
+    let payload_start = marker_start - chunk_len;
+    let payload_bytes = &bytes[payload_start..marker_start];
+    let payload = match kind {
+        EmbeddedAppKind::Console | EmbeddedAppKind::Gui => {
+            EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
+        }
+        EmbeddedAppKind::MvcGui => {
+            EmbeddedAppPayload::MvcBundle(MvcBundle::from_bytes(payload_bytes)?)
+        }
+    };
+    Ok(Some(EmbeddedApp { kind, payload }))
 }
 
 fn format_path(path: &str, check: bool) -> Result<()> {
