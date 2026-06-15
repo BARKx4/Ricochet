@@ -689,6 +689,13 @@ handles get await-all</code></pre>
 "https://example.com" http .get-task request var
 request get await value asyncResponse var
 "body" asyncResponse get .at println
+headers map
+"Authorization" "Bearer token" headers get .put! drop
+providerRequest map
+"url" "https://api.example/v1/models" providerRequest get .put! drop
+"headers" headers get providerRequest get .put! drop
+providerRequest get http .request-task await value providerResponse var
+"status" providerResponse get .at println
 "Ready" tui .write! value drop tui .flush! value drop</code></pre>
           </article>
           <article class="example-panel wide">
@@ -707,13 +714,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
         <ul class="limit-list">
           <li>Ricochet v1 is a developer beta target for building and testing usable local MVC web apps. It is not a production deployment promise.</li>
           <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>HTTP and filesystem access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH` and `--http-allow-host HOST` can open bounded access. `--no-fs`, `--fs-readonly`, and `--no-http` further narrow host powers. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap.</li>
+          <li>HTTP and filesystem access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH` and `--http-allow-host HOST` can open bounded access. `--no-fs`, `--fs-readonly`, and `--no-http` further narrow host powers. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap. Use `http .request` or `http .request-task` when a provider call needs explicit headers; header names and values are validated before connecting.</li>
           <li>MVC request body parsing is in-memory with a 16 MiB beta limit. Multipart uploads expose UTF-8 `text` when possible and `data_base64` for arbitrary bytes; streaming upload APIs remain planned work.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, `.failed?`, and `tasks`; HTTP capabilities also expose `.get-task` and `.post-json-task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
+          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, `.failed?`, and `tasks`; HTTP capabilities also expose `.get-task`, `.post-json-task`, and `.request-task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
           <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>

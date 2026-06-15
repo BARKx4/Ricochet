@@ -216,6 +216,25 @@ $request await value response var
 "status" $response .at println
 ```
 
+For authenticated provider calls, pass a request map with explicit headers.
+`http .request` and `http .request-task` preserve the same host allowlist,
+10 second timeout, no-follow redirect policy, response shape, and 1 MiB body
+cap as the simpler HTTP words:
+
+```forth
+headers map
+"Authorization" "Bearer token" $headers .put! drop
+body map
+"probe" true $body .put! drop
+request map
+"url" "https://api.example/v1/models" $request .put! drop
+"method" "POST" $request .put! drop
+"headers" $headers $request .put! drop
+"json" $body $request .put! drop
+$request http .request value response var
+"status" $response .at println
+```
+
 Build a webview document for desktop UI hosts:
 
 ```forth

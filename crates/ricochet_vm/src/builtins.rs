@@ -137,7 +137,15 @@ impl Vm {
                 )
             }
             Value::Capability(Capability::Http) => {
-                matches!(method, "get" | "post-json" | "get-task" | "post-json-task")
+                matches!(
+                    method,
+                    "get"
+                        | "post-json"
+                        | "request"
+                        | "get-task"
+                        | "post-json-task"
+                        | "request-task"
+                )
             }
             Value::Capability(Capability::Terminal) => matches!(
                 method,
@@ -260,8 +268,10 @@ impl Vm {
             "create-dir!" => self.method_fs_create_dir(receiver, method),
             "get" => self.method_http_get(receiver, method),
             "post-json" => self.method_http_post_json(receiver, method),
+            "request" => self.method_http_request(receiver, method),
             "get-task" => self.method_http_get_task(receiver, method),
             "post-json-task" => self.method_http_post_json_task(receiver, method),
+            "request-task" => self.method_http_request_task(receiver, method),
             "enter!" => self.method_tui_enter(receiver, method),
             "leave!" => self.method_tui_leave(receiver, method),
             "move-to!" => self.method_tui_move_to(receiver, method),
@@ -1706,6 +1716,19 @@ impl Vm {
         Ok(http_in_worker(move || perform_http_post_json(url, body)))
     }
 
+    fn method_http_request(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Http, method)?;
+        let request = self.pop(method)?;
+        let request = match http_request_from_value(request) {
+            Ok(request) => request,
+            Err(error) => return Ok(error),
+        };
+        if let Err(error) = self.check_http_url_allowed(method, &request.url) {
+            return Ok(Value::result_err("PermissionError", error.to_string()));
+        }
+        Ok(http_in_worker(move || perform_http_request(request)))
+    }
+
     fn method_http_get_task(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Http, method)?;
         let url = self.pop_string(method, "URL string")?;
@@ -1738,6 +1761,27 @@ impl Vm {
         self.spawn_value_task(method, move || match permission_error {
             Some(error) => Value::result_err("PermissionError", error),
             None => perform_http_post_json(url, body),
+        })
+    }
+
+    fn method_http_request_task(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Http, method)?;
+        let request = self.pop(method)?;
+        let request = match http_request_from_value(request) {
+            Ok(request) => request,
+            Err(error) => return Ok(error),
+        };
+        let permission_error = self
+            .check_http_url_allowed(method, &request.url)
+            .err()
+            .map(|error| error.to_string());
+        self.spawn_value_task(method, move || match permission_error {
+            Some(error) => Value::result_err("PermissionError", error),
+            None => perform_http_request(request),
         })
     }
 
@@ -2520,6 +2564,139 @@ fn http_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
         .build()
 }
 
+#[derive(Clone)]
+struct HttpRequest {
+    method: reqwest::Method,
+    url: String,
+    headers: reqwest::header::HeaderMap,
+    json: Option<JsonValue>,
+    body: Option<String>,
+}
+
+fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
+    let Value::Map(map) = value else {
+        return Err(Value::result_err(
+            "HttpRequestError",
+            format!("HTTP request must be a map, got {}", value_kind(&value)),
+        ));
+    };
+    let mut fields = map.snapshot();
+    let url = match fields.remove("url") {
+        Some(Value::String(value)) => value,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request url must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+        None => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                "HTTP request requires a url string",
+            ));
+        }
+    };
+    let method = match fields.remove("method") {
+        Some(Value::String(value)) => value
+            .parse::<reqwest::Method>()
+            .map_err(|_| Value::result_err("HttpRequestError", "invalid HTTP request method"))?,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request method must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+        None => reqwest::Method::GET,
+    };
+    let headers = match fields.remove("headers") {
+        Some(Value::Map(headers)) => http_headers_from_map(headers.snapshot())?,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request headers must be a map, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+        None => reqwest::header::HeaderMap::new(),
+    };
+    let json = match fields.remove("json") {
+        Some(value) => match value_to_json(&value) {
+            Ok(value) => Some(value),
+            Err(message) => return Err(Value::result_err("JsonError", message)),
+        },
+        None => None,
+    };
+    let body = match fields.remove("body") {
+        Some(Value::String(value)) => Some(value),
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request body must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+        None => None,
+    };
+    if json.is_some() && body.is_some() {
+        return Err(Value::result_err(
+            "HttpRequestError",
+            "HTTP request cannot include both json and body",
+        ));
+    }
+
+    Ok(HttpRequest {
+        method,
+        url,
+        headers,
+        json,
+        body,
+    })
+}
+
+fn http_headers_from_map(
+    headers: BTreeMap<String, Value>,
+) -> Result<reqwest::header::HeaderMap, Value> {
+    let mut output = reqwest::header::HeaderMap::new();
+    for (name, value) in headers {
+        let name = reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
+            Value::result_err(
+                "HttpHeaderError",
+                format!("invalid HTTP header name: {name}"),
+            )
+        })?;
+        let value = match value {
+            Value::String(value) => value,
+            value => {
+                return Err(Value::result_err(
+                    "HttpHeaderError",
+                    format!(
+                        "HTTP header values must be strings, got {} for {name}",
+                        value_kind(&value)
+                    ),
+                ));
+            }
+        };
+        let value = reqwest::header::HeaderValue::from_str(&value).map_err(|_| {
+            Value::result_err(
+                "HttpHeaderError",
+                format!("invalid HTTP header value for {name}"),
+            )
+        })?;
+        output.insert(name, value);
+    }
+    Ok(output)
+}
+
 fn perform_http_get(url: String) -> Value {
     let client = match http_client() {
         Ok(client) => client,
@@ -2534,6 +2711,22 @@ fn perform_http_post_json(url: String, body: JsonValue) -> Value {
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
     http_response(client.post(url).json(&body).send())
+}
+
+fn perform_http_request(request: HttpRequest) -> Value {
+    let client = match http_client() {
+        Ok(client) => client,
+        Err(error) => return Value::result_err("HttpError", error.to_string()),
+    };
+    let mut builder = client
+        .request(request.method, request.url)
+        .headers(request.headers);
+    if let Some(json) = request.json {
+        builder = builder.json(&json);
+    } else if let Some(body) = request.body {
+        builder = builder.body(body);
+    }
+    http_response(builder.send())
 }
 
 fn http_in_worker(request: impl FnOnce() -> Value + Send + 'static) -> Value {

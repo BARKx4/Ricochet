@@ -1400,6 +1400,14 @@ const WORDS = [
     "example": "\"https://example.com\" http .get-task await value"
   },
   {
+    "word": ".request",
+    "aliases": ["HTTP", "headers"],
+    "group": "system",
+    "stack": "request:map http -> result(map)",
+    "body": "Runs an HTTP request from a map with `url`, optional `method`, optional `headers`, and optional `json` or string `body`. Custom header names and values are validated before connecting.",
+    "example": "request get http .request value"
+  },
+  {
     "word": ".post-json",
     "aliases": [],
     "group": "system",
@@ -1414,6 +1422,14 @@ const WORDS = [
     "stack": "url:string body:any http -> task",
     "body": "Starts a JSON HTTP POST on a task worker. Await the task to receive the same result map returned by `.post-json`.",
     "example": "\"https://api.example\" payload get http .post-json-task await value"
+  },
+  {
+    "word": ".request-task",
+    "aliases": ["HTTP", "headers", "async"],
+    "group": "system",
+    "stack": "request:map http -> task",
+    "body": "Starts a mapped HTTP request on a task worker. Await the task to receive the same result map returned by `.request`.",
+    "example": "request get http .request-task await value"
   },
   {
     "word": "tui",

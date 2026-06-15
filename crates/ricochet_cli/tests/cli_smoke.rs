@@ -4,6 +4,7 @@ use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -3586,6 +3587,126 @@ task get .completed?
 }
 
 #[test]
+fn run_exposes_http_request_with_custom_headers() {
+    let (address, server, request_rx) = spawn_capturing_http_server(
+        b"HTTP/1.1 202 Accepted\r\nX-Seen: yes\r\nContent-Length: 8\r\nConnection: close\r\n\r\naccepted".to_vec(),
+    );
+    let output = run_source(&format!(
+        r#"
+headers map
+"Authorization" "Bearer test-token" headers get .put! drop
+"X-Provider" "solace" headers get .put! drop
+body map
+"probe" true body get .put! drop
+request map
+"url" "http://{address}/v1/models" request get .put! drop
+"method" "POST" request get .put! drop
+"headers" headers get request get .put! drop
+"json" body get request get .put! drop
+request get http .request value response var
+"status" response get .at
+"body" response get .at
+"headers" response get .at "x-seen" swap .at
+"#
+    ));
+    server.join().expect("HTTP server should finish");
+    let request = request_rx.recv().expect("server should capture request");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(202)")
+            && stdout.contains("String(\"accepted\")")
+            && stdout.contains("String(\"yes\")"),
+        "stdout should contain response status, body, and headers, got:\n{stdout}"
+    );
+    assert!(
+        request.contains("POST /v1/models HTTP/1.1")
+            && request.contains("authorization: Bearer test-token")
+            && request.contains("x-provider: solace")
+            && request.contains("content-type: application/json")
+            && request.contains(r#""probe":true"#),
+        "captured request should include custom headers and JSON body, got:\n{request}"
+    );
+}
+
+#[test]
+fn run_exposes_http_request_task_with_custom_headers() {
+    let (address, server, request_rx) = spawn_capturing_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec(),
+    );
+    let output = run_source(&format!(
+        r#"
+headers map
+"Authorization" "Bearer async-token" headers get .put! drop
+request map
+"url" "http://{address}/v1/models" request get .put! drop
+"headers" headers get request get .put! drop
+request get http .request-task task var
+task get await value response var
+"status" response get .at
+"body" response get .at
+task get .completed?
+"#
+    ));
+    server.join().expect("HTTP server should finish");
+    let request = request_rx.recv().expect("server should capture request");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(200)")
+            && stdout.contains("String(\"ok\")")
+            && stdout.contains("Bool(true)"),
+        "stdout should contain async request response and completed predicate, got:\n{stdout}"
+    );
+    assert!(
+        request.contains("GET /v1/models HTTP/1.1")
+            && request.contains("authorization: Bearer async-token"),
+        "captured request should include async custom header, got:\n{request}"
+    );
+}
+
+#[test]
+fn run_http_request_rejects_invalid_header_names_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+    let source_path = write_source(&format!(
+        r#"
+headers map
+"Bad Header" "secret" headers get .put! drop
+request map
+"url" "http://{address}/blocked" request get .put! drop
+"headers" headers get request get .put! drop
+request get http .request error denied var
+"kind" denied get .at
+"message" denied get .at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    let accepted = listener.accept().is_ok();
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"HttpHeaderError\")")
+            && stdout.contains("invalid HTTP header name"),
+        "stdout should contain invalid header error, got:\n{stdout}"
+    );
+    assert!(!accepted, "invalid header request should not connect");
+}
+
+#[test]
 fn run_can_disable_http_capability() {
     let source_path = write_source("http drop\n");
 
@@ -3954,11 +4075,23 @@ fn escape_toml_string(value: &str) -> String {
 fn spawn_single_response_http_server(
     response: Vec<u8>,
 ) -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+    let (address, server, _) = spawn_capturing_http_server(response);
+    (address, server)
+}
+
+fn spawn_capturing_http_server(
+    response: Vec<u8>,
+) -> (
+    std::net::SocketAddr,
+    thread::JoinHandle<()>,
+    mpsc::Receiver<String>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
     let address = listener.local_addr().expect("listener should have address");
     listener
         .set_nonblocking(true)
         .expect("listener should become nonblocking");
+    let (request_tx, request_rx) = mpsc::channel();
 
     let server = thread::spawn(move || {
         // The full CLI smoke suite launches many rco subprocesses in parallel on
@@ -4004,13 +4137,14 @@ fn spawn_single_response_http_server(
                 Err(error) => panic!("HTTP request read failed: {error}"),
             }
         }
+        let _ = request_tx.send(String::from_utf8_lossy(&request).into_owned());
 
         std::io::Write::write_all(&mut stream, &response).expect("response should write");
         std::io::Write::flush(&mut stream).expect("response should flush");
         let _ = stream.shutdown(Shutdown::Write);
     });
 
-    (address, server)
+    (address, server, request_rx)
 }
 
 fn escape_ricochet_string(value: &str) -> String {
