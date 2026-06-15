@@ -164,6 +164,16 @@ enum Command {
         #[arg(long)]
         watch: bool,
         #[arg(
+            long = "allow-env",
+            help = "Enable MVC process environment reads for trusted local apps"
+        )]
+        allow_env: bool,
+        #[arg(
+            long = "no-env",
+            help = "Keep MVC process environment reads disabled; conflicts with --allow-env"
+        )]
+        no_env: bool,
+        #[arg(
             long,
             value_name = "PATH",
             help = "Enable MVC filesystem access bounded to PATH"
@@ -485,15 +495,21 @@ pub async fn run_cli() -> Result<()> {
             port,
             debug,
             watch,
+            allow_env,
+            no_env,
             fs_root,
             fs_readonly,
             http_allow_hosts,
         } => {
+            if allow_env && no_env {
+                bail!("--allow-env cannot be used with --no-env");
+            }
             ricochet_web::serve_current_dir(ricochet_web::ServeOptions {
                 host,
                 port,
                 debug,
                 watch,
+                allow_env,
                 fs_root,
                 fs_readonly,
                 http_allow_hosts,

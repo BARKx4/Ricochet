@@ -3340,6 +3340,49 @@ fn run_can_disable_environment_and_sleep_capabilities() {
 }
 
 #[test]
+fn serve_rejects_conflicting_environment_flags() {
+    let project_path = temp_source_path()
+        .parent()
+        .expect("source path has parent")
+        .join("serve_env_conflict");
+    fs::create_dir_all(project_path.join("config")).expect("config directory should be created");
+    fs::write(
+        project_path.join("ricochet.toml"),
+        r#"
+[package]
+name = "serve_env_conflict"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(project_path.join("config/routes.rco"), "").expect("routes should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("serve")
+        .arg("--allow-env")
+        .arg("--no-env")
+        .current_dir(&project_path)
+        .output()
+        .expect("rco serve should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco serve should reject conflicting env flags"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--allow-env cannot be used with --no-env"),
+        "stderr should explain env flag conflict, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_can_restrict_filesystem_capability_to_root() {
     let source_path = temp_source_path();
     let base = source_path.parent().expect("source path has parent");

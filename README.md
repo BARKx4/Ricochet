@@ -250,6 +250,7 @@ Serve an MVC app from its project directory:
 
 ```powershell
 rco serve --host 127.0.0.1 --port 3000
+rco serve --allow-env --http-allow-host 127.0.0.1
 rco serve --watch
 ```
 
@@ -258,6 +259,11 @@ manifest between requests. If a reload fails, the request returns a clear MVC
 error and the next request retries after you fix the source. Combine `--watch`
 with `--debug` to print reload trace lines with the new revision and changed
 files.
+
+`rco serve` keeps MVC process environment reads disabled unless you pass
+`--allow-env`. Use that for trusted local beta apps that store secret references
+as environment variable names. `--no-env` keeps the default disabled behavior
+explicit, and conflicts with `--allow-env`.
 
 For a zero-service local beta app, `rco new --with-sqlite my_beta_app`
 creates `db/development.sqlite3`, seeds `users`, configures Active Record, and
@@ -417,6 +423,9 @@ webview document building. `--no-fs`, `--no-http`, `--no-tui`, and
 script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do not
 follow redirects, use a timeout and response body cap, and filesystem access
 remains powerful CLI behavior unless you deny or bound it with these flags.
+For MVC servers, `rco serve` enables filesystem and HTTP only through
+`--fs-root` and `--http-allow-host`, and enables process environment reads only
+through `--allow-env`.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

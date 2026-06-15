@@ -286,6 +286,7 @@ pub struct ServeOptions {
     pub port: u16,
     pub debug: bool,
     pub watch: bool,
+    pub allow_env: bool,
     pub fs_root: Option<PathBuf>,
     pub fs_readonly: bool,
     pub http_allow_hosts: Vec<String>,
@@ -298,6 +299,7 @@ impl Default for ServeOptions {
             port: 3000,
             debug: false,
             watch: false,
+            allow_env: false,
             fs_root: None,
             fs_readonly: false,
             http_allow_hosts: Vec::new(),
@@ -316,6 +318,9 @@ impl ServeOptions {
         }
         if self.watch && !self.http_allow_hosts.is_empty() {
             bail!("--http-allow-host is not supported with --watch yet");
+        }
+        if self.watch && self.allow_env {
+            bail!("--allow-env is not supported with --watch yet");
         }
         Ok(())
     }
@@ -2287,7 +2292,7 @@ fn compose_serve_capability_vm_setup(
     vm_setup: Option<VmSetup>,
     options: &ServeOptions,
 ) -> Result<Option<VmSetup>> {
-    if options.fs_root.is_none() && options.http_allow_hosts.is_empty() {
+    if options.fs_root.is_none() && options.http_allow_hosts.is_empty() && !options.allow_env {
         return Ok(vm_setup);
     }
     if options.watch && options.fs_root.is_some() {
@@ -2309,13 +2314,16 @@ fn compose_serve_capability_vm_setup(
         None
     };
     let readonly = options.fs_readonly;
+    let allow_env = options.allow_env;
     let http_allow_hosts = Arc::new(options.http_allow_hosts.clone());
     Ok(Some(Arc::new(move |vm| {
         let mut capabilities = match &vm_setup {
             Some(setup) => setup(vm)?,
             None => BTreeMap::new(),
         };
+        vm.set_environment_enabled(allow_env);
         vm.set_host_capabilities(root.is_some(), !http_allow_hosts.is_empty());
+        vm.set_environment_enabled(true);
         if let Some(root) = &root {
             vm.set_filesystem_root((**root).clone());
             if readonly {

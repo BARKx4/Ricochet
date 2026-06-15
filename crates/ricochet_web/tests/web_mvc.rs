@@ -2253,6 +2253,71 @@ end
 }
 
 #[tokio::test]
+async fn served_mvc_can_read_environment_when_allowed() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "env_capability"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/env" EnvController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/EnvController.rco"),
+        r#"
+EnvController Controller subclass
+  "show" [
+    "RICOCHET_MVC_ENV_TEST" env value text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+    std::env::set_var("RICOCHET_MVC_ENV_TEST", "visible-to-mvc");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            allow_env: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with environment access");
+
+    let response = app
+        .oneshot(Request::builder().uri("/env").body(Body::empty()).unwrap())
+        .await
+        .expect("env response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "visible-to-mvc");
+}
+
+#[tokio::test]
 async fn serves_ricochet_redirect_response() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
