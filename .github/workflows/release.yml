@@ -81,13 +81,35 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidatePaths = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
+          )
+
+          $makensis = $candidatePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          for ($attempt = 1; -not $makensis -and $attempt -le 3; $attempt++) {
+            Write-Host "Installing NSIS with Chocolatey (attempt $attempt of 3)."
+            choco install nsis -y --no-progress
+            $makensis = $candidatePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if (-not $makensis -and $attempt -lt 3) {
+              Start-Sleep -Seconds (10 * $attempt)
+            }
+          }
+
+          if (-not $makensis) {
+            throw "NSIS makensis.exe was not found after installation attempts."
+          }
+
+          "NSIS_PATH=$makensis" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using NSIS at $makensis"
 
       - name: Build release package
         shell: pwsh
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
-          .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller
+          .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -NsisPath $env:NSIS_PATH
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
