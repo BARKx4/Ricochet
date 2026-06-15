@@ -354,6 +354,11 @@ combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
 tarball, Debian package, unsigned macOS tarballs, and checksums to the GitHub
 release.
 
+The same workflow also runs nightly from `main`. Nightly builds use a version
+like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and
+upload them as GitHub Actions artifacts for 30 days. Nightlies do not create
+public GitHub releases.
+
 ## Reference Docs
 
 The documentation website is static and lives at
