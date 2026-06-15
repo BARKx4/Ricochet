@@ -843,6 +843,74 @@ end
 }
 
 #[tokio::test]
+async fn serves_put_form_params_to_ricochet_controller() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "put_form_route"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"PUT "/sessions/:id" SessionController "update" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/SessionController.rco"),
+        r#"
+SessionController Controller subclass
+  "update" [
+    map payload var
+    "id" ctx get .params get .id get payload get .put! drop
+    "title" ctx get .form get .title get payload get .put! drop
+    "metadata" ctx get .form get .metadata get payload get .put! drop
+    payload get json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/sessions/session-13")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(
+                    "title=TDD+Session&metadata=%7B%22agent%22%3A%22codex%22%7D",
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+    assert_eq!(body["id"], "session-13");
+    assert_eq!(body["title"], "TDD Session");
+    assert_eq!(body["metadata"], r#"{"agent":"codex"}"#);
+}
+
+#[tokio::test]
 async fn controller_execution_budget_returns_server_error_for_runaway_work() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

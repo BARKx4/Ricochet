@@ -137,7 +137,7 @@ tags Set</code></pre>
 $name array
 "Ada" $users .push! drop
 $users .count println</code></pre>
-            <p>`$name` reads an existing binding and is equivalent to `name get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string.</p>
+            <p>`$name` reads an existing binding and is equivalent to `name get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string. Function and method calls get fresh local scopes, while top-level declarations stay shared.</p>
           </article>
           <article>
             <h3>Argument Lists</h3>

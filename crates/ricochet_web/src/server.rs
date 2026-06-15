@@ -491,6 +491,7 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
     for route in routes {
         let controller = route.controller.clone();
         let action = route.action.clone();
+        let route_path = route.path.clone();
         match route.method.as_str() {
             "GET" => {
                 app = app.route(
@@ -530,106 +531,70 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
             "DELETE" => {
                 app = app.route(
                     &route.path,
-                    delete(move |State(state): State<AppState>,
-                                 headers: HeaderMap,
-                                 uri: Uri,
-                                 path_params: Option<AxumPath<HashMap<String, String>>>,
-                                 AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
-                        let controller = controller.clone();
-                        let action = action.clone();
-                        let request_headers = headers_to_map(&headers);
-                        let request_path = uri.path().to_string();
-                        let path_params = path_params
-                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
-                            .unwrap_or_default();
-                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
-                        async move {
-                            render_route(
-                                state,
-                                controller,
-                                action,
-                                WebRequest {
-                                    method: Method::DELETE.to_string(),
-                                    path: request_path,
-                                    headers: request_headers,
-                                    path_params,
-                                    query_params,
-                                    ..WebRequest::default()
-                                },
-                            )
-                            .await
-                        }
-                    }),
+                    delete(
+                        move |State(state): State<AppState>, request: Request<Body>| {
+                            let controller = controller.clone();
+                            let action = action.clone();
+                            let route_path = route_path.clone();
+                            async move {
+                                render_static_route_request(
+                                    state,
+                                    controller,
+                                    action,
+                                    Method::DELETE,
+                                    route_path,
+                                    request,
+                                )
+                                .await
+                            }
+                        },
+                    ),
                 );
             }
             "PUT" => {
                 app = app.route(
                     &route.path,
-                    put(move |State(state): State<AppState>,
-                              headers: HeaderMap,
-                              uri: Uri,
-                              path_params: Option<AxumPath<HashMap<String, String>>>,
-                              AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
-                        let controller = controller.clone();
-                        let action = action.clone();
-                        let request_headers = headers_to_map(&headers);
-                        let request_path = uri.path().to_string();
-                        let path_params = path_params
-                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
-                            .unwrap_or_default();
-                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
-                        async move {
-                            render_route(
-                                state,
-                                controller,
-                                action,
-                                WebRequest {
-                                    method: Method::PUT.to_string(),
-                                    path: request_path,
-                                    headers: request_headers,
-                                    path_params,
-                                    query_params,
-                                    ..WebRequest::default()
-                                },
-                            )
-                            .await
-                        }
-                    }),
+                    put(
+                        move |State(state): State<AppState>, request: Request<Body>| {
+                            let controller = controller.clone();
+                            let action = action.clone();
+                            let route_path = route_path.clone();
+                            async move {
+                                render_static_route_request(
+                                    state,
+                                    controller,
+                                    action,
+                                    Method::PUT,
+                                    route_path,
+                                    request,
+                                )
+                                .await
+                            }
+                        },
+                    ),
                 );
             }
             "PATCH" => {
                 app = app.route(
                     &route.path,
-                    patch(move |State(state): State<AppState>,
-                                headers: HeaderMap,
-                                uri: Uri,
-                                path_params: Option<AxumPath<HashMap<String, String>>>,
-                                AxumQuery(query_params): AxumQuery<HashMap<String, String>>| {
-                        let controller = controller.clone();
-                        let action = action.clone();
-                        let request_headers = headers_to_map(&headers);
-                        let request_path = uri.path().to_string();
-                        let path_params = path_params
-                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
-                            .unwrap_or_default();
-                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
-                        async move {
-                            render_route(
-                                state,
-                                controller,
-                                action,
-                                WebRequest {
-                                    method: Method::PATCH.to_string(),
-                                    path: request_path,
-                                    headers: request_headers,
-                                    path_params,
-                                    query_params,
-                                    ..WebRequest::default()
-                                },
-                            )
-                            .await
-                        }
-                    }),
+                    patch(
+                        move |State(state): State<AppState>, request: Request<Body>| {
+                            let controller = controller.clone();
+                            let action = action.clone();
+                            let route_path = route_path.clone();
+                            async move {
+                                render_static_route_request(
+                                    state,
+                                    controller,
+                                    action,
+                                    Method::PATCH,
+                                    route_path,
+                                    request,
+                                )
+                                .await
+                            }
+                        },
+                    ),
                 );
             }
             "POST" => {
@@ -1246,6 +1211,41 @@ async fn render_route(
         )
             .into_response(),
     }
+}
+
+async fn render_static_route_request(
+    state: AppState,
+    controller: String,
+    action: String,
+    method: Method,
+    route_path: String,
+    request: Request<Body>,
+) -> Response {
+    let (parts, body) = request.into_parts();
+    let path = parts.uri.path().to_string();
+    let headers = headers_to_map(&parts.headers);
+    let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
+    let path_params = route_path_params(&route_path, &path).unwrap_or_default();
+    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
+        Ok(params) => params,
+        Err(err) => return mvc_error_response(err),
+    };
+
+    render_route(
+        state,
+        controller,
+        action,
+        WebRequest {
+            method: method.to_string(),
+            path,
+            headers,
+            path_params,
+            query_params,
+            form_params,
+        },
+    )
+    .await
+    .into_response()
 }
 
 async fn render_static_asset_or_not_found(

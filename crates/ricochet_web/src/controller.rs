@@ -236,7 +236,7 @@ fn controller_arg_value(name: &str, ctx: &RequestContext, context: &Value) -> Va
 }
 
 fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {
-    for (name, value) in vm.variables() {
+    for (name, value) in vm.variables().iter().chain(vm.last_call_variables()) {
         if name == "ctx" {
             continue;
         }

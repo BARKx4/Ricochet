@@ -97,6 +97,8 @@ type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
 pub struct Vm {
     pub(super) stack: Vec<Value>,
     variables: BTreeMap<String, Value>,
+    local_variables: Vec<BTreeMap<String, Value>>,
+    last_call_variables: BTreeMap<String, Value>,
     functions: BTreeMap<String, BytecodeCallable>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
@@ -134,6 +136,8 @@ impl Default for Vm {
         Self {
             stack: Vec::new(),
             variables: BTreeMap::new(),
+            local_variables: Vec::new(),
+            last_call_variables: BTreeMap::new(),
             functions: BTreeMap::new(),
             classes: BTreeMap::new(),
             current_class: None,
@@ -172,6 +176,7 @@ impl Default for Vm {
 struct Task {
     block: Chunk,
     variables: BTreeMap<String, Value>,
+    local_variables: Vec<BTreeMap<String, Value>>,
     functions: BTreeMap<String, BytecodeCallable>,
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
@@ -361,6 +366,7 @@ impl TaskCompletion {
 fn run_task_to_completion(task: Task) -> TaskCompletion {
     let mut task_vm = Vm {
         variables: task.variables,
+        local_variables: task.local_variables,
         functions: task.functions,
         classes: task.classes,
         current_class: task.current_class,
@@ -419,8 +425,12 @@ impl Vm {
         &self.variables
     }
 
+    pub fn last_call_variables(&self) -> &BTreeMap<String, Value> {
+        &self.last_call_variables
+    }
+
     pub fn variable(&self, name: &str) -> Option<&Value> {
-        self.variables.get(name)
+        self.lookup_variable(name)
     }
 
     pub fn output_lines(&self) -> &[String] {
@@ -511,6 +521,49 @@ impl Vm {
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
+    }
+
+    fn lookup_variable(&self, name: &str) -> Option<&Value> {
+        for frame in self.local_variables.iter().rev() {
+            if let Some(value) = frame.get(name) {
+                return Some(value);
+            }
+        }
+        self.variables.get(name)
+    }
+
+    fn declare_variable(&mut self, name: String, value: Value) {
+        if let Some(frame) = self.local_variables.last_mut() {
+            frame.entry(name).or_insert(value);
+        } else {
+            self.variables.entry(name).or_insert(value);
+        }
+    }
+
+    fn set_existing_variable(&mut self, name: &str, value: Value) -> bool {
+        for frame in self.local_variables.iter_mut().rev() {
+            if frame.contains_key(name) {
+                frame.insert(name.to_string(), value);
+                return true;
+            }
+        }
+
+        if self.variables.contains_key(name) {
+            self.variables.insert(name.to_string(), value);
+            return true;
+        }
+
+        false
+    }
+
+    fn push_variable_frame(&mut self) {
+        self.local_variables.push(BTreeMap::new());
+    }
+
+    fn pop_variable_frame(&mut self) -> BTreeMap<String, Value> {
+        self.local_variables
+            .pop()
+            .expect("variable frame stack should not underflow")
     }
 
     pub fn add_function(
@@ -1388,7 +1441,9 @@ impl Vm {
     ) -> Result<Value, VmError> {
         self.ensure_stack(name, input_count)?;
         let base = self.stack.len() - input_count;
+        self.push_variable_frame();
         let run_result = self.run_chunk_with_frame(function, name, true);
+        self.last_call_variables = self.pop_variable_frame();
 
         match run_result {
             Ok(ExecutionSignal::Continue | ExecutionSignal::Return) => {
@@ -1461,6 +1516,7 @@ impl Vm {
         let task = Task {
             block,
             variables: self.variables.clone(),
+            local_variables: self.local_variables.clone(),
             functions: self.functions.clone(),
             classes: self.classes.clone(),
             current_class: self.current_class.clone(),
@@ -1833,8 +1889,10 @@ impl Vm {
         self.ensure_stack(frame, input_count)?;
         let base = self.stack.len() - input_count;
         self.self_stack.push(receiver);
+        self.push_variable_frame();
 
         let run_result = self.run_chunk_with_frame(method, frame, true);
+        self.last_call_variables = self.pop_variable_frame();
         self.self_stack
             .pop()
             .expect("method call pushed self before running");
@@ -1896,7 +1954,7 @@ impl Vm {
         let selector = self.pop(word)?;
         match selector {
             Value::Member(field) => self.call_field_get(word, stack_before, field),
-            Value::String(name) => match self.variables.get(&name).cloned() {
+            Value::String(name) => match self.lookup_variable(&name).cloned() {
                 Some(value) => {
                     self.stack.push(value);
                     Ok(())
@@ -1949,10 +2007,6 @@ impl Vm {
         match selector {
             Value::Member(field) => self.call_field_set(word, stack_before, field),
             Value::String(name) => {
-                if !self.variables.contains_key(&name) {
-                    self.stack = stack_before;
-                    return Err(VmError::UnknownVariable(name));
-                }
                 let value = match self.pop(word) {
                     Ok(value) => value,
                     Err(error) => {
@@ -1960,8 +2014,12 @@ impl Vm {
                         return Err(error);
                     }
                 };
-                self.variables.insert(name, value);
-                Ok(())
+                if self.set_existing_variable(&name, value) {
+                    Ok(())
+                } else {
+                    self.stack = stack_before;
+                    Err(VmError::UnknownVariable(name))
+                }
             }
             value => {
                 self.stack = stack_before;
@@ -2021,14 +2079,14 @@ impl Vm {
             }
         };
         let value = self.stack.pop().unwrap_or(Value::Nil);
-        self.variables.entry(name).or_insert(value);
+        self.declare_variable(name, value);
         Ok(())
     }
 
     fn call_collection_declaration_or_constructor(&mut self, value: Value) -> Result<(), VmError> {
         if let Some(Value::String(name)) = self.stack.last().cloned() {
             self.stack.pop();
-            self.variables.entry(name).or_insert(value);
+            self.declare_variable(name, value);
         } else {
             self.stack.push(value);
         }
@@ -2046,7 +2104,7 @@ impl Vm {
 
         if let Some(Value::String(name)) = self.stack.last().cloned() {
             self.stack.pop();
-            self.variables.entry(name).or_insert(collection);
+            self.declare_variable(name, collection);
         } else {
             self.stack.push(Value::Class(class_name.to_string()));
         }
@@ -4277,6 +4335,87 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::String("Ada".to_string())]);
         assert_eq!(vm.variable("name"), Some(&Value::String("Ada".to_string())));
+    }
+
+    #[test]
+    fn bytecode_function_locals_do_not_leak_between_calls() {
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushString("local".to_string()), span());
+        function.push(Op::CallWord("var".to_string()), span());
+        function.push(Op::PushString("local".to_string()), span());
+        function.push(Op::CallWord("get".to_string()), span());
+        function.push(Op::Return, span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "capture".to_string(),
+                block,
+                args: Some(ArgsSpec {
+                    inputs: vec!["value".to_string()],
+                    outputs: Vec::new(),
+                }),
+            },
+            span(),
+        );
+        chunk.push(Op::PushString("first".to_string()), span());
+        chunk.push(Op::CallWord("capture".to_string()), span());
+        chunk.push(Op::PushString("second".to_string()), span());
+        chunk.push(Op::CallWord("capture".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function calls run");
+
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::String("first".to_string()),
+                Value::String("second".to_string())
+            ]
+        );
+        assert_eq!(vm.variable("local"), None);
+    }
+
+    #[test]
+    fn bytecode_method_locals_do_not_leak_between_calls() {
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::PushString("local".to_string()), span());
+        method.push(Op::CallWord("var".to_string()), span());
+        method.push(Op::PushString("local".to_string()), span());
+        method.push(Op::CallWord("get".to_string()), span());
+        method.push(Op::Return, span());
+
+        let mut vm = Vm::default();
+        vm.define_class("Probe", "Object")
+            .expect("class should be defined");
+        vm.add_bytecode_method(
+            "capture",
+            method,
+            Some(ArgsSpec {
+                inputs: vec!["value".to_string()],
+                outputs: Vec::new(),
+            }),
+        )
+        .expect("method should be added");
+        vm.end_class();
+
+        let first = vm.new_instance("Probe").expect("instance");
+        vm.stack.push(Value::String("first".to_string()));
+        let first_result = vm
+            .call_method_value(first, "capture")
+            .expect("first method call runs");
+
+        let second = vm.new_instance("Probe").expect("instance");
+        vm.stack.push(Value::String("second".to_string()));
+        let second_result = vm
+            .call_method_value(second, "capture")
+            .expect("second method call runs");
+
+        assert_eq!(first_result, Value::String("first".to_string()));
+        assert_eq!(second_result, Value::String("second".to_string()));
+        assert_eq!(vm.stack(), &[]);
+        assert_eq!(vm.variable("local"), None);
     }
 
     #[test]
