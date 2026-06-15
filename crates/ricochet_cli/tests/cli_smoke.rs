@@ -3883,7 +3883,10 @@ fn spawn_single_response_http_server(
         .expect("listener should become nonblocking");
 
     let server = thread::spawn(move || {
-        let mut stream = (0..500)
+        // The full CLI smoke suite launches many rco subprocesses in parallel on
+        // Windows CI. Give the client process enough time to start before
+        // treating a missing connection as a real failure.
+        let mut stream = (0..3_000)
             .find_map(|_| match listener.accept() {
                 Ok((stream, _)) => Some(stream),
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {

@@ -846,6 +846,42 @@ mod tests {
     }
 
     #[test]
+    fn block_statements_do_not_bind_declarations_across_statement_boundaries() {
+        let chunk = compile_source(
+            "test.rco",
+            r#"
+              Probe Object subclass
+                "go" [
+                  map bag var
+                  "id" "bag" bag get .put! drop
+                  array events var
+                ] !method
+              end
+            "#,
+        )
+        .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::CallWord("map".to_string()),
+                Op::PushString("bag".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::PushString("id".to_string()),
+                Op::PushString("bag".to_string()),
+                Op::PushString("bag".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::CallMethod("put!".to_string()),
+                Op::CallWord("drop".to_string()),
+                Op::CallWord("array".to_string()),
+                Op::PushString("events".to_string()),
+                Op::CallWord("var".to_string()),
+                Op::Return,
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_break_and_continue_outside_a_loop() {
         for word in ["break", "continue"] {
             assert_eq!(

@@ -163,6 +163,23 @@ enum Command {
         debug: bool,
         #[arg(long)]
         watch: bool,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Enable MVC filesystem access bounded to PATH"
+        )]
+        fs_root: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Allow MVC filesystem reads while denying writes and directory creation"
+        )]
+        fs_readonly: bool,
+        #[arg(
+            long = "http-allow-host",
+            value_name = "HOST",
+            help = "Enable MVC HTTP access only to HOST; repeat for multiple hosts"
+        )]
+        http_allow_hosts: Vec<String>,
     },
     Routes {
         path: Option<String>,
@@ -468,12 +485,18 @@ pub async fn run_cli() -> Result<()> {
             port,
             debug,
             watch,
+            fs_root,
+            fs_readonly,
+            http_allow_hosts,
         } => {
             ricochet_web::serve_current_dir(ricochet_web::ServeOptions {
                 host,
                 port,
                 debug,
                 watch,
+                fs_root,
+                fs_readonly,
+                http_allow_hosts,
             })
             .await?
         }
@@ -1840,7 +1863,13 @@ async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Resu
         )
     })?;
 
-    let app = ricochet_web::build_served_app_from_dir(&project_root, false, false).await?;
+    let app = ricochet_web::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::ServeOptions::default(),
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .context("failed to bind local MVC GUI server")?;

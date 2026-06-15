@@ -18,7 +18,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
-use ricochet_vm::{Value, Vm};
+use ricochet_vm::{Capability, Value, Vm};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
@@ -281,6 +281,9 @@ pub struct ServeOptions {
     pub port: u16,
     pub debug: bool,
     pub watch: bool,
+    pub fs_root: Option<PathBuf>,
+    pub fs_readonly: bool,
+    pub http_allow_hosts: Vec<String>,
 }
 
 impl Default for ServeOptions {
@@ -290,6 +293,9 @@ impl Default for ServeOptions {
             port: 3000,
             debug: false,
             watch: false,
+            fs_root: None,
+            fs_readonly: false,
+            http_allow_hosts: Vec::new(),
         }
     }
 }
@@ -300,6 +306,12 @@ impl ServeOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if self.fs_readonly && self.fs_root.is_none() {
+            bail!("--fs-readonly requires --fs-root");
+        }
+        if self.watch && !self.http_allow_hosts.is_empty() {
+            bail!("--http-allow-host is not supported with --watch yet");
+        }
         Ok(())
     }
 }
@@ -1925,7 +1937,8 @@ fn hex_decode(source: &str) -> Result<Vec<u8>, ()> {
 pub async fn serve_current_dir(options: ServeOptions) -> Result<()> {
     options.validate()?;
     let project_root = Path::new(".");
-    let app = build_served_app_from_dir(project_root, options.debug, options.watch).await?;
+    let app =
+        build_served_app_from_dir(project_root, options.debug, options.watch, &options).await?;
     let bind_addr = options.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
@@ -1940,6 +1953,7 @@ pub async fn build_served_app_from_dir(
     project_root: impl AsRef<Path>,
     debug: bool,
     watch: bool,
+    options: &ServeOptions,
 ) -> Result<Router> {
     let project_root = project_root.as_ref();
     let manifest = load_manifest(project_root)?;
@@ -1966,10 +1980,66 @@ pub async fn build_served_app_from_dir(
         }
         (false, Some(database)) => {
             let backend = connect_database_backend(&database).await?;
-            build_app_from_dir_with_database(project_root, backend)
+            let vm_setup = database_vm_setup(project_root, backend)?;
+            let vm_setup =
+                compose_serve_capability_vm_setup(project_root, Some(vm_setup), options)?;
+            build_app_from_dir_internal(project_root, vm_setup)
         }
-        (false, None) => build_app_from_dir(project_root),
+        (false, None) => {
+            let vm_setup = model_vm_setup(project_root)?;
+            let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
+            build_app_from_dir_internal(project_root, vm_setup)
+        }
     }
+}
+
+fn compose_serve_capability_vm_setup(
+    project_root: &Path,
+    vm_setup: Option<VmSetup>,
+    options: &ServeOptions,
+) -> Result<Option<VmSetup>> {
+    if options.fs_root.is_none() && options.http_allow_hosts.is_empty() {
+        return Ok(vm_setup);
+    }
+    if options.watch && options.fs_root.is_some() {
+        bail!("--fs-root is not supported with --watch yet");
+    }
+    let root = if let Some(root) = &options.fs_root {
+        let root = if root.is_absolute() {
+            root.clone()
+        } else {
+            project_root.join(root)
+        };
+        let root = fs::canonicalize(&root)
+            .with_context(|| format!("failed to resolve --fs-root {}", root.display()))?;
+        if !root.is_dir() {
+            bail!("--fs-root must be a directory: {}", root.display());
+        }
+        Some(Arc::new(root))
+    } else {
+        None
+    };
+    let readonly = options.fs_readonly;
+    let http_allow_hosts = Arc::new(options.http_allow_hosts.clone());
+    Ok(Some(Arc::new(move |vm| {
+        let mut capabilities = match &vm_setup {
+            Some(setup) => setup(vm)?,
+            None => BTreeMap::new(),
+        };
+        vm.set_host_capabilities(root.is_some(), !http_allow_hosts.is_empty());
+        if let Some(root) = &root {
+            vm.set_filesystem_root((**root).clone());
+            if readonly {
+                vm.set_filesystem_writes_enabled(false);
+            }
+            capabilities.insert("fs".to_string(), Value::Capability(Capability::FileSystem));
+        }
+        if !http_allow_hosts.is_empty() {
+            vm.set_http_allowed_hosts((*http_allow_hosts).clone());
+            capabilities.insert("http".to_string(), Value::Capability(Capability::Http));
+        }
+        Ok(capabilities)
+    })))
 }
 
 pub async fn serve_app_on_listener(listener: tokio::net::TcpListener, app: Router) -> Result<()> {
@@ -2025,6 +2095,7 @@ mod tests {
             port: 4100,
             debug: true,
             watch: true,
+            ..ServeOptions::default()
         };
 
         assert_eq!(options.bind_addr(), "0.0.0.0:4100");

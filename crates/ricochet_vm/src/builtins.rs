@@ -2181,37 +2181,98 @@ fn display_value(value: &Value) -> String {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JsonVisit {
+    Array(usize),
+    List(usize),
+    Set(usize),
+    Map(usize),
+}
+
 fn value_to_json(value: &Value) -> Result<JsonValue, String> {
+    let mut visits = Vec::new();
+    let mut path = Vec::new();
+    value_to_json_inner(value, &mut visits, &mut path)
+}
+
+fn value_to_json_inner(
+    value: &Value,
+    visits: &mut Vec<JsonVisit>,
+    path: &mut Vec<String>,
+) -> Result<JsonValue, String> {
     match value {
         Value::Nil => Ok(JsonValue::Null),
         Value::Bool(value) => Ok(JsonValue::Bool(*value)),
         Value::Number(value) => Ok(JsonValue::Number((*value).into())),
         Value::String(value) => Ok(JsonValue::String(value.clone())),
-        Value::Array(value) => value
-            .snapshot()
-            .iter()
-            .map(value_to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map(JsonValue::Array),
-        Value::List(value) => value
-            .snapshot()
-            .iter()
-            .map(value_to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map(JsonValue::Array),
-        Value::Set(value) => value
-            .snapshot()
-            .iter()
-            .map(value_to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map(JsonValue::Array),
-        Value::Map(value) => value
-            .entries()
-            .into_iter()
-            .map(|(key, value)| Ok((key, value_to_json(&value)?)))
-            .collect::<Result<serde_json::Map<_, _>, _>>()
-            .map(JsonValue::Object),
+        Value::Array(value) => {
+            enter_json_collection(visits, JsonVisit::Array(value.identity()), path)?;
+            let mut output = Vec::new();
+            for (index, value) in value.snapshot().iter().enumerate() {
+                path.push(format!("[{index}]"));
+                output.push(value_to_json_inner(value, visits, path)?);
+                path.pop();
+            }
+            visits.pop();
+            Ok(JsonValue::Array(output))
+        }
+        Value::List(value) => {
+            enter_json_collection(visits, JsonVisit::List(value.identity()), path)?;
+            let mut output = Vec::new();
+            for (index, value) in value.snapshot().iter().enumerate() {
+                path.push(format!("[{index}]"));
+                output.push(value_to_json_inner(value, visits, path)?);
+                path.pop();
+            }
+            visits.pop();
+            Ok(JsonValue::Array(output))
+        }
+        Value::Set(value) => {
+            enter_json_collection(visits, JsonVisit::Set(value.identity()), path)?;
+            let mut output = Vec::new();
+            for (index, value) in value.snapshot().iter().enumerate() {
+                path.push(format!("[{index}]"));
+                output.push(value_to_json_inner(value, visits, path)?);
+                path.pop();
+            }
+            visits.pop();
+            Ok(JsonValue::Array(output))
+        }
+        Value::Map(value) => {
+            enter_json_collection(visits, JsonVisit::Map(value.identity()), path)?;
+            let mut output = serde_json::Map::new();
+            for (key, value) in value.entries() {
+                path.push(format!(".{key}"));
+                output.insert(key, value_to_json_inner(&value, visits, path)?);
+                path.pop();
+            }
+            visits.pop();
+            Ok(JsonValue::Object(output))
+        }
         value => Err(format!("cannot encode {} as JSON", value_kind(value))),
+    }
+}
+
+fn enter_json_collection(
+    visits: &mut Vec<JsonVisit>,
+    visit: JsonVisit,
+    path: &[String],
+) -> Result<(), String> {
+    if visits.contains(&visit) {
+        return Err(format!(
+            "cannot encode cyclic collection as JSON at {}",
+            json_path(path)
+        ));
+    }
+    visits.push(visit);
+    Ok(())
+}
+
+fn json_path(path: &[String]) -> String {
+    if path.is_empty() {
+        "$".to_string()
+    } else {
+        format!("${}", path.join(""))
     }
 }
 

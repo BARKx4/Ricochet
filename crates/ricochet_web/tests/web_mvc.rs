@@ -1705,6 +1705,143 @@ end
 }
 
 #[tokio::test]
+async fn mvc_controller_mutates_json_decoded_nested_collections_and_writes_them_back() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "json_collection_mutation"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/fork" ForkController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("sessions.json"),
+        r#"{"sessions":[{"id":"source","events":[{"role":"user","text":"hello"}]}]}"#,
+    )
+    .expect("seed JSON should be written");
+    fs::write(
+        project_root.join("app/Controllers/ForkController.rco"),
+        r#"
+ForkController Controller subclass
+  ( fs ) "create" [
+    fs var
+    "sessions.json" fs get .read-text value json-decode value state var
+    "sessions" state get .at sessions var
+    0 sessions get .at source var
+    "events" source get .at sourceEvents var
+    0 sourceEvents get .at sourceEvent var
+
+    map fork var
+    "id" "fork" fork get .put! drop
+    array forkEvents var
+    "events" forkEvents get fork get .put! drop
+    sourceEvent get forkEvents get .push! drop
+
+    map forkEvent var
+    "role" "system" forkEvent get .put! drop
+    "text" "forked" forkEvent get .put! drop
+    forkEvent get forkEvents get .push! drop
+
+    fork get sessions get .push! drop
+    "sessions" sessions get state get .put! drop
+    "sessions.json" state get json-encode fs get .write-text! value drop
+
+    map
+    "ok" true !put
+    "session_count" sessions get .count !put
+    json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            fs_root: Some(project_root.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with bounded filesystem");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/fork")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("fork response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, r#"{"ok":true,"session_count":2}"#);
+
+    let written = fs::read_to_string(project_root.join("sessions.json"))
+        .expect("controller should write JSON file");
+    assert!(
+        !written.contains("Member(\"put!\")"),
+        "internal member leaked into written JSON: {written}"
+    );
+    let written: serde_json::Value =
+        serde_json::from_str(&written).expect("written file should be valid JSON");
+    let sessions = written["sessions"]
+        .as_array()
+        .expect("sessions should be an array");
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0]["id"], "source");
+    assert_eq!(sessions[0]["events"].as_array().unwrap().len(), 1);
+    assert_eq!(sessions[1]["id"], "fork");
+    let fork_events = sessions[1]["events"]
+        .as_array()
+        .expect("fork events should be an array");
+    assert_eq!(fork_events.len(), 2);
+    assert_eq!(fork_events[0]["text"], "hello");
+    assert_eq!(fork_events[1]["text"], "forked");
+
+    let follow_up = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/fork")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("server should remain alive after mutation");
+    assert_ne!(follow_up.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
 async fn serves_ricochet_redirect_response() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -2616,8 +2753,9 @@ end
         "set-cookie was {set_cookie}"
     );
     assert!(set_cookie.contains("Secure"), "set-cookie was {set_cookie}");
+    let readable_cookie = set_cookie.replace("%3A", ":");
     assert!(
-        !set_cookie.contains("Ada") && !set_cookie.contains("%7B"),
+        !readable_cookie.contains("Ada") && !readable_cookie.contains("%7B"),
         "encrypted cookie should not expose raw JSON, got {set_cookie}"
     );
     let body = to_bytes(response.into_body(), usize::MAX)

@@ -3230,6 +3230,26 @@ mod tests {
     }
 
     #[test]
+    fn json_encode_rejects_cyclic_collections_without_overflowing() {
+        let map = MapValue::default();
+        map.insert("self".to_string(), Value::Map(map.clone()));
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Map(map));
+
+        let error = vm
+            .call_word("json-encode")
+            .expect_err("cyclic map should fail loudly");
+
+        assert_eq!(
+            error,
+            VmError::InvalidArgument {
+                word: "json-encode".to_string(),
+                message: "cannot encode cyclic collection as JSON at $.self".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn pop_reports_stack_underflow() {
         let mut vm = Vm::default();
 

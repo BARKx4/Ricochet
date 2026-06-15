@@ -493,13 +493,7 @@ impl Parser {
 }
 
 fn push_statement(body: &mut Vec<SpannedExpr>, statement: SpannedExpr) {
-    match statement {
-        SpannedExpr {
-            expr: Expr::Sequence(expressions),
-            ..
-        } => body.extend(expressions),
-        expression => body.push(expression),
-    }
+    body.push(statement);
 }
 
 #[cfg(test)]
@@ -558,11 +552,29 @@ mod tests {
                         assert_eq!(method.name, "displayName");
                         assert_eq!(
                             unspan(&method.body),
-                            vec![
-                                Expr::Symbol("self".to_string()),
-                                Expr::DotWord(".email".to_string()),
-                                Expr::Symbol("get".to_string()),
-                            ]
+                            vec![Expr::Sequence(vec![
+                                SpannedExpr {
+                                    expr: Expr::Symbol("self".to_string()),
+                                    span: Span {
+                                        start: 124,
+                                        end: 128
+                                    },
+                                },
+                                SpannedExpr {
+                                    expr: Expr::DotWord(".email".to_string()),
+                                    span: Span {
+                                        start: 129,
+                                        end: 135
+                                    },
+                                },
+                                SpannedExpr {
+                                    expr: Expr::Symbol("get".to_string()),
+                                    span: Span {
+                                        start: 136,
+                                        end: 139
+                                    },
+                                },
+                            ])]
                         );
                     }
                     other => panic!("expected method, got {other:?}"),
@@ -610,10 +622,16 @@ mod tests {
                 Expr::Block(block) => {
                     assert_eq!(
                         unspan(block),
-                        vec![
-                            Expr::Symbol("ctx".to_string()),
-                            Expr::Symbol("get".to_string()),
-                        ]
+                        vec![Expr::Sequence(vec![
+                            SpannedExpr {
+                                expr: Expr::Symbol("ctx".to_string()),
+                                span: Span { start: 65, end: 68 },
+                            },
+                            SpannedExpr {
+                                expr: Expr::Symbol("get".to_string()),
+                                span: Span { start: 69, end: 72 },
+                            },
+                        ])]
                     );
                 }
                 other => panic!("expected block, got {other:?}"),
@@ -765,15 +783,23 @@ mod tests {
                 Expr::Symbol("<".to_string()),
             ]
         );
-        let continue_if = body.iter().find_map(|expression| match &expression.expr {
-            Expr::If { then_body, .. }
-                if then_body
-                    .iter()
-                    .any(|item| item.expr == Expr::Symbol("continue".to_string())) =>
-            {
-                Some(())
-            }
-            _ => None,
+        let continue_if = body.iter().find_map(|expression| {
+            let expressions = match &expression.expr {
+                Expr::Sequence(expressions) => expressions.as_slice(),
+                _ => std::slice::from_ref(expression),
+            };
+            expressions
+                .iter()
+                .find_map(|expression| match &expression.expr {
+                    Expr::If { then_body, .. }
+                        if then_body
+                            .iter()
+                            .any(|item| item.expr == Expr::Symbol("continue".to_string())) =>
+                    {
+                        Some(())
+                    }
+                    _ => None,
+                })
         });
         assert_eq!(continue_if, Some(()));
         assert_eq!(
