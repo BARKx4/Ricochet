@@ -1014,6 +1014,246 @@ end
 }
 
 #[tokio::test]
+async fn json_request_body_fields_bind_to_declared_controller_args() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "json_body_args"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"PUT "/json/:id" JsonController "update" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/JsonController.rco"),
+        r#"
+JsonController Controller subclass
+  ( id name enabled meta tags ctx ) "update" [
+    ctx var
+    tags var
+    meta var
+    enabled var
+    name var
+    id var
+
+    map response var
+    "id" id get response get .put! drop
+    "name" name get response get .put! drop
+    "enabled" enabled get response get .put! drop
+    "meta_kind" meta get .kind get response get .put! drop
+    "tags_count" tags get .count response get .put! drop
+    "ctx_name" ctx get .request get .json get .name get response get .put! drop
+    "body_kind" ctx get .request get .body get .meta get .kind get response get .put! drop
+    response get json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/json/route-id")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"id":"body-id","name":"Ada","enabled":true,"meta":{"kind":"agent"},"tags":["code","review"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+
+    assert_eq!(body["id"], "route-id");
+    assert_eq!(body["name"], "Ada");
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["meta_kind"], "agent");
+    assert_eq!(body["tags_count"], 2);
+    assert_eq!(body["ctx_name"], "Ada");
+    assert_eq!(body["body_kind"], "agent");
+}
+
+#[tokio::test]
+async fn invalid_json_request_body_returns_bad_request() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "invalid_json_body"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/json" JsonController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/JsonController.rco"),
+        r#"
+JsonController Controller subclass
+  "create" [
+    "unreachable" text
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/json")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":"Ada""#))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        body.contains("invalid JSON request body"),
+        "bad request should explain invalid JSON, got:\n{body}"
+    );
+}
+
+#[tokio::test]
+async fn multipart_fields_and_files_bind_to_form_uploads_and_declared_args() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "multipart_uploads"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/upload/:id" UploadController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/UploadController.rco"),
+        r#"
+UploadController Controller subclass
+  ( id title file ctx ) "create" [
+    ctx var
+    file var
+    title var
+    id var
+
+    map response var
+    "id" id get response get .put! drop
+    "title" title get response get .put! drop
+    "form_title" ctx get .request get .form get .title get response get .put! drop
+    "filename" file get .filename get response get .put! drop
+    "content_type" file get .content_type get response get .put! drop
+    "size" file get .size get response get .put! drop
+    "text" file get .text get response get .put! drop
+    "data_base64" file get .data_base64 get response get .put! drop
+    "ctx_upload_text" ctx get .request get .uploads get .file get .text get response get .put! drop
+    "files_count" ctx get .request get .files get .count response get .put! drop
+    response get json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let boundary = "----ricochet-upload-boundary";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nAgent Harness\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"plan.txt\"\r\nContent-Type: text/plain\r\n\r\nHello uploads\r\n--{boundary}--\r\n"
+    );
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/upload/run-1")
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+
+    assert_eq!(body["id"], "run-1");
+    assert_eq!(body["title"], "Agent Harness");
+    assert_eq!(body["form_title"], "Agent Harness");
+    assert_eq!(body["filename"], "plan.txt");
+    assert_eq!(body["content_type"], "text/plain");
+    assert_eq!(body["size"], 13);
+    assert_eq!(body["text"], "Hello uploads");
+    assert_eq!(body["data_base64"], "SGVsbG8gdXBsb2Fkcw==");
+    assert_eq!(body["ctx_upload_text"], "Hello uploads");
+    assert_eq!(body["files_count"], 1);
+}
+
+#[tokio::test]
 async fn controller_execution_budget_returns_server_error_for_runaway_work() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

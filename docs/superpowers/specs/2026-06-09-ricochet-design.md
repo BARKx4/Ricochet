@@ -534,12 +534,19 @@ Authentication is not built into core v1. Core web provides capability primitive
 
 Current implementation note: controllers receive `request`, `cookies`,
 `session`, `logger`, and `config` values through `ctx` and through declared
-Args. `request` includes method, path, params, query, form, headers, cookies,
-and the session map. `logger` supports `debug`, `info`, `warn`, `error`, and
-`entries` for per-request log inspection. `config` is derived from safe
-manifest metadata such as package name, web mode/routes/views, and database
-adapter; database URLs and session signing/encryption secrets are intentionally
-not exposed. The built-in session map is stored in a cookie named
+Args. `request` includes method, path, params, query, form, JSON/body values,
+multipart uploads, files, headers, cookies, and the session map. For `POST`,
+`PUT`, `PATCH`, and `DELETE`, MVC parses
+`application/x-www-form-urlencoded`, `application/json`, and
+`multipart/form-data` bodies. Declared Args bind route params first, then form
+fields, JSON object fields, upload fields, query params, and context values.
+Upload maps include `name`, `filename`, `content_type`, `size`, UTF-8 `text`
+when available, and `data_base64` for arbitrary bytes. Request body parsing is
+currently in-memory with a 16 MiB beta limit; streaming upload APIs remain
+future work. `logger` supports `debug`, `info`, `warn`, `error`, and `entries`
+for per-request log inspection. `config` is derived from safe manifest metadata
+such as package name, web mode/routes/views, and database adapter; database URLs
+and session signing/encryption secrets are intentionally not exposed. The built-in session map is stored in a cookie named
 `ricochet_session`; default beta sessions are HMAC-signed with a per-process
 ephemeral key, `[web.session] signing_secret_env` enables stable HMAC signing
 with a secret from the environment, and `[web.session] encryption_secret_env`

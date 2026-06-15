@@ -39,7 +39,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
-- Controller context: request params, query, form data, headers, cookies,
+- Controller context: request params, query, URL-encoded and multipart form
+  data, JSON request bodies, in-memory file uploads, headers, cookies,
   lightweight session state, logger, safe manifest config, database capability,
   and optional AI capability are available to controllers.
 - Sessions and cookies: sessions are HMAC-signed by default with a per-process
@@ -271,6 +272,17 @@ url = "${MYSQL_URL}"
 
 Active Record maps model declarations to existing tables; schema migrations are
 still planned work.
+
+MVC actions parse `application/x-www-form-urlencoded`, `application/json`, and
+`multipart/form-data` request bodies for `POST`, `PUT`, `PATCH`, and `DELETE`.
+Declared action Args bind route params first, then form fields, JSON object
+fields, upload fields, query params, and finally context values. The same data
+is available through `ctx get .request get`: `form` holds text fields, `json`
+and `body` hold parsed JSON values, `uploads` is keyed by multipart file field
+name, and `files` contains every uploaded file. Upload values include
+`name`, `filename`, `content_type`, `size`, `text` when the bytes are UTF-8, and
+`data_base64` for arbitrary file bytes. Request body parsing is in-memory with a
+16 MiB beta limit.
 
 ## Editor Support
 

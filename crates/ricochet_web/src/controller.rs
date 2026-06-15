@@ -14,6 +14,10 @@ pub struct RequestContext {
     pub params: BTreeMap<String, String>,
     pub query: BTreeMap<String, String>,
     pub form: BTreeMap<String, String>,
+    pub body: Option<Value>,
+    pub json: Option<Value>,
+    pub uploads: BTreeMap<String, Value>,
+    pub files: Vec<Value>,
     pub headers: BTreeMap<String, String>,
     pub cookies: BTreeMap<String, String>,
     pub session: BTreeMap<String, Value>,
@@ -152,6 +156,10 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
     let params = string_map_value(&ctx.params);
     let query = string_map_value(&ctx.query);
     let form = string_map_value(&ctx.form);
+    let body = ctx.body.clone().unwrap_or(Value::Nil);
+    let json = ctx.json.clone().unwrap_or(Value::Nil);
+    let uploads = Value::Map(ctx.uploads.clone().into());
+    let files = Value::Array(ctx.files.clone().into());
     let headers = string_map_value(&ctx.headers);
     let cookies = string_map_value(&ctx.cookies);
     let session = Value::Map(ctx.session.clone().into());
@@ -163,6 +171,10 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
             ("params".to_string(), params.clone()),
             ("query".to_string(), query.clone()),
             ("form".to_string(), form.clone()),
+            ("body".to_string(), body.clone()),
+            ("json".to_string(), json.clone()),
+            ("uploads".to_string(), uploads.clone()),
+            ("files".to_string(), files.clone()),
             ("headers".to_string(), headers.clone()),
             ("cookies".to_string(), cookies.clone()),
             ("session".to_string(), session.clone()),
@@ -173,6 +185,10 @@ fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -
     context.insert("params".to_string(), params);
     context.insert("query".to_string(), query);
     context.insert("form".to_string(), form);
+    context.insert("body".to_string(), body);
+    context.insert("json".to_string(), json);
+    context.insert("uploads".to_string(), uploads);
+    context.insert("files".to_string(), files);
     context.insert("headers".to_string(), headers);
     context.insert("cookies".to_string(), cookies);
     context.insert("session".to_string(), session);
@@ -222,6 +238,18 @@ fn controller_arg_value(name: &str, ctx: &RequestContext, context: &Value) -> Va
         return Value::String(value.clone());
     }
 
+    if let Some(value) = ctx
+        .json
+        .as_ref()
+        .and_then(|value| body_object_field(value, name))
+    {
+        return value;
+    }
+
+    if let Some(value) = ctx.uploads.get(name) {
+        return value.clone();
+    }
+
     if let Some(value) = ctx.query.get(name) {
         return Value::String(value.clone());
     }
@@ -233,6 +261,13 @@ fn controller_arg_value(name: &str, ctx: &RequestContext, context: &Value) -> Va
     }
 
     Value::Nil
+}
+
+fn body_object_field(value: &Value, name: &str) -> Option<Value> {
+    match value {
+        Value::Map(values) => values.get(name),
+        _ => None,
+    }
 }
 
 fn copy_view_data(vm: &Vm, ctx: &mut RequestContext) {

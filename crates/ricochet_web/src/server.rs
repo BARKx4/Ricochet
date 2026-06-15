@@ -7,12 +7,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use anyhow::{anyhow, bail, Context, Result};
 use axum::{
     body::{to_bytes, Body},
-    extract::{Form as AxumForm, Path as AxumPath, Query as AxumQuery, State},
+    extract::{Path as AxumPath, Query as AxumQuery, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
     routing::{any, delete, get, patch, post, put},
     Router,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
@@ -63,6 +64,10 @@ struct WebRequest {
     path_params: BTreeMap<String, String>,
     query_params: BTreeMap<String, String>,
     form_params: BTreeMap<String, String>,
+    body: Option<Value>,
+    json: Option<Value>,
+    uploads: BTreeMap<String, Value>,
+    files: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -81,7 +86,7 @@ struct WatchedRuntime {
 
 type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
 pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
-const WATCHED_FORM_BODY_LIMIT: usize = 1024 * 1024;
+const REQUEST_BODY_LIMIT: usize = 16 * 1024 * 1024;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
 const SIGNED_SESSION_PREFIX: &str = "v1";
 const ENCRYPTED_SESSION_PREFIX: &str = "v2";
@@ -600,38 +605,24 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
             "POST" => {
                 app = app.route(
                     &route.path,
-                    post(move |State(state): State<AppState>,
-                               headers: HeaderMap,
-                               uri: Uri,
-                               path_params: Option<AxumPath<HashMap<String, String>>>,
-                               AxumQuery(query_params): AxumQuery<HashMap<String, String>>,
-                               AxumForm(form_params): AxumForm<HashMap<String, String>>| {
-                        let controller = controller.clone();
-                        let action = action.clone();
-                        let request_headers = headers_to_map(&headers);
-                        let request_path = uri.path().to_string();
-                        let path_params = path_params
-                            .map(|AxumPath(params)| params.into_iter().collect::<BTreeMap<_, _>>())
-                            .unwrap_or_default();
-                        let query_params = query_params.into_iter().collect::<BTreeMap<_, _>>();
-                        let form_params = form_params.into_iter().collect::<BTreeMap<_, _>>();
-                        async move {
-                            render_route(
-                                state,
-                                controller,
-                                action,
-                                WebRequest {
-                                    method: Method::POST.to_string(),
-                                    path: request_path,
-                                    headers: request_headers,
-                                    path_params,
-                                    query_params,
-                                    form_params,
-                                },
-                            )
-                            .await
-                        }
-                    }),
+                    post(
+                        move |State(state): State<AppState>, request: Request<Body>| {
+                            let controller = controller.clone();
+                            let action = action.clone();
+                            let route_path = route_path.clone();
+                            async move {
+                                render_static_route_request(
+                                    state,
+                                    controller,
+                                    action,
+                                    Method::POST,
+                                    route_path,
+                                    request,
+                                )
+                                .await
+                            }
+                        },
+                    ),
                 );
             }
             _ => bail!(
@@ -1226,9 +1217,9 @@ async fn render_static_route_request(
     let headers = headers_to_map(&parts.headers);
     let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
     let path_params = route_path_params(&route_path, &path).unwrap_or_default();
-    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
+    let request_body = match request_body_from_body(&method, &parts.headers, body).await {
         Ok(params) => params,
-        Err(err) => return mvc_error_response(err),
+        Err(err) => return mvc_bad_request_response(err),
     };
 
     render_route(
@@ -1241,7 +1232,11 @@ async fn render_static_route_request(
             headers,
             path_params,
             query_params,
-            form_params,
+            form_params: request_body.form_params,
+            body: request_body.body,
+            json: request_body.json,
+            uploads: request_body.uploads,
+            files: request_body.files,
         },
     )
     .await
@@ -1286,9 +1281,9 @@ async fn render_watched_route(
         Err(err) => return mvc_error_response(err),
     }
 
-    let form_params = match form_params_from_body(&method, &parts.headers, body).await {
+    let request_body = match request_body_from_body(&method, &parts.headers, body).await {
         Ok(params) => params,
-        Err(err) => return mvc_error_response(err),
+        Err(err) => return mvc_bad_request_response(err),
     };
 
     let Some((route, path_params)) = matching_route(&runtime.routes, method.as_str(), &path) else {
@@ -1306,7 +1301,11 @@ async fn render_watched_route(
             headers,
             path_params,
             query_params,
-            form_params,
+            form_params: request_body.form_params,
+            body: request_body.body,
+            json: request_body.json,
+            uploads: request_body.uploads,
+            files: request_body.files,
         },
     ) {
         Ok(action) => action.into_response().unwrap_or_else(mvc_error_response),
@@ -1318,6 +1317,14 @@ fn mvc_error_response(err: anyhow::Error) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("ricochet MVC error: {err:#}"),
+    )
+        .into_response()
+}
+
+fn mvc_bad_request_response(err: anyhow::Error) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        format!("ricochet request error: {err:#}"),
     )
         .into_response()
 }
@@ -1341,6 +1348,10 @@ fn render_action(
         params: request.path_params,
         query: request.query_params,
         form: request.form_params,
+        body: request.body,
+        json: request.json,
+        uploads: request.uploads,
+        files: request.files,
         headers: request.headers,
         cookies,
         session: initial_session.clone(),
@@ -1825,31 +1836,309 @@ fn session_value_to_json(value: &Value) -> Result<JsonValue> {
     }
 }
 
-async fn form_params_from_body(
+#[derive(Debug, Default)]
+struct ParsedRequestBody {
+    form_params: BTreeMap<String, String>,
+    body: Option<Value>,
+    json: Option<Value>,
+    uploads: BTreeMap<String, Value>,
+    files: Vec<Value>,
+}
+
+async fn request_body_from_body(
     method: &Method,
     headers: &axum::http::HeaderMap,
     body: Body,
-) -> Result<BTreeMap<String, String>> {
+) -> Result<ParsedRequestBody> {
+    let mut parsed = ParsedRequestBody::default();
     if !matches!(
         method,
         &Method::POST | &Method::PUT | &Method::PATCH | &Method::DELETE
     ) {
-        return Ok(BTreeMap::new());
+        return Ok(parsed);
     }
 
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !content_type.starts_with("application/x-www-form-urlencoded") {
-        return Ok(BTreeMap::new());
+    let normalized_content_type = content_type.to_ascii_lowercase();
+
+    if normalized_content_type.starts_with("application/x-www-form-urlencoded") {
+        let body = to_bytes(body, REQUEST_BODY_LIMIT)
+            .await
+            .map_err(|err| anyhow!("failed to read request body: {err}"))?;
+        let body = std::str::from_utf8(&body).context("form body is not valid UTF-8")?;
+        parsed.form_params = parse_urlencoded_params(body);
+        parsed.body = Some(string_map_value(&parsed.form_params));
+        return Ok(parsed);
     }
 
-    let body = to_bytes(body, WATCHED_FORM_BODY_LIMIT)
-        .await
-        .map_err(|err| anyhow!("failed to read request body: {err}"))?;
-    let body = std::str::from_utf8(&body).context("form body is not valid UTF-8")?;
-    Ok(parse_urlencoded_params(body))
+    if normalized_content_type.starts_with("application/json") {
+        let body = to_bytes(body, REQUEST_BODY_LIMIT)
+            .await
+            .map_err(|err| anyhow!("failed to read request body: {err}"))?;
+        let json = serde_json::from_slice::<JsonValue>(&body)
+            .map_err(|err| anyhow!("invalid JSON request body: {err}"))?;
+        let value = json_to_request_value(json);
+        parsed.body = Some(value.clone());
+        parsed.json = Some(value);
+        return Ok(parsed);
+    }
+
+    if normalized_content_type.starts_with("multipart/form-data") {
+        let boundary = multipart_boundary(content_type)
+            .context("multipart/form-data request is missing boundary")?;
+        let body = to_bytes(body, REQUEST_BODY_LIMIT)
+            .await
+            .map_err(|err| anyhow!("failed to read request body: {err}"))?;
+        parse_multipart_body(&body, &boundary, &mut parsed)?;
+        parsed.body = Some(multipart_body_value(&parsed));
+        return Ok(parsed);
+    }
+
+    Ok(parsed)
+}
+
+fn string_map_value(values: &BTreeMap<String, String>) -> Value {
+    Value::Map(
+        values
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect::<BTreeMap<_, _>>()
+            .into(),
+    )
+}
+
+fn multipart_body_value(parsed: &ParsedRequestBody) -> Value {
+    Value::Map(
+        BTreeMap::from([
+            ("form".to_string(), string_map_value(&parsed.form_params)),
+            (
+                "uploads".to_string(),
+                Value::Map(parsed.uploads.clone().into()),
+            ),
+            (
+                "files".to_string(),
+                Value::Array(parsed.files.clone().into()),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn json_to_request_value(value: JsonValue) -> Value {
+    match value {
+        JsonValue::Null => Value::Nil,
+        JsonValue::Bool(value) => Value::Bool(value),
+        JsonValue::Number(value) => Value::Number(
+            value
+                .as_i64()
+                .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
+        ),
+        JsonValue::String(value) => Value::String(value),
+        JsonValue::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(json_to_request_value)
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+        JsonValue::Object(values) => Value::Map(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, json_to_request_value(value)))
+                .collect::<BTreeMap<_, _>>()
+                .into(),
+        ),
+    }
+}
+
+fn multipart_boundary(content_type: &str) -> Option<String> {
+    content_type.split(';').skip(1).find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        if !name.trim().eq_ignore_ascii_case("boundary") {
+            return None;
+        }
+        let value = value.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or(value);
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+fn parse_multipart_body(body: &[u8], boundary: &str, parsed: &mut ParsedRequestBody) -> Result<()> {
+    let delimiter = format!("--{boundary}").into_bytes();
+    let mut cursor = find_subslice(body, &delimiter).context("multipart boundary was not found")?;
+    cursor += delimiter.len();
+
+    loop {
+        if body.get(cursor..cursor + 2) == Some(b"--") {
+            break;
+        }
+        if body.get(cursor..cursor + 2) == Some(b"\r\n") {
+            cursor += 2;
+        }
+
+        let Some(next_boundary) = find_subslice_from(body, &delimiter, cursor) else {
+            bail!("multipart body is missing closing boundary");
+        };
+        let mut part = &body[cursor..next_boundary];
+        if part.ends_with(b"\r\n") {
+            part = &part[..part.len() - 2];
+        }
+        parse_multipart_part(part, parsed)?;
+
+        cursor = next_boundary + delimiter.len();
+    }
+
+    Ok(())
+}
+
+fn parse_multipart_part(part: &[u8], parsed: &mut ParsedRequestBody) -> Result<()> {
+    let header_end =
+        find_subslice(part, b"\r\n\r\n").context("multipart part is missing header separator")?;
+    let headers = std::str::from_utf8(&part[..header_end])
+        .context("multipart part headers are not valid UTF-8")?;
+    let data = &part[header_end + 4..];
+    let headers = parse_multipart_headers(headers);
+    let disposition = headers
+        .get("content-disposition")
+        .context("multipart part is missing Content-Disposition")?;
+    let disposition = parse_header_params(disposition);
+    let name = disposition
+        .get("name")
+        .filter(|name| !name.is_empty())
+        .cloned()
+        .context("multipart form-data part is missing name")?;
+    let filename = disposition.get("filename").cloned();
+
+    if filename.is_some() {
+        let upload = upload_value(
+            &name,
+            filename.as_deref(),
+            headers.get("content-type").map(String::as_str),
+            data,
+        );
+        parsed.files.push(upload.clone());
+        insert_upload(&mut parsed.uploads, name, upload);
+    } else {
+        let value = std::str::from_utf8(data)
+            .with_context(|| format!("multipart field {name} is not valid UTF-8"))?;
+        parsed.form_params.insert(name, value.to_string());
+    }
+
+    Ok(())
+}
+
+fn parse_multipart_headers(headers: &str) -> BTreeMap<String, String> {
+    headers
+        .split("\r\n")
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn parse_header_params(value: &str) -> BTreeMap<String, String> {
+    value
+        .split(';')
+        .filter_map(|part| {
+            let part = part.trim();
+            if let Some((name, value)) = part.split_once('=') {
+                Some((
+                    name.trim().to_ascii_lowercase(),
+                    unquote_header_value(value),
+                ))
+            } else if part.is_empty() {
+                None
+            } else {
+                Some((part.to_ascii_lowercase(), String::new()))
+            }
+        })
+        .collect()
+}
+
+fn unquote_header_value(value: &str) -> String {
+    let value = value.trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(value);
+    value.replace("\\\"", "\"").replace("\\\\", "\\")
+}
+
+fn upload_value(
+    name: &str,
+    filename: Option<&str>,
+    content_type: Option<&str>,
+    data: &[u8],
+) -> Value {
+    let text = std::str::from_utf8(data)
+        .ok()
+        .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("name".to_string(), Value::String(name.to_string())),
+            (
+                "filename".to_string(),
+                filename
+                    .map(|value| Value::String(value.to_string()))
+                    .unwrap_or(Value::Nil),
+            ),
+            (
+                "content_type".to_string(),
+                content_type
+                    .map(|value| Value::String(value.to_string()))
+                    .unwrap_or(Value::Nil),
+            ),
+            ("size".to_string(), Value::Number(data.len() as i64)),
+            (
+                "data_base64".to_string(),
+                Value::String(BASE64_STANDARD.encode(data)),
+            ),
+            ("text".to_string(), text),
+        ])
+        .into(),
+    )
+}
+
+fn insert_upload(uploads: &mut BTreeMap<String, Value>, name: String, upload: Value) {
+    match uploads.remove(&name) {
+        None => {
+            uploads.insert(name, upload);
+        }
+        Some(Value::Array(existing)) => {
+            let mut values = existing.snapshot();
+            values.push(upload);
+            uploads.insert(name, Value::Array(values.into()));
+        }
+        Some(existing) => {
+            uploads.insert(name, Value::Array(vec![existing, upload].into()));
+        }
+    }
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    find_subslice_from(haystack, needle, 0)
+}
+
+fn find_subslice_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    if needle.is_empty() || start > haystack.len() {
+        return None;
+    }
+    haystack[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|position| start + position)
 }
 
 fn parse_urlencoded_params(source: &str) -> BTreeMap<String, String> {
