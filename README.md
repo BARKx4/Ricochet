@@ -188,7 +188,8 @@ $users .count println
 
 Top-level declarations are shared across the VM. Function and method calls get
 fresh local declaration scopes, so helper locals declared with `var`, `array`,
-`map`, `list`, or `Set` do not leak into later calls.
+`map`, `list`, or `Set` refresh within the active call and do not leak into
+later calls.
 
 Spawn a task and await its result:
 

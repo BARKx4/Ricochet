@@ -276,7 +276,7 @@ const WORDS = [
     "aliases": [],
     "group": "data",
     "stack": "value? name:string ->",
-    "body": "Declares a variable in the current scope. If a value is below the name, that value becomes the initial value; otherwise it starts as nil. Existing variables in the same scope are not overwritten. Function and method calls get fresh local scopes.",
+    "body": "Declares a variable in the current scope. If a value is below the name, that value becomes the initial value; otherwise it starts as nil. Function and method locals refresh within the active call frame, while top-level declarations remain shared.",
     "example": "\"Ada\" name var"
   },
   {

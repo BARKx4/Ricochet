@@ -534,7 +534,7 @@ impl Vm {
 
     fn declare_variable(&mut self, name: String, value: Value) {
         if let Some(frame) = self.local_variables.last_mut() {
-            frame.entry(name).or_insert(value);
+            frame.insert(name, value);
         } else {
             self.variables.entry(name).or_insert(value);
         }
@@ -4335,6 +4335,38 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::String("Ada".to_string())]);
         assert_eq!(vm.variable("name"), Some(&Value::String("Ada".to_string())));
+    }
+
+    #[test]
+    fn bytecode_function_local_declarations_refresh_within_call_frame() {
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushString("first".to_string()), span());
+        function.push(Op::PushString("local".to_string()), span());
+        function.push(Op::CallWord("var".to_string()), span());
+        function.push(Op::PushString("second".to_string()), span());
+        function.push(Op::PushString("local".to_string()), span());
+        function.push(Op::CallWord("var".to_string()), span());
+        function.push(Op::PushString("local".to_string()), span());
+        function.push(Op::CallWord("get".to_string()), span());
+        function.push(Op::Return, span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "capture".to_string(),
+                block,
+                args: None,
+            },
+            span(),
+        );
+        chunk.push(Op::CallWord("capture".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function call runs");
+
+        assert_eq!(vm.stack(), &[Value::String("second".to_string())]);
+        assert_eq!(vm.variable("local"), None);
     }
 
     #[test]
