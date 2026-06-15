@@ -911,6 +911,109 @@ end
 }
 
 #[tokio::test]
+async fn put_form_fields_bind_to_declared_controller_args_like_post() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "put_declared_args"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"
+PUT "/probe/:id" ProbeController "update" route
+POST "/probe/:id/update" ProbeController "update" route
+"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/ProbeController.rco"),
+        r#"
+ProbeController Controller subclass
+  ( id name status ) "update" [
+    status var
+    name var
+    id var
+
+    map data var
+    "id" id get data get .put! drop
+    "name" name get data get .put! drop
+    "status" status get data get .put! drop
+
+    map response var
+    "ok" true response get .put! drop
+    "data" data get response get .put! drop
+    "error" nil response get .put! drop
+    response get json
+  ] !method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let body = "name=Renamed&status=paused";
+
+    let post = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/probe/abc/update")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("POST response");
+    let put = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/probe/abc")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("PUT response");
+
+    assert_eq!(post.status(), StatusCode::OK);
+    assert_eq!(put.status(), StatusCode::OK);
+
+    let post_body = to_bytes(post.into_body(), usize::MAX)
+        .await
+        .expect("POST body bytes");
+    let put_body = to_bytes(put.into_body(), usize::MAX)
+        .await
+        .expect("PUT body bytes");
+    let post_body: serde_json::Value =
+        serde_json::from_slice(&post_body).expect("POST response body should be JSON");
+    let put_body: serde_json::Value =
+        serde_json::from_slice(&put_body).expect("PUT response body should be JSON");
+
+    assert_eq!(post_body, put_body);
+    assert_eq!(put_body["ok"], true);
+    assert_eq!(put_body["data"]["id"], "abc");
+    assert_eq!(put_body["data"]["name"], "Renamed");
+    assert_eq!(put_body["data"]["status"], "paused");
+    assert!(put_body["error"].is_null());
+}
+
+#[tokio::test]
 async fn controller_execution_budget_returns_server_error_for_runaway_work() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
