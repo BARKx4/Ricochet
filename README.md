@@ -22,6 +22,14 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Task model: first-class task values with `spawn`, `await`, `await-all`,
   retained completed/failed status, eager background execution, task inspection,
   and task-returning HTTP helpers.
+- Approval model: local apps can create approval records, claim a generated
+  token exactly once, and complete or reject the record with retained audit
+  state through `approval_create`, `approval_claim`, `approval_complete`,
+  `approval_reject`, and `approval_detail`.
+- Host capabilities: filesystem/workspace, HTTP, environment, sleep, TUI,
+  webview, opt-in process execution, and opt-in PTY sessions can be inspected
+  with `runtime_capabilities`; direct child process execution uses
+  `process_spawn`, `process_spawn_task`, or retained `process_start` jobs.
 - Desktop GUI beta: trusted local scripts can build escaped `webview` document
   maps, preview them with `rco gui`, and package them as native Windows, Linux,
   or macOS WebView executables with `rco package --gui`. MVC projects can also
@@ -55,8 +63,11 @@ foundation that other developers can scaffold, run, inspect, and extend.
   form/session login loop. New apps include `public/app.css` served at
   `/assets/app.css`.
 - AI integration: MVC apps can opt into an OpenAI-compatible `[ai.default]`
-  provider and receive an `ai` controller capability whose `.chat` method
+  provider and receive an `ai` controller capability whose `chat` method
   returns `Result` maps.
+- Result contracts: stack `Result` values use `ok?`, `value`, and `error`;
+  `result_envelope` converts them to `{ ok, data, error, meta }` maps for
+  app/API boundaries that need stable structured responses.
 - Security posture: sandboxable host capabilities, no-follow HTTP redirects,
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
@@ -183,8 +194,8 @@ another variable:
 ```forth
 "users" name var
 $name array
-"Ada" $users .push! drop
-$users .count println
+$users "Ada" push! drop
+$users count println
 ```
 
 Top-level declarations are shared across the VM. Function and method calls get
@@ -196,54 +207,63 @@ Spawn a task and await its result:
 
 ```forth
 [ 40 2 + ] spawn answer var
-$answer .status
-$answer .running?
-tasks .count
+$answer status
+$answer running?
+tasks count
 $answer await
-$answer .status
+$answer status
 $answer await
 handles array
-[ 20 2 + ] spawn $handles .push! drop
-[ 30 4 + ] spawn $handles .push! drop
+$handles [ 20 2 + ] spawn push! drop
+$handles [ 30 4 + ] spawn push! drop
 $handles await-all
 ```
 
 HTTP capability calls can also be launched as tasks:
 
 ```forth
-"https://example.com" http .get-task request var
+"https://example.com" http_get_task request var
 $request await value response var
-"status" $response .at println
+$response "status" at println
 ```
 
 For authenticated provider calls, pass a request map with explicit headers.
-`http .request` and `http .request-task` preserve the same host allowlist,
-10 second timeout, no-follow redirect policy, response shape, and 1 MiB body
-cap as the simpler HTTP words:
+`http_request` and `http_request_task` preserve the same runtime host allowlist
+and no-follow redirect policy as the simpler HTTP words. Request maps can also
+narrow themselves with `allowed_hosts` and `allowed_schemes`, and can set
+bounded `timeout_ms` and `max_response_bytes` values:
 
 ```forth
 headers map
-"Authorization" "Bearer token" $headers .put! drop
+headers get "Authorization" "Bearer token" put! drop
+hosts array
+hosts get "api.example" push! drop
+schemes array
+schemes get "https" push! drop
 body map
-"probe" true $body .put! drop
+body get "probe" true put! drop
 request map
-"url" "https://api.example/v1/models" $request .put! drop
-"method" "POST" $request .put! drop
-"headers" $headers $request .put! drop
-"json" $body $request .put! drop
-$request http .request value response var
-"status" $response .at println
+request get "url" "https://api.example/v1/models" put! drop
+request get "method" "POST" put! drop
+request get "headers" headers get put! drop
+request get "json" body get put! drop
+request get "allowed_hosts" hosts get put! drop
+request get "allowed_schemes" schemes get put! drop
+request get "timeout_ms" 30000 put! drop
+request get "max_response_bytes" 1048576 put! drop
+request get http_request value response var
+response get "status" at println
 ```
 
 Build a webview document for desktop UI hosts:
 
 ```forth
-"Counter" 1 webview .heading heading var
-"Increment" "increment" webview .button button var
-$heading "<main>" .concat
-$button swap .concat
-"</main>" swap .concat body var
-"Counter" $body webview .window value document var
+"Counter" 1 webview_heading heading var
+"Increment" "increment" webview_button button var
+"<main>" $heading concat
+$button concat
+"</main>" concat body var
+"Counter" $body webview_window value document var
 ```
 
 Serve an MVC app from its project directory:
@@ -251,6 +271,10 @@ Serve an MVC app from its project directory:
 ```powershell
 rco serve --host 127.0.0.1 --port 3000
 rco serve --allow-env --http-allow-host 127.0.0.1
+rco serve --env-allow OPENAI_API_KEY --http-allow-host api.openai.com
+rco serve --allow-process --fs-root .
+rco serve --allow-process --process-root .\scripts
+rco serve --allow-pty --fs-root .
 rco serve --watch
 ```
 
@@ -261,9 +285,88 @@ with `--debug` to print reload trace lines with the new revision and changed
 files.
 
 `rco serve` keeps MVC process environment reads disabled unless you pass
-`--allow-env`. Use that for trusted local beta apps that store secret references
-as environment variable names. `--no-env` keeps the default disabled behavior
-explicit, and conflicts with `--allow-env`.
+`--allow-env` or one or more `--env-allow NAME` entries. Prefer
+`--env-allow` for trusted local beta apps that store secret references as
+environment variable names. `--no-env` keeps the default disabled behavior
+explicit, and conflicts with both env-opening flags.
+
+Workspace helpers provide structured filesystem access for local apps while
+preserving the same `--fs-root` and `--fs-readonly` bounds as the lower-level
+`fs_*` words:
+
+```forth
+options map
+writeOptions map
+writeOptions get "create_parent_dirs" true put! drop
+"README.md" options get workspace_read_text value readme var
+"." options get workspace_list value entries var
+"generated/out.txt" "hello" writeOptions get workspace_write_text value written var
+written get "relative_path" at println
+runtime_capabilities "workspace" at "root" at println
+```
+
+Process execution is stronger than the ordinary trusted local profile and stays
+disabled unless you pass `--allow-process`. Use `process_spawn` with a direct
+command string, an argument array, and an options map when you want to run a
+process to completion. `--process-root PATH` narrows process and PTY `cwd`
+values independently from `--fs-root`; when omitted, process cwd containment
+falls back to the filesystem root if one is configured:
+
+```forth
+args array
+args get "status" push! drop
+options map
+options get "timeout_ms" 10000 put! drop
+"git" args get options get process_spawn value result var
+result get "success" at println
+```
+
+Use `process_start` for long-running jobs. The runtime keeps a retained job
+registry with bounded captured output, and it can be inspected across MVC
+requests with `process_jobs`, `process_job`, `process_read`, and
+`process_cancel`:
+
+```forth
+args array
+args get "status" push! drop
+options map
+options get "stdout_max_bytes" 1048576 put! drop
+"git" args get options get process_start value job var
+readOptions map
+job get "id" at readOptions get process_read value output var
+output get "stdout" at println
+```
+
+PTY sessions are separate and also opt in. Use `--allow-pty` for trusted
+scripts or MVC apps that need a real pseudo-terminal. Command names and shell
+newlines are host-specific:
+
+```forth
+args array
+args get "repl" push! drop
+options map
+"rco" args get options get pty_start value session var
+session get "id" at "1 2 +\r\n" pty_write value drop
+readOptions map
+session get "id" at readOptions get pty_read value screen var
+screen get "output" at println
+stopOptions map
+session get "id" at stopOptions get pty_stop value drop
+```
+
+Approval records are runtime-local and shared across MVC requests. `approval_create`
+returns a generated token once; `approval_claim` consumes that token exactly
+once before the caller performs the mutating operation:
+
+```forth
+operation map
+operation get "capability" "workspace.write" put! drop
+operation get "summary" "Write generated file" put! drop
+options map
+operation get options get approval_create value approval var
+approval get "id" at approval get "token" at approval_claim value claim var
+claim get "claimed" at println
+```
 
 For a zero-service local beta app, `rco new --with-sqlite my_beta_app`
 creates `db/development.sqlite3`, seeds `users`, configures Active Record, and
@@ -302,7 +405,7 @@ MVC actions parse `application/x-www-form-urlencoded`, `application/json`, and
 `multipart/form-data` request bodies for `POST`, `PUT`, `PATCH`, and `DELETE`.
 Declared action Args bind route params first, then form fields, JSON object
 fields, upload fields, query params, and finally context values. The same data
-is available through `ctx get .request get`: `form` holds text fields, `json`
+is available through `ctx get "request" at`: `form` holds text fields, `json`
 and `body` hold parsed JSON values, `uploads` is keyed by multipart file field
 name, and `files` contains every uploaded file. Upload values include
 `name`, `filename`, `content_type`, `size`, `text` when the bytes are UTF-8, and
@@ -313,8 +416,8 @@ name, and `files` contains every uploaded file. Upload values include
 
 A VS Code-compatible TextMate grammar for `.rco` files lives in
 `editors/vscode`. It registers the `source.ricochet` scope and highlights
-Ricochet comments, strings, `$name` binding reads, dot-method dispatch, bang
-words, declarations, control flow, async words, route verbs, core built-ins,
+Ricochet comments, strings, `$name` binding reads, postfix selectors,
+declarations, control flow, async words, route verbs, core built-ins,
 and collection types.
 
 ## Developing Ricochet
@@ -412,20 +515,33 @@ step.
 The CLI uses the `trusted` capability profile by default for local scripts.
 Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
 `rco repl`, or `rco test` to start with filesystem, HTTP, TUI, and webview
-disabled.
+disabled. Process execution and PTY sessions are disabled unless explicitly
+enabled in either profile.
 In the sandboxed profile, `--fs-root <path>` enables filesystem access only
 under that directory, `--fs-readonly` denies writes,
 `--http-allow-host <host>` enables HTTP only for named hosts, and
 `--allow-tui` enables terminal UI access, while `--allow-webview` enables
 webview document building. `--no-fs`, `--no-http`, `--no-tui`, and
 `--no-webview` still deny those host powers explicitly in either profile.
-`--no-env` denies environment/current-directory reads, and `--no-sleep` denies
-script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do not
-follow redirects, use a timeout and response body cap, and filesystem access
-remains powerful CLI behavior unless you deny or bound it with these flags.
+`--allow-process` enables direct child process execution with captured
+stdout/stderr, bounded output, blocking `process_spawn`, and long-running
+`process_start` jobs. `--process-root <path>` can make process and PTY cwd
+resolution narrower than the filesystem workspace. `--allow-pty` enables
+retained pseudo-terminal sessions through `pty_start`, `pty_write`, `pty_read`,
+`pty_resize`, `pty_stop`, `pty_list`, and `pty_detail`.
+`--env-allow <name>` enables or narrows environment variable reads to named
+variables, `--no-env` denies environment/current-directory reads, and
+`--no-sleep` denies script sleeps. Embedded hosts can leave capabilities
+disabled. HTTP calls do not follow redirects, use a timeout and response body
+cap, and filesystem access remains powerful CLI behavior unless you deny or
+bound it with these flags.
 For MVC servers, `rco serve` enables filesystem and HTTP only through
 `--fs-root` and `--http-allow-host`, and enables process environment reads only
-through `--allow-env`.
+through `--allow-env` or `--env-allow`. MVC process execution requires
+`--allow-process`, MVC PTY sessions require `--allow-pty`, and
+`--process-root` can narrow execution cwd values; `--watch` currently rejects
+env, filesystem, HTTP, process, and PTY host access so hot reload cannot orphan
+interactive sessions or stale capability state.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

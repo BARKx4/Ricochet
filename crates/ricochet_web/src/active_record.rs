@@ -2504,7 +2504,7 @@ mod tests {
     fn model_mapping_comes_from_loaded_ricochet_model_class() {
         let chunk = ricochet_compiler::compile_source(
             "app/Models/User.rco",
-            "User Model subclass\n  users table\n  id field\n  email field\nend\n",
+            "User Model Subclass\n  \"users\" Table\n  \"id\" Accessor\n  \"email\" Accessor\nend\n",
         )
         .expect("model compiles");
         let mut vm = ricochet_vm::Vm::default();

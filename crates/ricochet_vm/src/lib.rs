@@ -1,19 +1,25 @@
+pub mod approval_runtime;
 mod builtins;
 pub mod capability;
 pub mod class;
 pub mod collection;
 pub mod debug;
 pub mod object;
+pub mod process_runtime;
+pub mod pty_runtime;
 pub mod regex_value;
 pub mod result;
 pub mod value;
 pub mod vm;
 
+pub use approval_runtime::ApprovalRegistry;
 pub use capability::Capability;
 pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use collection::{ArrayValue, ListValue, MapValue, SetValue};
 pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 pub use object::Instance;
+pub use process_runtime::ProcessRegistry;
+pub use pty_runtime::PtyRegistry;
 pub use regex_value::RegexValue;
 pub use result::{RicochetError, RicochetResult};
 pub use value::{TruthinessError, Value};

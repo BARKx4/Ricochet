@@ -1448,7 +1448,7 @@ mod tests {
         let mut vm = Vm::default();
         let model = ricochet_compiler::compile_source(
             "app/Models/User.rco",
-            "User Model subclass\n  users table\n  id field\n  email field\nend\n",
+            "User Model Subclass\n  \"users\" Table\n  \"id\" Accessor\n  \"email\" Accessor\nend\n",
         )
         .expect("model compiles");
         vm.run_chunk(&model).expect("model loads");
@@ -1471,7 +1471,7 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get .all")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get all")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("database method runs");
@@ -1487,7 +1487,7 @@ mod tests {
     fn active_record_all_is_callable_on_the_model_class() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "User .all").expect("source compiles");
+            ricochet_compiler::compile_source("test.rco", "User all").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1501,7 +1501,7 @@ mod tests {
     #[test]
     fn active_record_default_page_uses_beta_pagination_policy() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "User .default-page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "User default-page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1536,8 +1536,8 @@ mod tests {
     #[test]
     fn active_record_limit_accepts_a_count_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "1 User .limit")
-            .expect("source compiles");
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "1 User limit").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1551,7 +1551,7 @@ mod tests {
     #[test]
     fn active_record_page_accepts_limit_and_offset_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "1 1 User .page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "1 1 User page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1567,7 +1567,7 @@ mod tests {
     fn active_record_order_page_accepts_field_direction_limit_and_offset_before_the_model_class() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "\"email\" \"asc\" 1 0 User .order-page")
+            ricochet_compiler::compile_source("test.rco", "\"email\" \"asc\" 1 0 User order-page")
                 .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1583,7 +1583,7 @@ mod tests {
     fn active_record_count_returns_a_number_result() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "User .count").expect("source compiles");
+            ricochet_compiler::compile_source("test.rco", "User count").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1599,7 +1599,7 @@ mod tests {
     fn active_record_first_returns_first_row_or_nil() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "User .first").expect("source compiles");
+            ricochet_compiler::compile_source("test.rco", "User first").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1613,7 +1613,7 @@ mod tests {
     #[test]
     fn active_record_exists_accepts_an_id_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "1 User .exists?")
+        let chunk = ricochet_compiler::compile_source("test.rco", "1 User exists?")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1636,7 +1636,7 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 db get .limit")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 db get limit")
             .expect("source compiles");
 
         vm.run_chunk(&chunk)
@@ -1659,7 +1659,7 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get .default-page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get default-page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk)
@@ -1682,7 +1682,7 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 1 db get .page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" 1 1 db get page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk)
@@ -1707,7 +1707,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"asc\" 1 0 db get .order-page",
+            "\"User\" \"email\" \"asc\" 1 0 db get order-page",
         )
         .expect("source compiles");
 
@@ -1733,7 +1733,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" db get .count value\n\"User\" db get .first value \"email\" swap .at\n\"User\" 1 db get .exists? value",
+            "\"User\" db get count value\n\"User\" db get first value \"email\" at\n\"User\" 1 db get exists? value",
         )
         .expect("source compiles");
 
@@ -1753,8 +1753,8 @@ mod tests {
     #[test]
     fn active_record_find_accepts_an_id_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "42 User .find")
-            .expect("source compiles");
+        let chunk =
+            ricochet_compiler::compile_source("test.rco", "42 User find").expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1769,7 +1769,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" User .where",
+            "\"email\" \"ada@example.com\" User where",
         )
         .expect("source compiles");
 
@@ -1798,7 +1798,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" 1 User .where-limit",
+            "\"email\" \"ada@example.com\" 1 User where-limit",
         )
         .expect("source compiles");
 
@@ -1816,7 +1816,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" 1 1 User .where-page",
+            "\"email\" \"ada@example.com\" 1 1 User where-page",
         )
         .expect("source compiles");
 
@@ -1834,7 +1834,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 User .where-order-page",
+            "\"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 User where-order-page",
         )
         .expect("source compiles");
 
@@ -1859,7 +1859,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"ada@example.com\" 1 db get .where-limit\n\"User\" \"email\" \"ada@example.com\" 1 1 db get .where-page",
+            "\"User\" \"email\" \"ada@example.com\" 1 db get where-limit\n\"User\" \"email\" \"ada@example.com\" 1 1 db get where-page",
         )
         .expect("source compiles");
 
@@ -1886,7 +1886,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 db get .where-order-page",
+            "\"User\" \"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 db get where-order-page",
         )
         .expect("source compiles");
 
@@ -1905,7 +1905,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "map \"email\" \"ada@example.com\" !put User .insert",
+            "map \"email\" \"ada@example.com\" put! User insert",
         )
         .expect("source compiles");
 
@@ -1928,7 +1928,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "42 map \"email\" \"grace@example.com\" !put User .update",
+            "42 map \"email\" \"grace@example.com\" put! User update",
         )
         .expect("source compiles");
 
@@ -1953,7 +1953,7 @@ mod tests {
             install_database_capability(&mut vm, Arc::new(FixtureDatabase), BTreeMap::new())
                 .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"Missing\" db get .all")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"Missing\" db get all")
             .expect("source compiles");
 
         vm.run_chunk(&chunk)

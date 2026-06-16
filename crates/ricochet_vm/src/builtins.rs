@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,15 +18,35 @@ use crossterm::{
 use regex::Match as RegexMatch;
 use ricochet_bytecode::Chunk;
 use serde_json::Value as JsonValue;
+use wait_timeout::ChildExt;
 
 use super::*;
+use crate::approval_runtime::{ApprovalCreateRequest, ApprovalRuntimeError, ApprovalSnapshot};
 use crate::capability::Capability;
+use crate::process_runtime::{ProcessRead, ProcessRequest, ProcessRuntimeError, ProcessSnapshot};
+use crate::pty_runtime::{PtyRead, PtyRequest, PtyRuntimeError, PtySnapshot};
 use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
 use crate::vm::value_kind;
 
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
-const HTTP_MAX_RESPONSE_BYTES: usize = 1_048_576;
+const HTTP_DEFAULT_TIMEOUT_MS: u64 = 10_000;
+const HTTP_MAX_TIMEOUT_MS: u64 = 300_000;
+const HTTP_DEFAULT_MAX_RESPONSE_BYTES: usize = 1_048_576;
+const HTTP_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const PROCESS_DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const PROCESS_MAX_TIMEOUT_MS: u64 = 300_000;
+const PROCESS_DEFAULT_OUTPUT_MAX_BYTES: usize = 1_048_576;
+const PROCESS_MAX_OUTPUT_MAX_BYTES: usize = 16 * 1024 * 1024;
+const PTY_DEFAULT_OUTPUT_MAX_BYTES: usize = 1_048_576;
+const PTY_MAX_OUTPUT_MAX_BYTES: usize = 16 * 1024 * 1024;
+const PTY_DEFAULT_ROWS: u16 = 24;
+const PTY_DEFAULT_COLS: u16 = 80;
+const WORKSPACE_DEFAULT_MAX_READ_BYTES: usize = 1_048_576;
+const WORKSPACE_MAX_READ_BYTES: usize = 16 * 1024 * 1024;
+const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
+const WORKSPACE_MAX_LIST_ENTRIES: usize = 10_000;
+const APPROVAL_DEFAULT_TTL_MS: i64 = 10 * 60 * 1000;
+const APPROVAL_MAX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 impl Vm {
     pub(super) fn builtin_method_exists(&self, receiver: &Value, method: &str) -> bool {
@@ -675,7 +697,7 @@ impl Vm {
         method: &str,
         predicate: impl FnOnce(&str, &str) -> bool,
     ) -> Result<Value, VmError> {
-        let needle = self.pop_string(method, "string")?;
+        let needle = self.pop_string(method, "string below receiver")?;
         match receiver {
             Value::String(value) => Ok(Value::Bool(predicate(&value, &needle))),
             value => Err(method_type_error(method, "string", &value)),
@@ -701,7 +723,7 @@ impl Vm {
     }
 
     fn method_index_of(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
-        let needle = self.pop_string(method, "needle string")?;
+        let needle = self.pop_string(method, "needle string below receiver")?;
         match receiver {
             Value::String(value) => match value.find(&needle) {
                 Some(index) => number_from_usize(method, byte_to_char_index(&value, index)),
@@ -712,7 +734,7 @@ impl Vm {
     }
 
     fn method_last_index_of(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
-        let needle = self.pop_string(method, "needle string")?;
+        let needle = self.pop_string(method, "needle string below receiver")?;
         match receiver {
             Value::String(value) => match value.rfind(&needle) {
                 Some(index) => number_from_usize(method, byte_to_char_index(&value, index)),
@@ -1186,6 +1208,35 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_result_envelope(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.pop(word) {
+            Ok(Value::Result(result)) => result,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(method_type_error(word, "result", &value));
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let Value::Map(options) = options else {
+            self.stack = stack_before;
+            return Err(method_type_error(word, "map", &options));
+        };
+        self.stack
+            .push(result_envelope_value(result, options.snapshot()));
+        Ok(())
+    }
+
     pub(super) fn call_assert(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let value = self.pop(word)?;
@@ -1529,7 +1580,25 @@ impl Vm {
                 message: "environment capability is not enabled".to_string(),
             });
         }
-        let name = self.pop_string(word, "environment variable name string")?;
+        let stack_before = self.stack.clone();
+        let name = match self.pop_string(word, "environment variable name string") {
+            Ok(name) => name,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if self
+            .environment_allowed_names
+            .as_ref()
+            .is_some_and(|names| !names.contains(&name))
+        {
+            self.stack = stack_before;
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("environment variable is not allowed: {name}"),
+            });
+        }
         self.stack.push(match std::env::var(&name) {
             Ok(value) => Value::result_ok(Value::String(value)),
             Err(error) => Value::result_err("EnvironmentError", error.to_string()),
@@ -1605,6 +1674,519 @@ impl Vm {
             message: "exit status must fit a 32-bit integer".to_string(),
         })?;
         Err(VmError::ExitRequested { code })
+    }
+
+    pub(super) fn call_runtime_capabilities(&mut self) -> Result<(), VmError> {
+        self.stack.push(self.runtime_capabilities_value());
+        Ok(())
+    }
+
+    pub(super) fn call_process_spawn(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+
+        let stack_before = self.stack.clone();
+        let request = match self.pop_process_request(word) {
+            Ok(Ok(request)) => request,
+            Ok(Err(error)) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        self.stack.push(perform_process_spawn(request));
+        Ok(())
+    }
+
+    pub(super) fn call_process_spawn_task(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+
+        let stack_before = self.stack.clone();
+        let request = match self.pop_process_request(word) {
+            Ok(Ok(request)) => request,
+            Ok(Err(error)) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        let task = self.spawn_value_task(word, move || perform_process_spawn(request))?;
+        self.stack.push(task);
+        Ok(())
+    }
+
+    pub(super) fn call_process_start(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+
+        let stack_before = self.stack.clone();
+        let request = match self.pop_process_request(word) {
+            Ok(Ok(request)) => request,
+            Ok(Err(error)) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        let result = match self.process_registry().start(request) {
+            Ok(snapshot) => Value::result_ok(process_snapshot_value(&snapshot)),
+            Err(error) => process_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_process_jobs(&mut self) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: "process_jobs".to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let jobs = self
+            .process_registry()
+            .jobs()
+            .iter()
+            .map(process_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(jobs.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_process_job(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_process_id(word)?;
+        let result = self
+            .process_registry()
+            .job(id)
+            .map(|snapshot| Value::result_ok(process_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_process_job_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_process_cancel(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_process_id(word)?;
+        let result = self
+            .process_registry()
+            .cancel(id)
+            .map(|snapshot| Value::result_ok(process_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_process_job_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_process_read(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let id = match self.pop_process_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let (stdout_offset, stderr_offset) = match process_read_offsets(options) {
+            Ok(offsets) => offsets,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .process_registry()
+            .read(id, stdout_offset, stderr_offset)
+            .map(|read| Value::result_ok(process_read_value(&read)))
+            .unwrap_or_else(|| unknown_process_job_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_start(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+
+        let stack_before = self.stack.clone();
+        let request = match self.pop_pty_request(word) {
+            Ok(Ok(request)) => request,
+            Ok(Err(error)) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+
+        let result = match self.pty_registry().start(request) {
+            Ok(snapshot) => Value::result_ok(pty_snapshot_value(&snapshot)),
+            Err(error) => pty_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_write(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let input = self.pop_string(word, "PTY input string")?;
+        let id = self.pop_pty_id(word)?;
+        let result = self
+            .pty_registry()
+            .write(id, &input)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(pty_snapshot_value(&snapshot)),
+                Err(error) => pty_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_read(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let id = match self.pop_pty_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let offset = match pty_read_offset(options) {
+            Ok(offset) => offset,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .pty_registry()
+            .read(id, offset)
+            .map(|read| Value::result_ok(pty_read_value(&read)))
+            .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_resize(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let rows = self.pop_pty_u16(word, "PTY rows")?;
+        let cols = self.pop_pty_u16(word, "PTY columns")?;
+        let id = self.pop_pty_id(word)?;
+        let result = self
+            .pty_registry()
+            .resize(id, cols, rows)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(pty_snapshot_value(&snapshot)),
+                Err(error) => pty_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_stop(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let options = self.pop(word)?;
+        if let Err(error) = pty_empty_options(options, "PTY stop options") {
+            self.stack.push(error);
+            return Ok(());
+        }
+        let id = self.pop_pty_id(word)?;
+        let result = self
+            .pty_registry()
+            .stop(id)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(pty_snapshot_value(&snapshot)),
+                Err(error) => pty_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_list(&mut self) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: "pty_list".to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let sessions = self
+            .pty_registry()
+            .sessions()
+            .iter()
+            .map(pty_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(sessions.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_pty_detail(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_pty_id(word)?;
+        let result = self
+            .pty_registry()
+            .session(id)
+            .map(|snapshot| Value::result_ok(pty_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_approval_create(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let operation = match self.pop(word) {
+            Ok(operation) => operation,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match approval_create_request(operation, options) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = match self.approval_registry().create(request) {
+            Ok(snapshot) => Value::result_ok(approval_snapshot_value(&snapshot)),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_approval_claim(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let token = match self.pop_string(word, "approval token string") {
+            Ok(token) => token,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_string(word, "approval id string") {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.approval_registry().claim(&id, &token) {
+            Ok(snapshot) => Value::result_ok(approval_snapshot_value(&snapshot)),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_approval_complete(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let completed_result = match self.pop(word) {
+            Ok(result) => result,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_string(word, "approval id string") {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.approval_registry().complete(&id, completed_result) {
+            Ok(snapshot) => Value::result_ok(approval_snapshot_value(&snapshot)),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_approval_reject(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let reason = match self.pop_string(word, "approval rejection reason string") {
+            Ok(reason) => reason,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_string(word, "approval id string") {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.approval_registry().reject(&id, reason) {
+            Ok(snapshot) => Value::result_ok(approval_snapshot_value(&snapshot)),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_approval_detail(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let id = match self.pop_string(word, "approval id string") {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.approval_registry().detail(&id) {
+            Ok(snapshot) => Value::result_ok(approval_snapshot_value(&snapshot)),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn pop_pty_request(&mut self, word: &str) -> Result<Result<PtyRequest, Value>, VmError> {
+        let options = self.pop(word)?;
+        let args = self.pop(word)?;
+        let command = self.pop_string(word, "PTY command string")?;
+        let args = match process_args_from_value(args) {
+            Ok(args) => args,
+            Err(error) => return Ok(Err(error)),
+        };
+        Ok(pty_request_from_values(self, word, command, args, options))
+    }
+
+    fn pop_pty_id(&mut self, word: &str) -> Result<u64, VmError> {
+        match self.pop_number(word)? {
+            value if value >= 0 => u64::try_from(value).map_err(|_| VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "PTY session id is too large".to_string(),
+            }),
+            value => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("PTY session id cannot be negative: {value}"),
+            }),
+        }
+    }
+
+    fn pop_pty_u16(&mut self, word: &str, expected: &str) -> Result<u16, VmError> {
+        let value = self.pop_number(word)?;
+        u16::try_from(value).map_err(|_| VmError::InvalidArgument {
+            word: word.to_string(),
+            message: format!("{expected} must be between 0 and {}", u16::MAX),
+        })
+    }
+
+    fn pop_process_request(
+        &mut self,
+        word: &str,
+    ) -> Result<Result<ProcessRequest, Value>, VmError> {
+        let options = self.pop(word)?;
+        let args = self.pop(word)?;
+        let command = self.pop_string(word, "process command string")?;
+        let args = match process_args_from_value(args) {
+            Ok(args) => args,
+            Err(error) => return Ok(Err(error)),
+        };
+        Ok(process_request_from_values(
+            self, word, command, args, options,
+        ))
+    }
+
+    fn pop_process_id(&mut self, word: &str) -> Result<u64, VmError> {
+        match self.pop_number(word)? {
+            value if value >= 0 => u64::try_from(value).map_err(|_| VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "process job id is too large".to_string(),
+            }),
+            value => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("process job id cannot be negative: {value}"),
+            }),
+        }
     }
 
     fn method_fs_read_text(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
@@ -1693,6 +2275,272 @@ impl Vm {
         })
     }
 
+    pub(super) fn call_workspace_resolve(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if let Err(error) = workspace_options_map(options, &[]) {
+            self.stack.push(error);
+            return Ok(());
+        }
+        let result = match self.resolve_filesystem_path(word, &source) {
+            Ok(path) => {
+                let exists = path.exists();
+                Value::result_ok(workspace_resolved_value(
+                    &source,
+                    &path,
+                    self.filesystem_root_path(),
+                    exists,
+                ))
+            }
+            Err(error) => Value::result_err("PermissionError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_contains(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let path = self.pop_string(word, "workspace path string")?;
+        let root = self.pop_string(word, "workspace root string")?;
+        let contains = match (
+            self.resolve_filesystem_path(word, &root),
+            self.resolve_filesystem_path(word, &path),
+        ) {
+            (Ok(root), Ok(path)) => path.starts_with(root),
+            _ => false,
+        };
+        self.stack.push(Value::Bool(contains));
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_metadata(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let source = self.pop_string(word, "workspace path string")?;
+        let result = match self.resolve_filesystem_path(word, &source) {
+            Ok(path) => workspace_metadata_result(&source, &path, self.filesystem_root_path()),
+            Err(error) => Value::result_err("PermissionError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_list(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace directory path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match workspace_list_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = match self.resolve_filesystem_path(word, &source) {
+            Ok(path) => workspace_list_result(&path, self.filesystem_root_path(), &options),
+            Err(error) => Value::result_err("PermissionError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_read_text(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace file path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let max_bytes = match workspace_read_max_bytes(options) {
+            Ok(max_bytes) => max_bytes,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = match self.resolve_filesystem_path(word, &source) {
+            Ok(path) => workspace_read_text_result(&path, max_bytes),
+            Err(error) => Value::result_err("PermissionError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_write_text(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let contents = match self.pop_string(word, "workspace file contents string") {
+            Ok(contents) => contents,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let source = match self.pop_string(word, "workspace file path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match workspace_write_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = if !self.filesystem_writes_enabled() {
+            Value::result_err("PermissionError", "filesystem writes are disabled")
+        } else {
+            match self.resolve_filesystem_path(word, &source) {
+                Ok(path) => workspace_write_text_result(
+                    &source,
+                    &path,
+                    &contents,
+                    self.filesystem_root_path(),
+                    &options,
+                ),
+                Err(error) => Value::result_err("PermissionError", error.to_string()),
+            }
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_mkdir(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace directory path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match workspace_mkdir_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = if !self.filesystem_writes_enabled() {
+            Value::result_err("PermissionError", "filesystem writes are disabled")
+        } else {
+            match self.resolve_filesystem_path(word, &source) {
+                Ok(path) => {
+                    let created = if options.recursive {
+                        fs::create_dir_all(&path)
+                    } else {
+                        fs::create_dir(&path)
+                    };
+                    match created {
+                        Ok(()) => {
+                            workspace_metadata_result(&source, &path, self.filesystem_root_path())
+                        }
+                        Err(error) => Value::result_err("IoError", error.to_string()),
+                    }
+                }
+                Err(error) => Value::result_err("PermissionError", error.to_string()),
+            }
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_copy(&mut self, word: &str) -> Result<(), VmError> {
+        self.call_workspace_copy_or_move(word, false)
+    }
+
+    pub(super) fn call_workspace_move(&mut self, word: &str) -> Result<(), VmError> {
+        self.call_workspace_copy_or_move(word, true)
+    }
+
+    fn call_workspace_copy_or_move(
+        &mut self,
+        word: &str,
+        move_source: bool,
+    ) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let destination_source = match self.pop_string(word, "workspace destination path string") {
+            Ok(destination) => destination,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let source = match self.pop_string(word, "workspace source path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match workspace_write_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = if !self.filesystem_writes_enabled() {
+            Value::result_err("PermissionError", "filesystem writes are disabled")
+        } else {
+            match (
+                self.resolve_filesystem_path(word, &source),
+                self.resolve_filesystem_path(word, &destination_source),
+            ) {
+                (Ok(source_path), Ok(destination_path)) => workspace_copy_or_move_result(
+                    &destination_source,
+                    &source_path,
+                    &destination_path,
+                    self.filesystem_root_path(),
+                    &options,
+                    move_source,
+                ),
+                (Err(error), _) | (_, Err(error)) => {
+                    Value::result_err("PermissionError", error.to_string())
+                }
+            }
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn ensure_workspace_enabled(&self, word: &str) -> Result<(), VmError> {
+        if self.filesystem_enabled() {
+            Ok(())
+        } else {
+            Err(VmError::HostError {
+                word: word.to_string(),
+                message: "workspace filesystem capability is not enabled".to_string(),
+            })
+        }
+    }
+
     fn method_http_get(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Http, method)?;
         let url = self.pop_string(method, "URL string")?;
@@ -1725,6 +2573,9 @@ impl Vm {
         };
         if let Err(error) = self.check_http_url_allowed(method, &request.url) {
             return Ok(Value::result_err("PermissionError", error.to_string()));
+        }
+        if let Some(error) = http_request_policy_error(&request) {
+            return Ok(error);
         }
         Ok(http_in_worker(move || perform_http_request(request)))
     }
@@ -1778,9 +2629,10 @@ impl Vm {
         let permission_error = self
             .check_http_url_allowed(method, &request.url)
             .err()
-            .map(|error| error.to_string());
+            .map(|error| Value::result_err("PermissionError", error.to_string()))
+            .or_else(|| http_request_policy_error(&request));
         self.spawn_value_task(method, move || match permission_error {
-            Some(error) => Value::result_err("PermissionError", error),
+            Some(error) => error,
             None => perform_http_request(request),
         })
     }
@@ -2347,6 +3199,43 @@ fn json_to_value(value: JsonValue) -> Value {
     }
 }
 
+fn result_envelope_value(result: RicochetResult, meta: BTreeMap<String, Value>) -> Value {
+    let capability = match meta.get("capability") {
+        Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
+        _ => None,
+    };
+    match result {
+        RicochetResult::Ok(value) => Value::Map(
+            BTreeMap::from([
+                ("ok".to_string(), Value::Bool(true)),
+                ("data".to_string(), *value),
+                ("error".to_string(), Value::Nil),
+                ("meta".to_string(), Value::Map(meta.into())),
+            ])
+            .into(),
+        ),
+        RicochetResult::Err(error) => {
+            let mut error_map = BTreeMap::from([
+                ("kind".to_string(), Value::String(error.kind.clone())),
+                ("code".to_string(), Value::String(error.kind)),
+                ("message".to_string(), Value::String(error.message)),
+            ]);
+            if let Some(capability) = capability {
+                error_map.insert("capability".to_string(), Value::String(capability));
+            }
+            Value::Map(
+                BTreeMap::from([
+                    ("ok".to_string(), Value::Bool(false)),
+                    ("data".to_string(), Value::Nil),
+                    ("error".to_string(), Value::Map(error_map.into())),
+                    ("meta".to_string(), Value::Map(meta.into())),
+                ])
+                .into(),
+            )
+        }
+    }
+}
+
 fn escape_html_text(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -2514,7 +3403,10 @@ fn terminal_modifier_values(modifiers: KeyModifiers) -> Vec<Value> {
     .collect()
 }
 
-fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) -> Value {
+fn http_response(
+    response: Result<reqwest::blocking::Response, reqwest::Error>,
+    max_response_bytes: usize,
+) -> Value {
     let response = match response {
         Ok(response) => response,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
@@ -2532,12 +3424,12 @@ fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) 
         .collect::<BTreeMap<_, _>>();
     let mut body = Vec::new();
     let read_result = response
-        .take((HTTP_MAX_RESPONSE_BYTES + 1) as u64)
+        .take((max_response_bytes + 1) as u64)
         .read_to_end(&mut body);
-    if body.len() > HTTP_MAX_RESPONSE_BYTES {
+    if body.len() > max_response_bytes {
         return Value::result_err(
             "HttpBodyTooLarge",
-            format!("HTTP response exceeded {HTTP_MAX_RESPONSE_BYTES} bytes"),
+            format!("HTTP response exceeded {max_response_bytes} bytes"),
         );
     }
 
@@ -2557,9 +3449,9 @@ fn http_response(response: Result<reqwest::blocking::Response, reqwest::Error>) 
     }
 }
 
-fn http_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
+fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client, reqwest::Error> {
     reqwest::blocking::Client::builder()
-        .timeout(HTTP_TIMEOUT)
+        .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none())
         .build()
 }
@@ -2571,6 +3463,1212 @@ struct HttpRequest {
     headers: reqwest::header::HeaderMap,
     json: Option<JsonValue>,
     body: Option<String>,
+    timeout: Duration,
+    max_response_bytes: usize,
+    allowed_hosts: Option<BTreeSet<String>>,
+    allowed_schemes: Option<BTreeSet<String>>,
+}
+
+fn process_args_from_value(value: Value) -> Result<Vec<String>, Value> {
+    let values = match value {
+        Value::Array(values) => values.snapshot(),
+        Value::List(values) => values.snapshot(),
+        value => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process args must be an array or list, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::String(value) => Ok(value),
+            value => Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process args[{index}] must be a string, got {}",
+                    value_kind(&value)
+                ),
+            )),
+        })
+        .collect()
+}
+
+fn process_request_from_values(
+    vm: &Vm,
+    word: &str,
+    command: String,
+    args: Vec<String>,
+    options: Value,
+) -> Result<ProcessRequest, Value> {
+    if command.trim().is_empty() {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            "process command must not be empty",
+        ));
+    }
+
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!(
+                "process options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+
+    let cwd = match options.remove("cwd") {
+        Some(Value::String(path)) => Some(
+            vm.resolve_process_path(word, &path)
+                .map_err(|error| Value::result_err("PermissionError", error.to_string()))?,
+        ),
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option cwd must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let stdin = match options.remove("stdin") {
+        Some(Value::String(value)) => Some(value),
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option stdin must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let timeout_ms = match options.remove("timeout_ms") {
+        Some(Value::Number(value)) if value > 0 => u64::try_from(value).map_err(|_| {
+            Value::result_err("ProcessRequestError", "process timeout_ms is too large")
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!("process timeout_ms must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => PROCESS_DEFAULT_TIMEOUT_MS,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option timeout_ms must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if timeout_ms > PROCESS_MAX_TIMEOUT_MS {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!("process timeout_ms must be at most {PROCESS_MAX_TIMEOUT_MS}"),
+        ));
+    }
+
+    let clear_env = match options.remove("clear_env") {
+        Some(Value::Bool(value)) => value,
+        Some(Value::Nil) | None => false,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option clear_env must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let env = match options.remove("env") {
+        Some(Value::Map(values)) => process_env_from_map(values.snapshot())?,
+        Some(Value::Nil) | None => BTreeMap::new(),
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option env must be a map, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let stdout_max_bytes = match options.remove("stdout_max_bytes") {
+        Some(value) => process_max_bytes_from_value("stdout_max_bytes", value)?,
+        None => PROCESS_DEFAULT_OUTPUT_MAX_BYTES,
+    };
+    let stderr_max_bytes = match options.remove("stderr_max_bytes") {
+        Some(value) => process_max_bytes_from_value("stderr_max_bytes", value)?,
+        None => PROCESS_DEFAULT_OUTPUT_MAX_BYTES,
+    };
+
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!("unknown process option: {key}"),
+        ));
+    }
+
+    Ok(ProcessRequest {
+        command,
+        args,
+        cwd,
+        stdin,
+        timeout: Duration::from_millis(timeout_ms),
+        clear_env,
+        env,
+        stdout_max_bytes,
+        stderr_max_bytes,
+    })
+}
+
+fn process_max_bytes_from_value(name: &str, value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value >= 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err(
+                    "ProcessRequestError",
+                    format!("process option {name} is too large"),
+                )
+            })?;
+            if value > PROCESS_MAX_OUTPUT_MAX_BYTES {
+                Err(Value::result_err(
+                    "ProcessRequestError",
+                    format!("process option {name} must be at most {PROCESS_MAX_OUTPUT_MAX_BYTES}"),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Value::Number(value) => Err(Value::result_err(
+            "ProcessRequestError",
+            format!("process option {name} cannot be negative: {value}"),
+        )),
+        Value::Nil => Ok(PROCESS_DEFAULT_OUTPUT_MAX_BYTES),
+        value => Err(Value::result_err(
+            "ProcessRequestError",
+            format!(
+                "process option {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn pty_request_from_values(
+    vm: &Vm,
+    word: &str,
+    command: String,
+    args: Vec<String>,
+    options: Value,
+) -> Result<PtyRequest, Value> {
+    if command.trim().is_empty() {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            "PTY command must not be empty",
+        ));
+    }
+
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!("PTY options must be a map, got {}", value_kind(&options)),
+        ));
+    };
+    let mut options = options.snapshot();
+
+    let cwd = match options.remove("cwd") {
+        Some(Value::String(path)) => Some(
+            vm.resolve_process_path(word, &path)
+                .map_err(|error| Value::result_err("PermissionError", error.to_string()))?,
+        ),
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "PtyRequestError",
+                format!(
+                    "PTY option cwd must be a string, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let clear_env = match options.remove("clear_env") {
+        Some(Value::Bool(value)) => value,
+        Some(Value::Nil) | None => false,
+        Some(value) => {
+            return Err(Value::result_err(
+                "PtyRequestError",
+                format!(
+                    "PTY option clear_env must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    let env = match options.remove("env") {
+        Some(Value::Map(values)) => process_env_from_map(values.snapshot())?,
+        Some(Value::Nil) | None => BTreeMap::new(),
+        Some(value) => {
+            return Err(Value::result_err(
+                "PtyRequestError",
+                format!("PTY option env must be a map, got {}", value_kind(&value)),
+            ));
+        }
+    };
+
+    let rows = match options.remove("rows") {
+        Some(value) => pty_u16_from_value("rows", value)?,
+        None => PTY_DEFAULT_ROWS,
+    };
+    let cols = match options.remove("cols") {
+        Some(value) => pty_u16_from_value("cols", value)?,
+        None => PTY_DEFAULT_COLS,
+    };
+    let output_max_bytes = match options.remove("output_max_bytes") {
+        Some(value) => pty_output_max_bytes_from_value("output_max_bytes", value)?,
+        None => PTY_DEFAULT_OUTPUT_MAX_BYTES,
+    };
+
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!("unknown PTY option: {key}"),
+        ));
+    }
+
+    Ok(PtyRequest {
+        command,
+        args,
+        cwd,
+        clear_env,
+        env,
+        rows,
+        cols,
+        output_max_bytes,
+    })
+}
+
+fn pty_u16_from_value(name: &str, value: Value) -> Result<u16, Value> {
+    match value {
+        Value::Number(value) if value > 0 => u16::try_from(value).map_err(|_| {
+            Value::result_err(
+                "PtyRequestError",
+                format!("PTY option {name} must be at most {}", u16::MAX),
+            )
+        }),
+        Value::Number(value) => Err(Value::result_err(
+            "PtyRequestError",
+            format!("PTY option {name} must be positive, got {value}"),
+        )),
+        Value::Nil => Ok(if name == "rows" {
+            PTY_DEFAULT_ROWS
+        } else {
+            PTY_DEFAULT_COLS
+        }),
+        value => Err(Value::result_err(
+            "PtyRequestError",
+            format!(
+                "PTY option {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn pty_output_max_bytes_from_value(name: &str, value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value >= 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err("PtyRequestError", format!("PTY option {name} is too large"))
+            })?;
+            if value > PTY_MAX_OUTPUT_MAX_BYTES {
+                Err(Value::result_err(
+                    "PtyRequestError",
+                    format!("PTY option {name} must be at most {PTY_MAX_OUTPUT_MAX_BYTES}"),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Value::Number(value) => Err(Value::result_err(
+            "PtyRequestError",
+            format!("PTY option {name} cannot be negative: {value}"),
+        )),
+        Value::Nil => Ok(PTY_DEFAULT_OUTPUT_MAX_BYTES),
+        value => Err(Value::result_err(
+            "PtyRequestError",
+            format!(
+                "PTY option {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn pty_read_offset(options: Value) -> Result<usize, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!(
+                "PTY read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let offset = match options.remove("offset") {
+        Some(Value::Number(value)) if value >= 0 => usize::try_from(value).map_err(|_| {
+            Value::result_err("PtyRequestError", "PTY read option offset is too large")
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "PtyRequestError",
+                format!("PTY read option offset cannot be negative: {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => 0,
+        Some(value) => {
+            return Err(Value::result_err(
+                "PtyRequestError",
+                format!(
+                    "PTY read option offset must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!("unknown PTY read option: {key}"),
+        ));
+    }
+    Ok(offset)
+}
+
+fn pty_empty_options(options: Value, expected: &str) -> Result<(), Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!("{expected} must be a map, got {}", value_kind(&options)),
+        ));
+    };
+    let options = options.snapshot();
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "PtyRequestError",
+            format!("unknown PTY option: {key}"),
+        ));
+    }
+    Ok(())
+}
+
+fn approval_create_request(
+    operation: Value,
+    options: Value,
+) -> Result<ApprovalCreateRequest, Value> {
+    if !matches!(operation, Value::Map(_)) {
+        return Err(Value::result_err(
+            "ApprovalRequestError",
+            format!(
+                "approval operation must be a map, got {}",
+                value_kind(&operation)
+            ),
+        ));
+    }
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "ApprovalRequestError",
+            format!(
+                "approval options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let id = approval_optional_string(&mut options, "id")?;
+    let token = approval_optional_string(&mut options, "token")?;
+    let metadata = options.remove("metadata").unwrap_or(Value::Nil);
+    let ttl_ms = match options.remove("ttl_ms") {
+        Some(Value::Number(value)) if value > 0 && value <= APPROVAL_MAX_TTL_MS => Some(value),
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "ApprovalRequestError",
+                format!("approval ttl_ms must be between 1 and {APPROVAL_MAX_TTL_MS}, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ApprovalRequestError",
+                format!(
+                    "approval ttl_ms must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    let expires_at_ms = match options.remove("expires_at_ms") {
+        Some(Value::Number(value)) if value > 0 => Some(value),
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "ApprovalRequestError",
+                format!("approval expires_at_ms must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ApprovalRequestError",
+                format!(
+                    "approval expires_at_ms must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "ApprovalRequestError",
+            format!("unknown approval option: {key}"),
+        ));
+    }
+    Ok(ApprovalCreateRequest {
+        id,
+        token,
+        operation,
+        metadata,
+        ttl_ms: Some(ttl_ms.unwrap_or(APPROVAL_DEFAULT_TTL_MS)),
+        expires_at_ms,
+    })
+}
+
+fn approval_optional_string(
+    options: &mut BTreeMap<String, Value>,
+    name: &str,
+) -> Result<Option<String>, Value> {
+    match options.remove(name) {
+        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value)),
+        Some(Value::String(_)) => Err(Value::result_err(
+            "ApprovalRequestError",
+            format!("approval option {name} must not be empty"),
+        )),
+        Some(Value::Nil) | None => Ok(None),
+        Some(value) => Err(Value::result_err(
+            "ApprovalRequestError",
+            format!(
+                "approval option {name} must be a string, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn approval_snapshot_value(snapshot: &ApprovalSnapshot) -> Value {
+    let token = snapshot
+        .token
+        .as_ref()
+        .map(|token| Value::String(token.clone()))
+        .unwrap_or(Value::Nil);
+    let expires_at_ms = snapshot
+        .expires_at_ms
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let claimed_at_ms = snapshot
+        .claimed_at_ms
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let completed_at_ms = snapshot
+        .completed_at_ms
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let rejected_at_ms = snapshot
+        .rejected_at_ms
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let completed_result = snapshot.completed_result.clone().unwrap_or(Value::Nil);
+    let rejection_reason = snapshot
+        .rejection_reason
+        .as_ref()
+        .map(|reason| Value::String(reason.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::String(snapshot.id.clone())),
+            ("token".to_string(), token),
+            ("operation".to_string(), snapshot.operation.clone()),
+            ("metadata".to_string(), snapshot.metadata.clone()),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("pending".to_string(), Value::Bool(snapshot.pending)),
+            ("claimed".to_string(), Value::Bool(snapshot.claimed)),
+            ("completed".to_string(), Value::Bool(snapshot.completed)),
+            ("rejected".to_string(), Value::Bool(snapshot.rejected)),
+            ("expired".to_string(), Value::Bool(snapshot.expired)),
+            (
+                "created_at_ms".to_string(),
+                Value::Number(snapshot.created_at_ms),
+            ),
+            ("expires_at_ms".to_string(), expires_at_ms),
+            ("claimed_at_ms".to_string(), claimed_at_ms),
+            ("completed_at_ms".to_string(), completed_at_ms),
+            ("rejected_at_ms".to_string(), rejected_at_ms),
+            ("result".to_string(), completed_result),
+            ("rejection_reason".to_string(), rejection_reason),
+        ])
+        .into(),
+    )
+}
+
+fn approval_runtime_error_value(error: ApprovalRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn pty_snapshot_value(snapshot: &PtySnapshot) -> Value {
+    let cwd = snapshot
+        .cwd
+        .as_ref()
+        .map(|path| Value::String(path.to_string_lossy().into_owned()))
+        .unwrap_or(Value::Nil);
+    let exit_code = snapshot.exit_code.map(Value::Number).unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    let process_id = snapshot
+        .process_id
+        .map(|id| Value::Number(id.into()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            (
+                "command".to_string(),
+                Value::String(snapshot.command.clone()),
+            ),
+            (
+                "args".to_string(),
+                Value::Array(
+                    snapshot
+                        .args
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+            ),
+            ("cwd".to_string(), cwd),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("running".to_string(), Value::Bool(snapshot.running)),
+            ("success".to_string(), Value::Bool(snapshot.success)),
+            ("exit_code".to_string(), exit_code.clone()),
+            ("status_code".to_string(), exit_code),
+            ("error".to_string(), error),
+            (
+                "output_len".to_string(),
+                Value::Number(snapshot.output_len as i64),
+            ),
+            (
+                "output_truncated".to_string(),
+                Value::Bool(snapshot.output_truncated),
+            ),
+            ("rows".to_string(), Value::Number(snapshot.rows.into())),
+            ("cols".to_string(), Value::Number(snapshot.cols.into())),
+            ("process_id".to_string(), process_id),
+            ("stopped".to_string(), Value::Bool(snapshot.stopped)),
+        ])
+        .into(),
+    )
+}
+
+fn pty_read_value(read: &PtyRead) -> Value {
+    let mut values = match pty_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    values.insert("output".to_string(), Value::String(read.output.clone()));
+    values.insert("offset".to_string(), Value::Number(read.offset as i64));
+    Value::Map(values.into())
+}
+
+fn pty_runtime_error_value(error: PtyRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn unknown_pty_session_value(id: u64) -> Value {
+    Value::result_err("PtyNotFound", format!("unknown PTY session: {id}"))
+}
+
+fn process_env_from_map(
+    values: BTreeMap<String, Value>,
+) -> Result<BTreeMap<String, String>, Value> {
+    values
+        .into_iter()
+        .map(|(key, value)| match value {
+            Value::String(value) => Ok((key, value)),
+            value => Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process env value for {key} must be a string, got {}",
+                    value_kind(&value)
+                ),
+            )),
+        })
+        .collect()
+}
+
+fn process_read_offsets(options: Value) -> Result<(usize, usize), Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!(
+                "process read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let stdout_offset = match options.remove("stdout_offset") {
+        Some(value) => process_offset_from_value("stdout_offset", value)?,
+        None => 0,
+    };
+    let stderr_offset = match options.remove("stderr_offset") {
+        Some(value) => process_offset_from_value("stderr_offset", value)?,
+        None => 0,
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!("unknown process read option: {key}"),
+        ));
+    }
+    Ok((stdout_offset, stderr_offset))
+}
+
+fn process_offset_from_value(name: &str, value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value >= 0 => usize::try_from(value).map_err(|_| {
+            Value::result_err(
+                "ProcessRequestError",
+                format!("process read option {name} is too large"),
+            )
+        }),
+        Value::Number(value) => Err(Value::result_err(
+            "ProcessRequestError",
+            format!("process read option {name} cannot be negative: {value}"),
+        )),
+        Value::Nil => Ok(0),
+        value => Err(Value::result_err(
+            "ProcessRequestError",
+            format!(
+                "process read option {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn process_snapshot_value(snapshot: &ProcessSnapshot) -> Value {
+    let cwd = snapshot
+        .cwd
+        .as_ref()
+        .map(|path| Value::String(path.to_string_lossy().into_owned()))
+        .unwrap_or(Value::Nil);
+    let exit_code = snapshot
+        .exit_code
+        .map(|code| Value::Number(code.into()))
+        .unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            (
+                "command".to_string(),
+                Value::String(snapshot.command.clone()),
+            ),
+            (
+                "args".to_string(),
+                Value::Array(
+                    snapshot
+                        .args
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+            ),
+            ("cwd".to_string(), cwd),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("running".to_string(), Value::Bool(snapshot.running)),
+            ("success".to_string(), Value::Bool(snapshot.success)),
+            ("exit_code".to_string(), exit_code.clone()),
+            ("status_code".to_string(), exit_code),
+            ("error".to_string(), error),
+            (
+                "stdout_len".to_string(),
+                Value::Number(snapshot.stdout_len as i64),
+            ),
+            (
+                "stderr_len".to_string(),
+                Value::Number(snapshot.stderr_len as i64),
+            ),
+            (
+                "stdout_truncated".to_string(),
+                Value::Bool(snapshot.stdout_truncated),
+            ),
+            (
+                "stderr_truncated".to_string(),
+                Value::Bool(snapshot.stderr_truncated),
+            ),
+            ("timed_out".to_string(), Value::Bool(snapshot.timed_out)),
+            ("cancelled".to_string(), Value::Bool(snapshot.cancelled)),
+        ])
+        .into(),
+    )
+}
+
+fn process_read_value(read: &ProcessRead) -> Value {
+    let mut values = match process_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    values.insert("stdout".to_string(), Value::String(read.stdout.clone()));
+    values.insert("stderr".to_string(), Value::String(read.stderr.clone()));
+    values.insert(
+        "stdout_offset".to_string(),
+        Value::Number(read.stdout_offset as i64),
+    );
+    values.insert(
+        "stderr_offset".to_string(),
+        Value::Number(read.stderr_offset as i64),
+    );
+    Value::Map(values.into())
+}
+
+fn process_runtime_error_value(error: ProcessRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn unknown_process_job_value(id: u64) -> Value {
+    Value::result_err("ProcessNotFound", format!("unknown process job: {id}"))
+}
+
+#[derive(Clone, Copy)]
+struct WorkspaceListOptions {
+    recursive: bool,
+    include_files: bool,
+    include_dirs: bool,
+    max_entries: usize,
+}
+
+#[derive(Clone, Copy)]
+struct WorkspaceWriteOptions {
+    overwrite: bool,
+    create_parent_dirs: bool,
+}
+
+#[derive(Clone, Copy)]
+struct WorkspaceMkdirOptions {
+    recursive: bool,
+}
+
+fn workspace_options_map(
+    value: Value,
+    allowed_keys: &[&str],
+) -> Result<BTreeMap<String, Value>, Value> {
+    let Value::Map(map) = value else {
+        return Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!(
+                "workspace options must be a map, got {}",
+                value_kind(&value)
+            ),
+        ));
+    };
+    let options = map.snapshot();
+    if let Some(key) = options
+        .keys()
+        .find(|key| !allowed_keys.contains(&key.as_str()))
+    {
+        return Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!("unknown workspace option: {key}"),
+        ));
+    }
+    Ok(options)
+}
+
+fn workspace_list_options(value: Value) -> Result<WorkspaceListOptions, Value> {
+    let mut options = workspace_options_map(
+        value,
+        &["recursive", "include_files", "include_dirs", "max_entries"],
+    )?;
+    let recursive = workspace_bool_option(&mut options, "recursive", false)?;
+    let include_files = workspace_bool_option(&mut options, "include_files", true)?;
+    let include_dirs = workspace_bool_option(&mut options, "include_dirs", true)?;
+    let max_entries = workspace_usize_option(
+        &mut options,
+        "max_entries",
+        WORKSPACE_DEFAULT_MAX_LIST_ENTRIES,
+        WORKSPACE_MAX_LIST_ENTRIES,
+    )?;
+    Ok(WorkspaceListOptions {
+        recursive,
+        include_files,
+        include_dirs,
+        max_entries,
+    })
+}
+
+fn workspace_read_max_bytes(value: Value) -> Result<usize, Value> {
+    let mut options = workspace_options_map(value, &["max_bytes"])?;
+    workspace_usize_option(
+        &mut options,
+        "max_bytes",
+        WORKSPACE_DEFAULT_MAX_READ_BYTES,
+        WORKSPACE_MAX_READ_BYTES,
+    )
+}
+
+fn workspace_write_options(value: Value) -> Result<WorkspaceWriteOptions, Value> {
+    let mut options = workspace_options_map(value, &["overwrite", "create_parent_dirs"])?;
+    Ok(WorkspaceWriteOptions {
+        overwrite: workspace_bool_option(&mut options, "overwrite", false)?,
+        create_parent_dirs: workspace_bool_option(&mut options, "create_parent_dirs", false)?,
+    })
+}
+
+fn workspace_mkdir_options(value: Value) -> Result<WorkspaceMkdirOptions, Value> {
+    let mut options = workspace_options_map(value, &["recursive"])?;
+    Ok(WorkspaceMkdirOptions {
+        recursive: workspace_bool_option(&mut options, "recursive", true)?,
+    })
+}
+
+fn workspace_bool_option(
+    options: &mut BTreeMap<String, Value>,
+    name: &str,
+    default: bool,
+) -> Result<bool, Value> {
+    match options.remove(name) {
+        Some(Value::Bool(value)) => Ok(value),
+        Some(Value::Nil) | None => Ok(default),
+        Some(value) => Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!(
+                "workspace option {name} must be a bool, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn workspace_usize_option(
+    options: &mut BTreeMap<String, Value>,
+    name: &str,
+    default: usize,
+    max: usize,
+) -> Result<usize, Value> {
+    match options.remove(name) {
+        Some(Value::Number(value)) if value >= 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err(
+                    "WorkspaceRequestError",
+                    format!("workspace option {name} is too large"),
+                )
+            })?;
+            if value > max {
+                Err(Value::result_err(
+                    "WorkspaceRequestError",
+                    format!("workspace option {name} must be at most {max}"),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Some(Value::Number(value)) => Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!("workspace option {name} cannot be negative: {value}"),
+        )),
+        Some(Value::Nil) | None => Ok(default),
+        Some(value) => Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!(
+                "workspace option {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn workspace_resolved_value(source: &str, path: &Path, root: Option<&Path>, exists: bool) -> Value {
+    let mut fields = workspace_path_fields(source, path, root);
+    fields.insert("exists".to_string(), Value::Bool(exists));
+    Value::Map(fields.into())
+}
+
+fn workspace_metadata_result(source: &str, path: &Path, root: Option<&Path>) -> Value {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Value::result_ok(workspace_metadata_value(source, path, root, &metadata)),
+        Err(error) => Value::result_err("IoError", error.to_string()),
+    }
+}
+
+fn workspace_metadata_value(
+    source: &str,
+    path: &Path,
+    root: Option<&Path>,
+    metadata: &fs::Metadata,
+) -> Value {
+    let mut fields = workspace_path_fields(source, path, root);
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_symlink() {
+        "symlink"
+    } else if metadata.is_dir() {
+        "directory"
+    } else if metadata.is_file() {
+        "file"
+    } else {
+        "other"
+    };
+    fields.insert("exists".to_string(), Value::Bool(true));
+    fields.insert("kind".to_string(), Value::String(kind.to_string()));
+    fields.insert("is_file".to_string(), Value::Bool(metadata.is_file()));
+    fields.insert("is_dir".to_string(), Value::Bool(metadata.is_dir()));
+    fields.insert(
+        "is_symlink".to_string(),
+        Value::Bool(file_type.is_symlink()),
+    );
+    fields.insert("len".to_string(), Value::Number(metadata.len() as i64));
+    fields.insert(
+        "readonly".to_string(),
+        Value::Bool(metadata.permissions().readonly()),
+    );
+    fields.insert(
+        "modified_at_ms".to_string(),
+        metadata
+            .modified()
+            .ok()
+            .map(system_time_value)
+            .unwrap_or(Value::Nil),
+    );
+    Value::Map(fields.into())
+}
+
+fn workspace_path_fields(
+    source: &str,
+    path: &Path,
+    root: Option<&Path>,
+) -> BTreeMap<String, Value> {
+    let relative = root
+        .and_then(|root| path.strip_prefix(root).ok())
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    BTreeMap::from([
+        (
+            "requested_path".to_string(),
+            Value::String(source.to_string()),
+        ),
+        (
+            "path".to_string(),
+            Value::String(path.to_string_lossy().into_owned()),
+        ),
+        ("relative_path".to_string(), Value::String(relative)),
+        (
+            "inside_root".to_string(),
+            Value::Bool(root.is_none_or(|root| path.starts_with(root))),
+        ),
+    ])
+}
+
+fn workspace_list_result(
+    path: &Path,
+    root: Option<&Path>,
+    options: &WorkspaceListOptions,
+) -> Value {
+    let mut values = Vec::new();
+    match workspace_collect_entries(path, root, options, &mut values) {
+        Ok(()) => Value::result_ok(Value::Array(values.into())),
+        Err(error) => Value::result_err("IoError", error),
+    }
+}
+
+fn workspace_collect_entries(
+    path: &Path,
+    root: Option<&Path>,
+    options: &WorkspaceListOptions,
+    values: &mut Vec<Value>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(path).map_err(|error| error.to_string())?;
+    for entry in entries {
+        if values.len() >= options.max_entries {
+            return Err(format!(
+                "workspace list exceeded max_entries {}",
+                options.max_entries
+            ));
+        }
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if root.is_some_and(|root| !path.starts_with(root)) {
+            return Err(format!("workspace entry escaped root: {}", path.display()));
+        }
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        let include = (file_type.is_dir() && options.include_dirs)
+            || (file_type.is_file() && options.include_files)
+            || (!file_type.is_dir() && !file_type.is_file());
+        if include {
+            values.push(workspace_metadata_value(
+                &path.to_string_lossy(),
+                &path,
+                root,
+                &metadata,
+            ));
+        }
+        if options.recursive && file_type.is_dir() {
+            workspace_collect_entries(&path, root, options, values)?;
+        }
+    }
+    Ok(())
+}
+
+fn workspace_read_text_result(path: &Path, max_bytes: usize) -> Value {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) => return Value::result_err("IoError", error.to_string()),
+    };
+    let mut bytes = Vec::new();
+    let read_limit = max_bytes as u64 + 1;
+    if let Err(error) = Read::by_ref(&mut file)
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+    {
+        return Value::result_err("IoError", error.to_string());
+    }
+    if bytes.len() > max_bytes {
+        return Value::result_err(
+            "FileTooLarge",
+            format!("workspace read exceeded max_bytes {max_bytes}"),
+        );
+    }
+    match String::from_utf8(bytes) {
+        Ok(contents) => Value::result_ok(Value::String(contents)),
+        Err(error) => Value::result_err("Utf8Error", error.to_string()),
+    }
+}
+
+fn workspace_write_text_result(
+    source: &str,
+    path: &Path,
+    contents: &str,
+    root: Option<&Path>,
+    options: &WorkspaceWriteOptions,
+) -> Value {
+    if path.exists() && !options.overwrite {
+        return Value::result_err(
+            "AlreadyExists",
+            format!("workspace path already exists: {}", path.display()),
+        );
+    }
+    if options.create_parent_dirs {
+        if let Some(parent) = path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return Value::result_err("IoError", error.to_string());
+            }
+        }
+    }
+    match fs::write(path, contents) {
+        Ok(()) => workspace_metadata_result(source, path, root),
+        Err(error) => Value::result_err("IoError", error.to_string()),
+    }
+}
+
+fn workspace_copy_or_move_result(
+    destination_source: &str,
+    source: &Path,
+    destination: &Path,
+    root: Option<&Path>,
+    options: &WorkspaceWriteOptions,
+    move_source: bool,
+) -> Value {
+    if destination.exists() && !options.overwrite {
+        return Value::result_err(
+            "AlreadyExists",
+            format!(
+                "workspace destination already exists: {}",
+                destination.display()
+            ),
+        );
+    }
+    if options.create_parent_dirs {
+        if let Some(parent) = destination.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return Value::result_err("IoError", error.to_string());
+            }
+        }
+    }
+    if move_source {
+        if destination.exists() {
+            return Value::result_err(
+                "AlreadyExists",
+                "workspace_move cannot overwrite an existing destination",
+            );
+        }
+        match fs::rename(source, destination) {
+            Ok(()) => workspace_metadata_result(destination_source, destination, root),
+            Err(error) => Value::result_err("IoError", error.to_string()),
+        }
+    } else {
+        match fs::copy(source, destination) {
+            Ok(_) => workspace_metadata_result(destination_source, destination, root),
+            Err(error) => Value::result_err("IoError", error.to_string()),
+        }
+    }
+}
+
+fn system_time_value(value: SystemTime) -> Value {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| duration.as_millis().try_into().ok())
+        .map(Value::Number)
+        .unwrap_or(Value::Nil)
 }
 
 fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
@@ -2653,6 +4751,62 @@ fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
             "HTTP request cannot include both json and body",
         ));
     }
+    let timeout_ms = match fields.remove("timeout_ms") {
+        Some(Value::Number(value)) if value > 0 => u64::try_from(value)
+            .map_err(|_| Value::result_err("HttpRequestError", "HTTP timeout_ms is too large"))?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP timeout_ms must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => HTTP_DEFAULT_TIMEOUT_MS,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP timeout_ms must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if timeout_ms > HTTP_MAX_TIMEOUT_MS {
+        return Err(Value::result_err(
+            "HttpRequestError",
+            format!("HTTP timeout_ms must be at most {HTTP_MAX_TIMEOUT_MS}"),
+        ));
+    }
+    let max_response_bytes = match fields.remove("max_response_bytes") {
+        Some(value) => http_max_response_bytes_from_value(value)?,
+        None => HTTP_DEFAULT_MAX_RESPONSE_BYTES,
+    };
+    let allowed_hosts = match fields.remove("allowed_hosts") {
+        Some(value) => Some(http_string_set_from_value("allowed_hosts", value)?),
+        None => None,
+    };
+    let allowed_schemes = match fields.remove("allowed_schemes") {
+        Some(value) => Some(http_string_set_from_value("allowed_schemes", value)?),
+        None => None,
+    };
+    match fields.remove("follow_redirects") {
+        Some(Value::Bool(false)) | Some(Value::Nil) | None => {}
+        Some(Value::Bool(true)) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                "HTTP follow_redirects=true is not supported yet; redirects stay disabled",
+            ));
+        }
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP follow_redirects must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    }
 
     Ok(HttpRequest {
         method,
@@ -2660,7 +4814,76 @@ fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
         headers,
         json,
         body,
+        timeout: Duration::from_millis(timeout_ms),
+        max_response_bytes,
+        allowed_hosts,
+        allowed_schemes,
     })
+}
+
+fn http_max_response_bytes_from_value(value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value >= 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err("HttpRequestError", "HTTP max_response_bytes is too large")
+            })?;
+            if value > HTTP_MAX_RESPONSE_BYTES {
+                Err(Value::result_err(
+                    "HttpRequestError",
+                    format!("HTTP max_response_bytes must be at most {HTTP_MAX_RESPONSE_BYTES}"),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Value::Number(value) => Err(Value::result_err(
+            "HttpRequestError",
+            format!("HTTP max_response_bytes must be non-negative, got {value}"),
+        )),
+        Value::Nil => Ok(HTTP_DEFAULT_MAX_RESPONSE_BYTES),
+        value => Err(Value::result_err(
+            "HttpRequestError",
+            format!(
+                "HTTP max_response_bytes must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn http_string_set_from_value(name: &str, value: Value) -> Result<BTreeSet<String>, Value> {
+    let values = match value {
+        Value::Array(values) => values.snapshot(),
+        Value::List(values) => values.snapshot(),
+        Value::Nil => return Ok(BTreeSet::new()),
+        value => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP {name} must be an array or list, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::String(value) if !value.is_empty() => Ok(value.to_ascii_lowercase()),
+            Value::String(_) => Err(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP {name}[{index}] must not be empty"),
+            )),
+            value => Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP {name}[{index}] must be a string, got {}",
+                    value_kind(&value)
+                ),
+            )),
+        })
+        .collect()
 }
 
 fn http_headers_from_map(
@@ -2697,27 +4920,223 @@ fn http_headers_from_map(
     Ok(output)
 }
 
+fn http_request_policy_error(request: &HttpRequest) -> Option<Value> {
+    let parsed = match reqwest::Url::parse(&request.url) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Some(Value::result_err(
+                "HttpRequestError",
+                format!("invalid HTTP URL {:?}: {error}", request.url),
+            ));
+        }
+    };
+    let scheme = parsed.scheme().to_ascii_lowercase();
+    if !matches!(scheme.as_str(), "http" | "https") {
+        return Some(Value::result_err(
+            "HttpRequestError",
+            format!("unsupported HTTP URL scheme: {scheme}"),
+        ));
+    }
+    if let Some(allowed_schemes) = &request.allowed_schemes {
+        if !allowed_schemes.contains(&scheme) {
+            return Some(Value::result_err(
+                "PermissionError",
+                format!("HTTP scheme is not allowed by request policy: {scheme}"),
+            ));
+        }
+    }
+    let host = match parsed.host_str() {
+        Some(host) => host.to_ascii_lowercase(),
+        None => {
+            return Some(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP URL has no host: {:?}", request.url),
+            ));
+        }
+    };
+    if let Some(allowed_hosts) = &request.allowed_hosts {
+        if !allowed_hosts.contains(&host) {
+            return Some(Value::result_err(
+                "PermissionError",
+                format!("HTTP host is not allowed by request policy: {host}"),
+            ));
+        }
+    }
+    None
+}
+
+fn perform_process_spawn(request: ProcessRequest) -> Value {
+    let mut command = Command::new(&request.command);
+    command.args(&request.args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    command.stdin(if request.stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
+
+    if let Some(cwd) = &request.cwd {
+        command.current_dir(cwd);
+    }
+    if request.clear_env {
+        command.env_clear();
+    }
+    for (name, value) in &request.env {
+        command.env(name, value);
+    }
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return Value::result_err("ProcessError", error.to_string()),
+    };
+
+    let stdout = child
+        .stdout
+        .take()
+        .map(|stdout| read_process_output(stdout, request.stdout_max_bytes));
+    let stderr = child
+        .stderr
+        .take()
+        .map(|stderr| read_process_output(stderr, request.stderr_max_bytes));
+
+    if let Some(input) = request.stdin {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(error) = stdin.write_all(input.as_bytes()) {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_process_output(stdout);
+                let _ = join_process_output(stderr);
+                return Value::result_err(
+                    "ProcessError",
+                    format!("failed to write stdin: {error}"),
+                );
+            }
+        }
+    }
+
+    let status = match child.wait_timeout(request.timeout) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_process_output(stdout);
+            let _ = join_process_output(stderr);
+            return Value::result_err(
+                "ProcessTimeout",
+                format!("process timed out after {} ms", request.timeout.as_millis()),
+            );
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_process_output(stdout);
+            let _ = join_process_output(stderr);
+            return Value::result_err("ProcessError", error.to_string());
+        }
+    };
+
+    let (stdout, stdout_truncated) = match join_process_output(stdout) {
+        Ok(output) => output,
+        Err(error) => return Value::result_err("ProcessError", error),
+    };
+    let (stderr, stderr_truncated) = match join_process_output(stderr) {
+        Ok(output) => output,
+        Err(error) => return Value::result_err("ProcessError", error),
+    };
+    let status_code = status
+        .code()
+        .map(|code| Value::Number(code.into()))
+        .unwrap_or(Value::Nil);
+
+    Value::result_ok(Value::Map(
+        BTreeMap::from([
+            ("success".to_string(), Value::Bool(status.success())),
+            ("status".to_string(), status_code),
+            ("stdout".to_string(), Value::String(stdout)),
+            ("stderr".to_string(), Value::String(stderr)),
+            (
+                "stdout_truncated".to_string(),
+                Value::Bool(stdout_truncated),
+            ),
+            (
+                "stderr_truncated".to_string(),
+                Value::Bool(stderr_truncated),
+            ),
+        ])
+        .into(),
+    ))
+}
+
+fn read_process_output<R>(
+    mut reader: R,
+    max_bytes: usize,
+) -> thread::JoinHandle<Result<(String, bool), String>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut output = Vec::new();
+        let mut truncated = false;
+        let mut buffer = [0_u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    if output.len() >= max_bytes {
+                        truncated = true;
+                        continue;
+                    }
+                    let available = max_bytes - output.len();
+                    let take = count.min(available);
+                    output.extend_from_slice(&buffer[..take]);
+                    if take < count {
+                        truncated = true;
+                    }
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Ok((String::from_utf8_lossy(&output).into_owned(), truncated))
+    })
+}
+
+fn join_process_output(
+    handle: Option<thread::JoinHandle<Result<(String, bool), String>>>,
+) -> Result<(String, bool), String> {
+    match handle {
+        Some(handle) => handle
+            .join()
+            .map_err(|_| "process output reader thread panicked".to_string())?,
+        None => Ok((String::new(), false)),
+    }
+}
+
 fn perform_http_get(url: String) -> Value {
-    let client = match http_client() {
+    let client = match http_client(Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS)) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
-    http_response(client.get(url).send())
+    http_response(client.get(url).send(), HTTP_DEFAULT_MAX_RESPONSE_BYTES)
 }
 
 fn perform_http_post_json(url: String, body: JsonValue) -> Value {
-    let client = match http_client() {
+    let client = match http_client(Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS)) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
-    http_response(client.post(url).json(&body).send())
+    http_response(
+        client.post(url).json(&body).send(),
+        HTTP_DEFAULT_MAX_RESPONSE_BYTES,
+    )
 }
 
 fn perform_http_request(request: HttpRequest) -> Value {
-    let client = match http_client() {
+    let client = match http_client(request.timeout) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
+    let max_response_bytes = request.max_response_bytes;
     let mut builder = client
         .request(request.method, request.url)
         .headers(request.headers);
@@ -2726,7 +5145,7 @@ fn perform_http_request(request: HttpRequest) -> Value {
     } else if let Some(body) = request.body {
         builder = builder.body(body);
     }
-    http_response(builder.send())
+    http_response(builder.send(), max_response_bytes)
 }
 
 fn http_in_worker(request: impl FnOnce() -> Value + Send + 'static) -> Value {

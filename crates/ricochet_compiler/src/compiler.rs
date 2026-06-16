@@ -117,7 +117,7 @@ impl Compiler {
             } if table_declaration(exprs).is_some() => {
                 let name = table_declaration(exprs).expect("table declaration checked");
                 self.push_at(Op::PushString(name), exprs[0].span);
-                self.push_at(Op::CallWord("table".to_string()), exprs[1].span);
+                self.push_at(Op::CallWord("Table".to_string()), exprs[1].span);
                 Ok(())
             }
             Item::Expr {
@@ -127,6 +127,16 @@ impl Compiler {
             } if is_field_declaration(exprs) => {
                 let name = declaration_name(&exprs[0]).expect("field declaration checked");
                 self.chunk.push(Op::AddField(name), self.source_span(*span));
+                Ok(())
+            }
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                span,
+                ..
+            } if is_accessor_declaration(exprs) => {
+                let name = declaration_name(&exprs[0]).expect("accessor declaration checked");
+                self.chunk
+                    .push(Op::AddAccessor(name), self.source_span(*span));
                 Ok(())
             }
             Item::Expr {
@@ -186,7 +196,9 @@ impl Compiler {
         match expr {
             Expr::Symbol(word) => self.compile_symbol(word),
             Expr::BangWord(word) => self.push(Op::CallWord(word.clone())),
-            Expr::DotWord(word) => self.push(Op::CallMethod(method_name(word))),
+            Expr::DotWord(word) => Err(CompileError::Unsupported(format!(
+                "leading-dot method syntax {word:?} is no longer supported; use postfix selectors"
+            ))),
             Expr::Reference(name) => {
                 self.push(Op::PushString(name.clone()))?;
                 self.push(Op::CallWord("get".to_string()))
@@ -366,12 +378,18 @@ impl Compiler {
 fn is_field_declaration(exprs: &[SpannedExpr]) -> bool {
     exprs.len() == 2
         && declaration_name(&exprs[0]).is_some()
-        && matches!(&exprs[1].expr, Expr::Symbol(word) if word == "field")
+        && matches!(&exprs[1].expr, Expr::Symbol(word) if word == "Field")
+}
+
+fn is_accessor_declaration(exprs: &[SpannedExpr]) -> bool {
+    exprs.len() == 2
+        && declaration_name(&exprs[0]).is_some()
+        && matches!(&exprs[1].expr, Expr::Symbol(word) if word == "Accessor")
 }
 
 fn table_declaration(exprs: &[SpannedExpr]) -> Option<String> {
     match exprs {
-        [name, operator] if matches!(&operator.expr, Expr::Symbol(word) if word == "table") => {
+        [name, operator] if matches!(&operator.expr, Expr::Symbol(word) if word == "Table") => {
             declaration_name(name)
         }
         _ => None,
@@ -382,14 +400,14 @@ fn block_method_declaration(
     exprs: &[SpannedExpr],
 ) -> Option<(Option<&ArgsDecl>, String, &[SpannedExpr])> {
     match exprs {
-        [name, block, bang] => match (&block.expr, &bang.expr) {
-            (Expr::Block(body), Expr::BangWord(word)) if word == "!method" => {
+        [block, name, operator] => match (&block.expr, &operator.expr) {
+            (Expr::Block(body), Expr::Symbol(word)) if word == "Method" => {
                 Some((None, declaration_name(name)?, body.as_slice()))
             }
             _ => None,
         },
-        [args, name, block, bang] => match (&args.expr, &block.expr, &bang.expr) {
-            (Expr::Args(args), Expr::Block(body), Expr::BangWord(word)) if word == "!method" => {
+        [args, block, name, operator] => match (&args.expr, &block.expr, &operator.expr) {
+            (Expr::Args(args), Expr::Block(body), Expr::Symbol(word)) if word == "Method" => {
                 Some((Some(args), declaration_name(name)?, body.as_slice()))
             }
             _ => None,
@@ -425,10 +443,6 @@ fn args_spec(args: &ArgsDecl) -> ArgsSpec {
         inputs: args.inputs.clone(),
         outputs: args.outputs.clone(),
     }
-}
-
-fn method_name(word: &str) -> String {
-    word.strip_prefix('.').unwrap_or(word).to_string()
 }
 
 fn line_starts(source: &str) -> Vec<usize> {
@@ -477,6 +491,20 @@ mod tests {
     }
 
     #[test]
+    fn compiles_negative_number_literals() {
+        let chunk = compile_source("test.rco", "-1 2 +").expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushNumber(-1),
+                Op::PushNumber(2),
+                Op::CallWord("+".to_string())
+            ]
+        );
+    }
+
+    #[test]
     fn top_level_expression_debug_spans_follow_source_lines() {
         let chunk = compile_source("test.rco", "2\n3\n+\n").expect("compile succeeds");
 
@@ -489,10 +517,10 @@ mod tests {
     #[test]
     fn compiles_class_fields_and_block_method_mutations() {
         let source = r#"
-          User Model subclass
-            users table
-            email field
-            "displayName" [ self .email get ] !method
+          User Model Subclass
+            "users" Table
+            "email" Accessor
+            [ self email.get ] "displayName" Method
           end
         "#;
 
@@ -506,8 +534,8 @@ mod tests {
                     superclass: "Model".to_string(),
                 },
                 Op::PushString("users".to_string()),
-                Op::CallWord("table".to_string()),
-                Op::AddField("email".to_string()),
+                Op::CallWord("Table".to_string()),
+                Op::AddAccessor("email".to_string()),
                 Op::AddMethod {
                     name: "displayName".to_string(),
                     block: 0,
@@ -521,8 +549,7 @@ mod tests {
             chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
             vec![
                 Op::CallWord("self".to_string()),
-                Op::CallMethod("email".to_string()),
-                Op::CallWord("get".to_string()),
+                Op::CallWord("email.get".to_string()),
                 Op::Return,
             ]
         );
@@ -531,10 +558,10 @@ mod tests {
     #[test]
     fn compiles_class_methods_with_args_metadata() {
         let source = r#"
-          Transfer Service subclass
-            ( amount target -> Result ) transfer method
+          Transfer Service Subclass
+            ( amount target -> Result ) [
               amount target send
-            end
+            ] "transfer" Method
           end
         "#;
 
@@ -563,15 +590,15 @@ mod tests {
     #[test]
     fn compiles_block_method_declarations_with_args_metadata() {
         let source = r#"
-          HomeController Controller subclass
-            ( id ctx ) "show" [
+          HomeController Controller Subclass
+            ( id ctx ) [
               nil title var
               ctx var
               id var
               id get title set
               ctx get
               "home/show" swap view
-            ] !method
+            ] "show" Method
           end
         "#;
 
@@ -600,10 +627,8 @@ mod tests {
     #[test]
     fn compiles_class_method_declarations_to_add_method_blocks() {
         let source = r#"
-          User Model subclass
-            displayName method
-              self .email get
-            end
+          User Model Subclass
+            [ self email.get ] "displayName" Method
           end
         "#;
 
@@ -628,8 +653,7 @@ mod tests {
             chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
             vec![
                 Op::CallWord("self".to_string()),
-                Op::CallMethod("email".to_string()),
-                Op::CallWord("get".to_string()),
+                Op::CallWord("email.get".to_string()),
                 Op::Return,
             ]
         );
@@ -638,12 +662,11 @@ mod tests {
     #[test]
     fn method_block_debug_spans_follow_each_expression_line() {
         let source = r#"
-          User Model subclass
-            displayName method
+          User Model Subclass
+            [
               self
-              .email
-              get
-            end
+              email.get
+            ] "displayName" Method
           end
         "#;
 
@@ -657,7 +680,7 @@ mod tests {
                 .debug()
                 .map(|span| span.line)
                 .collect::<Vec<_>>(),
-            vec![4, 5, 6, 3]
+            vec![4, 5, 3]
         );
     }
 
@@ -719,7 +742,7 @@ mod tests {
 
     #[test]
     fn compiles_dynamic_declarations_from_dollar_references() {
-        let chunk = compile_source("test.rco", r#""users" name var $name array $users .count"#)
+        let chunk = compile_source("test.rco", r#""users" name var $name array $users count"#)
             .expect("compile succeeds");
 
         assert_eq!(
@@ -733,7 +756,7 @@ mod tests {
                 Op::CallWord("array".to_string()),
                 Op::PushString("users".to_string()),
                 Op::CallWord("get".to_string()),
-                Op::CallMethod("count".to_string()),
+                Op::CallWord("count".to_string()),
             ]
         );
     }
@@ -777,7 +800,7 @@ mod tests {
                 Op::CallWord("map".to_string()),
                 Op::PushString("name".to_string()),
                 Op::PushString("Ada <Lovelace>".to_string()),
-                Op::CallWord("!put".to_string()),
+                Op::CallWord("put!".to_string()),
                 Op::PushString("user".to_string()),
                 Op::CallWord("set".to_string()),
                 Op::PushString("ctx".to_string()),
@@ -850,12 +873,12 @@ mod tests {
         let chunk = compile_source(
             "test.rco",
             r#"
-              Probe Object subclass
-                "go" [
+              Probe Object Subclass
+                [
                   map bag var
-                  "id" "bag" bag get .put! drop
+                  bag get "id" "bag" put! drop
                   array events var
-                ] !method
+                ] "go" Method
               end
             "#,
         )
@@ -867,11 +890,11 @@ mod tests {
                 Op::CallWord("map".to_string()),
                 Op::PushString("bag".to_string()),
                 Op::CallWord("var".to_string()),
-                Op::PushString("id".to_string()),
-                Op::PushString("bag".to_string()),
                 Op::PushString("bag".to_string()),
                 Op::CallWord("get".to_string()),
-                Op::CallMethod("put!".to_string()),
+                Op::PushString("id".to_string()),
+                Op::PushString("bag".to_string()),
+                Op::CallWord("put!".to_string()),
                 Op::CallWord("drop".to_string()),
                 Op::CallWord("array".to_string()),
                 Op::PushString("events".to_string()),

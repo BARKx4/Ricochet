@@ -7,10 +7,10 @@ The grammar registers the `source.ricochet` scope and highlights:
 
 - `(( ... ))` Ricochet comments/doc comments
 - strings, valid escapes, and invalid escape sequences
-- integer numbers
+- positive and negative integer numbers
 - `$name` binding reads
-- dot-method dispatch such as `.find`, `.push!`, and `.get-task`
-- bang words such as `!method`, `!push`, and `!put`
+- postfix selectors such as `email.get`, `displayName`, and `status`
+- mutator words such as `push!`, `put!`, `insert!`, and `remove!`
 - declaration, control-flow, async, route, webview, stack, and core built-in words
 - Args arrows and block/argument delimiters
 

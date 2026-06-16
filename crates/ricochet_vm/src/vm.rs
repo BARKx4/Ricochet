@@ -10,11 +10,14 @@ use std::thread;
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use thiserror::Error;
 
+use crate::approval_runtime::ApprovalRegistry;
 use crate::capability::Capability;
 use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
 use crate::object::Instance;
+use crate::process_runtime::ProcessRegistry;
+use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
 use crate::value::Value;
 
@@ -113,9 +116,16 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    process_enabled: bool,
+    process_root: Option<PathBuf>,
+    process_registry: ProcessRegistry,
+    pty_enabled: bool,
+    pty_registry: PtyRegistry,
+    approval_registry: ApprovalRegistry,
     terminal_enabled: bool,
     webview_enabled: bool,
     pub(super) environment_enabled: bool,
+    pub(super) environment_allowed_names: Option<BTreeSet<String>>,
     pub(super) sleep_enabled: bool,
     max_running_tasks: usize,
     debug_enabled: bool,
@@ -152,9 +162,16 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            process_enabled: false,
+            process_root: None,
+            process_registry: ProcessRegistry::default(),
+            pty_enabled: false,
+            pty_registry: PtyRegistry::default(),
+            approval_registry: ApprovalRegistry::default(),
             terminal_enabled: false,
             webview_enabled: false,
             environment_enabled: false,
+            environment_allowed_names: None,
             sleep_enabled: false,
             max_running_tasks: DEFAULT_MAX_RUNNING_TASKS,
             debug_enabled: false,
@@ -187,9 +204,16 @@ struct Task {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    process_enabled: bool,
+    process_root: Option<PathBuf>,
+    process_registry: ProcessRegistry,
+    pty_enabled: bool,
+    pty_registry: PtyRegistry,
+    approval_registry: ApprovalRegistry,
     terminal_enabled: bool,
     webview_enabled: bool,
     environment_enabled: bool,
+    environment_allowed_names: Option<BTreeSet<String>>,
     sleep_enabled: bool,
     instruction_limit: Option<u64>,
 }
@@ -377,9 +401,16 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         filesystem_writes_enabled: task.filesystem_writes_enabled,
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
+        process_enabled: task.process_enabled,
+        process_root: task.process_root,
+        process_registry: task.process_registry,
+        pty_enabled: task.pty_enabled,
+        pty_registry: task.pty_registry,
+        approval_registry: task.approval_registry,
         terminal_enabled: task.terminal_enabled,
         webview_enabled: task.webview_enabled,
         environment_enabled: task.environment_enabled,
+        environment_allowed_names: task.environment_allowed_names,
         sleep_enabled: task.sleep_enabled,
         instruction_limit: task.instruction_limit,
         ..Vm::default()
@@ -460,6 +491,8 @@ impl Vm {
         self.filesystem_enabled = true;
         self.filesystem_writes_enabled = true;
         self.http_enabled = true;
+        self.process_enabled = true;
+        self.pty_enabled = true;
         self.terminal_enabled = true;
         self.webview_enabled = true;
         self.environment_enabled = true;
@@ -472,12 +505,44 @@ impl Vm {
         self.http_enabled = http_enabled;
     }
 
+    pub fn set_process_enabled(&mut self, enabled: bool) {
+        self.process_enabled = enabled;
+    }
+
+    pub fn set_process_root(&mut self, root: impl Into<PathBuf>) {
+        self.process_root = Some(normalize_path(&strip_verbatim_prefix(root.into())));
+    }
+
+    pub fn set_process_registry(&mut self, registry: ProcessRegistry) {
+        self.process_registry = registry;
+    }
+
+    pub fn set_pty_enabled(&mut self, enabled: bool) {
+        self.pty_enabled = enabled;
+    }
+
+    pub fn set_pty_registry(&mut self, registry: PtyRegistry) {
+        self.pty_registry = registry;
+    }
+
+    pub fn set_approval_registry(&mut self, registry: ApprovalRegistry) {
+        self.approval_registry = registry;
+    }
+
     pub fn set_terminal_enabled(&mut self, enabled: bool) {
         self.terminal_enabled = enabled;
     }
 
     pub fn set_environment_enabled(&mut self, enabled: bool) {
         self.environment_enabled = enabled;
+    }
+
+    pub fn set_environment_allowed_names(&mut self, names: impl IntoIterator<Item = String>) {
+        self.environment_allowed_names = Some(names.into_iter().collect());
+    }
+
+    pub fn clear_environment_allowed_names(&mut self) {
+        self.environment_allowed_names = None;
     }
 
     pub fn set_sleep_enabled(&mut self, enabled: bool) {
@@ -678,6 +743,46 @@ impl Vm {
 
     pub fn add_field(&mut self, name: impl Into<String>) -> Result<(), VmError> {
         self.current_class_mut("add_field")?.add_field(name);
+        Ok(())
+    }
+
+    pub fn add_accessor(&mut self, name: impl Into<String>) -> Result<(), VmError> {
+        let field = name.into();
+        self.add_field(field.clone())?;
+
+        let getter_name = format!("{field}.get");
+        let getter_field = field.clone();
+        self.add_native_method(getter_name, move |arguments| {
+            let receiver = arguments.last().ok_or_else(|| VmError::StackUnderflow {
+                word: format!("{}.get", getter_field),
+                needed: 1,
+                available: 0,
+            })?;
+            accessor_get(&getter_field, receiver)
+        })?;
+
+        let setter_name = format!("{field}.set");
+        let setter_field = field;
+        self.add_native_method_with_arity(setter_name, 1, move |arguments| {
+            let value = arguments
+                .first()
+                .cloned()
+                .ok_or_else(|| VmError::StackUnderflow {
+                    word: format!("{}.set", setter_field),
+                    needed: 2,
+                    available: arguments.len(),
+                })?;
+            let receiver = arguments
+                .get(1)
+                .cloned()
+                .ok_or_else(|| VmError::StackUnderflow {
+                    word: format!("{}.set", setter_field),
+                    needed: 2,
+                    available: arguments.len(),
+                })?;
+            accessor_set(&setter_field, receiver, value)
+        })?;
+
         Ok(())
     }
 
@@ -994,6 +1099,7 @@ impl Vm {
             }
             Op::EndClass => self.end_class(),
             Op::AddField(name) => self.add_field(name.clone())?,
+            Op::AddAccessor(name) => self.add_accessor(name.clone())?,
             Op::AddMethod { name, block, args } => {
                 let method = chunk
                     .blocks
@@ -1078,9 +1184,11 @@ impl Vm {
             "get" => self.call_get(word),
             "set" => self.call_set(word),
             "var" => self.call_var(word),
-            "field" => self.call_field_declaration(word),
-            "table" => self.call_table(word),
-            "subclass" => self.call_subclass(word),
+            "Field" => self.call_field_declaration(word),
+            "Accessor" => self.call_accessor_declaration(word),
+            "Table" => self.call_table(word),
+            "Subclass" => self.call_subclass(word),
+            "Method" => self.call_install_current_class_method(word),
             "new" => self.call_new(word),
             "swap" => self.call_swap(word),
             "dup" => self.call_dup(word),
@@ -1105,6 +1213,98 @@ impl Vm {
             "await-all" => self.call_await_all(word),
             "tasks" => self.call_tasks(word),
             "send" => self.call_send(word),
+            "at" => self.call_receiver_argument_method(word, "at"),
+            "has?" | "contains?" => self.call_receiver_argument_method(word, word),
+            "take" | "skip" | "repeat" | "split" | "join" | "concat" | "index-of"
+            | "last-index-of" | "starts-with?" | "ends-with?" | "remove!" | "remove-at!" => {
+                self.call_receiver_argument_method(word, word)
+            }
+            "slice" | "replace" | "insert!" => self.call_receiver_two_argument_method(word, word),
+            "push!" => self.call_push(word),
+            "put!" => self.call_put(word),
+            "fs_read_text" => {
+                self.call_capability_method_word(word, Capability::FileSystem, "read-text")
+            }
+            "fs_write_text" => {
+                self.call_capability_method_word(word, Capability::FileSystem, "write-text!")
+            }
+            "fs_exists?" => {
+                self.call_capability_method_word(word, Capability::FileSystem, "exists?")
+            }
+            "fs_list" => self.call_capability_method_word(word, Capability::FileSystem, "list"),
+            "fs_create_dir" => {
+                self.call_capability_method_word(word, Capability::FileSystem, "create-dir!")
+            }
+            "workspace_resolve" => self.call_workspace_resolve(word),
+            "workspace_contains?" => self.call_workspace_contains(word),
+            "workspace_metadata" => self.call_workspace_metadata(word),
+            "workspace_list" => self.call_workspace_list(word),
+            "workspace_read_text" => self.call_workspace_read_text(word),
+            "workspace_write_text" => self.call_workspace_write_text(word),
+            "workspace_mkdir" => self.call_workspace_mkdir(word),
+            "workspace_copy" => self.call_workspace_copy(word),
+            "workspace_move" => self.call_workspace_move(word),
+            "http_get" => self.call_capability_method_word(word, Capability::Http, "get"),
+            "http_post_json" => {
+                self.call_capability_method_word(word, Capability::Http, "post-json")
+            }
+            "http_request" => self.call_capability_method_word(word, Capability::Http, "request"),
+            "http_get_task" => self.call_capability_method_word(word, Capability::Http, "get-task"),
+            "http_post_json_task" => {
+                self.call_capability_method_word(word, Capability::Http, "post-json-task")
+            }
+            "http_request_task" => {
+                self.call_capability_method_word(word, Capability::Http, "request-task")
+            }
+            "process_spawn" => self.call_process_spawn(word),
+            "process_spawn_task" => self.call_process_spawn_task(word),
+            "process_start" => self.call_process_start(word),
+            "process_jobs" => self.call_process_jobs(),
+            "process_job" => self.call_process_job(word),
+            "process_cancel" => self.call_process_cancel(word),
+            "process_read" => self.call_process_read(word),
+            "pty_start" => self.call_pty_start(word),
+            "pty_write" => self.call_pty_write(word),
+            "pty_read" => self.call_pty_read(word),
+            "pty_resize" => self.call_pty_resize(word),
+            "pty_stop" => self.call_pty_stop(word),
+            "pty_list" => self.call_pty_list(),
+            "pty_detail" => self.call_pty_detail(word),
+            "approval_create" => self.call_approval_create(word),
+            "approval_claim" => self.call_approval_claim(word),
+            "approval_complete" => self.call_approval_complete(word),
+            "approval_reject" => self.call_approval_reject(word),
+            "approval_detail" => self.call_approval_detail(word),
+            "tui_enter" => self.call_capability_method_word(word, Capability::Terminal, "enter!"),
+            "tui_leave" => self.call_capability_method_word(word, Capability::Terminal, "leave!"),
+            "tui_clear" => self.call_capability_method_word(word, Capability::Terminal, "clear!"),
+            "tui_move_to" => {
+                self.call_capability_method_word(word, Capability::Terminal, "move-to!")
+            }
+            "tui_write" => self.call_capability_method_word(word, Capability::Terminal, "write!"),
+            "tui_flush" => self.call_capability_method_word(word, Capability::Terminal, "flush!"),
+            "tui_size" => self.call_capability_method_word(word, Capability::Terminal, "size"),
+            "tui_poll_key" => {
+                self.call_capability_method_word(word, Capability::Terminal, "poll-key")
+            }
+            "tui_read_key" => {
+                self.call_capability_method_word(word, Capability::Terminal, "read-key")
+            }
+            "webview_text" => self.call_capability_method_word(word, Capability::Webview, "text"),
+            "webview_heading" => {
+                self.call_capability_method_word(word, Capability::Webview, "heading")
+            }
+            "webview_button" => {
+                self.call_capability_method_word(word, Capability::Webview, "button")
+            }
+            "webview_input" => self.call_capability_method_word(word, Capability::Webview, "input"),
+            "webview_link" => self.call_capability_method_word(word, Capability::Webview, "link"),
+            "webview_container" => {
+                self.call_capability_method_word(word, Capability::Webview, "container")
+            }
+            "webview_window" | "webview_document" => {
+                self.call_capability_method_word(word, Capability::Webview, "window")
+            }
             "println" => self.call_println(word),
             "inspect" => self.call_inspect(word),
             "debug" => self.call_debug(word),
@@ -1114,6 +1314,7 @@ impl Vm {
             "args" => self.call_args(),
             "env" => self.call_env(word),
             "cwd" => self.call_cwd(),
+            "runtime_capabilities" => self.call_runtime_capabilities(),
             "now" => self.call_now(word),
             "sleep" => self.call_sleep(word),
             "random" => self.call_random(word),
@@ -1166,12 +1367,14 @@ impl Vm {
             "text" => self.call_text(word),
             "json" => self.call_json(word),
             "redirect" => self.call_redirect(word),
+            "status" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
             "status" => self.call_status(word),
             "header" => self.call_header(word),
             "value" => self.call_result_value(word),
             "error" => self.call_result_error(word),
             "ok" => self.call_ok(word),
             "fail" => self.call_fail(word),
+            "result_envelope" => self.call_result_envelope(word),
             "range" => self.call_range(word),
             "regex" => self.call_regex(word),
             "to-string" => self.call_to_string(word),
@@ -1194,10 +1397,9 @@ impl Vm {
             "map" => {
                 self.call_collection_declaration_or_constructor(Value::Map(MapValue::default()))
             }
-            "!push" => self.call_push(word),
-            "!put" => self.call_put(word),
-            "!method" => self.call_install_method(word),
-            predicate if predicate.ends_with('?') => self.call_predicate(predicate),
+            predicate if predicate.ends_with('?') => {
+                self.call_predicate_or_receiver_method(predicate)
+            }
             _ => self.call_function(word),
         }
     }
@@ -1227,6 +1429,10 @@ impl Vm {
         if self.classes.contains_key(name) {
             self.stack.push(Value::Class(name.to_string()));
             return Ok(());
+        }
+
+        if self.receiver_method_exists(name)? {
+            return self.call_top_receiver_method(name);
         }
 
         Err(VmError::UnknownWord(name.to_string()))
@@ -1395,6 +1601,72 @@ impl Vm {
         }
     }
 
+    fn call_accessor_declaration(&mut self, word: &str) -> Result<(), VmError> {
+        if self.current_class.is_none() {
+            return self.call_targeted_accessor(word);
+        }
+
+        let stack_before = self.stack.clone();
+        let field_name = match self.pop(word)? {
+            Value::String(field_name) => field_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "field name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        match self.add_accessor(field_name) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_targeted_accessor(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let field_name = match self.pop_unchecked() {
+            Value::String(field_name) => field_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "field name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let class_name = match self.pop_unchecked() {
+            Value::Class(class_name) | Value::String(class_name) => class_name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "class or class name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let previous_class = self.current_class.clone();
+        self.current_class = Some(class_name);
+        let result = self.add_accessor(field_name);
+        self.current_class = previous_class;
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
     fn call_subclass(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
@@ -1527,9 +1799,16 @@ impl Vm {
             filesystem_writes_enabled: self.filesystem_writes_enabled,
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
+            process_enabled: self.process_enabled,
+            process_root: self.process_root.clone(),
+            process_registry: self.process_registry.clone(),
+            pty_enabled: self.pty_enabled,
+            pty_registry: self.pty_registry.clone(),
+            approval_registry: self.approval_registry.clone(),
             terminal_enabled: self.terminal_enabled,
             webview_enabled: self.webview_enabled,
             environment_enabled: self.environment_enabled,
+            environment_allowed_names: self.environment_allowed_names.clone(),
             sleep_enabled: self.sleep_enabled,
             instruction_limit: self.instruction_limit,
         };
@@ -1707,6 +1986,197 @@ impl Vm {
         self.filesystem_enabled && self.filesystem_writes_enabled
     }
 
+    pub(super) fn filesystem_enabled(&self) -> bool {
+        self.filesystem_enabled
+    }
+
+    pub(super) fn filesystem_root_path(&self) -> Option<&Path> {
+        self.filesystem_root.as_deref()
+    }
+
+    pub(super) fn process_enabled(&self) -> bool {
+        self.process_enabled
+    }
+
+    pub(super) fn process_registry(&self) -> ProcessRegistry {
+        self.process_registry.clone()
+    }
+
+    pub(super) fn pty_enabled(&self) -> bool {
+        self.pty_enabled
+    }
+
+    pub(super) fn pty_registry(&self) -> PtyRegistry {
+        self.pty_registry.clone()
+    }
+
+    pub(super) fn approval_registry(&self) -> ApprovalRegistry {
+        self.approval_registry.clone()
+    }
+
+    pub(super) fn runtime_capabilities_value(&self) -> Value {
+        let filesystem_root = self
+            .filesystem_root
+            .as_ref()
+            .map(|path| Value::String(path.to_string_lossy().into_owned()))
+            .unwrap_or(Value::Nil);
+        let process_root = self
+            .process_root
+            .as_ref()
+            .or(self.filesystem_root.as_ref())
+            .map(|path| Value::String(path.to_string_lossy().into_owned()))
+            .unwrap_or(Value::Nil);
+        let http_allowed_hosts = self
+            .http_allowed_hosts
+            .as_ref()
+            .map(|hosts| {
+                Value::Array(
+                    hosts
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
+            })
+            .unwrap_or(Value::Nil);
+        let environment_allowlist = self
+            .environment_allowed_names
+            .as_ref()
+            .map(|names| {
+                Value::Array(
+                    names
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
+            })
+            .unwrap_or(Value::Nil);
+
+        Value::Map(
+            BTreeMap::from([
+                (
+                    "filesystem".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.filesystem_enabled)),
+                            (
+                                "writes_enabled".to_string(),
+                                Value::Bool(self.filesystem_writes_enabled()),
+                            ),
+                            ("root".to_string(), filesystem_root.clone()),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "http".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.http_enabled)),
+                            ("allowed_hosts".to_string(), http_allowed_hosts),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "workspace".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.filesystem_enabled)),
+                            (
+                                "writes_enabled".to_string(),
+                                Value::Bool(self.filesystem_writes_enabled()),
+                            ),
+                            ("root".to_string(), filesystem_root.clone()),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "process".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.process_enabled)),
+                            ("root".to_string(), process_root),
+                            (
+                                "jobs".to_string(),
+                                Value::Number(self.process_registry.len() as i64),
+                            ),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "terminal".to_string(),
+                    Value::Map(
+                        BTreeMap::from([(
+                            "enabled".to_string(),
+                            Value::Bool(self.terminal_enabled),
+                        )])
+                        .into(),
+                    ),
+                ),
+                (
+                    "pty".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.pty_enabled)),
+                            (
+                                "sessions".to_string(),
+                                Value::Number(self.pty_registry.len() as i64),
+                            ),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "approval".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(true)),
+                            (
+                                "records".to_string(),
+                                Value::Number(self.approval_registry.len() as i64),
+                            ),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "webview".to_string(),
+                    Value::Map(
+                        BTreeMap::from([(
+                            "enabled".to_string(),
+                            Value::Bool(self.webview_enabled),
+                        )])
+                        .into(),
+                    ),
+                ),
+                (
+                    "environment".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.environment_enabled)),
+                            ("allowlist".to_string(), environment_allowlist),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "sleep".to_string(),
+                    Value::Map(
+                        BTreeMap::from([("enabled".to_string(), Value::Bool(self.sleep_enabled))])
+                            .into(),
+                    ),
+                ),
+            ])
+            .into(),
+        )
+    }
+
     pub(super) fn check_http_url_allowed(&self, word: &str, url: &str) -> Result<(), VmError> {
         let Some(allowed_hosts) = &self.http_allowed_hosts else {
             return Ok(());
@@ -1747,37 +2217,18 @@ impl Vm {
             return Ok(PathBuf::from(source));
         };
 
-        let source_path = Path::new(source);
-        let candidate = if source_path.is_absolute() {
-            source_path.to_path_buf()
-        } else {
-            root.join(source_path)
-        };
-        let normalized = normalize_path(&candidate);
+        resolve_bounded_path(word, "filesystem", root, source)
+    }
 
-        if !normalized.starts_with(root) {
-            return Err(VmError::HostError {
-                word: word.to_string(),
-                message: format!("filesystem path is outside root: {source}"),
-            });
+    pub(super) fn resolve_process_path(
+        &self,
+        word: &str,
+        source: &str,
+    ) -> Result<PathBuf, VmError> {
+        match &self.process_root {
+            Some(root) => resolve_bounded_path(word, "process", root, source),
+            None => self.resolve_filesystem_path(word, source),
         }
-
-        let existing = nearest_existing_ancestor(&normalized);
-        let canonical_existing = existing
-            .canonicalize()
-            .map_err(|error| VmError::HostError {
-                word: word.to_string(),
-                message: format!("failed to resolve filesystem path {}: {error}", source),
-            })?;
-        let canonical_existing = normalize_path(&strip_verbatim_prefix(canonical_existing));
-        if !canonical_existing.starts_with(root) {
-            return Err(VmError::HostError {
-                word: word.to_string(),
-                message: format!("filesystem path is outside root: {source}"),
-            });
-        }
-
-        Ok(normalized)
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {
@@ -1848,6 +2299,83 @@ impl Vm {
         }
     }
 
+    fn call_receiver_argument_method(&mut self, word: &str, method: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let argument = self.pop_unchecked();
+        let receiver = self.pop_unchecked();
+        self.stack.push(argument);
+        match self.call_builtin_method(receiver, method) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_receiver_two_argument_method(
+        &mut self,
+        word: &str,
+        method: &str,
+    ) -> Result<(), VmError> {
+        self.ensure_stack(word, 3)?;
+        let stack_before = self.stack.clone();
+        let second = self.pop_unchecked();
+        let first = self.pop_unchecked();
+        let receiver = self.pop_unchecked();
+        self.stack.push(first);
+        self.stack.push(second);
+        match self.call_builtin_method(receiver, method) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_capability_method_word(
+        &mut self,
+        word: &str,
+        capability: Capability,
+        method: &str,
+    ) -> Result<(), VmError> {
+        let capability = self.enabled_capability(word, capability)?;
+        match self.call_builtin_method(capability, method) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn enabled_capability(&self, word: &str, capability: Capability) -> Result<Value, VmError> {
+        let enabled = match capability {
+            Capability::FileSystem => self.filesystem_enabled,
+            Capability::Http => self.http_enabled,
+            Capability::Process => self.process_enabled,
+            Capability::Terminal => self.terminal_enabled,
+            Capability::Webview => self.webview_enabled,
+        };
+
+        if enabled {
+            Ok(Value::Capability(capability))
+        } else {
+            Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("{} capability is not enabled", capability_name(capability)),
+            })
+        }
+    }
+
     fn call_method_or_member(&mut self, name: &str) -> Result<(), VmError> {
         let should_dispatch = match self.stack.last() {
             Some(Value::Class(class_name)) => {
@@ -1877,6 +2405,42 @@ impl Vm {
             self.stack.push(Value::Member(name.to_string()));
             Ok(())
         }
+    }
+
+    fn receiver_method_exists(&self, name: &str) -> Result<bool, VmError> {
+        match self.stack.last() {
+            Some(Value::Class(class_name)) => {
+                Ok(self.resolve_native_method(class_name, name)?.is_some())
+            }
+            Some(Value::Instance(instance)) => Ok(self
+                .resolve_instance_method(&instance.class_name, name)?
+                .is_some()),
+            Some(value) => Ok(self.builtin_method_exists(value, name)),
+            None => Ok(false),
+        }
+    }
+
+    fn call_top_receiver_method(&mut self, name: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let receiver = self.pop_unchecked();
+        match self.call_method_value(receiver, name) {
+            Ok(value) => {
+                self.stack.push(value);
+                Ok(())
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                Err(error)
+            }
+        }
+    }
+
+    fn call_predicate_or_receiver_method(&mut self, word: &str) -> Result<(), VmError> {
+        if self.receiver_method_exists(word)? {
+            return self.call_top_receiver_method(word);
+        }
+
+        self.call_predicate(word)
     }
 
     fn call_bytecode_method(
@@ -2149,20 +2713,9 @@ impl Vm {
         }
     }
 
-    fn call_install_method(&mut self, word: &str) -> Result<(), VmError> {
-        self.ensure_stack(word, 3)?;
+    fn call_install_current_class_method(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
-        let method = match self.pop_unchecked() {
-            Value::Block(method) => method,
-            value => {
-                self.stack = stack_before;
-                return Err(VmError::TypeError {
-                    word: word.to_string(),
-                    expected: "method block".to_string(),
-                    actual: value_kind(&value).to_string(),
-                });
-            }
-        };
         let method_name = match self.pop_unchecked() {
             Value::String(method_name) => method_name,
             value => {
@@ -2174,26 +2727,23 @@ impl Vm {
                 });
             }
         };
-        let class_name = match self.pop_unchecked() {
-            Value::Class(class_name) | Value::String(class_name) => class_name,
+        let method = match self.pop_unchecked() {
+            Value::Block(method) => method,
             value => {
                 self.stack = stack_before;
                 return Err(VmError::TypeError {
                     word: word.to_string(),
-                    expected: "class or class name string".to_string(),
+                    expected: "method block".to_string(),
                     actual: value_kind(&value).to_string(),
                 });
             }
         };
 
-        match self.classes.get_mut(&class_name) {
-            Some(class) => {
-                class.add_bytecode_method(method_name, method, None);
-                Ok(())
-            }
-            None => {
+        match self.add_bytecode_method(method_name, method, None) {
+            Ok(()) => Ok(()),
+            Err(error) => {
                 self.stack = stack_before;
-                Err(VmError::UnknownClass(class_name))
+                Err(error)
             }
         }
     }
@@ -2575,21 +3125,34 @@ impl Vm {
 
     fn call_push(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
-        let array = self.stack[self.stack.len() - 2].clone();
-        let value = self.stack[self.stack.len() - 1].clone();
+        let stack_before = self.stack.clone();
+        let value = self.pop_unchecked();
+        let collection = self.pop_unchecked();
 
-        match array {
+        match collection {
             Value::Array(values) => {
                 values.push(value);
-                self.stack.truncate(self.stack.len() - 2);
                 self.stack.push(Value::Array(values));
                 Ok(())
             }
-            array => Err(VmError::TypeError {
-                word: word.to_string(),
-                expected: "array".to_string(),
-                actual: value_kind(&array).to_string(),
-            }),
+            Value::List(values) => {
+                values.push(value);
+                self.stack.push(Value::List(values));
+                Ok(())
+            }
+            Value::Set(values) => {
+                values.insert(value);
+                self.stack.push(Value::Set(values));
+                Ok(())
+            }
+            value => {
+                self.stack = stack_before;
+                Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "array, list, or set".to_string(),
+                    actual: value_kind(&value).to_string(),
+                })
+            }
         }
     }
 
@@ -2780,6 +3343,80 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
     }
+}
+
+fn accessor_get(field: &str, receiver: &Value) -> Result<Value, VmError> {
+    match receiver {
+        Value::Instance(instance) => Ok(instance.fields.get(field).cloned().unwrap_or(Value::Nil)),
+        value => Err(VmError::TypeError {
+            word: format!("{field}.get"),
+            expected: "instance".to_string(),
+            actual: value_kind(value).to_string(),
+        }),
+    }
+}
+
+fn accessor_set(field: &str, receiver: Value, value: Value) -> Result<Value, VmError> {
+    match receiver {
+        Value::Instance(mut instance) => {
+            instance.fields.insert(field.to_string(), value);
+            Ok(Value::Instance(instance))
+        }
+        value => Err(VmError::TypeError {
+            word: format!("{field}.set"),
+            expected: "instance".to_string(),
+            actual: value_kind(&value).to_string(),
+        }),
+    }
+}
+
+fn capability_name(capability: Capability) -> &'static str {
+    match capability {
+        Capability::FileSystem => "filesystem",
+        Capability::Http => "HTTP",
+        Capability::Process => "process",
+        Capability::Terminal => "terminal UI",
+        Capability::Webview => "webview",
+    }
+}
+
+fn resolve_bounded_path(
+    word: &str,
+    label: &str,
+    root: &Path,
+    source: &str,
+) -> Result<PathBuf, VmError> {
+    let source_path = Path::new(source);
+    let candidate = if source_path.is_absolute() {
+        source_path.to_path_buf()
+    } else {
+        root.join(source_path)
+    };
+    let normalized = normalize_path(&candidate);
+
+    if !normalized.starts_with(root) {
+        return Err(VmError::HostError {
+            word: word.to_string(),
+            message: format!("{label} path is outside root: {source}"),
+        });
+    }
+
+    let existing = nearest_existing_ancestor(&normalized);
+    let canonical_existing = existing
+        .canonicalize()
+        .map_err(|error| VmError::HostError {
+            word: word.to_string(),
+            message: format!("failed to resolve {label} path {}: {error}", source),
+        })?;
+    let canonical_existing = normalize_path(&strip_verbatim_prefix(canonical_existing));
+    if !canonical_existing.starts_with(root) {
+        return Err(VmError::HostError {
+            word: word.to_string(),
+            message: format!("{label} path is outside root: {source}"),
+        });
+    }
+
+    Ok(normalized)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -3288,6 +3925,23 @@ mod tests {
     }
 
     #[test]
+    fn index_of_names_the_argument_below_the_receiver_on_type_errors() {
+        let result = Value::result_ok(Value::String("haystack".to_string()));
+        let mut vm = Vm::default();
+        vm.stack.push(result.clone());
+
+        assert_eq!(
+            vm.call_method_value(Value::String("needle".to_string()), "index-of"),
+            Err(VmError::TypeError {
+                word: "index-of".to_string(),
+                expected: "needle string below receiver".to_string(),
+                actual: "result".to_string(),
+            })
+        );
+        assert_eq!(vm.stack(), &[result]);
+    }
+
+    #[test]
     fn json_encode_rejects_cyclic_collections_without_overflowing() {
         let map = MapValue::default();
         map.insert("self".to_string(), Value::Map(map.clone()));
@@ -3450,7 +4104,7 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::CallWord("array".to_string()), span());
         chunk.push(Op::PushNumber(42), span());
-        chunk.push(Op::CallWord("!push".to_string()), span());
+        chunk.push(Op::CallWord("push!".to_string()), span());
 
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("array push succeeds");
@@ -3464,9 +4118,9 @@ mod tests {
         chunk.push(Op::CallWord("map".to_string()), span());
         chunk.push(Op::PushString("name".to_string()), span());
         chunk.push(Op::PushString("Ada".to_string()), span());
-        chunk.push(Op::CallWord("!put".to_string()), span());
-        chunk.push(Op::CallMethod("name".to_string()), span());
-        chunk.push(Op::CallWord("get".to_string()), span());
+        chunk.push(Op::CallWord("put!".to_string()), span());
+        chunk.push(Op::PushString("name".to_string()), span());
+        chunk.push(Op::CallWord("at".to_string()), span());
 
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("map put succeeds");
@@ -3482,9 +4136,9 @@ mod tests {
         vm.stack.push(Value::String("Ada".to_string()));
 
         assert_eq!(
-            vm.call_word("!put"),
+            vm.call_word("put!"),
             Err(VmError::TypeError {
-                word: "!put".to_string(),
+                word: "put!".to_string(),
                 expected: "map".to_string(),
                 actual: "array".to_string(),
             })
@@ -3706,22 +4360,27 @@ mod tests {
     }
 
     #[test]
-    fn bang_method_installs_a_runtime_bytecode_method() {
-        let mut vm = Vm::default();
-        vm.define_class("Widget", "Object").expect("class opens");
-        vm.end_class();
+    fn method_word_installs_a_runtime_bytecode_method() {
         let mut method = Chunk::new("test.rco");
         method.push(Op::PushString("dynamic".to_string()), span());
         method.push(Op::Return, span());
         let mut chunk = Chunk::new("test.rco");
         let method_block = chunk.push_block(method);
-        chunk.push(Op::CallWord("Widget".to_string()), span());
-        chunk.push(Op::PushString("label".to_string()), span());
+        chunk.push(
+            Op::BeginClass {
+                name: "Widget".to_string(),
+                superclass: "Object".to_string(),
+            },
+            span(),
+        );
         chunk.push(Op::PushBlock(method_block), span());
-        chunk.push(Op::CallWord("!method".to_string()), span());
+        chunk.push(Op::PushString("label".to_string()), span());
+        chunk.push(Op::CallWord("Method".to_string()), span());
+        chunk.push(Op::EndClass, span());
         chunk.push(Op::CallWord("Widget".to_string()), span());
         chunk.push(Op::CallWord("new".to_string()), span());
-        chunk.push(Op::CallMethod("label".to_string()), span());
+        chunk.push(Op::CallWord("label".to_string()), span());
+        let mut vm = Vm::default();
 
         vm.run_chunk(&chunk)
             .expect("runtime method installs and runs");
@@ -3730,25 +4389,22 @@ mod tests {
     }
 
     #[test]
-    fn bang_method_preserves_the_stack_when_the_class_is_unknown() {
-        let mut method = Chunk::new("test.rco");
-        method.push(Op::PushString("dynamic".to_string()), span());
+    fn method_word_preserves_the_stack_without_current_class() {
+        let method = Chunk::new("test.rco");
         let mut chunk = Chunk::new("test.rco");
         let method_block = chunk.push_block(method);
-        chunk.push(Op::PushString("Missing".to_string()), span());
-        chunk.push(Op::PushString("label".to_string()), span());
         chunk.push(Op::PushBlock(method_block), span());
-        chunk.push(Op::CallWord("!method".to_string()), span());
+        chunk.push(Op::PushString("label".to_string()), span());
+        chunk.push(Op::CallWord("Method".to_string()), span());
         let mut vm = Vm::default();
 
         assert_eq!(
             vm.run_chunk(&chunk),
-            Err(VmError::UnknownClass("Missing".to_string()))
+            Err(VmError::NoCurrentClass("add_bytecode_method".to_string()))
         );
         assert!(matches!(
             vm.stack(),
-            [Value::String(class_name), Value::String(method_name), Value::Block(_)]
-                if class_name == "Missing" && method_name == "label"
+            [Value::Block(_), Value::String(method_name)] if method_name == "label"
         ));
     }
 
@@ -3757,7 +4413,7 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Widget".to_string()), span());
         chunk.push(Op::PushString("Object".to_string()), span());
-        chunk.push(Op::CallWord("subclass".to_string()), span());
+        chunk.push(Op::CallWord("Subclass".to_string()), span());
         chunk.push(Op::PushString("Widget".to_string()), span());
         chunk.push(Op::CallWord("new".to_string()), span());
         let mut vm = Vm::default();
@@ -3775,13 +4431,13 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushNumber(7), span());
         chunk.push(Op::PushString("Object".to_string()), span());
-        chunk.push(Op::CallWord("subclass".to_string()), span());
+        chunk.push(Op::CallWord("Subclass".to_string()), span());
         let mut vm = Vm::default();
 
         assert_eq!(
             vm.run_chunk(&chunk),
             Err(VmError::TypeError {
-                word: "subclass".to_string(),
+                word: "Subclass".to_string(),
                 expected: "class name string".to_string(),
                 actual: "number".to_string(),
             })
@@ -4034,7 +4690,7 @@ mod tests {
         vm.define_class("User", "Model").expect("class begins");
         vm.stack.push(Value::String("users".to_string()));
 
-        vm.call_word("table").expect("table word succeeds");
+        vm.call_word("Table").expect("table word succeeds");
         vm.end_class();
 
         assert_eq!(vm.class_table("User"), Some("users"));
@@ -4048,10 +4704,10 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("User".to_string()), span());
         chunk.push(Op::PushString("users".to_string()), span());
-        chunk.push(Op::CallWord("table".to_string()), span());
+        chunk.push(Op::CallWord("Table".to_string()), span());
         chunk.push(Op::PushString("User".to_string()), span());
         chunk.push(Op::PushString("email".to_string()), span());
-        chunk.push(Op::CallWord("field".to_string()), span());
+        chunk.push(Op::CallWord("Field".to_string()), span());
 
         vm.run_chunk(&chunk)
             .expect("targeted declarations mutate class");
@@ -4073,7 +4729,7 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Missing".to_string()), span());
         chunk.push(Op::PushString("name".to_string()), span());
-        chunk.push(Op::CallWord("field".to_string()), span());
+        chunk.push(Op::CallWord("Field".to_string()), span());
         let mut vm = Vm::default();
 
         assert_eq!(

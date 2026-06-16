@@ -1,39 +1,39 @@
 (( Run with: rco run examples/collections.rco ))
 
 users array
-"Ada" $users .push! drop
-"Grace" $users .push! drop
-1 "Lin" $users .insert! drop
-1 $users .remove-at! drop
+$users "Ada" push! drop
+$users "Grace" push! drop
+$users 1 "Lin" insert! drop
+$users 1 remove-at! drop
 
 settings map
-"theme" "dark" $settings .put! drop
+$settings "theme" "dark" put! drop
 
 0 6 range numbers var
-[ 2 * ] $numbers .transform doubled var
-[ 4 > ] $doubled .select selected var
+[ 2 * ] $numbers transform doubled var
+[ 4 > ] $doubled select selected var
 
 "users:" println
-$users .count println
-0 $users .at println
-", " $users .join println
+$users count println
+$users 0 at println
+$users ", " join println
 
 "settings:" println
-"theme" $settings .at println
-$settings .keys .count println
+$settings "theme" at println
+$settings keys count println
 
 "numbers:" println
-0 [ + ] $selected .reduce println
-[ 10 = ] $doubled .any? println
-[ 2 > ] $doubled .all? println
-[ 8 = ] $doubled .find println
+0 [ + ] $selected reduce println
+[ 10 = ] $doubled any? println
+[ 2 > ] $doubled all? println
+[ 8 = ] $doubled find println
 
 queue list
-1 $queue .push! drop
-2 $queue .push! drop
-$queue .count println
+$queue 1 push! drop
+$queue 2 push! drop
+$queue count println
 
 tags Set
-"rco" $tags .push! drop
-"rco" $tags .push! drop
-$tags .count println
+$tags "rco" push! drop
+$tags "rco" push! drop
+$tags count println

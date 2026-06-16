@@ -7,8 +7,11 @@ license.workspace = true
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 crossterm.workspace = true
+getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 regex.workspace = true
 thiserror.workspace = true
+wait-timeout.workspace = true
+portable-pty.workspace = true

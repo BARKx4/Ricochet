@@ -174,6 +174,28 @@ enum Command {
         )]
         no_env: bool,
         #[arg(
+            long = "env-allow",
+            value_name = "NAME",
+            help = "Allow MVC controllers to read only NAME from the process environment; repeat for multiple variables"
+        )]
+        env_allow: Vec<String>,
+        #[arg(
+            long = "allow-process",
+            help = "Enable MVC process execution for trusted local apps"
+        )]
+        allow_process: bool,
+        #[arg(
+            long = "process-root",
+            value_name = "PATH",
+            help = "Restrict MVC process and PTY cwd values to PATH; defaults to --fs-root when omitted"
+        )]
+        process_root: Option<PathBuf>,
+        #[arg(
+            long = "allow-pty",
+            help = "Enable MVC PTY sessions for trusted local apps"
+        )]
+        allow_pty: bool,
+        #[arg(
             long,
             value_name = "PATH",
             help = "Enable MVC filesystem access bounded to PATH"
@@ -267,7 +289,7 @@ struct CapabilityOptions {
         long = "capability-profile",
         value_enum,
         default_value = "trusted",
-        help = "Select host capability defaults: trusted enables filesystem/HTTP/TUI/webview, sandboxed disables them unless bounded by flags"
+        help = "Select host capability defaults: trusted enables filesystem/HTTP/TUI/webview, sandboxed disables them unless bounded by flags; process and PTY execution are always opt-in"
     )]
     capability_profile: CapabilityProfile,
     #[arg(long, help = "Disable the filesystem host capability for this run")]
@@ -281,6 +303,19 @@ struct CapabilityOptions {
     fs_readonly: bool,
     #[arg(long, help = "Disable the HTTP host capability for this run")]
     no_http: bool,
+    #[arg(
+        long,
+        help = "Enable the process execution host capability for this run"
+    )]
+    allow_process: bool,
+    #[arg(
+        long = "process-root",
+        value_name = "PATH",
+        help = "Restrict process and PTY cwd values to PATH; defaults to --fs-root when omitted"
+    )]
+    process_root: Option<PathBuf>,
+    #[arg(long, help = "Enable the PTY host capability for this run")]
+    allow_pty: bool,
     #[arg(long, help = "Disable the terminal UI host capability for this run")]
     no_tui: bool,
     #[arg(
@@ -297,6 +332,12 @@ struct CapabilityOptions {
     allow_webview: bool,
     #[arg(long, help = "Disable process environment access for this run")]
     no_env: bool,
+    #[arg(
+        long = "env-allow",
+        value_name = "NAME",
+        help = "Allow reading only NAME from the process environment; repeat for multiple variables"
+    )]
+    env_allow: Vec<String>,
     #[arg(long, help = "Disable blocking sleep for this run")]
     no_sleep: bool,
     #[arg(
@@ -333,6 +374,9 @@ impl CapabilityOptions {
         if self.no_tui && self.allow_tui {
             bail!("--allow-tui cannot be used with --no-tui");
         }
+        if self.no_env && !self.env_allow.is_empty() {
+            bail!("--env-allow cannot be used with --no-env");
+        }
         if self.capability_profile == CapabilityProfile::Sandboxed
             && self.fs_readonly
             && self.fs_root.is_none()
@@ -345,18 +389,28 @@ impl CapabilityOptions {
         let http_enabled = !self.no_http
             && (self.capability_profile == CapabilityProfile::Trusted
                 || !self.http_allow_hosts.is_empty());
+        let process_enabled = self.allow_process;
+        let pty_enabled = self.allow_pty;
         let terminal_enabled = !self.no_tui
             && (self.capability_profile == CapabilityProfile::Trusted || self.allow_tui);
         let webview_enabled = !self.no_webview
             && (self.capability_profile == CapabilityProfile::Trusted || self.allow_webview);
-        let environment_enabled =
-            !self.no_env && self.capability_profile == CapabilityProfile::Trusted;
+        let environment_enabled = !self.no_env
+            && (self.capability_profile == CapabilityProfile::Trusted
+                || !self.env_allow.is_empty());
         let sleep_enabled = !self.no_sleep && self.capability_profile == CapabilityProfile::Trusted;
 
         vm.set_host_capabilities(filesystem_enabled, http_enabled);
+        vm.set_process_enabled(process_enabled);
+        vm.set_pty_enabled(pty_enabled);
         vm.set_terminal_enabled(terminal_enabled);
         vm.set_webview_enabled(webview_enabled);
         vm.set_environment_enabled(environment_enabled);
+        if self.env_allow.is_empty() {
+            vm.clear_environment_allowed_names();
+        } else {
+            vm.set_environment_allowed_names(self.env_allow.clone());
+        }
         vm.set_sleep_enabled(sleep_enabled);
         if let Some(root) = &self.fs_root {
             let root = fs::canonicalize(root)
@@ -365,6 +419,14 @@ impl CapabilityOptions {
                 bail!("--fs-root must be a directory: {}", root.display());
             }
             vm.set_filesystem_root(root);
+        }
+        if let Some(root) = &self.process_root {
+            let root = fs::canonicalize(root)
+                .with_context(|| format!("failed to resolve --process-root {}", root.display()))?;
+            if !root.is_dir() {
+                bail!("--process-root must be a directory: {}", root.display());
+            }
+            vm.set_process_root(root);
         }
         if self.fs_readonly {
             vm.set_filesystem_writes_enabled(false);
@@ -497,6 +559,10 @@ pub async fn run_cli() -> Result<()> {
             watch,
             allow_env,
             no_env,
+            env_allow,
+            allow_process,
+            process_root,
+            allow_pty,
             fs_root,
             fs_readonly,
             http_allow_hosts,
@@ -504,12 +570,22 @@ pub async fn run_cli() -> Result<()> {
             if allow_env && no_env {
                 bail!("--allow-env cannot be used with --no-env");
             }
+            if allow_env && !env_allow.is_empty() {
+                bail!("--allow-env cannot be used with --env-allow");
+            }
+            if no_env && !env_allow.is_empty() {
+                bail!("--env-allow cannot be used with --no-env");
+            }
             ricochet_web::serve_current_dir(ricochet_web::ServeOptions {
                 host,
                 port,
                 debug,
                 watch,
                 allow_env,
+                env_allow,
+                allow_process,
+                process_root,
+                allow_pty,
                 fs_root,
                 fs_readonly,
                 http_allow_hosts,
@@ -786,13 +862,30 @@ fn documented_expr_declaration(expr: &Expr) -> Option<(&'static str, &str)> {
     let Expr::Sequence(exprs) = expr else {
         return None;
     };
-    let [name, declaration] = exprs.as_slice() else {
-        return None;
-    };
-    let name = declaration_name(name)?;
-    match &declaration.expr {
-        Expr::Symbol(word) if word == "field" => Some(("Field", name)),
-        Expr::Symbol(word) if word == "table" => Some(("Table", name)),
+
+    match exprs.as_slice() {
+        [name, declaration] => {
+            let name = declaration_name(name)?;
+            match &declaration.expr {
+                Expr::Symbol(word) if word == "Field" => Some(("Field", name)),
+                Expr::Symbol(word) if word == "Accessor" => Some(("Accessor", name)),
+                Expr::Symbol(word) if word == "Table" => Some(("Table", name)),
+                _ => None,
+            }
+        }
+        [body, name, declaration]
+            if matches!(&body.expr, Expr::Block(_))
+                && matches!(&declaration.expr, Expr::Symbol(word) if word == "Method") =>
+        {
+            declaration_name(name).map(|name| ("Method", name))
+        }
+        [args, body, name, declaration]
+            if matches!(&args.expr, Expr::Args(_))
+                && matches!(&body.expr, Expr::Block(_))
+                && matches!(&declaration.expr, Expr::Symbol(word) if word == "Method") =>
+        {
+            declaration_name(name).map(|name| ("Method", name))
+        }
         _ => None,
     }
 }
@@ -876,12 +969,12 @@ fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
         path.join("app")
             .join("Controllers")
             .join("HomeController.rco"),
-        r#"HomeController Controller subclass
-  "index" [
+        r#"HomeController Controller Subclass
+  [
     "Hello Ricochet" title var
     ctx get
     "home/index" swap view
-  ] !method
+  ] "index" Method
 end
 "#,
     )?;
@@ -935,22 +1028,22 @@ end
     }
     write_project_file(
         path.join("tests").join("ApplicationSmokeTest.rco"),
-        r#"ApplicationSmokeTest TestCase subclass
-  "testUserDisplayNameFallsBackToEmail" [
+        r#"ApplicationSmokeTest TestCase Subclass
+  [
     User new
-    "ada@example.com" swap .email set
-    .displayName
+    "ada@example.com" swap email.set
+    displayName
     "ada@example.com" assert-equals
-  ] !method
+  ] "testUserDisplayNameFallsBackToEmail" Method
 
-  "testCollectionsCanHoldModels" [
+  [
     users array
     User new
-    "grace@example.com" swap .email set
-    users get .push! drop
-    users get .count
+    "grace@example.com" swap email.set
+    users get swap push! drop
+    users get count
     1 assert-equals
-  ] !method
+  ] "testCollectionsCanHoldModels" Method
 end
 "#,
     )?;
@@ -990,33 +1083,33 @@ GET "/users" UserController "index" route
 
 fn user_model_source(options: NewProjectOptions) -> &'static str {
     if options.with_sqlite {
-        r#"User Model subclass
-  users table
-  id field
-  email field
-  name field
+        r#"User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 
-  "displayName" [
-    self .name get nil? if
-      self .email get
+  [
+    self name.get nil? if
+      self email.get
     else
-      self .name get
+      self name.get
     end
-  ] !method
+  ] "displayName" Method
 end
 "#
     } else {
-        r#"User Model subclass
-  email field
-  name field
+        r#"User Model Subclass
+  "email" Accessor
+  "name" Accessor
 
-  "displayName" [
-    self .name get nil? if
-      self .email get
+  [
+    self name.get nil? if
+      self email.get
     else
-      self .name get
+      self name.get
     end
-  ] !method
+  ] "displayName" Method
 end
 "#
     }
@@ -1024,86 +1117,86 @@ end
 
 fn user_controller_source(options: NewProjectOptions) -> &'static str {
     if options.with_sqlite {
-        r#"UserController Controller subclass
-  ( session ctx ) "index" [
+        r#"UserController Controller Subclass
+  ( session ctx ) [
     ctx var
     session var
-    session get "last_page" "users" !put drop
-    User .default-page
+    session get "last_page" "users" put! drop
+    User default-page
     dup ok? if
       value users var
-      users get .count userCount var
-      users get .first firstUser var
-      "email" firstUser get .at firstEmail var
+      users get count userCount var
+      users get first firstUser var
+      firstUser get "email" at firstEmail var
       "Users" title var
       ctx get
       "users/index" swap view
     else
-      error .message get text
+      error "message" at text
     end
-  ] !method
+  ] "index" Method
 end
 "#
     } else {
-        r#"UserController Controller subclass
-  "index" [
+        r#"UserController Controller Subclass
+  [
     users array
     User new
-    "ada@example.com" swap .email set
-    "Ada Lovelace" swap .name set
-    users get .push! drop
-    users get .count userCount var
+    "ada@example.com" swap email.set
+    "Ada Lovelace" swap name.set
+    users get swap push! drop
+    users get count userCount var
     "Users" title var
     ctx get
     "users/index" swap view
-  ] !method
+  ] "index" Method
 end
 "#
     }
 }
 
 fn auth_controller_source() -> &'static str {
-    r#"AuthController Controller subclass
-  ( ctx ) "login" [
+    r#"AuthController Controller Subclass
+  ( ctx ) [
     ctx var
     "Sign in" title var
     ctx get
     "auth/login" swap view
-  ] !method
+  ] "login" Method
 
-  ( email session ) "create" [
+  ( email session ) [
     session var
     email var
     email get nil? if
       "Email is required" text 400 status
     else
-      email get .blank? if
+      email get blank? if
         "Email is required" text 400 status
       else
-        session get "user_email" email get !put drop
+        session get "user_email" email get put! drop
         "/me" redirect
       end
     end
-  ] !method
+  ] "create" Method
 
-  ( session ctx ) "show" [
+  ( session ctx ) [
     ctx var
     session var
-    session get .user_email get nil? if
+    session get "user_email" at nil? if
       "Not signed in" text
     else
-      session get .user_email get userEmail var
+      session get "user_email" at userEmail var
       "Signed in" title var
       ctx get
       "auth/show" swap view
     end
-  ] !method
+  ] "show" Method
 
-  ( session ) "destroy" [
+  ( session ) [
     session var
-    "user_email" session get .remove! drop
+    session get "user_email" remove! drop
     "/login" redirect
-  ] !method
+  ] "destroy" Method
 end
 "#
 }

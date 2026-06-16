@@ -83,7 +83,7 @@
             <path d="M472 226 L528 238" class="connector"></path>
             <path d="M472 226 L528 326" class="connector"></path>
             <text x="78" y="404" class="caption">name get "home/index" swap view</text>
-            <text x="78" y="438" class="caption">className get methodName get [ ... ] !method</text>
+            <text x="78" y="438" class="caption">[ ... ] "methodName" Method</text>
           </svg>
         </div>
       </section>
@@ -93,14 +93,14 @@
           <p class="eyebrow">First test target</p>
           <h2 id="quickstart-title">Copy/Paste Smoke Script</h2>
         </div>
-        <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy smoke script" title="Copy">copy</button><code>User Model subclass
-  email field
-  "displayName" [ self .email get ] !method
+        <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy smoke script" title="Copy">copy</button><code>User Model Subclass
+  "email" Accessor
+  [ self email.get ] "displayName" Method
 end
 
 User new
-"ada@example.com" swap .email set
-.displayName
+"ada@example.com" swap email.set
+displayName
 println</code></pre>
       </section>
 
@@ -117,9 +117,9 @@ println</code></pre>
           </article>
           <article>
             <h3>Class Declarations</h3>
-            <pre><code>User Model subclass
-  users table
-  email field
+            <pre><code>User Model Subclass
+  "users" Table
+  "email" Accessor
 end</code></pre>
             <p>Declaration shape stays postfix: declaration name first, declaration operator last.</p>
           </article>
@@ -135,20 +135,20 @@ tags Set</code></pre>
             <h3>Reference Prefix</h3>
             <pre><code>"users" name var
 $name array
-"Ada" $users .push! drop
-$users .count println</code></pre>
+$users "Ada" push! drop
+$users count println</code></pre>
             <p>`$name` reads an existing binding and is equivalent to `name get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string. Function and method locals refresh within the active call frame, while top-level declarations stay shared.</p>
           </article>
           <article>
             <h3>Argument Lists</h3>
-            <pre><code>( ctx -> Response ) "index" [
+            <pre><code>( ctx -> Response ) [
   $ctx "home/index" swap view
-] !method</code></pre>
+] "index" Method</code></pre>
             <p>Parentheses create optional input/output metadata for functions and methods.</p>
           </article>
           <article>
             <h3>Blocks</h3>
-            <pre><code>[ self .email get ]</code></pre>
+            <pre><code>[ self email.get ]</code></pre>
             <p>Square brackets create first-class bytecode blocks. Use `call` to execute a block value.</p>
           </article>
           <article>
@@ -156,7 +156,7 @@ $users .count println</code></pre>
             <pre><code>result dup ok? if
   value
 else
-  error .message get
+  error "message" at
 end</code></pre>
             <p>`if else end` is postfix: the condition is already on the stack before `if`.</p>
           </article>
@@ -169,9 +169,9 @@ end</code></pre>
           </article>
           <article>
             <h3>Members</h3>
-            <pre><code>user .email get
-"ada@example.com" user .email set</code></pre>
-            <p>Dot words push member selectors for `get` and `set`, and call methods when used directly.</p>
+            <pre><code>user email.get
+"ada@example.com" user email.set</code></pre>
+            <p>Postfix selectors call methods directly. Generated accessors use `field.get` and `field.set` selectors.</p>
           </article>
           <article>
             <h3>Imports</h3>
@@ -184,25 +184,25 @@ packageHello</code></pre>
           </article>
           <article>
             <h3>Templates</h3>
-            <pre><code>&lt;strong&gt;{ $user .name get }&lt;/strong&gt;
+            <pre><code>&lt;strong&gt;{ $user name.get }&lt;/strong&gt;
 &lt;small&gt;{ 20 22 + }&lt;/small&gt;</code></pre>
             <p>Each `{ ... }` expression runs Ricochet and must leave exactly one renderable value.</p>
           </article>
           <article>
             <h3>Desktop Webview</h3>
-            <pre><code>"Counter" 1 webview .heading heading var
-"Increment" "increment" webview .button button var
-"Counter" $button webview .window value document var</code></pre>
-            <p>The `webview` capability builds escaped HTML fragments and document maps for desktop webview hosts.</p>
+            <pre><code>"Counter" 1 webview_heading heading var
+"Increment" "increment" webview_button button var
+"Counter" $button webview_window value document var</code></pre>
+            <p>The webview globals build escaped HTML fragments and document maps for desktop webview hosts.</p>
           </article>
           <article>
             <h3>Terminal UI</h3>
-            <pre><code>tui .enter! value drop
-"Hello TUI" tui .write! value drop
-tui .flush! value drop
-tui .read-key value drop
-tui .leave! value drop</code></pre>
-            <p>The `tui` capability drives alternate-screen terminal apps with drawing and key input.</p>
+            <pre><code>tui_enter value drop
+"Hello TUI" tui_write value drop
+tui_flush value drop
+tui_read_key value drop
+tui_leave value drop</code></pre>
+            <p>The TUI globals drive alternate-screen terminal apps with drawing and key input.</p>
           </article>
           <article>
             <h3>Routes</h3>
@@ -253,45 +253,42 @@ DELETE "/users/:id" UserController "destroy" route</code></pre>
             <h3>Class-First Model File</h3>
             <p>Project style is one class per file, with the filename matching the class name.</p>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy class-first model example" title="Copy">copy</button><code>(( app/Models/User.rco ))
-User Model subclass
-  users table
-  id field
-  email field
-  name field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 
-  "displayName" [
-    self .name get
-    dup nil? if
-      drop self .email get
+  [
+    self name.get nil? if
+      self email.get
     else
-      return
+      self name.get
     end
-  ] !method
+  ] "displayName" Method
 end</code></pre>
           </article>
 
           <article class="example-panel">
-            <h3>Runtime Class And Method Names</h3>
-            <p>Strings and variables can drive declaration operators, which is where Ricochet starts to feel different.</p>
+            <h3>Runtime Class And Accessor Names</h3>
+            <p>Strings and variables can drive targeted declaration operators, which is where Ricochet starts to feel different.</p>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy runtime class example" title="Copy">copy</button><code>"Widget" className var
-"label" methodName var
 
-className get "Object" subclass
-className get "name" field
-className get methodName get [ self .name get ] !method
+className get "Object" Subclass
+className get "name" Accessor
 
 className get new
-"dynamic" swap .name set
-.label</code></pre>
+"dynamic" swap name.set
+name.get</code></pre>
           </article>
 
           <article class="example-panel">
             <h3>Dynamic Dispatch</h3>
-            <p>Use `.methodName` for direct method calls or `send` when the method name is itself a value.</p>
+            <p>Use a postfix selector for direct method calls or `send` when the method name is itself a value.</p>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy dynamic dispatch example" title="Copy">copy</button><code>User new
-"ada@example.com" swap .email set
-dup .displayName println
-"displayName" send println</code></pre>
+"ada@example.com" swap email.set
+dup displayName println
+dup "displayName" send println</code></pre>
           </article>
         </div>
       </section>
@@ -346,103 +343,103 @@ DELETE "/users/:id" UserController "destroy" route</code></pre>
           <article class="example-panel wide">
             <h3>Controller</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy controller example" title="Copy">copy</button><code>(( app/Controllers/HomeController.rco ))
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     "Hello Ricochet" title var
     ctx get
     "home/index" swap view
-  ] !method
+  ] "index" Method
 end</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Model Used By MVC</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy MVC model example" title="Copy">copy</button><code>(( app/Models/User.rco ))
-User Model subclass
-  email field
-  name field
+User Model Subclass
+  "email" Accessor
+  "name" Accessor
 
-  "displayName" [
-    self .name get nil? if
-      self .email get
+  [
+    self name.get nil? if
+      self email.get
     else
-      self .name get
+      self name.get
     end
-  ] !method
+  ] "displayName" Method
 end</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Controller With Collection</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy collection controller example" title="Copy">copy</button><code>(( app/Controllers/UserController.rco ))
-UserController Controller subclass
-  "index" [
+UserController Controller Subclass
+  [
     users array
     User new
-    "ada@example.com" swap .email set
-    "Ada Lovelace" swap .name set
-    users get .push! drop
-    users get .count userCount var
+    "ada@example.com" swap email.set
+    "Ada Lovelace" swap name.set
+    users get swap push! drop
+    users get count userCount var
     "Users" title var
     ctx get
     "users/index" swap view
-  ] !method
+  ] "index" Method
 end</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Redirect And Headers</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy web response example" title="Copy">copy</button><code>LoginController Controller subclass
-  "create" [
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy web response example" title="Copy">copy</button><code>LoginController Controller Subclass
+  [
     "/dashboard" redirect
     303 status
     "cache-control" "no-store" header
-  ] !method
+  ] "create" Method
 end</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Request Context</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy request context example" title="Copy">copy</button><code>ContextController Controller subclass
-  ( request cookies config file ) "show" [
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy request context example" title="Copy">copy</button><code>ContextController Controller Subclass
+  ( request cookies config file ) [
     file var
     config var
     cookies var
     request var
     map
-    "method" request get .method get !put
-    "theme" cookies get .theme get !put
-    "package" config get .package get .name get !put
-    "json_name" request get .json get .name get !put
-    "upload_text" file get .text get !put
+    "method" request get "method" at put!
+    "theme" cookies get "theme" at put!
+    "package" config get "package" at "name" at put!
+    "json_name" request get "json" at "name" at put!
+    "upload_text" file get "text" at put!
     json
-  ] !method
+  ] "show" Method
 end</code></pre>
             <p>For `POST`, `PUT`, `PATCH`, and `DELETE`, MVC parses URL-encoded forms, JSON bodies, and multipart forms. Declared action Args bind route params first, then form fields, JSON object fields, upload fields, query params, and context values. `request` includes `body`, `json`, `uploads`, and `files`; upload maps include `name`, `filename`, `content_type`, `size`, `text`, and `data_base64`.</p>
           </article>
 
           <article class="example-panel wide">
             <h3>Session Map</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy session example" title="Copy">copy</button><code>SessionController Controller subclass
-  ( session ) "show" [
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy session example" title="Copy">copy</button><code>SessionController Controller Subclass
+  ( session ) [
     session var
-    session get .user get nil? if
-      session get "user" "Ada" !put drop
+    session get "user" at nil? if
+      session get "user" "Ada" put! drop
     end
-    session get .user get text
-  ] !method
+    session get "user" at text
+  ] "show" Method
 end</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Logger</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy logger example" title="Copy">copy</button><code>LogController Controller subclass
-  ( logger ) "index" [
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy logger example" title="Copy">copy</button><code>LogController Controller Subclass
+  ( logger ) [
     logger var
-    "loaded" logger get .info drop
-    "careful" logger get .warn drop
+    "loaded" logger get info drop
+    "careful" logger get warn drop
     "ok" text
-  ] !method
+  ] "index" Method
 end</code></pre>
           </article>
 
@@ -455,16 +452,16 @@ model = "gpt-4.1-mini"
 api_key = "${OPENAI_API_KEY}"
 
 (( app/Controllers/AiController.rco ))
-AiController Controller subclass
-  ( ai ) "index" [
+AiController Controller Subclass
+  ( ai ) [
     ai var
-    "Write one sentence about Ricochet" ai get .chat result var
+    "Write one sentence about Ricochet" ai get chat result var
     result get ok? if
-      result get value .text get text
+      result get value "text" at text
     else
-      result get error .message get text
+      result get error "message" at text
     end
-  ] !method
+  ] "index" Method
 end</code></pre>
           </article>
 
@@ -487,53 +484,64 @@ end</code></pre>
           <article class="example-panel">
             <h3>Model Mapping</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record model example" title="Copy">copy</button><code>(( app/Models/User.rco ))
-User Model subclass
-  users table
-  id field
-  email field
-  name field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 end</code></pre>
           </article>
 
           <article class="example-panel">
             <h3>Model Class Calls</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record calls example" title="Copy">copy</button><code>User .all
-User .default-page
-42 User .find
-"email" "ada@example.com" User .where
-10 User .limit
-10 20 User .page
-"email" "asc" 10 20 User .order-page
-"email" "ada@example.com" 10 User .where-limit
-"email" "ada@example.com" 10 20 User .where-page
-"email" "ada@example.com" "id" "desc" 10 20 User .where-order-page
-User .count
-User .first
-1 User .exists?
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record calls example" title="Copy">copy</button><code>User all
+User default-page
+42 User find
+"email" "ada@example.com" User where
+10 User limit
+10 20 User page
+"email" "asc" 10 20 User order-page
+"email" "ada@example.com" 10 User where-limit
+"email" "ada@example.com" 10 20 User where-page
+"email" "ada@example.com" "id" "desc" 10 20 User where-order-page
+User count
+User first
+1 User exists?
 attributes map
-"email" "ada@example.com" attributes get .put! drop
-"name" "Ada" attributes get .put! drop
-attributes get User .insert
+attributes get "email" "ada@example.com" put! drop
+attributes get "name" "Ada" put! drop
+attributes get User insert
 
 updates map
-"email" "grace@example.com" updates get .put! drop
-42 updates get User .update</code></pre>
+updates get "email" "grace@example.com" put! drop
+42 updates get User update</code></pre>
           </article>
 
           <article class="example-panel wide">
             <h3>Controller With Stack Result Handling</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record controller example" title="Copy">copy</button><code>(( app/Controllers/UserController.rco ))
-UserController Controller subclass
-  ( ctx -> Response ) "index" [
-    User .all
+UserController Controller Subclass
+  ( ctx -> Response ) [
+    User all
     dup ok? if
       value users var
       ctx get "users/index" swap view
     else
-      error .message get text
+      error "message" at text
     end
-  ] !method
+  ] "index" Method
 end</code></pre>
+          </article>
+
+          <article class="example-panel wide">
+            <h3>Result Envelope For App Boundaries</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy result envelope example" title="Copy">copy</button><code>meta map
+meta get "capability" "workspace.read" put! drop
+
+"payload" ok meta get result_envelope envelope var
+envelope get "ok" at println
+envelope get "data" at println
+envelope get "meta" at "capability" at println</code></pre>
           </article>
         </div>
       </section>
@@ -574,16 +582,16 @@ end</code></pre>
           <article class="example-panel">
             <h3>Unary Counter Shape</h3>
             <p>For an abstract unbounded counter, object chains can represent Peano-style natural numbers independently of the fixed-width integer convenience type.</p>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy unary counter example" title="Copy">copy</button><code>Counter Object subclass
-  previous field
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy unary counter example" title="Copy">copy</button><code>Counter Object Subclass
+  "previous" Accessor
 end
 
 nil counter var
 
-counter get Counter new .previous set counter set
-counter get Counter new .previous set counter set
+counter get Counter new previous.set counter set
+counter get Counter new previous.set counter set
 counter get nil? false = while
-  counter get .previous get counter set
+  counter get previous.get counter set
 end</code></pre>
           </article>
         </div>
@@ -617,11 +625,11 @@ FAULT [&lt;main&gt;] unknown word typo
           <article class="example-panel wide">
             <h3>TestCase</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy test example" title="Copy">copy</button><code>(( tests/UserTest.rco ))
-UserTest TestCase subclass
-  "testDisplayName" [
+UserTest TestCase Subclass
+  [
     "Ada"
     "Ada" assert-equals
-  ] !method
+  ] "testDisplayName" Method
 end</code></pre>
           </article>
         </div>
@@ -637,24 +645,24 @@ end</code></pre>
           <div><code>rco routes [path]</code><span>Print MVC routes as `METHOD path Controller#action`; defaults to the current directory.</span></div>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
-          <div><code>rco repl [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
-          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
-          <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
+          <div><code>rco repl [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
+          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
+          <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
-          <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview .window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
-          <div><code>rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Run a terminal UI script without printing the ordinary final stack dump.</span></div>
+          <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview_window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
+          <div><code>rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Run a terminal UI script without printing the ordinary final stack dump.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable; defaults to embedding bytecode from `main.rco`. `--tui` uses the console launcher without final stack output. `--gui` uses the `rco-gui` launcher for a webview document. Add `--mvc` with `--gui` to package an MVC project directory as a local-server desktop WebView app. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>
-          <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch] [--allow-env] [--no-env] [--fs-root PATH] [--fs-readonly] [--http-allow-host HOST]</code><span>Run the current directory as an MVC web app. `--allow-env` enables process environment reads for trusted local apps; filesystem and HTTP stay bounded by `--fs-root` and `--http-allow-host`. `--watch` reloads routes, controllers, models, views, and the manifest between requests.</span></div>
-          <div><code>rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
+          <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch] [--allow-env] [--no-env] [--env-allow NAME] [--allow-process] [--process-root PATH] [--allow-pty] [--fs-root PATH] [--fs-readonly] [--http-allow-host HOST]</code><span>Run the current directory as an MVC web app. `--allow-env` enables all process environment reads, `--env-allow` enables only named environment variables, `--allow-process` enables direct child process execution, `--process-root` narrows process and PTY cwd values, and `--allow-pty` enables pseudo-terminal sessions for trusted local apps; filesystem and HTTP stay bounded by `--fs-root` and `--http-allow-host`. `--watch` reloads routes, controllers, models, views, and the manifest between requests.</span></div>
+          <div><code>rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
         </div>
         <div class="example-grid compact-examples">
           <article class="example-panel">
             <h3>CLI Script Words</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy CLI words example" title="Copy">copy</button><code>args .count println
-"DATABASE_URL" env dup ok? if value println else error .message get eprint end
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy CLI words example" title="Copy">copy</button><code>args count println
+"DATABASE_URL" env dup ok? if value println else error "message" at eprint end
 cwd value println
 now println
 100 random println</code></pre>
@@ -669,34 +677,60 @@ rco install</code></pre>
             <h3>Tasks</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy task example" title="Copy">copy</button><code>10 base var
 [ 100 sleep base get 5 + ] spawn task var
-task get .status
-task get .running?
-task get .completed?
-tasks .count
+task get status
+task get running?
+task get completed?
+tasks count
 task get await
-task get .status
+task get status
 task get await
 handles array
-[ 20 2 + ] spawn handles get .push! drop
-[ 30 4 + ] spawn handles get .push! drop
+handles get [ 20 2 + ] spawn push! drop
+handles get [ 30 4 + ] spawn push! drop
 handles get await-all</code></pre>
           </article>
           <article class="example-panel">
             <h3>Capabilities</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy capability example" title="Copy">copy</button><code>"README.md" fs .read-text value .count println
-"https://example.com" http .get value response var
-"status" response get .at println
-"https://example.com" http .get-task request var
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy capability example" title="Copy">copy</button><code>"README.md" fs_read_text value count println
+"https://example.com" http_get value response var
+response get "status" at println
+"https://example.com" http_get_task request var
 request get await value asyncResponse var
-"body" asyncResponse get .at println
+asyncResponse get "body" at println
+workspaceOptions map
+"README.md" workspaceOptions get workspace_read_text value readme var
+"." workspaceOptions get workspace_list value workspaceEntries var
+workspaceEntries get count println
 headers map
-"Authorization" "Bearer token" headers get .put! drop
+headers get "Authorization" "Bearer token" put! drop
+providerHosts array
+providerHosts get "api.example" push! drop
 providerRequest map
-"url" "https://api.example/v1/models" providerRequest get .put! drop
-"headers" headers get providerRequest get .put! drop
-providerRequest get http .request-task await value providerResponse var
-"status" providerResponse get .at println
-"Ready" tui .write! value drop tui .flush! value drop</code></pre>
+providerRequest get "url" "https://api.example/v1/models" put! drop
+providerRequest get "headers" headers get put! drop
+providerRequest get "allowed_hosts" providerHosts get put! drop
+providerRequest get "timeout_ms" 30000 put! drop
+providerRequest get "max_response_bytes" 1048576 put! drop
+providerRequest get http_request_task await value providerResponse var
+providerResponse get "status" at println
+processArgs array
+processArgs get "status" push! drop
+processOptions map
+"git" processArgs get processOptions get process_spawn value processResult var
+processResult get "success" at println
+processOptions get "stdout_max_bytes" 1048576 put! drop
+"git" processArgs get processOptions get process_start value processJob var
+processReadOptions map
+processJob get "id" at processReadOptions get process_read value processOutput var
+processOutput get "stdout" at println
+runtime_capabilities "process" at "enabled" at println
+approvalOperation map
+approvalOperation get "capability" "workspace.write" put! drop
+approvalOptions map
+approvalOperation get approvalOptions get approval_create value approval var
+approval get "id" at approval get "token" at approval_claim value "claimed" at println
+runtime_capabilities "approval" at "records" at println
+"Ready" tui_write value drop tui_flush value drop</code></pre>
           </article>
           <article class="example-panel wide">
             <h3>Acceptance Suite</h3>
@@ -713,17 +747,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
         </div>
         <ul class="limit-list">
           <li>Ricochet v1 is a developer beta target for building and testing usable local MVC web apps. It is not a production deployment promise.</li>
-          <li>Integer values are `i64`; the lexer currently reads non-negative decimal number literals.</li>
-          <li>HTTP, filesystem, and environment access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH` and `--http-allow-host HOST` can open bounded access. `rco serve` keeps process environment reads disabled unless `--allow-env` is passed for a trusted local MVC app. `--no-fs`, `--fs-readonly`, `--no-http`, and `--no-env` further narrow host powers. HTTP calls currently use a 10 second timeout and a 1 MiB response body cap. Use `http .request` or `http .request-task` when a provider call needs explicit headers; header names and values are validated before connecting.</li>
+          <li>Integer values are `i64`; decimal number literals support both positive and negative integers.</li>
+          <li>HTTP, filesystem, environment, process, and PTY access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH`, `--http-allow-host HOST`, and `--env-allow NAME` can open bounded access. Direct child process execution is always opt-in with `--allow-process`; `--process-root PATH` narrows process and PTY cwd values independently from the filesystem root. `process_spawn` captures a bounded blocking result, while `process_start`, `process_jobs`, `process_job`, `process_read`, and `process_cancel` provide retained long-running jobs. PTY sessions are separately opt-in with `--allow-pty` and expose `pty_start`, `pty_write`, `pty_read`, `pty_resize`, `pty_stop`, `pty_list`, and `pty_detail`. Runtime approval records are available to local apps through `approval_create`, `approval_claim`, `approval_complete`, `approval_reject`, and `approval_detail`; MVC request VMs share the same approval registry so one-time claims work across requests. `rco serve` also keeps process environment reads disabled unless `--allow-env` or `--env-allow` is passed for a trusted local MVC app. `--no-fs`, `--fs-readonly`, `--no-http`, and `--no-env` further narrow host powers. Simple HTTP calls use a 10 second timeout and a 1 MiB response body cap; `http_request` and `http_request_task` can set bounded `timeout_ms`, `max_response_bytes`, `allowed_hosts`, and `allowed_schemes` per request. Header names and values are validated before connecting.</li>
           <li>MVC request body parsing is in-memory with a 16 MiB beta limit. Multipart uploads expose UTF-8 `text` when possible and `data_base64` for arbitrary bytes; streaming upload APIs remain planned work.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `.id`, `.status`, `.pending?`, `.running?`, `.completed?`, `.failed?`, and `tasks`; HTTP capabilities also expose `.get-task`, `.post-json-task`, and `.request-task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
+          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `id`, `status`, `pending?`, `running?`, `completed?`, `failed?`, and `tasks`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
-          <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`.</li>
-          <li>Top-level `method` declarations are rejected; methods belong inside classes or are installed with `!method`.</li>
+          <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`; use `result_envelope` when an app/API boundary needs a `{ ok, data, error, meta }` map.</li>
+          <li>Top-level method declarations are rejected; methods belong inside classes and use `[ body ] "name" Method`.</li>
           <li>Active Record targets existing SQLite, PostgreSQL, and MySQL/MariaDB schemas in v1. Schema migrations are a later branch.</li>
           <li>Template expressions must leave exactly one scalar renderable value: nil, bool, number, or string.</li>
         </ul>

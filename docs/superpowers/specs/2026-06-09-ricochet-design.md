@@ -1,7 +1,17 @@
 # Ricochet Language Design
 
 Date: 2026-06-09
-Status: Draft for review
+Status: Historical draft, superseded for syntax details
+
+> Syntax note, 2026-06-15: Ricochet had a pre-launch postfix syntax reset after
+> this draft. Treat examples in this document that use `subclass`, `field`,
+> `table`, leading-dot calls such as `.all`, or bang declarations such as
+> `!method` as historical. Current feature work must follow the canonical
+> postfix rules in the repo-root `AGENTS.md`, `README.md`, and
+> `docs/reference/index.html`: capitalized OOP declarations such as `Subclass`,
+> `Accessor`, `Table`, and `Method`; receiver-before-selector calls such as
+> `user email.get`; container-before-key access such as `request "method" at`;
+> and snake_case host APIs such as `http_request` and `fs_read_text`.
 
 ## Purpose
 

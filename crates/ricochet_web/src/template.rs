@@ -232,7 +232,7 @@ mod tests {
         )]);
 
         let rendered = render_template(
-            "<strong>{ user get .name get }</strong>",
+            "<strong>{ user get \"name\" at }</strong>",
             &data,
             EscapeMode::Html,
         )

@@ -1,10 +1,10 @@
 (( Run with: rco run examples/basic-oop.rco ))
 
-User Model subclass
-  email field
-  "displayName" [ self .email get ] !method
+User Model Subclass
+  "email" Accessor
+  [ self email.get ] "displayName" Method
 end
 
-"User" new
-"ada@example.com" swap .email set
-.displayName
+User new
+"ada@example.com" swap email.set
+displayName

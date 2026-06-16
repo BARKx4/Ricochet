@@ -274,10 +274,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Models/User.rco"),
         r#"
-User Model subclass
-  users table
-  id field
-  email field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
 end
 "#,
     )
@@ -285,15 +285,15 @@ end
     fs::write(
         project_root.join("app/Controllers/UserController.rco"),
         r#"
-UserController Controller subclass
-  index method
-    User .all
+UserController Controller Subclass
+  [
+    User all
     dup ok? if
       value json
     else
-      error .message get text
+      error "message" at text
     end
-  end
+  ] "index" Method
 end
 "#,
     )
@@ -375,11 +375,11 @@ escape = "html"
     fs::write(
         project_root.join("app/Models/User.rco"),
         r#"
-User Model subclass
-  users table
-  id field
-  email field
-  name field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 end
 "#,
     )
@@ -387,15 +387,15 @@ end
     fs::write(
         project_root.join("app/Controllers/UserController.rco"),
         r#"
-UserController Controller subclass
-  index method
-    "id" "asc" 10 0 User .order-page
+UserController Controller Subclass
+  [
+    "id" "asc" 10 0 User order-page
     dup ok? if
       value json
     else
-      error .message get text
+      error "message" at text
     end
-  end
+  ] "index" Method
 end
 "#,
     )
@@ -484,13 +484,13 @@ fn ricochet_home_controller_source_sets_title_and_returns_view() {
 fn ricochet_controller_reads_request_params() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-HomeController Controller subclass
-  "show" [
+HomeController Controller Subclass
+  [
     title var
-    ctx get .params get .id get title set
+    ctx get "params" at "id" at title set
     ctx get
     "home/show" swap view
-  ] !method
+  ] "show" Method
 end
 "#;
 
@@ -516,15 +516,15 @@ end
 fn ricochet_controller_receives_declared_request_args() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-HomeController Controller subclass
-  ( id ctx ) "show" [
+HomeController Controller Subclass
+  ( id ctx ) [
     nil title var
     ctx var
     id var
     id get title set
     ctx get
     "home/show" swap view
-  ] !method
+  ] "show" Method
 end
 "#;
 
@@ -550,11 +550,11 @@ end
 fn ricochet_controller_returns_text_response() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-PingController Controller subclass
-  "index" [
+PingController Controller Subclass
+  [
     ctx get
     "pong" swap text
-  ] !method
+  ] "index" Method
 end
 "#;
 
@@ -574,12 +574,12 @@ end
 fn ricochet_controller_returns_json_response() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-ApiController Controller subclass
-  "show" [
+ApiController Controller Subclass
+  [
     map
-    "name" "Ada" !put
+    "name" "Ada" put!
     json
-  ] !method
+  ] "show" Method
 end
 "#;
 
@@ -599,10 +599,10 @@ end
 fn ricochet_controller_returns_redirect_response() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-LoginController Controller subclass
-  "create" [
+LoginController Controller Subclass
+  [
     "/dashboard" redirect
-  ] !method
+  ] "create" Method
 end
 "#;
 
@@ -629,12 +629,12 @@ end
 fn ricochet_controller_returns_text_response_with_status_and_header() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-PingController Controller subclass
-  "index" [
+PingController Controller Subclass
+  [
     "pong" text
     201 status
     "x-ricochet" "yes" header
-  ] !method
+  ] "index" Method
 end
 "#;
 
@@ -661,10 +661,10 @@ end
 fn ricochet_controller_reads_query_params() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-SearchController Controller subclass
-  "index" [
-    ctx get .query get .q get text
-  ] !method
+SearchController Controller Subclass
+  [
+    ctx get "query" at "q" at text
+  ] "index" Method
 end
 "#;
 
@@ -686,11 +686,11 @@ end
 fn ricochet_controller_receives_declared_query_args() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-SearchController Controller subclass
-  ( q ) "index" [
+SearchController Controller Subclass
+  ( q ) [
     q var
     q get text
-  ] !method
+  ] "index" Method
 end
 "#;
 
@@ -712,10 +712,10 @@ end
 fn ricochet_controller_reads_form_params() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
-ContactController Controller subclass
-  "create" [
-    ctx get .form get .email get text
-  ] !method
+ContactController Controller Subclass
+  [
+    ctx get "form" at "email" at text
+  ] "create" Method
 end
 "#;
 
@@ -811,11 +811,11 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/UserController.rco"),
         r#"
-UserController Controller subclass
-  "destroy" [
-    ctx get .params get .id get
-    "deleted " .concat text
-  ] !method
+UserController Controller Subclass
+  [
+    ctx get "params" at "id" at
+    "deleted " swap concat text
+  ] "destroy" Method
 end
 "#,
     )
@@ -871,14 +871,14 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/SessionController.rco"),
         r#"
-SessionController Controller subclass
-  "update" [
+SessionController Controller Subclass
+  [
     map payload var
-    "id" ctx get .params get .id get payload get .put! drop
-    "title" ctx get .form get .title get payload get .put! drop
-    "metadata" ctx get .form get .metadata get payload get .put! drop
+    payload get "id" ctx get "params" at "id" at put! drop
+    payload get "title" ctx get "form" at "title" at put! drop
+    payload get "metadata" ctx get "form" at "metadata" at put! drop
     payload get json
-  ] !method
+  ] "update" Method
 end
 "#,
     )
@@ -942,23 +942,23 @@ POST "/probe/:id/update" ProbeController "update" route
     fs::write(
         project_root.join("app/Controllers/ProbeController.rco"),
         r#"
-ProbeController Controller subclass
-  ( id name status ) "update" [
+ProbeController Controller Subclass
+  ( id name status ) [
     status var
     name var
     id var
 
     map data var
-    "id" id get data get .put! drop
-    "name" name get data get .put! drop
-    "status" status get data get .put! drop
+    data get "id" id get put! drop
+    data get "name" name get put! drop
+    data get "status" status get put! drop
 
     map response var
-    "ok" true response get .put! drop
-    "data" data get response get .put! drop
-    "error" nil response get .put! drop
+    response get "ok" true put! drop
+    response get "data" data get put! drop
+    response get "error" nil put! drop
     response get json
-  ] !method
+  ] "update" Method
 end
 "#,
     )
@@ -1042,8 +1042,8 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/JsonController.rco"),
         r#"
-JsonController Controller subclass
-  ( id name enabled meta tags ctx ) "update" [
+JsonController Controller Subclass
+  ( id name enabled meta tags ctx ) [
     ctx var
     tags var
     meta var
@@ -1052,15 +1052,15 @@ JsonController Controller subclass
     id var
 
     map response var
-    "id" id get response get .put! drop
-    "name" name get response get .put! drop
-    "enabled" enabled get response get .put! drop
-    "meta_kind" meta get .kind get response get .put! drop
-    "tags_count" tags get .count response get .put! drop
-    "ctx_name" ctx get .request get .json get .name get response get .put! drop
-    "body_kind" ctx get .request get .body get .meta get .kind get response get .put! drop
+    response get "id" id get put! drop
+    response get "name" name get put! drop
+    response get "enabled" enabled get put! drop
+    response get "meta_kind" meta get "kind" at put! drop
+    response get "tags_count" tags get count put! drop
+    response get "ctx_name" ctx get "request" at "json" at "name" at put! drop
+    response get "body_kind" ctx get "request" at "body" at "meta" at "kind" at put! drop
     response get json
-  ] !method
+  ] "update" Method
 end
 "#,
     )
@@ -1126,10 +1126,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/JsonController.rco"),
         r#"
-JsonController Controller subclass
-  "create" [
+JsonController Controller Subclass
+  [
     "unreachable" text
-  ] !method
+  ] "create" Method
 end
 "#,
     )
@@ -1188,26 +1188,26 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/UploadController.rco"),
         r#"
-UploadController Controller subclass
-  ( id title file ctx ) "create" [
+UploadController Controller Subclass
+  ( id title file ctx ) [
     ctx var
     file var
     title var
     id var
 
     map response var
-    "id" id get response get .put! drop
-    "title" title get response get .put! drop
-    "form_title" ctx get .request get .form get .title get response get .put! drop
-    "filename" file get .filename get response get .put! drop
-    "content_type" file get .content_type get response get .put! drop
-    "size" file get .size get response get .put! drop
-    "text" file get .text get response get .put! drop
-    "data_base64" file get .data_base64 get response get .put! drop
-    "ctx_upload_text" ctx get .request get .uploads get .file get .text get response get .put! drop
-    "files_count" ctx get .request get .files get .count response get .put! drop
+    response get "id" id get put! drop
+    response get "title" title get put! drop
+    response get "form_title" ctx get "request" at "form" at "title" at put! drop
+    response get "filename" file get "filename" at put! drop
+    response get "content_type" file get "content_type" at put! drop
+    response get "size" file get "size" at put! drop
+    response get "text" file get "text" at put! drop
+    response get "data_base64" file get "data_base64" at put! drop
+    response get "ctx_upload_text" ctx get "request" at "uploads" at "file" at "text" at put! drop
+    response get "files_count" ctx get "request" at "files" at count put! drop
     response get json
-  ] !method
+  ] "create" Method
 end
 "#,
     )
@@ -1282,14 +1282,14 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     0 counter var
     counter get 10000 < while
       counter get 1 + counter set
     end
     "done" text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -1342,11 +1342,11 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     1000 sleep
     "done" text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -1401,17 +1401,17 @@ escape = "html"
     fs::write(
         project_root.join("app/Models/User.rco"),
         r#"
-User Model subclass
-  email field
-  name field
+User Model Subclass
+  "email" Accessor
+  "name" Accessor
 
-  "displayName" [
-    self .name get nil? if
-      self .email get
+  [
+    self name.get nil? if
+      self email.get
     else
-      self .name get
+      self name.get
     end
-  ] !method
+  ] "displayName" Method
 end
 "#,
     )
@@ -1419,14 +1419,14 @@ end
     fs::write(
         project_root.join("app/Controllers/UserController.rco"),
         r#"
-UserController Controller subclass
-  "index" [
+UserController Controller Subclass
+  [
     User new
-    "ada@example.com" swap .email set
-    .displayName title var
+    "ada@example.com" swap email.set
+    displayName title var
     ctx get
     "users/index" swap view
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -1494,13 +1494,13 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "show" [
+HomeController Controller Subclass
+  [
     title var
-    ctx get .params get .id get title set
+    ctx get "params" at "id" at title set
     ctx get
     "home/show" swap view
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -1564,8 +1564,8 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  ( template ctx ) "show" [
+HomeController Controller Subclass
+  ( template ctx ) [
     ctx var
     template var
     template get nil? if
@@ -1575,7 +1575,7 @@ HomeController Controller subclass
     end
     ctx get
     templateName get swap view
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -1659,15 +1659,15 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  ( id ctx ) "show" [
+HomeController Controller Subclass
+  ( id ctx ) [
     nil title var
     ctx var
     id var
     id get title set
     ctx get
     "home/show" swap view
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -1733,11 +1733,11 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/PingController.rco"),
         r#"
-PingController Controller subclass
-  "index" [
+PingController Controller Subclass
+  [
     ctx get
     "pong" swap text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -1791,10 +1791,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     "ok" text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -1864,7 +1864,7 @@ escape = "html"
     fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
-        "HomeController Controller subclass\nend\n",
+        "HomeController Controller Subclass\nend\n",
     )
     .expect("controller should be written");
     fs::write(project_root.join("public/app.css"), "safe").expect("static asset should be written");
@@ -1923,7 +1923,7 @@ mount = "/static"
     fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
-        "HomeController Controller subclass\nend\n",
+        "HomeController Controller Subclass\nend\n",
     )
     .expect("controller should be written");
     fs::write(
@@ -2003,7 +2003,7 @@ escape = "html"
     fs::write(project_root.join("config/routes.rco"), "").expect("routes should be written");
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
-        "HomeController Controller subclass\nend\n",
+        "HomeController Controller Subclass\nend\n",
     )
     .expect("controller should be written");
     fs::write(project_root.join("public/app.css"), "before").expect("asset should be written");
@@ -2075,12 +2075,12 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/ApiController.rco"),
         r#"
-ApiController Controller subclass
-  "show" [
+ApiController Controller Subclass
+  [
     map
-    "name" "Ada" !put
+    "name" "Ada" put!
     json
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -2149,35 +2149,35 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/ForkController.rco"),
         r#"
-ForkController Controller subclass
-  ( fs ) "create" [
+ForkController Controller Subclass
+  ( fs ) [
     fs var
-    "sessions.json" fs get .read-text value json-decode value state var
-    "sessions" state get .at sessions var
-    0 sessions get .at source var
-    "events" source get .at sourceEvents var
-    0 sourceEvents get .at sourceEvent var
+    "sessions.json" fs_read_text value json-decode value state var
+    state get "sessions" at sessions var
+    sessions get 0 at source var
+    source get "events" at sourceEvents var
+    sourceEvents get 0 at sourceEvent var
 
     map fork var
-    "id" "fork" fork get .put! drop
+    fork get "id" "fork" put! drop
     array forkEvents var
-    "events" forkEvents get fork get .put! drop
-    sourceEvent get forkEvents get .push! drop
+    fork get "events" forkEvents get put! drop
+    forkEvents get sourceEvent get push! drop
 
     map forkEvent var
-    "role" "system" forkEvent get .put! drop
-    "text" "forked" forkEvent get .put! drop
-    forkEvent get forkEvents get .push! drop
+    forkEvent get "role" "system" put! drop
+    forkEvent get "text" "forked" put! drop
+    forkEvents get forkEvent get push! drop
 
-    fork get sessions get .push! drop
-    "sessions" sessions get state get .put! drop
-    "sessions.json" state get json-encode fs get .write-text! value drop
+    sessions get fork get push! drop
+    state get "sessions" sessions get put! drop
+    "sessions.json" state get json-encode fs_write_text value drop
 
     map
-    "ok" true !put
-    "session_count" sessions get .count !put
+    "ok" true put!
+    "session_count" sessions get count put!
     json
-  ] !method
+  ] "create" Method
 end
 "#,
     )
@@ -2281,10 +2281,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/EnvController.rco"),
         r#"
-EnvController Controller subclass
-  "show" [
+EnvController Controller Subclass
+  [
     "RICOCHET_MVC_ENV_TEST" env value text
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -2318,6 +2318,594 @@ end
 }
 
 #[tokio::test]
+async fn served_mvc_can_bound_environment_reads_to_allowlist() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "env_allowlist"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"
+GET "/allowed" EnvController "allowed" route
+GET "/denied" EnvController "denied" route
+GET "/caps" EnvController "caps" route
+"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/EnvController.rco"),
+        r#"
+EnvController Controller Subclass
+  [
+    "RICOCHET_MVC_ALLOWED_ENV_TEST" env value text
+  ] "allowed" Method
+
+  [
+    "RICOCHET_MVC_DENIED_ENV_TEST" env value text
+  ] "denied" Method
+
+  [
+    runtime_capabilities "environment" at "allowlist" at count json
+  ] "caps" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+    std::env::set_var("RICOCHET_MVC_ALLOWED_ENV_TEST", "allowlisted");
+    std::env::set_var("RICOCHET_MVC_DENIED_ENV_TEST", "should-not-leak");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            env_allow: vec!["RICOCHET_MVC_ALLOWED_ENV_TEST".to_string()],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with environment allowlist");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/allowed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("allowed env response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "allowlisted");
+
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "1");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/denied")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("denied env response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "body was {body}");
+    assert!(
+        body.contains("environment variable is not allowed: RICOCHET_MVC_DENIED_ENV_TEST"),
+        "body should explain allowlist denial, got {body}"
+    );
+    assert!(
+        !body.contains("should-not-leak"),
+        "body should not include denied environment value, got {body}"
+    );
+}
+
+#[tokio::test]
+async fn served_mvc_keeps_environment_disabled_when_only_filesystem_is_allowed() {
+    let project_root = temp_project_path();
+    let fs_root = project_root.join("data");
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(&fs_root).expect("filesystem root should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "env_denied_with_fs"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/env" EnvController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/EnvController.rco"),
+        r#"
+EnvController Controller Subclass
+  [
+    "RICOCHET_MVC_ENV_DENIED_TEST" env value text
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+    std::env::set_var("RICOCHET_MVC_ENV_DENIED_TEST", "should-not-leak");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            fs_root: Some(fs_root),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with bounded filesystem only");
+
+    let response = app
+        .oneshot(Request::builder().uri("/env").body(Body::empty()).unwrap())
+        .await
+        .expect("env denial response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "body was {body}");
+    assert!(
+        body.contains("environment capability is not enabled"),
+        "body should explain env denial, got {body}"
+    );
+    assert!(
+        !body.contains("should-not-leak"),
+        "body should not include the environment value, got {body}"
+    );
+}
+
+#[tokio::test]
+async fn served_mvc_reports_process_capability_when_allowed() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "process_capability"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/caps" CapabilityController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/CapabilityController.rco"),
+        r#"
+CapabilityController Controller Subclass
+  [
+    runtime_capabilities "process" at "enabled" at json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            allow_process: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with process capability");
+
+    let response = app
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "true");
+}
+
+#[tokio::test]
+async fn served_mvc_reports_configured_process_root() {
+    let project_root = temp_project_path();
+    let process_root = project_root.join("process-root");
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(&process_root).expect("process root should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "process_root"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/root" CapabilityController "root" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/CapabilityController.rco"),
+        r#"
+CapabilityController Controller Subclass
+  [
+    runtime_capabilities "process" at "root" at json
+  ] "root" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let expected = normalized_test_path(&process_root);
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            allow_process: true,
+            process_root: Some(process_root),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with process root");
+
+    let response = app
+        .oneshot(Request::builder().uri("/root").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body.as_str(), Some(expected.as_str()));
+}
+
+#[tokio::test]
+async fn served_mvc_persists_process_jobs_across_requests_when_allowed() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "process_jobs"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"
+GET "/start" ProcessController "start" route
+GET "/jobs" ProcessController "jobs" route
+GET "/caps" ProcessController "caps" route
+"#,
+    )
+    .expect("routes should be written");
+
+    #[cfg(windows)]
+    let (command, args): (&str, &[&str]) = ("cmd", &["/C", "echo", "hello"]);
+    #[cfg(not(windows))]
+    let (command, args): (&str, &[&str]) = ("printf", &["hello"]);
+
+    let mut arg_lines = String::new();
+    for arg in args {
+        arg_lines.push_str(&format!(
+            "    args get \"{}\" push! drop\n",
+            escape_ricochet_string_for_test(arg)
+        ));
+    }
+    let command = escape_ricochet_string_for_test(command);
+    fs::write(
+        project_root.join("app/Controllers/ProcessController.rco"),
+        format!(
+            r#"
+ProcessController Controller Subclass
+  [
+    args array
+{arg_lines}    options map
+    options get "timeout_ms" 10000 put! drop
+    "{command}" args get options get process_start value "id" at json
+  ] "start" Method
+
+  [
+    process_jobs count json
+  ] "jobs" Method
+
+  [
+    runtime_capabilities "process" at "jobs" at json
+  ] "caps" Method
+end
+"#
+        ),
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            allow_process: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with process capability");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/start")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("start response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "0");
+
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/jobs").body(Body::empty()).unwrap())
+        .await
+        .expect("jobs response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "1");
+
+    let response = app
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "1");
+}
+
+#[tokio::test]
+async fn served_mvc_shares_approval_records_across_requests() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "approval_registry"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"
+GET "/create" ApprovalController "create" route
+GET "/claim" ApprovalController "claim" route
+GET "/second" ApprovalController "secondClaim" route
+GET "/caps" ApprovalController "caps" route
+"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/ApprovalController.rco"),
+        r#"
+ApprovalController Controller Subclass
+  [
+    operation map
+    operation get "capability" "workspace.write" put! drop
+    options map
+    options get "id" "mvc-approval" put! drop
+    options get "token" "secret-token" put! drop
+    operation get options get approval_create value "pending" at json
+  ] "create" Method
+
+  [
+    "mvc-approval" "secret-token" approval_claim value "claimed" at json
+  ] "claim" Method
+
+  [
+    "mvc-approval" "secret-token" approval_claim error "kind" at json
+  ] "secondClaim" Method
+
+  [
+    runtime_capabilities "approval" at "records" at json
+  ] "caps" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions::default(),
+    )
+    .await
+    .expect("build served app with approval registry");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/create")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("create response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "true");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/claim")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("claim response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "true");
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/second")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("second claim response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, r#""ApprovalAlreadyClaimed""#);
+
+    let response = app
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert_eq!(status, StatusCode::OK, "body was {body}");
+    assert_eq!(body, "1");
+}
+
+#[tokio::test]
 async fn serves_ricochet_redirect_response() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -2346,10 +2934,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/LoginController.rco"),
         r#"
-LoginController Controller subclass
-  "create" [
+LoginController Controller Subclass
+  [
     "/dashboard" redirect
-  ] !method
+  ] "create" Method
 end
 "#,
     )
@@ -2406,12 +2994,12 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/PingController.rco"),
         r#"
-PingController Controller subclass
-  "index" [
+PingController Controller Subclass
+  [
     "pong" text
     201 status
     "x-ricochet" "yes" header
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -2482,10 +3070,10 @@ end
         r#"
 "../Services/Greeting" import
 
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     greeting text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -2536,10 +3124,10 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     "before" text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -2587,10 +3175,10 @@ end
     fs::write(
         project_root.join("app/Controllers/HomeController.rco"),
         r#"
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     "after" text
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -2658,10 +3246,10 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/SearchController.rco"),
         r#"
-SearchController Controller subclass
-  "index" [
-    ctx get .query get .q get text
-  ] !method
+SearchController Controller Subclass
+  [
+    ctx get "query" at "q" at text
+  ] "index" Method
 end
 "#,
     )
@@ -2722,11 +3310,11 @@ url = "${DATABASE_URL}"
     fs::write(
         project_root.join("app/Controllers/ContactController.rco"),
         r#"
-ContactController Controller subclass
-  ( email ) "create" [
+ContactController Controller Subclass
+  ( email ) [
     email var
     email get text
-  ] !method
+  ] "create" Method
 end
 "#,
     )
@@ -2785,19 +3373,19 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/ContextController.rco"),
         r#"
-ContextController Controller subclass
-  ( request cookies config ) "show" [
+ContextController Controller Subclass
+  ( request cookies config ) [
     config var
     cookies var
     request var
     map
-    "method" request get .method get !put
-    "path" request get .path get !put
-    "theme" cookies get .theme get !put
-    "session" cookies get .session get !put
-    "package" config get .package get .name get !put
+    "method" request get "method" at put!
+    "path" request get "path" at put!
+    "theme" cookies get "theme" at put!
+    "session" cookies get "session" at put!
+    "package" config get "package" at "name" at put!
     json
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -2860,14 +3448,14 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/SessionController.rco"),
         r#"
-SessionController Controller subclass
-  ( session ) "show" [
+SessionController Controller Subclass
+  ( session ) [
     session var
-    session get .user get nil? if
-      session get "user" "Ada" !put drop
+    session get "user" at nil? if
+      session get "user" "Ada" put! drop
     end
-    session get .user get text
-  ] !method
+    session get "user" at text
+  ] "show" Method
 end
 "#,
     )
@@ -2968,16 +3556,16 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/SessionController.rco"),
         r#"
-SessionController Controller subclass
-  ( session ) "show" [
+SessionController Controller Subclass
+  ( session ) [
     session var
-    session get .user get nil? if
-      session get "user" "Ada" !put drop
+    session get "user" at nil? if
+      session get "user" "Ada" put! drop
       "new" text
     else
-      session get .user get text
+      session get "user" at text
     end
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -3052,16 +3640,16 @@ signing_secret_env = "{secret_env}"
     fs::write(
         project_root.join("app/Controllers/SessionController.rco"),
         r#"
-SessionController Controller subclass
-  ( session ) "show" [
+SessionController Controller Subclass
+  ( session ) [
     session var
-    session get .user get nil? if
-      session get "user" "Ada" !put drop
+    session get "user" at nil? if
+      session get "user" "Ada" put! drop
       "new" text
     else
-      session get .user get text
+      session get "user" at text
     end
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -3189,16 +3777,16 @@ encryption_secret_env = "{secret_env}"
     fs::write(
         project_root.join("app/Controllers/SessionController.rco"),
         r#"
-SessionController Controller subclass
-  ( session ) "show" [
+SessionController Controller Subclass
+  ( session ) [
     session var
-    session get .user get nil? if
-      session get "user" "Ada" !put drop
+    session get "user" at nil? if
+      session get "user" "Ada" put! drop
       "new" text
     else
-      session get .user get text
+      session get "user" at text
     end
-  ] !method
+  ] "show" Method
 end
 "#,
     )
@@ -3330,16 +3918,16 @@ base_url = "{base_url}"
     fs::write(
         project_root.join("app/Controllers/AiController.rco"),
         r#"
-AiController Controller subclass
-  ( ai ) "index" [
+AiController Controller Subclass
+  ( ai ) [
     ai var
-    "Say hello" ai get .chat result var
+    "Say hello" ai get chat result var
     result get ok? if
-      result get value .text get text
+      result get value "text" at text
     else
-      result get error .message get text
+      result get error "message" at text
     end
-  ] !method
+  ] "index" Method
 end
 "#,
     )
@@ -3407,13 +3995,13 @@ escape = "html"
     fs::write(
         project_root.join("app/Controllers/LogController.rco"),
         r#"
-LogController Controller subclass
-  ( logger ) "index" [
+LogController Controller Subclass
+  ( logger ) [
     logger var
-    "loaded" logger get .info drop
-    "careful" logger get .warn drop
-    logger get .entries json
-  ] !method
+    "loaded" logger get info drop
+    "careful" logger get warn drop
+    logger get entries json
+  ] "index" Method
 end
 "#,
     )
@@ -3453,6 +4041,30 @@ fn temp_project_path() -> PathBuf {
 
     base.join("web-mvc")
         .join(format!("project-{}-{nanos}-{sequence}", std::process::id()))
+}
+
+fn normalized_test_path(path: &std::path::Path) -> String {
+    let path = fs::canonicalize(path).expect("test path should canonicalize");
+    strip_verbatim_prefix_for_test(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(windows)]
+fn strip_verbatim_prefix_for_test(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{stripped}"))
+    } else if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_verbatim_prefix_for_test(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn spawn_openai_compatible_server(response_text: &str) -> (String, thread::JoinHandle<String>) {
@@ -3543,4 +4155,8 @@ fn http_request_complete(buffer: &[u8]) -> bool {
         .unwrap_or(0);
 
     buffer.len() >= header_end + 4 + content_length
+}
+
+fn escape_ricochet_string_for_test(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }

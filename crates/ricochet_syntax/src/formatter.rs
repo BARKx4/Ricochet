@@ -66,7 +66,7 @@ impl Formatter {
     fn format_class(&mut self, class: &ClassDecl, indent: usize) {
         self.line(
             indent,
-            &format!("{} {} subclass", class.name, class.superclass),
+            &format!("{} {} Subclass", class.name, class.superclass),
         );
         for item in &class.body {
             self.format_item(item, indent + 1);
@@ -80,7 +80,7 @@ impl Formatter {
             .as_ref()
             .map(|args| format!("{} ", format_args(args)))
             .unwrap_or_default();
-        self.line(indent, &format!("{prefix}{} method", method.name));
+        self.line(indent, &format!("{prefix}{} Method", method.name));
         self.format_body(&method.body, indent + 1);
         self.line(indent, "end");
     }
@@ -140,10 +140,20 @@ impl Formatter {
     }
 
     fn format_sequence(&mut self, exprs: &[SpannedExpr], indent: usize) {
-        if let Some((name, block, bang)) = block_declaration(exprs) {
-            self.line(indent, &format!("{} [", format_expr_inline(&name.expr)));
+        if let Some((args, block, name, operator)) = block_declaration(exprs) {
+            let prefix = args
+                .map(|args| format!("{} ", format_expr_inline(&args.expr)))
+                .unwrap_or_default();
+            self.line(indent, &format!("{prefix}["));
             self.format_body(block, indent + 1);
-            self.line(indent, &format!("] {}", format_expr_inline(&bang.expr)));
+            self.line(
+                indent,
+                &format!(
+                    "] {} {}",
+                    format_expr_inline(&name.expr),
+                    format_expr_inline(&operator.expr)
+                ),
+            );
             return;
         }
 
@@ -218,11 +228,30 @@ fn is_inline_expr(expr: &Expr) -> bool {
 
 fn block_declaration(
     exprs: &[SpannedExpr],
-) -> Option<(&SpannedExpr, &[SpannedExpr], &SpannedExpr)> {
+) -> Option<(
+    Option<&SpannedExpr>,
+    &[SpannedExpr],
+    &SpannedExpr,
+    &SpannedExpr,
+)> {
     match exprs {
-        [name, block, bang] if matches!(&block.expr, Expr::Block(_)) => {
+        [block, name, operator]
+            if matches!(&block.expr, Expr::Block(_))
+                && matches!(&operator.expr, Expr::Symbol(word) if word == "Method") =>
+        {
             if let Expr::Block(body) = &block.expr {
-                Some((name, body.as_slice(), bang))
+                Some((None, body.as_slice(), name, operator))
+            } else {
+                None
+            }
+        }
+        [args, block, name, operator]
+            if matches!(&args.expr, Expr::Args(_))
+                && matches!(&block.expr, Expr::Block(_))
+                && matches!(&operator.expr, Expr::Symbol(word) if word == "Method") =>
+        {
+            if let Expr::Block(body) = &block.expr {
+                Some((Some(args), body.as_slice(), name, operator))
             } else {
                 None
             }
@@ -301,9 +330,9 @@ mod tests {
     #[test]
     fn formats_class_block_methods_and_fields() {
         let source = r#"
-User Model subclass
-email field
-"label" [ self .email get ] !method
+User Model Subclass
+email Accessor
+[ self email.get ] "label" Method
 end
 "#;
 
@@ -311,7 +340,7 @@ end
 
         assert_eq!(
             formatted,
-            "User Model subclass\n  email field\n  \"label\" [\n    self .email get\n  ] !method\nend\n"
+            "User Model Subclass\n  email Accessor\n  [\n    self email.get\n  ] \"label\" Method\nend\n"
         );
     }
 
@@ -325,18 +354,19 @@ end
 
     #[test]
     fn formats_dollar_references() {
-        let formatted = format_source("$ctx .params .id").expect("source should format");
+        let formatted =
+            format_source("$ctx \"params\" at \"id\" at").expect("source should format");
 
-        assert_eq!(formatted, "$ctx .params .id\n");
+        assert_eq!(formatted, "$ctx \"params\" at \"id\" at\n");
     }
 
     #[test]
     fn preserves_doc_comments() {
         let source = r#"
 (( User docs ))
-User Model subclass
+User Model Subclass
 (( Email docs ))
-email field
+email Accessor
 end
 "#;
 
@@ -344,7 +374,7 @@ end
 
         assert_eq!(
             formatted,
-            "(( User docs ))\nUser Model subclass\n  (( Email docs ))\n  email field\nend\n"
+            "(( User docs ))\nUser Model Subclass\n  (( Email docs ))\n  email Accessor\nend\n"
         );
     }
 }

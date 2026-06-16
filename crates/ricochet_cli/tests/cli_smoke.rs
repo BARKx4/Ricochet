@@ -89,22 +89,22 @@ fn new_creates_mvc_project_skeleton() {
     );
     assert!(routes.contains("GET \"/\" HomeController \"index\" route"));
     assert!(routes.contains("GET \"/users\" UserController \"index\" route"));
-    assert!(controller.contains("HomeController Controller subclass"));
+    assert!(controller.contains("HomeController Controller Subclass"));
     assert!(view.contains("href=\"/assets/app.css\""));
     assert!(view.contains("{ title get }"));
     assert!(stylesheet.contains("font-family"));
-    assert!(model.contains("User Model subclass"));
+    assert!(model.contains("User Model Subclass"));
     assert!(model.contains("\"displayName\""));
-    assert!(user_controller.contains("UserController Controller subclass"));
+    assert!(user_controller.contains("UserController Controller Subclass"));
     assert!(user_controller.contains("users array"));
-    assert!(user_controller.contains(".push!"));
+    assert!(user_controller.contains("push!"));
     assert!(user_controller.contains("userCount var"));
     assert!(users_view.contains("{ userCount get }"));
-    assert!(test.contains("ApplicationSmokeTest TestCase subclass"));
+    assert!(test.contains("ApplicationSmokeTest TestCase Subclass"));
     assert!(test.contains("User new"));
-    assert!(test.contains(".displayName"));
+    assert!(test.contains("displayName"));
     assert!(test.contains("users array"));
-    assert!(test.contains(".push!"));
+    assert!(test.contains("push!"));
 
     let _app = ricochet_web::server::build_app_from_dir(&project_path)
         .expect("scaffolded MVC app should build");
@@ -179,8 +179,8 @@ fn new_with_sqlite_creates_ready_database_project() {
 
     let model = fs::read_to_string(project_path.join("app").join("Models").join("User.rco"))
         .expect("model should exist");
-    assert!(model.contains("users table"));
-    assert!(model.contains("id field"));
+    assert!(model.contains("\"users\" Table"));
+    assert!(model.contains("\"id\" Accessor"));
 
     let controller = fs::read_to_string(
         project_path
@@ -189,7 +189,7 @@ fn new_with_sqlite_creates_ready_database_project() {
             .join("UserController.rco"),
     )
     .expect("user controller should exist");
-    assert!(controller.contains("User .default-page"));
+    assert!(controller.contains("User default-page"));
     assert!(controller.contains("firstEmail var"));
 
     let routes =
@@ -207,7 +207,7 @@ fn new_with_sqlite_creates_ready_database_project() {
     )
     .expect("auth controller should exist");
     assert!(auth_controller.contains("session get \"user_email\""));
-    assert!(auth_controller.contains(".remove!"));
+    assert!(auth_controller.contains("remove!"));
     assert!(auth_controller.contains("\"/me\" redirect"));
 
     let login_view = fs::read_to_string(
@@ -452,8 +452,8 @@ fn repl_accepts_multiline_class_declarations() {
         .take()
         .expect("repl stdin should be piped")
         .write_all(
-            br#"User Model subclass
-  email field
+            br#"User Model Subclass
+  "email" Accessor
 end
 "User" new
 "#,
@@ -540,14 +540,14 @@ fn run_executes_basic_oop_script() {
     fs::write(
         &source_path,
         r#"
-User Model subclass
-  email field
-  "displayName" [ self .email get ] !method
+User Model Subclass
+  "email" Accessor
+  [ self email.get ] "displayName" Method
 end
 
 "User" new
-"ada@example.com" swap .email set
-.displayName
+"ada@example.com" swap email.set
+displayName
 "#,
     )
     .expect("temp source should be written");
@@ -579,26 +579,26 @@ fn run_refreshes_method_locals_between_calls_and_loop_iterations() {
     fs::write(
         &source_path,
         r#"
-LookupProbe Object subclass
-  ( id ) "echo" [
+LookupProbe Object Subclass
+  ( id ) [
     target var
     target get to-string println
-  ] !method
+  ] "echo" Method
 
-  ( id ) "find" [
+  ( id ) [
     target var
     array xs var
     map a var
-    a get "id" "a" !put a set
-    xs get a get !push xs set
+    a get "id" "a" put! a set
+    xs get a get push! xs set
     map b var
-    b get "id" "b" !put b set
-    xs get b get !push xs set
+    b get "id" "b" put! b set
+    xs get b get push! xs set
     nil found var
     0 index var
-    index get xs get .count < while
-      index get xs get .at item var
-      item get "id" swap .at currentId var
+    index get xs get count < while
+      xs get index get at item var
+      item get "id" at currentId var
       currentId get target get = if
         item get found set
         break
@@ -606,15 +606,15 @@ LookupProbe Object subclass
       index get 1 + index set
     end
     found get to-string println
-  ] !method
+  ] "find" Method
 end
 
 LookupProbe new probe var
-"a" probe get .echo
-"b" probe get .echo
-"a" probe get .find
-"b" probe get .find
-"z" probe get .find
+"a" probe get echo
+"b" probe get echo
+"a" probe get find
+"b" probe get find
+"z" probe get find
 "#,
     )
     .expect("temp source should be written");
@@ -708,7 +708,7 @@ fn run_executes_map_put_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
-    fs::write(&source_path, r#"map "name" "Ada" !put .name get"#)
+    fs::write(&source_path, r#"map "name" "Ada" put! "name" at"#)
         .expect("temp source should be written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
@@ -764,9 +764,9 @@ fn run_executes_println_script() {
 fn fmt_check_reports_unformatted_source() {
     let source_path = write_source(
         r#"
-User Model subclass
-email field
-"label" [ self .email get ] !method
+User Model Subclass
+"email" Accessor
+[ self email.get ] "label" Method
 end
 "#,
     );
@@ -794,9 +794,9 @@ end
 fn fmt_rewrites_source_file() {
     let source_path = write_source(
         r#"
-User Model subclass
-email field
-"label" [ self .email get ] !method
+User Model Subclass
+"email" Accessor
+[ self email.get ] "label" Method
 end
 "#,
     );
@@ -817,7 +817,7 @@ end
     let formatted = fs::read_to_string(&source_path).expect("formatted source should be readable");
     assert_eq!(
         formatted,
-        "User Model subclass\n  email field\n  \"label\" [\n    self .email get\n  ] !method\nend\n"
+        "User Model Subclass\n  \"email\" Accessor\n  [\n    self email.get\n  ] \"label\" Method\nend\n"
     );
 }
 
@@ -848,9 +848,9 @@ fn run_reads_variables_with_dollar_reference_prefix() {
         r#"
 "users" name var
 $name array
-"Ada" $users .push! drop
-$users .count println
-0 $users .at println
+$users "Ada" push! drop
+$users count println
+$users 0 at println
 "#,
     );
 
@@ -1255,17 +1255,17 @@ fn doc_generates_markdown_for_declarations_and_doc_comments() {
         "models/user.rco",
         r#"
 (( User records from an existing table. ))
-User Model subclass
+User Model Subclass
   (( users table mapping ))
-  users table
+  "users" Table
 
   (( Primary email address. ))
-  email field
+  "email" Accessor
 
   (( Display name fallback. ))
-  displayName method
-    self .email get
-  end
+  [
+    self email.get
+  ] "displayName" Method
 end
 
 (( Formats a greeting. ))
@@ -1291,7 +1291,7 @@ end
     assert!(stdout.contains("## Class `User`"));
     assert!(stdout.contains("User records from an existing table."));
     assert!(stdout.contains("- Table: `users`"));
-    assert!(stdout.contains("- Field: `email`"));
+    assert!(stdout.contains("- Accessor: `email`"));
     assert!(stdout.contains("Primary email address."));
     assert!(stdout.contains("- Method: `displayName`"));
     assert!(stdout.contains("Display name fallback."));
@@ -1357,7 +1357,7 @@ fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
 
 #[test]
 fn tui_command_runs_without_printing_final_stack() {
-    let source_path = write_source("\"TUI beta\" tui .write! value drop tui .flush! value drop\n");
+    let source_path = write_source("\"TUI beta\" tui_write value drop tui_flush value drop\n");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("tui")
@@ -1375,7 +1375,7 @@ fn tui_command_runs_without_printing_final_stack() {
 
 #[test]
 fn tui_capability_respects_sandbox_flags() {
-    let source_path = write_source("\"blocked\" tui .write! value drop tui .flush! value drop\n");
+    let source_path = write_source("\"blocked\" tui_write value drop tui_flush value drop\n");
 
     let blocked = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
@@ -1419,7 +1419,7 @@ fn package_tui_creates_terminal_executable_without_final_stack() {
     write_source_at(
         root,
         "main.rco",
-        "\"Packaged TUI\" tui .write! value drop tui .flush! value drop\n",
+        "\"Packaged TUI\" tui_write value drop tui_flush value drop\n",
     );
     let output_path = root.join(format!("tui-app{}", std::env::consts::EXE_SUFFIX));
 
@@ -1453,7 +1453,7 @@ fn package_gui_creates_standalone_executable_that_exports_webview_document() {
     write_source_at(
         root,
         "main.rco",
-        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview .window value document var\n",
+        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview_window value document var\n",
     );
     let output_path = root.join(format!("gui-app{}", std::env::consts::EXE_SUFFIX));
     let preview_export_path = root.join("gui-preview.html");
@@ -1569,7 +1569,7 @@ fn package_gui_rejects_unsupported_hosts() {
     write_source_at(
         root,
         "main.rco",
-        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview .window\n",
+        "\"GUI Smoke\" \"<main><p>Hello desktop</p></main>\" webview_window\n",
     );
     let output_path = root.join("gui-app");
 
@@ -1854,11 +1854,11 @@ fn test_runs_testcase_methods() {
     fs::write(
         &source_path,
         r#"
-UserTest TestCase subclass
-  "testDisplayName" [
+UserTest TestCase Subclass
+  [
     "ada@example.com"
     "ada@example.com" assert-equals
-  ] !method
+  ] "testDisplayName" Method
 end
 "#,
     )
@@ -1895,16 +1895,16 @@ fn test_filter_runs_only_matching_testcase_methods() {
     fs::write(
         &source_path,
         r#"
-UserTest TestCase subclass
-  "testFastPass" [
+UserTest TestCase Subclass
+  [
     "ada@example.com"
     "ada@example.com" assert-equals
-  ] !method
+  ] "testFastPass" Method
 
-  "testSlowFail" [
+  [
     "ada@example.com"
     "grace@example.com" assert-equals
-  ] !method
+  ] "testSlowFail" Method
 end
 "#,
     )
@@ -1953,10 +1953,10 @@ fn test_filter_skips_nonmatching_test_files_before_top_level_effects() {
     fs::write(
         tests_dir.join("MatchingTest.rco"),
         r#"
-MatchingTest TestCase subclass
-  "testOnlyThisRuns" [
+MatchingTest TestCase Subclass
+  [
     1 1 assert-equals
-  ] !method
+  ] "testOnlyThisRuns" Method
 end
 "#,
     )
@@ -1965,12 +1965,12 @@ end
         tests_dir.join("IgnoredTest.rco"),
         format!(
             r#"
-"{sentinel_source}" "side effect" fs .write-text! drop
+"{sentinel_source}" "side effect" fs_write_text drop
 
-IgnoredTest TestCase subclass
-  "testIgnored" [
+IgnoredTest TestCase Subclass
+  [
     1 1 assert-equals
-  ] !method
+  ] "testIgnored" Method
 end
 "#
         ),
@@ -2011,11 +2011,11 @@ fn test_reports_assertion_failures() {
     fs::write(
         &source_path,
         r#"
-UserTest TestCase subclass
-  "testDisplayName" [
+UserTest TestCase Subclass
+  [
     "ada@example.com"
     "grace@example.com" assert-equals
-  ] !method
+  ] "testDisplayName" Method
 end
 "#,
     )
@@ -2249,8 +2249,8 @@ fn run_executes_while_inside_a_bytecode_method() {
     fs::write(
         &source_path,
         r#"
-Counter Object subclass
-  ( limit ) "sumTo" [
+Counter Object Subclass
+  ( limit ) [
     limit var
     0 current var
     0 total var
@@ -2261,10 +2261,10 @@ Counter Object subclass
     end
 
     total get
-  ] !method
+  ] "sumTo" Method
 end
 
-5 Counter new .sumTo
+5 Counter new sumTo
 "#,
     )
     .expect("temp source should be written");
@@ -2296,19 +2296,19 @@ fn run_executes_heap_allocated_unary_counter() {
     fs::write(
         &source_path,
         r#"
-Counter Object subclass
-  previous field
+Counter Object Subclass
+  "previous" Accessor
 end
 
 nil counter var
 0 steps var
 
-counter get Counter new .previous set counter set
-counter get Counter new .previous set counter set
-counter get Counter new .previous set counter set
+counter get Counter new previous.set counter set
+counter get Counter new previous.set counter set
+counter get Counter new previous.set counter set
 
 counter get nil? false = while
-  counter get .previous get counter set
+  counter get previous.get counter set
   steps get 1 + steps set
 end
 
@@ -2407,21 +2407,21 @@ fn run_inspects_spawned_task_status() {
     let output = run_source(
         r#"
 [ 100 sleep 20 2 + ] spawn task var
-task get .id
-task get .status
-task get .pending?
-task get .running?
-task get .completed?
-task get .failed?
+task get id
+task get status
+task get pending?
+task get running?
+task get completed?
+task get failed?
 tasks
-tasks .count
+tasks count
 task get await
-task get .status
-task get .completed?
-task get .failed?
-task get .pending?
+task get status
+task get completed?
+task get failed?
+task get pending?
 task get await
-tasks .count
+tasks count
 "#,
     );
     assert_run_success_for("rco run", "task inspection", &output);
@@ -2464,13 +2464,13 @@ fn run_spawned_task_can_complete_before_await() {
 events array
 [
   50 sleep
-  "done" events get .push! drop
+  events get "done" push! drop
   7
 ] spawn task var
 150 sleep
-events get .count
-task get .status
-task get .completed?
+events get count
+task get status
+task get completed?
 task get await
 "#,
     );
@@ -2496,11 +2496,11 @@ fn run_awaits_multiple_tasks_with_await_all() {
     let output = run_source(
         r#"
 handles array
-[ 20 2 + ] spawn handles get .push! drop
-[ 30 4 + ] spawn handles get .push! drop
+[ 20 2 + ] spawn handles get swap push! drop
+[ 30 4 + ] spawn handles get swap push! drop
 handles get await-all
 handles get await-all
-tasks .count
+tasks count
 "#,
     );
     assert_run_success_for("rco run", "await-all", &output);
@@ -2524,13 +2524,13 @@ fn run_executes_dynamic_send_script() {
     fs::write(
         &source_path,
         r#"
-User Model subclass
-  email field
-  "displayName" [ self .email get ] !method
+User Model Subclass
+  "email" Accessor
+  [ self email.get ] "displayName" Method
 end
 
 "User" new
-"ada@example.com" swap .email set
+"ada@example.com" swap email.set
 "displayName" send
 "#,
     )
@@ -2563,14 +2563,14 @@ fn run_installs_a_method_from_runtime_class_and_method_names() {
     fs::write(
         &source_path,
         r#"
-"Widget" className var
-"label" methodName var
-className get "Object" subclass
-className get "name" field
-className get methodName get [ self .name get ] !method
-className get new
-"dynamic" swap .name set
-.label
+Widget Object Subclass
+  "name" Accessor
+  [ self name.get ] "label" Method
+end
+
+Widget new
+"dynamic" swap name.set
+label
 "#,
     )
     .expect("temp source should be written");
@@ -2599,37 +2599,37 @@ fn run_supports_reference_collections_and_collection_algorithms() {
     let output = run_source(
         r#"
 array users var
-"Ada" users get .push! drop
-"Grace" users get .push! drop
-1 "Lin" users get .insert! drop
-1 users get .remove-at! drop
+users get "Ada" push! drop
+users get "Grace" push! drop
+users get 1 "Lin" insert! drop
+users get 1 remove-at! drop
 
 map settings var
-"theme" "dark" settings get .put! drop
+settings get "theme" "dark" put! drop
 
 0 6 range numbers var
-[ 2 * ] numbers get .transform doubled var
-[ 4 > ] doubled get .select selected var
+[ 2 * ] numbers get transform doubled var
+[ 4 > ] doubled get select selected var
 
-users get .count
-0 users get .at
-"theme" settings get .has?
-"theme" settings get .at
-settings get .keys .count
-0 [ + ] selected get .reduce
-[ 10 = ] doubled get .any?
-[ 2 > ] doubled get .all?
-[ 8 = ] doubled get .find
+users get count
+users get 0 at
+settings get "theme" has?
+settings get "theme" at
+settings get keys count
+0 [ + ] selected get reduce
+[ 10 = ] doubled get any?
+[ 2 > ] doubled get all?
+[ 8 = ] doubled get find
 
 list queue var
-1 queue get .push! drop
-2 queue get .push! drop
-queue get .count
+queue get 1 push! drop
+queue get 2 push! drop
+queue get count
 
 Set new tags var
-"rco" tags get .push! drop
-"rco" tags get .push! drop
-tags get .count
+tags get "rco" push! drop
+tags get "rco" push! drop
+tags get count
 "#,
     );
 
@@ -2657,26 +2657,26 @@ fn run_supports_name_first_collection_declarations() {
     let output = run_source(
         r#"
 users array
-"Ada" users get .push! drop
+users get "Ada" push! drop
 
 "dynamicUsers" array
-"Grace" dynamicUsers get .push! drop
+dynamicUsers get "Grace" push! drop
 
 settings map
-"theme" "dark" settings get .put! drop
+settings get "theme" "dark" put! drop
 
 queue list
-1 queue get .push! drop
+queue get 1 push! drop
 
 tags Set
-"rco" tags get .push! drop
+tags get "rco" push! drop
 
-users get .count
-0 users get .at
-dynamicUsers get .count
-"theme" settings get .at
-queue get .count
-tags get .count
+users get count
+users get 0 at
+dynamicUsers get count
+settings get "theme" at
+queue get count
+tags get count
 "#,
     );
 
@@ -2764,22 +2764,22 @@ false not
 fn run_supports_string_conversion_and_json_words() {
     let output = run_source(
         r#"
-"  Ada  " .trim
-"ada" .uppercase
-"ADA" .lowercase
-"ric" "ricochet" .starts-with?
-"chet" "ricochet" .ends-with?
-"coc" "ricochet" .contains?
-"," "ada,grace" .split .count
-"-" "," "ada,grace" .split .join
-"Grace" "Ada" .concat
-"Ada" .length
+"  Ada  " trim
+"ada" uppercase
+"ADA" lowercase
+"ricochet" "ric" starts-with?
+"ricochet" "chet" ends-with?
+"ricochet" "coc" contains?
+"ada,grace" "," split count
+"ada,grace" "," split "-" join
+"Ada" "Grace" concat
+"Ada" length
 42 to-string
-"42" .to-number value
+"42" to-number value
 map payload var
-"name" "Ada" payload get .put! drop
+payload get "name" "Ada" put! drop
 payload get json-encode
-"{\"name\":\"Ada\"}" json-decode value "name" swap .at
+"{\"name\":\"Ada\"}" json-decode value "name" at
 "#,
     );
 
@@ -2809,17 +2809,17 @@ payload get json-encode
 fn run_supports_additional_string_quality_of_life_words() {
     let output = run_source(
         r#"
-2 4 "ricochet" .slice
-"co" "ricochet" .index-of
-"c" "ricochet" .last-index-of
-3 "ha" .repeat
-"alpha\nbeta\n" .lines .count
-"cat" .chars "," swap .join
-" \n" .blank?
-"  Ada" .trim-start
-"Ada  " .trim-end
-"zzz" "ricochet" .index-of nil?
-"zzz" "ricochet" .last-index-of nil?
+"ricochet" 2 4 slice
+"ricochet" "co" index-of
+"ricochet" "c" last-index-of
+"ha" 3 repeat
+"alpha\nbeta\n" lines count
+"cat" chars "," join
+" \n" blank?
+"  Ada" trim-start
+"Ada  " trim-end
+"ricochet" "zzz" index-of nil?
+"ricochet" "zzz" last-index-of nil?
 "#,
     );
 
@@ -2842,20 +2842,34 @@ fn run_supports_additional_string_quality_of_life_words() {
 }
 
 #[test]
+fn run_supports_negative_number_literals() {
+    let output = run_source("-1 2 + -9223372036854775808");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in ["Number(1)", "Number(-9223372036854775808)"] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn run_supports_collection_view_quality_of_life_words() {
     let output = run_source(
         r#"
 names array
-"Ada" names get .push! drop
-"Grace" names get .push! drop
-"Lin" names get .push! drop
-array .first nil?
-array .last nil?
-names get .first
-names get .last
-"," 2 names get .take .join
-"," 1 names get .skip .join
-"," names get .reverse .join
+names get "Ada" push! drop
+names get "Grace" push! drop
+names get "Lin" push! drop
+array first nil?
+array last nil?
+names get first
+names get last
+names get 2 take "," join
+names get 1 skip "," join
+names get reverse "," join
 "#,
     );
 
@@ -2886,10 +2900,10 @@ false assert-false
 42 ok assert-ok
 "ValidationError" "bad input" fail assert-error
 bag map
-"name" "Ada" bag get .put! drop
+bag get "name" "Ada" put! drop
 bag get inspect println
 "Ada" debug
-bag get .count
+bag get count
 "#,
     );
 
@@ -2914,17 +2928,17 @@ fn run_supports_regex_words() {
     let output = run_source(
         r##"
 "^[a-z0-9_-]+$" regex value slug var
-"hello-world_42" slug get .matches?
-"bad slug!" slug get .matches?
+"hello-world_42" slug get matches?
+"bad slug!" slug get matches?
 "\\d+" regex value digits var
-"abc123def" digits get .find "text" swap .at
-"abc123def" digits get .find "start" swap .at
-"abc123def" digits get .find "end" swap .at
+"abc123def" digits get find "text" at
+"abc123def" digits get find "start" at
+"abc123def" digits get find "end" at
 "([a-z]+)-(\\d+)" regex value pair var
-"item-42" pair get .captures "1" swap .at
-"item-42" pair get .captures "2" swap .at
-"abc123def456" "#" digits get .replace
-"[" regex .error?
+"item-42" pair get captures "1" at
+"item-42" pair get captures "2" at
+digits get "abc123def456" "#" replace
+"[" regex error?
 "##,
     );
 
@@ -2952,10 +2966,10 @@ fn run_supports_result_construction_and_composition() {
     let output = run_source(
         r#"
 42 ok ok?
-"ValidationError" "bad input" fail .error?
-99 "ValidationError" "bad input" fail .unwrap-or
-[ 2 * ] 21 ok .map-result value
-[ 1 + ok ] 41 ok .and-then value
+"ValidationError" "bad input" fail error?
+99 "ValidationError" "bad input" fail unwrap-or
+[ 2 * ] 21 ok map-result value
+[ 1 + ok ] 41 ok and-then value
 "#,
     );
 
@@ -2967,6 +2981,56 @@ fn run_supports_result_construction_and_composition() {
             "stdout should contain {expected}, got:\n{stdout}"
         );
     }
+}
+
+#[test]
+fn run_supports_result_envelope_contract_maps() {
+    let output = run_source(
+        r#"
+meta map
+meta get "capability" "workspace.read" put! drop
+meta get "duration_ms" 25 put! drop
+"payload" ok meta get result_envelope okEnvelope var
+okEnvelope get "ok" at
+okEnvelope get "data" at
+okEnvelope get "error" at nil?
+okEnvelope get "meta" at "capability" at
+errorMeta map
+errorMeta get "capability" "process.spawn" put! drop
+"ProcessTimeout" "Process exceeded timeout." fail errorMeta get result_envelope errEnvelope var
+errEnvelope get "ok" at false =
+errEnvelope get "data" at nil?
+errEnvelope get "error" at "kind" at
+errEnvelope get "error" at "code" at
+errEnvelope get "error" at "message" at
+errEnvelope get "error" at "capability" at
+errEnvelope get "meta" at "capability" at
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "Bool(true)",
+        "String(\"payload\")",
+        "String(\"workspace.read\")",
+        "String(\"ProcessTimeout\")",
+        "String(\"Process exceeded timeout.\")",
+        "String(\"process.spawn\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+    assert!(
+        stdout.matches("String(\"ProcessTimeout\")").count() >= 2,
+        "stdout should include both error kind and code, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Bool(true)").count() >= 4,
+        "stdout should include envelope booleans for ok, nil error, false ok, and nil data, got:\n{stdout}"
+    );
 }
 
 #[test]
@@ -2993,17 +3057,17 @@ depth
 fn run_supports_runtime_introspection_words() {
     let output = run_source(
         r#"
-Widget Object subclass
-  name field
-  "label" [ self .name get ] !method
+Widget Object Subclass
+  "name" Accessor
+  [ self name.get ] "label" Method
 end
 
 array type
 Widget new class-of
 Widget new Widget instance-of?
 "label" Widget new responds-to?
-Widget fields .count
-Widget methods "label" swap .has?
+Widget fields count
+Widget methods "label" has?
 [ 42 ] callable?
 "#,
     );
@@ -3027,7 +3091,7 @@ Widget methods "label" swap .has?
 fn run_exposes_process_environment_time_and_random_words() {
     let source_path = write_source(
         r#"
-args .count
+args count
 "RICOCHET_QOL_TEST" env value
 cwd value empty?
 now 0 >
@@ -3061,14 +3125,69 @@ now 0 >
 }
 
 #[test]
+fn run_env_allowlist_bounds_process_environment_reads() {
+    let allowed_source_path = write_source(
+        r#"
+"RICOCHET_ALLOWED_ENV_TEST" env value
+runtime_capabilities "environment" at "enabled" at
+runtime_capabilities "environment" at "allowlist" at count
+"#,
+    );
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--env-allow")
+        .arg("RICOCHET_ALLOWED_ENV_TEST")
+        .arg(&allowed_source_path)
+        .env("RICOCHET_ALLOWED_ENV_TEST", "visible")
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&allowed);
+    let stdout = String::from_utf8_lossy(&allowed.stdout);
+    assert!(
+        stdout.contains("String(\"visible\")"),
+        "stdout should include allowed environment value, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(true)") && stdout.contains("Number(1)"),
+        "stdout should show enabled environment capability and one allowlisted name, got:\n{stdout}"
+    );
+
+    let denied_source_path = write_source(r#""RICOCHET_DENIED_ENV_TEST" env drop"#);
+    let denied = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--env-allow")
+        .arg("RICOCHET_ALLOWED_ENV_TEST")
+        .arg(&denied_source_path)
+        .env("RICOCHET_DENIED_ENV_TEST", "hidden")
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !denied.status.success(),
+        "rco run should fail when env var is outside allowlist"
+    );
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        stderr.contains("environment variable is not allowed: RICOCHET_DENIED_ENV_TEST"),
+        "stderr should explain env allowlist denial, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_exposes_webview_builder_words_with_capability_controls() {
     let source_path = write_source(
         r#"
-"Save <Now>" "save" webview .button println
-"Counter" "<main>Ready</main>" webview .window value document var
-"html" $document .at println
-"width" $document .at println
-"height" $document .at println
+"Save <Now>" "save" webview_button println
+"Counter" "<main>Ready</main>" webview_window value document var
+$document "html" at println
+$document "width" at println
+$document "height" at println
 "#,
     );
 
@@ -3126,7 +3245,7 @@ fn run_supports_print_eprint_and_read_line() {
     let source_path = write_source(
         r#"
 "Name: " print
-read-line .trim println
+read-line trim println
 "warning" eprint
 "#,
     );
@@ -3172,10 +3291,10 @@ fn run_exposes_filesystem_capability() {
         &source_path,
         format!(
             r#"
-"{data}" "hello from Ricochet" fs .write-text! value drop
-"{data}" fs .read-text value
-"{data}" fs .exists?
-"{directory}" fs .list value .count 1 >=
+"{data}" "hello from Ricochet" fs_write_text value drop
+"{data}" fs_read_text value
+"{data}" fs_exists?
+"{directory}" fs_list value count 1 >=
 "#
         ),
     )
@@ -3340,6 +3459,479 @@ fn run_can_disable_environment_and_sleep_capabilities() {
 }
 
 #[test]
+fn run_process_spawn_requires_explicit_capability() {
+    let source_path = write_source(
+        r#"
+args array
+options map
+"ricochet" args get options get process_spawn drop
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail when process execution is not enabled"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("process capability is not enabled"),
+        "stderr should explain process denial, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_process_spawn_executes_direct_command_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let checked_source = root.join("checked.rco");
+    fs::write(&checked_source, "42\n").expect("checked source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let checked = escape_ricochet_string(&checked_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "check" push! drop
+args get "{checked}" push! drop
+options map
+options get "timeout_ms" 10000 put! drop
+"{rco}" args get options get process_spawn value result var
+result get "success" at
+result get "stdout" at "checked" contains?
+runtime_capabilities "process" at "enabled" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 3,
+        "stdout should show command success, captured output, and process introspection, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_process_root_bounds_process_cwd_when_allowed() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let process_root = base.join("process-root");
+    let outside_root = base.join("outside-process-root");
+    fs::create_dir_all(&process_root).expect("process root should be created");
+    fs::create_dir_all(&outside_root).expect("outside process root should be created");
+    let checked_source = process_root.join("checked.rco");
+    fs::write(&checked_source, "42\n").expect("checked source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let process_root_source = escape_ricochet_string(&process_root.to_string_lossy());
+    let outside_root_source = escape_ricochet_string(&outside_root.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "check" push! drop
+args get "checked.rco" push! drop
+options map
+options get "cwd" "{process_root_source}" put! drop
+options get "timeout_ms" 10000 put! drop
+"{rco}" args get options get process_spawn value result var
+result get "success" at
+result get "stdout" at "checked" contains?
+runtime_capabilities "process" at "root" at "{process_root_source}" =
+outsideOptions map
+outsideOptions get "cwd" "{outside_root_source}" put! drop
+"{rco}" args get outsideOptions get process_spawn error denied var
+denied get "kind" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg("--process-root")
+        .arg(&process_root)
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 3,
+        "stdout should show process success, captured output, and process root introspection, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"PermissionError\")"),
+        "stdout should report outside process cwd as PermissionError, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_process_start_reads_completed_job_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let checked_source = root.join("checked.rco");
+    fs::write(&checked_source, "42\n").expect("checked source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let checked = escape_ricochet_string(&checked_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "check" push! drop
+args get "{checked}" push! drop
+options map
+options get "timeout_ms" 10000 put! drop
+"{rco}" args get options get process_start value job var
+200 sleep
+readOptions map
+job get "id" at readOptions get process_read value read var
+read get "stdout" at "checked" contains?
+job get "id" at process_job value "status" at "exited" =
+process_jobs count
+runtime_capabilities "process" at "jobs" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 2,
+        "stdout should show captured output and exited status, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(1)").count() >= 2,
+        "stdout should show one process job in both jobs and capability snapshots, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_process_cancel_marks_job_cancelled_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let sleeping_source = root.join("sleeping.rco");
+    fs::write(&sleeping_source, "10000 sleep\n").expect("sleeping source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let sleeping = escape_ricochet_string(&sleeping_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "run" push! drop
+args get "{sleeping}" push! drop
+options map
+options get "timeout_ms" 30000 put! drop
+"{rco}" args get options get process_start value job var
+job get "id" at process_cancel value cancelResult var
+200 sleep
+job get "id" at process_job value detail var
+cancelResult get "cancelled" at
+detail get "cancelled" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 2,
+        "stdout should show cancellation in immediate and later snapshots, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_process_output_caps_are_reported_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let noisy_source = root.join("noisy.rco");
+    fs::write(&noisy_source, r#""abcdef" print"#).expect("noisy source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let noisy = escape_ricochet_string(&noisy_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "run" push! drop
+args get "{noisy}" push! drop
+options map
+options get "timeout_ms" 10000 put! drop
+options get "stdout_max_bytes" 3 put! drop
+"{rco}" args get options get process_start value job var
+200 sleep
+readOptions map
+job get "id" at readOptions get process_read value read var
+read get "stdout" at "abc" =
+read get "stdout_truncated" at
+"{rco}" args get options get process_spawn value blocking var
+blocking get "stdout" at "abc" =
+blocking get "stdout_truncated" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 4,
+        "stdout should show capped stdout for job and blocking process APIs, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_pty_start_requires_explicit_capability() {
+    let source_path = write_source(
+        r#"
+args array
+options map
+"shell" args get options get pty_start drop
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail when PTY execution is not enabled"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("PTY capability is not enabled"),
+        "stderr should explain PTY denial, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_pty_start_captures_output_when_allowed() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+
+    #[cfg(windows)]
+    let (command, args): (&str, &[&str]) = ("cmd", &["/C", "echo", "ricochet-pty"]);
+    #[cfg(not(windows))]
+    let (command, args): (&str, &[&str]) = ("printf", &["ricochet-pty"]);
+
+    let mut arg_lines = String::new();
+    for arg in args {
+        arg_lines.push_str(&format!(
+            "args get \"{}\" push! drop\n",
+            escape_ricochet_string(arg)
+        ));
+    }
+    let command = escape_ricochet_string(command);
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+{arg_lines}options map
+"{command}" args get options get pty_start value session var
+500 sleep
+readOptions map
+session get "id" at readOptions get pty_read value read var
+read get "output" at "ricochet-pty" contains?
+pty_list count
+runtime_capabilities "pty" at "enabled" at
+runtime_capabilities "pty" at "sessions" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-pty")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 2,
+        "stdout should show captured PTY output and PTY capability state, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(1)").count() >= 2,
+        "stdout should show one retained PTY session in list and capability snapshots, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_pty_stop_marks_session_stopped_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let sleeping_source = root.join("sleeping-pty.rco");
+    fs::write(&sleeping_source, "10000 sleep\n").expect("sleeping source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let sleeping = escape_ricochet_string(&sleeping_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "run" push! drop
+args get "{sleeping}" push! drop
+options map
+"{rco}" args get options get pty_start value session var
+stopOptions map
+session get "id" at stopOptions get pty_stop value stopped var
+stopped get "stopped" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-pty")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Bool(true)"),
+        "stdout should show stopped PTY snapshot, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_approval_words_claim_once_and_complete() {
+    let source_path = write_source(
+        r#"
+operation map
+operation get "capability" "git.commit" put! drop
+operation get "summary" "Commit staged changes" put! drop
+options map
+options get "id" "approval-fixed" put! drop
+operation get options get approval_create value created var
+created get "id" at "approval-fixed" =
+created get "token" at nil? false =
+created get "pending" at
+runtime_capabilities "approval" at "records" at
+created get "id" at created get "token" at approval_claim value claim var
+claim get "claimed" at
+claim get "token" at nil?
+created get "id" at created get "token" at approval_claim error duplicate var
+duplicate get "kind" at "ApprovalAlreadyClaimed" =
+result map
+result get "ok" true put! drop
+created get "id" at result get approval_complete value completed var
+completed get "completed" at
+created get "id" at approval_detail value detail var
+detail get "result" at "ok" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 8,
+        "stdout should show approval create, claim, duplicate denial, and completion, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(1)"),
+        "stdout should report one approval in runtime capabilities, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_approval_claim_rejects_expired_records() {
+    let source_path = write_source(
+        r#"
+operation map
+operation get "capability" "filesystem.write" put! drop
+options map
+options get "expires_at_ms" 1 put! drop
+operation get options get approval_create value created var
+created get "id" at created get "token" at approval_claim error expired var
+expired get "kind" at
+created get "id" at approval_detail value detail var
+detail get "expired" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"ApprovalExpired\")"),
+        "stdout should report expired approval claim, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(true)"),
+        "stdout should mark approval detail as expired, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn serve_rejects_conflicting_environment_flags() {
     let project_path = temp_source_path()
         .parent()
@@ -3398,10 +3990,10 @@ fn run_can_restrict_filesystem_capability_to_root() {
         &source_path,
         format!(
             r#"
-"{inside}" fs .read-text value
-"{outside}" fs .read-text error denied var
-"kind" denied get .at
-"{outside}" fs .exists?
+"{inside}" fs_read_text value
+"{outside}" fs_read_text error denied var
+denied get "kind" at
+"{outside}" fs_exists?
 "#
         ),
     )
@@ -3432,6 +4024,76 @@ fn run_can_restrict_filesystem_capability_to_root() {
 }
 
 #[test]
+fn run_workspace_words_use_bounded_filesystem_root() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let root = base.join("workspace-root");
+    fs::create_dir_all(&root).expect("workspace root should be created");
+    let inside_path = root.join("inside.txt");
+    let outside_path = base.join("outside-workspace.txt");
+    fs::write(&inside_path, "inside workspace").expect("inside file should be written");
+    fs::write(&outside_path, "outside workspace").expect("outside file should be written");
+    let outside = escape_ricochet_string(&outside_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+options map
+writeOptions map
+writeOptions get "create_parent_dirs" true put! drop
+copyOptions map
+"inside.txt" options get workspace_read_text value
+"." options get workspace_resolve value resolved var
+resolved get "inside_root" at
+"." options get workspace_list value count 1 >=
+"generated/out.txt" "created" writeOptions get workspace_write_text value written var
+written get "kind" at "file" =
+"generated/out.txt" workspace_metadata value meta var
+meta get "relative_path" at "generated/out.txt" =
+"inside.txt" "generated/copy.txt" copyOptions get workspace_copy value copied var
+copied get "exists" at
+"." "generated/copy.txt" workspace_contains?
+"{outside}" options get workspace_read_text error denied var
+denied get "kind" at
+runtime_capabilities "workspace" at "enabled" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-root")
+        .arg(&root)
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"inside workspace\")"),
+        "stdout should include readable workspace file contents, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Bool(true)").count() >= 7,
+        "stdout should confirm workspace metadata, copy, containment, and capability state, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"PermissionError\")"),
+        "stdout should report outside-root workspace reads as PermissionError, got:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("generated/out.txt")).expect("written file should exist"),
+        "created"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("generated/copy.txt")).expect("copied file should exist"),
+        "inside workspace"
+    );
+}
+
+#[test]
 fn run_sandboxed_capability_profile_allows_bounded_filesystem() {
     let source_path = temp_source_path();
     let base = source_path.parent().expect("source path has parent");
@@ -3444,7 +4106,7 @@ fn run_sandboxed_capability_profile_allows_bounded_filesystem() {
         &source_path,
         format!(
             r#"
-"{data}" fs .read-text value
+"{data}" fs_read_text value
 "#
         ),
     )
@@ -3483,11 +4145,11 @@ fn run_can_make_filesystem_capability_read_only() {
         &source_path,
         format!(
             r#"
-"{data}" fs .read-text value
-"{data}" "changed" fs .write-text! error writeDenied var
-"kind" writeDenied get .at
-"{directory}" fs .create-dir! error createDenied var
-"kind" createDenied get .at
+"{data}" fs_read_text value
+"{data}" "changed" fs_write_text error writeDenied var
+writeDenied get "kind" at
+"{directory}" fs_create_dir error createDenied var
+createDenied get "kind" at
 "#
         ),
     )
@@ -3521,14 +4183,60 @@ fn run_can_make_filesystem_capability_read_only() {
 }
 
 #[test]
+fn run_workspace_words_respect_readonly_filesystem() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let blocked_path = root.join("blocked.txt");
+    let blocked_dir = root.join("blocked-dir");
+    fs::write(
+        &source_path,
+        r#"
+options map
+writeOptions map
+writeOptions get "create_parent_dirs" true put! drop
+"blocked.txt" "blocked" writeOptions get workspace_write_text error writeDenied var
+writeDenied get "kind" at
+"blocked-dir" options get workspace_mkdir error mkdirDenied var
+mkdirDenied get "kind" at
+"#,
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-root")
+        .arg(root)
+        .arg("--fs-readonly")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("String(\"PermissionError\")").count() >= 2,
+        "stdout should report workspace write/create denials as PermissionError, got:\n{stdout}"
+    );
+    assert!(
+        !blocked_path.exists(),
+        "read-only workspace policy should not create files"
+    );
+    assert!(
+        !blocked_dir.exists(),
+        "read-only workspace policy should not create directories"
+    );
+}
+
+#[test]
 fn run_sandboxed_capability_profile_allows_bounded_http() {
     let (address, server) = spawn_single_response_http_server(
         b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npong".to_vec(),
     );
     let source_path = write_source(&format!(
         r#"
-"http://{address}/ping" http .get value response var
-"body" response get .at
+"http://{address}/ping" http_get value response var
+response get "body" at
 "#
     ));
 
@@ -3558,9 +4266,9 @@ fn run_exposes_http_client_capability() {
     );
     let output = run_source(&format!(
         r#"
-"http://{address}/ping" http .get value response var
-"status" response get .at
-"body" response get .at
+"http://{address}/ping" http_get value response var
+response get "status" at
+response get "body" at
 "#
     ));
     server.join().expect("HTTP server should finish");
@@ -3580,12 +4288,12 @@ fn run_exposes_http_get_task_capability() {
     );
     let output = run_source(&format!(
         r#"
-"http://{address}/ping" http .get-task task var
-task get .id
+"http://{address}/ping" http_get_task task var
+task get id
 task get await value response var
-"status" response get .at
-"body" response get .at
-task get .status
+response get "status" at
+response get "body" at
+task get status
 "#
     ));
     server.join().expect("HTTP server should finish");
@@ -3609,12 +4317,12 @@ fn run_exposes_http_post_json_task_capability() {
     let output = run_source(&format!(
         r#"
 map payload var
-"message" "hello" payload get .put! drop
-"http://{address}/messages" payload get http .post-json-task task var
+payload get "message" "hello" put! drop
+"http://{address}/messages" payload get http_post_json_task task var
 task get await value response var
-"status" response get .at
-"body" response get .at
-task get .completed?
+response get "status" at
+response get "body" at
+task get completed?
 "#
     ));
     server.join().expect("HTTP server should finish");
@@ -3637,19 +4345,28 @@ fn run_exposes_http_request_with_custom_headers() {
     let output = run_source(&format!(
         r#"
 headers map
-"Authorization" "Bearer test-token" headers get .put! drop
-"X-Provider" "solace" headers get .put! drop
+headers get "Authorization" "Bearer test-token" put! drop
+headers get "X-Provider" "solace" put! drop
+hosts array
+hosts get "127.0.0.1" push! drop
+schemes array
+schemes get "http" push! drop
 body map
-"probe" true body get .put! drop
+body get "probe" true put! drop
 request map
-"url" "http://{address}/v1/models" request get .put! drop
-"method" "POST" request get .put! drop
-"headers" headers get request get .put! drop
-"json" body get request get .put! drop
-request get http .request value response var
-"status" response get .at
-"body" response get .at
-"headers" response get .at "x-seen" swap .at
+request get "url" "http://{address}/v1/models" put! drop
+request get "method" "POST" put! drop
+request get "headers" headers get put! drop
+request get "json" body get put! drop
+request get "timeout_ms" 10000 put! drop
+request get "max_response_bytes" 1024 put! drop
+request get "allowed_hosts" hosts get put! drop
+request get "allowed_schemes" schemes get put! drop
+request get "follow_redirects" false put! drop
+request get http_request value response var
+response get "status" at
+response get "body" at
+response get "headers" at "x-seen" at
 "#
     ));
     server.join().expect("HTTP server should finish");
@@ -3681,15 +4398,15 @@ fn run_exposes_http_request_task_with_custom_headers() {
     let output = run_source(&format!(
         r#"
 headers map
-"Authorization" "Bearer async-token" headers get .put! drop
+headers get "Authorization" "Bearer async-token" put! drop
 request map
-"url" "http://{address}/v1/models" request get .put! drop
-"headers" headers get request get .put! drop
-request get http .request-task task var
+request get "url" "http://{address}/v1/models" put! drop
+request get "headers" headers get put! drop
+request get http_request_task task var
 task get await value response var
-"status" response get .at
-"body" response get .at
-task get .completed?
+response get "status" at
+response get "body" at
+task get completed?
 "#
     ));
     server.join().expect("HTTP server should finish");
@@ -3711,6 +4428,79 @@ task get .completed?
 }
 
 #[test]
+fn run_http_request_rejects_request_policy_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+    let source_path = write_source(&format!(
+        r#"
+schemes array
+schemes get "https" push! drop
+request map
+request get "url" "http://{address}/blocked" put! drop
+request get "allowed_schemes" schemes get put! drop
+request get http_request error denied var
+denied get "kind" at
+denied get "message" at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    let accepted = listener.accept().is_ok();
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"PermissionError\")")
+            && stdout.contains("HTTP scheme is not allowed by request policy"),
+        "stdout should contain request policy denial, got:\n{stdout}"
+    );
+    assert!(!accepted, "request policy denial should not connect");
+}
+
+#[test]
+fn run_http_request_respects_response_byte_cap() {
+    let (address, server) = spawn_single_response_http_server(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabcdef".to_vec(),
+    );
+    let source_path = write_source(&format!(
+        r#"
+request map
+request get "url" "http://{address}/large" put! drop
+request get "max_response_bytes" 3 put! drop
+request get http_request error denied var
+denied get "kind" at
+denied get "message" at
+"#
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("HTTP server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"HttpBodyTooLarge\")")
+            && stdout.contains("HTTP response exceeded 3 bytes"),
+        "stdout should contain response byte cap error, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_http_request_rejects_invalid_header_names_before_connecting() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
     let address = listener.local_addr().expect("listener should have address");
@@ -3720,13 +4510,13 @@ fn run_http_request_rejects_invalid_header_names_before_connecting() {
     let source_path = write_source(&format!(
         r#"
 headers map
-"Bad Header" "secret" headers get .put! drop
+headers get "Bad Header" "secret" put! drop
 request map
-"url" "http://{address}/blocked" request get .put! drop
-"headers" headers get request get .put! drop
-request get http .request error denied var
-"kind" denied get .at
-"message" denied get .at
+request get "url" "http://{address}/blocked" put! drop
+request get "headers" headers get put! drop
+request get http_request error denied var
+denied get "kind" at
+denied get "message" at
 "#
     ));
 
@@ -3778,9 +4568,9 @@ fn run_can_allow_http_capability_by_host() {
     );
     let source_path = write_source(&format!(
         r#"
-"http://{address}/ping" http .get value response var
-"status" response get .at
-"body" response get .at
+"http://{address}/ping" http_get value response var
+response get "status" at
+response get "body" at
 "#
     ));
 
@@ -3808,8 +4598,8 @@ fn run_http_get_does_not_follow_redirects_past_allowlist() {
     );
     let source_path = write_source(&format!(
         r#"
-"http://{address}/redirect" http .get value response var
-"status" response get .at
+"http://{address}/redirect" http_get value response var
+response get "status" at
 "#
     ));
 
@@ -3838,9 +4628,9 @@ fn run_http_post_json_does_not_follow_redirects_past_allowlist() {
     let source_path = write_source(&format!(
         r#"
 payload map
-"message" "hello" payload get .put! drop
-"http://{address}/redirect" payload get http .post-json value response var
-"status" response get .at
+payload get "message" "hello" put! drop
+"http://{address}/redirect" payload get http_post_json value response var
+response get "status" at
 "#
     ));
 
@@ -3868,9 +4658,9 @@ fn run_http_get_task_does_not_follow_redirects_past_allowlist() {
     );
     let source_path = write_source(&format!(
         r#"
-"http://{address}/redirect" http .get-task task var
+"http://{address}/redirect" http_get_task task var
 task get await value response var
-"status" response get .at
+response get "status" at
 "#
     ));
 
@@ -3899,10 +4689,10 @@ fn run_http_post_json_task_does_not_follow_redirects_past_allowlist() {
     let source_path = write_source(&format!(
         r#"
 payload map
-"message" "hello" payload get .put! drop
-"http://{address}/redirect" payload get http .post-json-task task var
+payload get "message" "hello" put! drop
+"http://{address}/redirect" payload get http_post_json_task task var
 task get await value response var
-"status" response get .at
+response get "status" at
 "#
     ));
 
@@ -3927,9 +4717,9 @@ task get await value response var
 fn run_can_restrict_http_capability_by_host() {
     let source_path = write_source(
         r#"
-"http://127.0.0.1:1/blocked" http .get error denied var
-"kind" denied get .at
-"message" denied get .at
+"http://127.0.0.1:1/blocked" http_get error denied var
+denied get "kind" at
+denied get "message" at
 "#,
     );
 
@@ -3954,11 +4744,11 @@ fn run_can_restrict_http_capability_by_host() {
 fn run_http_get_task_respects_http_allowlist() {
     let source_path = write_source(
         r#"
-"http://127.0.0.1:1/blocked" http .get-task task var
+"http://127.0.0.1:1/blocked" http_get_task task var
 task get await error denied var
-"kind" denied get .at
-"message" denied get .at
-task get .completed?
+denied get "kind" at
+denied get "message" at
+task get completed?
 "#,
     );
 
@@ -3992,8 +4782,8 @@ fn run_limits_http_response_body_size() {
     let (address, server) = spawn_single_response_http_server(response);
     let output = run_source(&format!(
         r#"
-"http://{address}/large" http .get error err var
-"kind" err get .at
+"http://{address}/large" http_get error err var
+err get "kind" at
 "#
     ));
     server.join().expect("HTTP server should finish");

@@ -25,6 +25,7 @@ pub enum Op {
     },
     EndClass,
     AddField(String),
+    AddAccessor(String),
     AddMethod {
         name: String,
         block: usize,

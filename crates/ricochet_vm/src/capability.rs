@@ -2,6 +2,7 @@
 pub enum Capability {
     FileSystem,
     Http,
+    Process,
     Terminal,
     Webview,
 }

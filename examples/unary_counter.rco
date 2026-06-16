@@ -1,18 +1,18 @@
 (( Heap-allocated object chains provide counters beyond fixed-width integers. ))
 
-Counter Object subclass
-  previous field
+Counter Object Subclass
+  "previous" Accessor
 end
 
 nil counter var
 0 steps var
 
-counter get Counter new .previous set counter set
-counter get Counter new .previous set counter set
-counter get Counter new .previous set counter set
+counter get Counter new previous.set counter set
+counter get Counter new previous.set counter set
+counter get Counter new previous.set counter set
 
 counter get nil? false = while
-  counter get .previous get counter set
+  counter get previous.get counter set
   steps get 1 + steps set
 end
 

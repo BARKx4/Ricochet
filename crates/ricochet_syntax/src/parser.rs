@@ -58,9 +58,6 @@ impl Parser {
         if let Some(function) = self.try_parse_function()? {
             return Ok(Item::Function(FunctionDecl { docs, ..function }));
         }
-        if let Some(method) = self.try_parse_method()? {
-            return Ok(Item::Method(MethodDecl { docs, ..method }));
-        }
         let expression = self.parse_expr_item()?;
         Ok(Item::Expr {
             expr: expression.expr,
@@ -82,7 +79,7 @@ impl Parser {
             return Ok(None);
         };
         self.advance();
-        if !self.consume_symbol("subclass") {
+        if !self.consume_symbol("Subclass") {
             self.pos = checkpoint;
             return Ok(None);
         }
@@ -137,39 +134,6 @@ impl Parser {
         let body = self.parse_expr_body_until_end()?;
         let end = self.previous_span().end;
         Ok(Some(FunctionDecl {
-            name,
-            args,
-            body,
-            docs: Vec::new(),
-            span: Span {
-                start: start.start,
-                end,
-            },
-        }))
-    }
-
-    fn try_parse_method(&mut self) -> Result<Option<MethodDecl>, ParseError> {
-        self.skip_newlines();
-        let checkpoint = self.pos;
-        let start = self.current_span();
-        let args = if matches!(self.peek_kind(), TokenKind::LeftParen) {
-            Some(self.parse_args()?)
-        } else {
-            None
-        };
-        let Some(name) = self.peek_symbol_like() else {
-            self.pos = checkpoint;
-            return Ok(None);
-        };
-        self.advance();
-        if !self.consume_symbol("method") {
-            self.pos = checkpoint;
-            return Ok(None);
-        }
-
-        let body = self.parse_expr_body_until_end()?;
-        let end = self.previous_span().end;
-        Ok(Some(MethodDecl {
             name,
             args,
             body,
@@ -511,12 +475,12 @@ mod tests {
     #[test]
     fn parses_class_with_field_and_method() {
         let src = r#"
-          User Model subclass
-            users table
-            email field
-            displayName method
-              self .email get
-            end
+          User Model Subclass
+            "users" Table
+            "email" Accessor
+            [
+              self email.get
+            ] "displayName" Method
           end
         "#;
 
@@ -533,8 +497,8 @@ mod tests {
                         expr: Expr::Sequence(exprs),
                         ..
                     } if unspan(exprs) == vec![
-                        Expr::Symbol("users".to_string()),
-                        Expr::Symbol("table".to_string()),
+                        Expr::String("users".to_string()),
+                        Expr::Symbol("Table".to_string()),
                     ]
                 ));
                 assert!(matches!(
@@ -543,42 +507,19 @@ mod tests {
                         expr: Expr::Sequence(exprs),
                         ..
                     } if unspan(exprs) == vec![
-                        Expr::Symbol("email".to_string()),
-                        Expr::Symbol("field".to_string()),
+                        Expr::String("email".to_string()),
+                        Expr::Symbol("Accessor".to_string()),
                     ]
                 ));
-                match &class.body[2] {
-                    Item::Method(method) => {
-                        assert_eq!(method.name, "displayName");
-                        assert_eq!(
-                            unspan(&method.body),
-                            vec![Expr::Sequence(vec![
-                                SpannedExpr {
-                                    expr: Expr::Symbol("self".to_string()),
-                                    span: Span {
-                                        start: 124,
-                                        end: 128
-                                    },
-                                },
-                                SpannedExpr {
-                                    expr: Expr::DotWord(".email".to_string()),
-                                    span: Span {
-                                        start: 129,
-                                        end: 135
-                                    },
-                                },
-                                SpannedExpr {
-                                    expr: Expr::Symbol("get".to_string()),
-                                    span: Span {
-                                        start: 136,
-                                        end: 139
-                                    },
-                                },
-                            ])]
-                        );
-                    }
-                    other => panic!("expected method, got {other:?}"),
-                }
+                assert!(matches!(
+                    &class.body[2],
+                    Item::Expr {
+                        expr: Expr::Sequence(exprs),
+                        ..
+                    } if matches!(&exprs[0].expr, Expr::Block(_))
+                        && exprs[1].expr == Expr::String("displayName".to_string())
+                        && exprs[2].expr == Expr::Symbol("Method".to_string())
+                ));
             }
             other => panic!("expected class, got {other:?}"),
         }
@@ -586,7 +527,7 @@ mod tests {
 
     #[test]
     fn parses_block_method_mutation() {
-        let src = r#""index" [ ctx get "home/index" swap view ] !method"#;
+        let src = r#"[ ctx get "home/index" swap view ] "index" Method"#;
         let module = parse_module(src).expect("parse succeeds");
         assert_eq!(module.items.len(), 1);
         match &module.items[0] {
@@ -595,9 +536,9 @@ mod tests {
                 ..
             } => {
                 assert_eq!(exprs.len(), 3);
-                assert_eq!(exprs[0].expr, Expr::String("index".to_string()));
-                assert!(matches!(exprs[1].expr, Expr::Block(_)));
-                assert_eq!(exprs[2].expr, Expr::BangWord("!method".to_string()));
+                assert!(matches!(exprs[0].expr, Expr::Block(_)));
+                assert_eq!(exprs[1].expr, Expr::String("index".to_string()));
+                assert_eq!(exprs[2].expr, Expr::Symbol("Method".to_string()));
             }
             other => panic!("expected expression sequence, got {other:?}"),
         }
@@ -606,10 +547,10 @@ mod tests {
     #[test]
     fn parses_multiline_block_with_trivia_before_close() {
         let src = r#"
-          "index" [
+          [
             (( fetch context ))
             ctx get
-          ] !method
+          ] "index" Method
         "#;
 
         let module = parse_module(src).expect("parse succeeds");
@@ -618,18 +559,18 @@ mod tests {
             Item::Expr {
                 expr: Expr::Sequence(exprs),
                 ..
-            } => match &exprs[1].expr {
+            } => match &exprs[0].expr {
                 Expr::Block(block) => {
                     assert_eq!(
                         unspan(block),
                         vec![Expr::Sequence(vec![
                             SpannedExpr {
                                 expr: Expr::Symbol("ctx".to_string()),
-                                span: Span { start: 65, end: 68 },
+                                span: Span { start: 57, end: 60 },
                             },
                             SpannedExpr {
                                 expr: Expr::Symbol("get".to_string()),
-                                span: Span { start: 69, end: 72 },
+                                span: Span { start: 61, end: 64 },
                             },
                         ])]
                     );
@@ -646,26 +587,31 @@ mod tests {
           (
             amount target
             -> Result
-          ) transfer method
+          ) [
             amount get
-          end
+          ] "transfer" Method
         "#;
 
         let module = parse_module(src).expect("parse succeeds");
         assert_eq!(module.items.len(), 1);
         match &module.items[0] {
-            Item::Method(method) => {
-                let args = method.args.as_ref().expect("args parsed");
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                let Expr::Args(args) = &exprs[0].expr else {
+                    panic!("expected args");
+                };
                 assert_eq!(args.inputs, vec!["amount", "target"]);
                 assert_eq!(args.outputs, vec!["Result"]);
             }
-            other => panic!("expected method, got {other:?}"),
+            other => panic!("expected expression sequence, got {other:?}"),
         }
     }
 
     #[test]
     fn parses_dollar_references() {
-        let module = parse_module("$ctx .params .id").expect("parse succeeds");
+        let module = parse_module(r#"$ctx "params" at "id" at"#).expect("parse succeeds");
 
         match &module.items[0] {
             Item::Expr {
@@ -676,9 +622,29 @@ mod tests {
                     unspan(exprs),
                     vec![
                         Expr::Reference("ctx".to_string()),
-                        Expr::DotWord(".params".to_string()),
-                        Expr::DotWord(".id".to_string()),
+                        Expr::String("params".to_string()),
+                        Expr::Symbol("at".to_string()),
+                        Expr::String("id".to_string()),
+                        Expr::Symbol("at".to_string()),
                     ]
+                );
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_negative_number_literals() {
+        let module = parse_module("-1 -9223372036854775808").expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                assert_eq!(
+                    unspan(exprs),
+                    vec![Expr::Number(-1), Expr::Number(i64::MIN)]
                 );
             }
             other => panic!("expected expression sequence, got {other:?}"),
@@ -689,14 +655,14 @@ mod tests {
     fn preserves_doc_comments_on_declarations_and_fields() {
         let src = r#"
           (( User model docs ))
-          User Model subclass
+          User Model Subclass
             (( Email field docs ))
-            email field
+            "email" Accessor
 
             (( Display name docs ))
-            displayName method
-              self .email get
-            end
+            [
+              self email.get
+            ] "displayName" Method
           end
 
           (( Helper docs ))
@@ -714,10 +680,8 @@ mod tests {
                     other => panic!("expected field expression, got {other:?}"),
                 }
                 match &class.body[1] {
-                    Item::Method(method) => {
-                        assert_eq!(method.docs, vec!["Display name docs"]);
-                    }
-                    other => panic!("expected method, got {other:?}"),
+                    Item::Expr { docs, .. } => assert_eq!(docs, &vec!["Display name docs"]),
+                    other => panic!("expected method expression, got {other:?}"),
                 }
             }
             other => panic!("expected class, got {other:?}"),

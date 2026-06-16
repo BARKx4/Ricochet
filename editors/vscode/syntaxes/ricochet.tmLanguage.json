@@ -16,10 +16,10 @@
       "include": "#references"
     },
     {
-      "include": "#dot-methods"
+      "include": "#selectors"
     },
     {
-      "include": "#bang-words"
+      "include": "#mutator-words"
     },
     {
       "include": "#route-verbs"
@@ -117,35 +117,30 @@
         }
       ]
     },
-    "dot-methods": {
+    "selectors": {
       "patterns": [
         {
-          "name": "entity.name.function.method.ricochet",
-          "match": "(?<!\\S)(\\.)([^\\s()\\[\\]]+)",
+          "name": "entity.name.function.selector.ricochet",
+          "match": "(?<!\\S)([A-Za-z_][A-Za-z0-9_-]*)(\\.)([A-Za-z_][A-Za-z0-9_!?-]*)(?!\\S)",
           "captures": {
             "1": {
-              "name": "punctuation.accessor.dot.ricochet"
+              "name": "variable.other.receiver.ricochet"
             },
             "2": {
-              "name": "entity.name.function.method.ricochet"
+              "name": "punctuation.accessor.dot.ricochet"
+            },
+            "3": {
+              "name": "entity.name.function.selector.ricochet"
             }
           }
         }
       ]
     },
-    "bang-words": {
+    "mutator-words": {
       "patterns": [
         {
           "name": "support.function.mutator.ricochet",
-          "match": "(?<!\\S)(!)([^\\s()\\[\\]]+)",
-          "captures": {
-            "1": {
-              "name": "punctuation.definition.mutator.ricochet"
-            },
-            "2": {
-              "name": "support.function.mutator.ricochet"
-            }
-          }
+          "match": "(?<!\\S)(?:push!|put!|insert!|remove!|remove-at!|clear!)(?!\\S)"
         }
       ]
     },
@@ -181,7 +176,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.ricochet",
-          "match": "(?<!\\S)(?:subclass|open-class|function|method|field|table|var|array|list|map|route|import)(?!\\S)"
+          "match": "(?<!\\S)(?:Subclass|Field|Accessor|Table|Method|function|var|array|list|map|route|import)(?!\\S)"
         }
       ]
     },
@@ -213,7 +208,7 @@
       "patterns": [
         {
           "name": "support.function.word.ricochet",
-          "match": "(?<!\\S)(?:add|subtract|multiply|divide|modulo|negate|abs|min|max|clamp|not|and|or|equals|not-equals\\?|less-than\\?|greater-than\\?|less-or-equals\\?|greater-or-equals\\?|assert|assert-true|assert-false|assert-ok|assert-error|assert-equals|self|get|set|new|send|call|value|error|ok|fail|swap|dup|drop|over|rot|nip|tuck|pick|roll|depth|clear|println|inspect|debug|print|eprint|read-line|args|env|cwd|now|sleep|random|exit|fs|http|tui|webview|view|text|json|redirect|status|header|range|regex|to-string|json-encode|json-decode|type|class-of|instance-of\\?|responds-to\\?|fields|methods|callable\\?)(?!\\S)"
+          "match": "(?<!\\S)(?:add|subtract|multiply|divide|modulo|negate|abs|min|max|clamp|not|and|or|equals|not-equals\\?|less-than\\?|greater-than\\?|less-or-equals\\?|greater-or-equals\\?|assert|assert-true|assert-false|assert-ok|assert-error|assert-equals|self|get|set|new|send|call|value|error|ok|fail|swap|dup|drop|over|rot|nip|tuck|pick|roll|depth|clear|println|inspect|debug|print|eprint|read-line|args|env|cwd|now|sleep|random|exit|view|text|json|redirect|status|header|range|regex|to-string|json-encode|json-decode|type|class-of|instance-of\\?|responds-to\\?|fields|methods|callable\\?|at|count|first|last|take|skip|reverse|has\\?|keys|values|each|transform|select|reduce|find|any\\?|all\\?|join|trim|trim-start|trim-end|blank\\?|slice|index-of|last-index-of|repeat|lines|chars|split|replace|contains\\?|starts-with\\?|ends-with\\?|uppercase|lowercase|concat|to-number|error\\?|unwrap-or|map-result|and-then|id|pending\\?|running\\?|completed\\?|failed\\?|fs_read_text|fs_write_text|fs_exists\\?|fs_list|fs_create_dir|http_get|http_post_json|http_request|http_get_task|http_post_json_task|http_request_task|tui_enter|tui_leave|tui_clear|tui_move_to|tui_write|tui_flush|tui_size|tui_poll_key|tui_read_key|webview_text|webview_heading|webview_button|webview_input|webview_link|webview_container|webview_window|webview_document)(?!\\S)"
         }
       ]
     },
@@ -229,7 +224,7 @@
       "patterns": [
         {
           "name": "constant.numeric.integer.ricochet",
-          "match": "(?<!\\S)\\d+(?!\\S)"
+          "match": "(?<!\\S)-?\\d+(?!\\S)"
         }
       ]
     },

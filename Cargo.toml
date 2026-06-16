@@ -12,7 +12,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-version = "0.1.8"
+version = "0.1.9"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -30,6 +30,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 regex = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
+portable-pty = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 sha2 = "0.10"
 tempfile = "3"
@@ -41,3 +42,4 @@ toml = "0.8"
 toml_edit = "0.22"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
+wait-timeout = "0.2"

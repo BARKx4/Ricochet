@@ -100,6 +100,19 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     span: Span { start, end: i },
                 });
             }
+            '-' if bytes
+                .get(i + 1)
+                .is_some_and(|byte| (*byte as char).is_ascii_digit()) =>
+            {
+                i += 2;
+                while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
+                    i += 1;
+                }
+                tokens.push(Token {
+                    kind: TokenKind::Number(source[start..i].to_string()),
+                    span: Span { start, end: i },
+                });
+            }
             c if c.is_ascii_digit() => {
                 i += 1;
                 while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
@@ -197,9 +210,9 @@ mod tests {
     fn lexes_postfix_declarations_comments_and_blocks() {
         let src = r#"
           (( doc comment ))
-          User Model subclass
-            name field
-            "index" [ ctx get "home/index" swap view ] !method
+          User Model Subclass
+            "name" Accessor
+            [ ctx get "home/index" swap view ] "index" Method
           end
         "#;
 
@@ -208,11 +221,11 @@ mod tests {
 
         assert!(kinds.contains(&TokenKind::DocComment("doc comment".to_string())));
         assert!(kinds.contains(&TokenKind::Symbol("User".to_string())));
-        assert!(kinds.contains(&TokenKind::Symbol("subclass".to_string())));
+        assert!(kinds.contains(&TokenKind::Symbol("Subclass".to_string())));
         assert!(kinds.contains(&TokenKind::String("index".to_string())));
         assert!(kinds.contains(&TokenKind::LeftBracket));
         assert!(kinds.contains(&TokenKind::RightBracket));
-        assert!(kinds.contains(&TokenKind::BangWord("!method".to_string())));
+        assert!(kinds.contains(&TokenKind::Symbol("Method".to_string())));
     }
 
     #[test]
@@ -233,6 +246,16 @@ mod tests {
 
         assert_eq!(kinds[0], TokenKind::Reference("users".to_string()));
         assert_eq!(kinds[1], TokenKind::DotWord(".count".to_string()));
+    }
+
+    #[test]
+    fn lexes_negative_numbers_without_stealing_subtraction() {
+        let tokens = lex("-1 - -name").expect("lexing succeeds");
+        let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
+
+        assert_eq!(kinds[0], TokenKind::Number("-1".to_string()));
+        assert_eq!(kinds[1], TokenKind::Symbol("-".to_string()));
+        assert_eq!(kinds[2], TokenKind::Symbol("-name".to_string()));
     }
 
     #[test]

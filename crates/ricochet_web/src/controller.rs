@@ -592,10 +592,10 @@ mod tests {
                 "index",
                 "HomeController.rco",
                 r#"
-HomeController Controller subclass
-  index method
-    ctx get .greeter get .hello text
-  end
+HomeController Controller Subclass
+  [
+    ctx get "greeter" at hello text
+  ] "index" Method
 end
 "#,
             )
@@ -621,11 +621,11 @@ end
                 "index",
                 "HomeController.rco",
                 r#"
-HomeController Controller subclass
-  index method
-    "loaded" ctx get .logger get .info drop
+HomeController Controller Subclass
+  [
+    "loaded" ctx get "logger" at info drop
     "ok" text
-  end
+  ] "index" Method
 end
 "#,
             )

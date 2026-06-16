@@ -1,7 +1,7 @@
 (( Run with: rco run examples/cli_system.rco alpha beta ))
 
 "argc=" print
-args .count println
+args count println
 
 "cwd=" print
 cwd value println
@@ -13,11 +13,11 @@ now println
 100 random println
 
 "Cargo.toml bytes=" print
-"Cargo.toml" fs .read-text value .count println
+"Cargo.toml" fs_read_text value count println
 
 "PATH" env dup ok? if
   "path-present" println
   value drop
 else
-  error .message get eprint
+  error "message" at eprint
 end

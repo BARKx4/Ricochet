@@ -19,7 +19,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
-use ricochet_vm::{Capability, Value, Vm};
+use ricochet_vm::{ApprovalRegistry, Capability, ProcessRegistry, PtyRegistry, Value, Vm};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
@@ -287,6 +287,10 @@ pub struct ServeOptions {
     pub debug: bool,
     pub watch: bool,
     pub allow_env: bool,
+    pub env_allow: Vec<String>,
+    pub allow_process: bool,
+    pub process_root: Option<PathBuf>,
+    pub allow_pty: bool,
     pub fs_root: Option<PathBuf>,
     pub fs_readonly: bool,
     pub http_allow_hosts: Vec<String>,
@@ -300,6 +304,10 @@ impl Default for ServeOptions {
             debug: false,
             watch: false,
             allow_env: false,
+            env_allow: Vec::new(),
+            allow_process: false,
+            process_root: None,
+            allow_pty: false,
             fs_root: None,
             fs_readonly: false,
             http_allow_hosts: Vec::new(),
@@ -322,6 +330,18 @@ impl ServeOptions {
         if self.watch && self.allow_env {
             bail!("--allow-env is not supported with --watch yet");
         }
+        if self.watch && !self.env_allow.is_empty() {
+            bail!("--env-allow is not supported with --watch yet");
+        }
+        if self.allow_env && !self.env_allow.is_empty() {
+            bail!("--allow-env cannot be used with --env-allow");
+        }
+        if self.watch && self.allow_process {
+            bail!("--allow-process is not supported with --watch yet");
+        }
+        if self.watch && self.allow_pty {
+            bail!("--allow-pty is not supported with --watch yet");
+        }
         Ok(())
     }
 }
@@ -335,6 +355,16 @@ pub fn build_test_app() -> Result<Router> {
 pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
     let project_root = project_root.as_ref();
     build_app_from_dir_internal(project_root, None)
+}
+
+pub fn build_app_from_dir_with_options(
+    project_root: impl AsRef<Path>,
+    options: &ServeOptions,
+) -> Result<Router> {
+    let project_root = project_root.as_ref();
+    let vm_setup = model_vm_setup(project_root)?;
+    let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
+    build_app_from_dir_internal(project_root, vm_setup)
 }
 
 pub fn build_app_from_dir_with_database(
@@ -2292,9 +2322,6 @@ fn compose_serve_capability_vm_setup(
     vm_setup: Option<VmSetup>,
     options: &ServeOptions,
 ) -> Result<Option<VmSetup>> {
-    if options.fs_root.is_none() && options.http_allow_hosts.is_empty() && !options.allow_env {
-        return Ok(vm_setup);
-    }
     if options.watch && options.fs_root.is_some() {
         bail!("--fs-root is not supported with --watch yet");
     }
@@ -2314,16 +2341,52 @@ fn compose_serve_capability_vm_setup(
         None
     };
     let readonly = options.fs_readonly;
-    let allow_env = options.allow_env;
+    let allow_env = options.allow_env || !options.env_allow.is_empty();
+    let env_allow = Arc::new(options.env_allow.clone());
+    let allow_process = options.allow_process;
+    let process_root = if let Some(root) = options.process_root.clone() {
+        let root = fs::canonicalize(&root)
+            .with_context(|| format!("failed to resolve --process-root {}", root.display()))?;
+        if !root.is_dir() {
+            bail!("--process-root must be a directory: {}", root.display());
+        }
+        Some(Arc::new(root))
+    } else {
+        None
+    };
+    let allow_pty = options.allow_pty;
     let http_allow_hosts = Arc::new(options.http_allow_hosts.clone());
+    let process_registry = ProcessRegistry::default();
+    let pty_registry = PtyRegistry::default();
+    let approval_registry = ApprovalRegistry::default();
     Ok(Some(Arc::new(move |vm| {
         let mut capabilities = match &vm_setup {
             Some(setup) => setup(vm)?,
             None => BTreeMap::new(),
         };
+        vm.set_approval_registry(approval_registry.clone());
         vm.set_environment_enabled(allow_env);
+        if env_allow.is_empty() {
+            vm.clear_environment_allowed_names();
+        } else {
+            vm.set_environment_allowed_names((*env_allow).clone());
+        }
         vm.set_host_capabilities(root.is_some(), !http_allow_hosts.is_empty());
-        vm.set_environment_enabled(true);
+        vm.set_process_enabled(allow_process);
+        vm.set_pty_enabled(allow_pty);
+        if let Some(process_root) = &process_root {
+            vm.set_process_root((**process_root).clone());
+        }
+        if allow_process {
+            vm.set_process_registry(process_registry.clone());
+            capabilities.insert(
+                "process".to_string(),
+                Value::Capability(Capability::Process),
+            );
+        }
+        if allow_pty {
+            vm.set_pty_registry(pty_registry.clone());
+        }
         if let Some(root) = &root {
             vm.set_filesystem_root((**root).clone());
             if readonly {

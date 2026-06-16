@@ -4,32 +4,32 @@
 
 0 count var
 
-tui .enter! value drop
-tui .clear! value drop
+tui_enter value drop
+tui_clear value drop
 
 true while
-  0 0 tui .move-to! value drop
-  "Ricochet TUI beta" tui .write! value drop
-  0 2 tui .move-to! value drop
-  "Count: " tui .write! value drop
-  count get to-string tui .write! value drop
-  0 4 tui .move-to! value drop
-  "Press + to increment, - to decrement, q or Escape to quit." tui .write! value drop
-  tui .flush! value drop
+  0 0 tui_move_to value drop
+  "Ricochet TUI beta" tui_write value drop
+  0 2 tui_move_to value drop
+  "Count: " tui_write value drop
+  count get to-string tui_write value drop
+  0 4 tui_move_to value drop
+  "Press + to increment, - to decrement, q or Escape to quit." tui_write value drop
+  tui_flush value drop
 
-  tui .read-key value key var
-  "char" $key .at "+" = if
+  tui_read_key value key var
+  $key "char" at "+" = if
     count get 1 + count set
   end
-  "char" $key .at "-" = if
+  $key "char" at "-" = if
     count get 1 - count set
   end
-  "char" $key .at "q" = if
+  $key "char" at "q" = if
     break
   end
-  "code" $key .at "escape" = if
+  $key "code" at "escape" = if
     break
   end
 end
 
-tui .leave! value drop
+tui_leave value drop

@@ -1,9 +1,9 @@
-HomeController Controller subclass
-  "index" [
+HomeController Controller Subclass
+  [
     title var
     user var
     "Hello Ricochet" title set
-    map "name" "Ada <Lovelace>" !put user set
+    map "name" "Ada <Lovelace>" put! user set
     ctx get "home/index" swap view
-  ] !method
+  ] "index" Method
 end
