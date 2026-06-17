@@ -9,6 +9,7 @@ Current CLI surface:
 rco run --debug --step app.rco
 rco run --breakpoint 12 app.rco
 rco debug --json app.rco
+rco debug-adapter
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
 ```
@@ -71,10 +72,17 @@ stderr. Events currently use these shapes:
 
 Editor integration guidance:
 
-- VS Code should render stack visualization in a Webview panel fed by this trace
-  contract first, then later by live debug events.
+- `rco debug-adapter` speaks Debug Adapter Protocol over stdio. IDEs should send
+  `initialize`, `launch` with a `program` path, `setBreakpoints`, and
+  `configurationDone`, then use standard `stackTrace`, `scopes`, and
+  `variables` requests while the VM is stopped.
+- The DAP bridge maps `continue`, `next`, `stepIn`, and `stepOut` to the same VM
+  controls as the terminal debugger, and returns stack, locals, globals, `self`,
+  and tasks as DAP scopes.
+- VS Code renders saved trace files with `Ricochet: Run With Stack Visualizer`
+  and renders live stopped-state scopes with `Ricochet: Show Debugger Stack`.
 - Other IDEs should consume the same event contract through either saved traces,
-  `rco debug --json`, or a Debug Adapter Protocol bridge.
+  `rco debug --json`, or `rco debug-adapter`.
 - Stack visualizers should treat `debug` strings as the stable beta display
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the

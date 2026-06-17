@@ -32,6 +32,9 @@ if (-not ($package.activationEvents -contains "onLanguage:ricochet")) {
 if (-not ($package.activationEvents -contains "onCommand:ricochet.runWithStackVisualizer")) {
     throw "VS Code package must activate the stack visualizer command"
 }
+if (-not ($package.activationEvents -contains "onDebugResolve:ricochet")) {
+    throw "VS Code package must activate for Ricochet debug sessions"
+}
 if (-not $package.dependencies."vscode-languageclient") {
     throw "VS Code package must depend on vscode-languageclient for LSP wiring"
 }
@@ -42,8 +45,14 @@ $commands = @($package.contributes.commands | ForEach-Object { $_.command })
 if (-not ($commands -contains "ricochet.runWithStackVisualizer")) {
     throw "VS Code package must contribute the Ricochet stack visualizer command"
 }
+if (-not ($commands -contains "ricochet.showDebuggerStack")) {
+    throw "VS Code package must contribute the Ricochet live debugger stack command"
+}
+if (-not (@($package.contributes.debuggers | ForEach-Object { $_.type }) -contains "ricochet")) {
+    throw "VS Code package must contribute a Ricochet debugger"
+}
 $extensionSource = Get-Content -LiteralPath $ExtensionPath -Raw
-foreach ($marker in @("runWithStackVisualizer", "createWebviewPanel", "--trace-file")) {
+foreach ($marker in @("runWithStackVisualizer", "showDebuggerStack", "DebugAdapterExecutable", "debug-adapter", "createWebviewPanel", "--trace-file")) {
     if (-not $extensionSource.Contains($marker)) {
         throw "VS Code extension is missing stack visualizer marker: $marker"
     }

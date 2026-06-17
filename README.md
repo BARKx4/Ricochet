@@ -44,7 +44,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Debugging workflow: trace instruction execution, pause on source breakpoints,
   step into/over/out of calls, inspect stack/locals/globals at pauses, and
   inspect task snapshots at pauses; write JSON runtime traces with
-  `rco run --trace-file` or stream JSON Lines with `rco debug --json`.
+  `rco run --trace-file`, stream JSON Lines with `rco debug --json`, or serve
+  IDEs through `rco debug-adapter` over Debug Adapter Protocol stdio.
 - Package workflow: record, install, verify, audit, and locally publish
   path/GitHub/registry dependencies, enforce semver requirements, pin Git
   dependencies to immutable commits in `ricochet.lock`, store deterministic
@@ -496,12 +497,15 @@ Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
 `Ricochet: Restart Language Server` for local toolchain rebuilds. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
-event contract as JSON Lines for editor adapters. `Ricochet: Run With Stack
-Visualizer` runs the active `.rco` file with `rco run --trace-file` and opens a
-separate IDE panel for the instruction timeline, stack, locals, globals, and
-`self` values. See
-`docs/debugger-integrations.md` for the shared trace contract intended for VS
-Code, future DAP support, and other IDE integrations.
+event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks
+Debug Adapter Protocol over stdio, maps source breakpoints and step
+into/over/out controls to the VM debugger, and exposes stack, locals, globals,
+`self`, and task scopes to IDEs. `Ricochet: Run With Stack Visualizer` runs the
+active `.rco` file with `rco run --trace-file` and opens a separate IDE panel
+for the instruction timeline, stack, locals, globals, and `self` values; live
+VS Code debug sessions also update `Ricochet: Show Debugger Stack` from DAP
+scopes. See `docs/debugger-integrations.md` for the shared trace and DAP
+contracts.
 
 `scripts/validate-editor-assets.ps1` checks the grammar and VS Code wiring
 against the reference word catalog, and release archives include this folder

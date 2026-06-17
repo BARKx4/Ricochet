@@ -9,10 +9,21 @@ const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 let client;
 let outputChannel;
+let debugStackPanel;
+const pausedDebugSessions = new Set();
+
+function ricochetCommand() {
+  const config = vscode.workspace.getConfiguration("ricochet");
+  return config.get("server.path", "rco");
+}
+
+function workspaceFolderForPath(documentPath) {
+  return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(documentPath));
+}
 
 function serverOptions() {
   const config = vscode.workspace.getConfiguration("ricochet");
-  const command = config.get("server.path", "rco");
+  const command = ricochetCommand();
   const trace = config.get("server.trace", false);
   const args = ["lsp"];
   if (trace) {
@@ -105,9 +116,8 @@ async function runWithStackVisualizer(context) {
 
 function runRcoTrace(documentPath, tracePath) {
   return new Promise((resolve, reject) => {
-    const config = vscode.workspace.getConfiguration("ricochet");
-    const command = config.get("server.path", "rco");
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(documentPath));
+    const command = ricochetCommand();
+    const workspaceFolder = workspaceFolderForPath(documentPath);
     const cwd = workspaceFolder?.uri.fsPath ?? path.dirname(documentPath);
     const child = childProcess.execFile(
       command,
@@ -406,6 +416,283 @@ function stackVisualizerHtml(webview, documentPath, tracePath, events) {
 </html>`;
 }
 
+function debugAdapterDescriptorFactory() {
+  return {
+    createDebugAdapterDescriptor(session) {
+      const command = ricochetCommand();
+      const cwd = session.workspaceFolder?.uri.fsPath;
+      return new vscode.DebugAdapterExecutable(
+        command,
+        ["debug-adapter"],
+        cwd ? { cwd } : undefined,
+      );
+    },
+  };
+}
+
+function debugAdapterTrackerFactory(context) {
+  return {
+    createDebugAdapterTracker(session) {
+      return {
+        onDidSendMessage(message) {
+          if (message?.type === "event" && message.event === "stopped") {
+            pausedDebugSessions.add(session.id);
+            updateDebuggerStackPanel(context, session).catch((error) => {
+              const messageText = error instanceof Error ? error.message : String(error);
+              outputChannel.appendLine(`Ricochet debugger stack update failed: ${messageText}`);
+            });
+          } else if (
+            message?.type === "event" &&
+            ["continued", "terminated", "exited"].includes(message.event)
+          ) {
+            pausedDebugSessions.delete(session.id);
+          }
+        },
+      };
+    },
+  };
+}
+
+async function showDebuggerStack(context) {
+  const session = vscode.debug.activeDebugSession;
+  if (!session || session.type !== "ricochet" || !pausedDebugSessions.has(session.id)) {
+    const panel = ensureDebugStackPanel(context);
+    panel.reveal(vscode.ViewColumn.Beside);
+    panel.webview.postMessage({
+      type: "snapshot",
+      snapshot: {
+        status: "Pause a Ricochet debug session to see the live stack.",
+        frame: null,
+        scopes: [],
+      },
+    });
+    return;
+  }
+
+  await updateDebuggerStackPanel(context, session, true);
+}
+
+async function updateDebuggerStackPanel(context, session, reveal = false) {
+  const panel = ensureDebugStackPanel(context);
+  if (reveal) {
+    panel.reveal(vscode.ViewColumn.Beside);
+  }
+
+  const snapshot = await readDebuggerSnapshot(session);
+  await panel.webview.postMessage({ type: "snapshot", snapshot });
+}
+
+function ensureDebugStackPanel(context) {
+  if (debugStackPanel) {
+    return debugStackPanel;
+  }
+
+  debugStackPanel = vscode.window.createWebviewPanel(
+    "ricochetDebuggerStack",
+    "Ricochet Debug Stack",
+    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+    { enableScripts: true },
+  );
+  debugStackPanel.webview.html = debuggerStackHtml(debugStackPanel.webview);
+  debugStackPanel.onDidDispose(
+    () => {
+      debugStackPanel = undefined;
+    },
+    null,
+    context.subscriptions,
+  );
+  context.subscriptions.push(debugStackPanel);
+  return debugStackPanel;
+}
+
+async function readDebuggerSnapshot(session) {
+  const stackTrace = await session.customRequest("stackTrace", {
+    threadId: 1,
+    startFrame: 0,
+    levels: 1,
+  });
+  const frame = stackTrace.stackFrames?.[0] ?? null;
+  if (!frame) {
+    return {
+      status: "Debugger is paused without an available stack frame.",
+      frame: null,
+      scopes: [],
+    };
+  }
+
+  const scopesResponse = await session.customRequest("scopes", { frameId: frame.id });
+  const scopes = [];
+  for (const scope of scopesResponse.scopes ?? []) {
+    const variables =
+      scope.variablesReference > 0
+        ? (await session.customRequest("variables", {
+            variablesReference: scope.variablesReference,
+          })).variables ?? []
+        : [];
+    scopes.push({
+      name: scope.name,
+      variables,
+    });
+  }
+
+  return {
+    status: "paused",
+    frame,
+    scopes,
+  };
+}
+
+function debuggerStackHtml(webview) {
+  const nonce = Math.random().toString(36).slice(2);
+  const csp = [
+    "default-src 'none'",
+    `style-src ${webview.cspSource} 'unsafe-inline'`,
+    `script-src 'nonce-${nonce}'`,
+  ].join("; ");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ricochet Debug Stack</title>
+  <style>
+    :root {
+      color-scheme: dark light;
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size);
+    }
+    body {
+      margin: 0;
+      color: var(--vscode-foreground);
+      background: var(--vscode-editor-background);
+    }
+    header {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .meta {
+      color: var(--vscode-descriptionForeground);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    main {
+      padding: 16px;
+    }
+    .section {
+      margin: 0 0 18px;
+    }
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      text-transform: uppercase;
+    }
+    .value {
+      margin: 0 0 6px;
+      padding: 8px 10px;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      font-family: var(--vscode-editor-font-family);
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .binding {
+      display: grid;
+      grid-template-columns: minmax(80px, 25%) 1fr;
+      gap: 8px;
+      align-items: start;
+      margin-bottom: 6px;
+    }
+    .binding-name {
+      color: var(--vscode-symbolIcon-variableForeground);
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Ricochet Debug Stack</h1>
+    <div class="meta" id="meta">Waiting for a paused Ricochet debug session.</div>
+  </header>
+  <main id="detail"></main>
+  <script nonce="${nonce}">
+    const detail = document.getElementById("detail");
+    const meta = document.getElementById("meta");
+
+    function text(value) {
+      return String(value ?? "");
+    }
+
+    function section(title) {
+      const node = document.createElement("section");
+      node.className = "section";
+      const heading = document.createElement("h2");
+      heading.textContent = title;
+      node.appendChild(heading);
+      return node;
+    }
+
+    function valueNode(value) {
+      const node = document.createElement("div");
+      node.className = "value";
+      node.textContent = text(value);
+      return node;
+    }
+
+    function renderSnapshot(snapshot) {
+      detail.textContent = "";
+      if (!snapshot || !snapshot.frame) {
+        meta.textContent = snapshot?.status || "Waiting for a paused Ricochet debug session.";
+        return;
+      }
+
+      const frame = snapshot.frame;
+      meta.textContent = [frame.source?.path, frame.line ? ":" + frame.line : ""].filter(Boolean).join("");
+
+      const frameSection = section("Frame");
+      frameSection.appendChild(valueNode(frame.name + " at line " + frame.line));
+      detail.appendChild(frameSection);
+
+      for (const scope of snapshot.scopes || []) {
+        const scopeSection = section(scope.name);
+        const variables = scope.variables || [];
+        if (variables.length === 0) {
+          scopeSection.appendChild(valueNode("<empty>"));
+        } else {
+          for (const variable of variables) {
+            const row = document.createElement("div");
+            row.className = "binding";
+            const name = document.createElement("div");
+            name.className = "binding-name";
+            name.textContent = text(variable.name);
+            const value = valueNode(variable.value);
+            row.append(name, value);
+            scopeSection.appendChild(row);
+          }
+        }
+        detail.appendChild(scopeSection);
+      }
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "snapshot") {
+        renderSnapshot(event.data.snapshot);
+      }
+    });
+  </script>
+</body>
+</html>`;
+}
+
 async function activate(context) {
   client = createClient();
   outputChannel = vscode.window.createOutputChannel("Ricochet");
@@ -420,6 +707,23 @@ async function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("ricochet.runWithStackVisualizer", () =>
       runWithStackVisualizer(context),
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("ricochet.showDebuggerStack", () =>
+      showDebuggerStack(context),
+    ),
+  );
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory(
+      "ricochet",
+      debugAdapterDescriptorFactory(),
+    ),
+  );
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterTrackerFactory(
+      "ricochet",
+      debugAdapterTrackerFactory(context),
     ),
   );
   await client.start();

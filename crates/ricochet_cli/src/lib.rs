@@ -1,9 +1,11 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -113,6 +115,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    DebugAdapter,
     RunBytecode {
         #[arg(long)]
         debug: bool,
@@ -696,6 +699,7 @@ pub async fn run_cli() -> Result<()> {
             args,
             capabilities,
         )?,
+        Command::DebugAdapter => run_debug_adapter()?,
         Command::RunBytecode {
             debug,
             trace_file,
@@ -6164,6 +6168,505 @@ fn debug_tasks_json(tasks: &[DebugTask]) -> Vec<serde_json::Value> {
 fn debug_value_json(value: &Value) -> serde_json::Value {
     json!({
         "debug": format!("{value:?}"),
+    })
+}
+
+#[derive(Debug, Clone)]
+struct DapSetup {
+    program: PathBuf,
+    args: Vec<String>,
+    breakpoints: Vec<DapBreakpoint>,
+}
+
+#[derive(Debug, Clone)]
+struct DapBreakpoint {
+    path: String,
+    line: usize,
+}
+
+struct DapAdapter<R, W> {
+    reader: R,
+    writer: W,
+    seq: i64,
+    last_pause: Option<DebugPause>,
+    pause_error: Option<String>,
+}
+
+impl DapAdapter<io::BufReader<io::Stdin>, io::Stdout> {
+    fn stdio() -> Self {
+        Self {
+            reader: io::BufReader::new(io::stdin()),
+            writer: io::stdout(),
+            seq: 1,
+            last_pause: None,
+            pause_error: None,
+        }
+    }
+}
+
+impl<R, W> DapAdapter<R, W>
+where
+    R: BufRead,
+    W: Write,
+{
+    fn read_setup(&mut self) -> Result<Option<DapSetup>> {
+        let mut program = None;
+        let mut args = Vec::new();
+        let mut breakpoints = Vec::new();
+
+        while let Some(request) = read_dap_message(&mut self.reader)? {
+            let command = dap_request_command(&request);
+            match command {
+                "initialize" => {
+                    self.send_response(
+                        &request,
+                        json!({
+                            "supportsConfigurationDoneRequest": true,
+                            "supportsTerminateRequest": true,
+                            "supportsStepBack": false,
+                            "supportsEvaluateForHovers": false,
+                            "supportsSetVariable": false,
+                            "supportsRestartRequest": false,
+                        }),
+                    )?;
+                    self.send_event("initialized", json!({}))?;
+                }
+                "launch" => {
+                    let launch_args = request.get("arguments").unwrap_or(&serde_json::Value::Null);
+                    let Some(path) = launch_args.get("program").and_then(|value| value.as_str())
+                    else {
+                        self.send_error_response(&request, "launch requires string `program`")?;
+                        continue;
+                    };
+                    program = Some(PathBuf::from(path));
+                    args = launch_args
+                        .get("args")
+                        .and_then(|value| value.as_array())
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(|value| value.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.send_response(&request, json!({}))?;
+                }
+                "setBreakpoints" => {
+                    let arguments = request.get("arguments").unwrap_or(&serde_json::Value::Null);
+                    let path = arguments
+                        .get("source")
+                        .and_then(|source| source.get("path"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    breakpoints.retain(|breakpoint: &DapBreakpoint| breakpoint.path != path);
+                    let mut response_breakpoints = Vec::new();
+                    for breakpoint in arguments
+                        .get("breakpoints")
+                        .and_then(|value| value.as_array())
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(line) = breakpoint.get("line").and_then(|value| value.as_u64())
+                        {
+                            let line = line as usize;
+                            if !path.is_empty() && line > 0 {
+                                breakpoints.push(DapBreakpoint {
+                                    path: path.clone(),
+                                    line,
+                                });
+                            }
+                            response_breakpoints.push(json!({
+                                "verified": line > 0,
+                                "line": line,
+                            }));
+                        }
+                    }
+                    self.send_response(&request, json!({ "breakpoints": response_breakpoints }))?;
+                }
+                "configurationDone" => {
+                    self.send_response(&request, json!({}))?;
+                    let Some(program) = program else {
+                        bail!("DAP launch was not configured before configurationDone");
+                    };
+                    return Ok(Some(DapSetup {
+                        program,
+                        args,
+                        breakpoints,
+                    }));
+                }
+                "threads" => self.send_threads_response(&request)?,
+                "setExceptionBreakpoints" => {
+                    self.send_response(&request, json!({ "breakpoints": [] }))?
+                }
+                "disconnect" | "terminate" => {
+                    self.send_response(&request, json!({}))?;
+                    return Ok(None);
+                }
+                _ => self.send_response(&request, json!({}))?,
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn handle_pause(&mut self, pause: &DebugPause) -> Result<DebugAction> {
+        self.last_pause = Some(pause.clone());
+        self.send_event(
+            "stopped",
+            json!({
+                "reason": match pause.reason {
+                    DebugPauseReason::Step => "step",
+                    DebugPauseReason::Breakpoint => "breakpoint",
+                },
+                "threadId": 1,
+                "allThreadsStopped": true,
+            }),
+        )?;
+
+        while let Some(request) = read_dap_message(&mut self.reader)? {
+            match dap_request_command(&request) {
+                "stackTrace" => self.send_stack_trace_response(&request)?,
+                "scopes" => self.send_scopes_response(&request)?,
+                "variables" => self.send_variables_response(&request)?,
+                "threads" => self.send_threads_response(&request)?,
+                "continue" => {
+                    self.send_response(&request, json!({ "allThreadsContinued": true }))?;
+                    self.send_event(
+                        "continued",
+                        json!({ "threadId": 1, "allThreadsContinued": true }),
+                    )?;
+                    return Ok(DebugAction::Continue);
+                }
+                "next" => {
+                    self.send_response(&request, json!({}))?;
+                    self.send_event(
+                        "continued",
+                        json!({ "threadId": 1, "allThreadsContinued": true }),
+                    )?;
+                    return Ok(DebugAction::StepOver);
+                }
+                "stepIn" => {
+                    self.send_response(&request, json!({}))?;
+                    self.send_event(
+                        "continued",
+                        json!({ "threadId": 1, "allThreadsContinued": true }),
+                    )?;
+                    return Ok(DebugAction::Step);
+                }
+                "stepOut" => {
+                    self.send_response(&request, json!({}))?;
+                    self.send_event(
+                        "continued",
+                        json!({ "threadId": 1, "allThreadsContinued": true }),
+                    )?;
+                    return Ok(DebugAction::StepOut);
+                }
+                "pause" => self.send_response(&request, json!({}))?,
+                "disconnect" | "terminate" => {
+                    self.send_response(&request, json!({}))?;
+                    return Ok(DebugAction::Abort);
+                }
+                _ => self.send_response(&request, json!({}))?,
+            }
+        }
+
+        Ok(DebugAction::Abort)
+    }
+
+    fn send_stack_trace_response(&mut self, request: &serde_json::Value) -> Result<()> {
+        let Some(pause) = self.last_pause.as_ref() else {
+            self.send_response(request, json!({ "stackFrames": [], "totalFrames": 0 }))?;
+            return Ok(());
+        };
+        let (path, line) = dap_source_location(&pause.source);
+        let source_name = Path::new(&path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&path);
+        self.send_response(
+            request,
+            json!({
+                "stackFrames": [{
+                    "id": 1,
+                    "name": pause.frame,
+                    "source": {
+                        "name": source_name,
+                        "path": path,
+                    },
+                    "line": line,
+                    "column": 1,
+                }],
+                "totalFrames": 1,
+            }),
+        )
+    }
+
+    fn send_scopes_response(&mut self, request: &serde_json::Value) -> Result<()> {
+        let mut scopes = vec![
+            json!({ "name": "Stack", "variablesReference": 1, "expensive": false }),
+            json!({ "name": "Locals", "variablesReference": 2, "expensive": false }),
+            json!({ "name": "Globals", "variablesReference": 3, "expensive": false }),
+        ];
+        if self
+            .last_pause
+            .as_ref()
+            .and_then(|pause| pause.current_self.as_ref())
+            .is_some()
+        {
+            scopes.push(json!({ "name": "Self", "variablesReference": 4, "expensive": false }));
+        }
+        scopes.push(json!({ "name": "Tasks", "variablesReference": 5, "expensive": false }));
+        self.send_response(request, json!({ "scopes": scopes }))
+    }
+
+    fn send_variables_response(&mut self, request: &serde_json::Value) -> Result<()> {
+        let reference = request
+            .get("arguments")
+            .and_then(|arguments| arguments.get("variablesReference"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let variables = match (reference, self.last_pause.as_ref()) {
+            (1, Some(pause)) => pause
+                .stack
+                .iter()
+                .enumerate()
+                .map(|(index, value)| dap_value_variable(index.to_string(), value))
+                .collect(),
+            (2, Some(pause)) => dap_binding_variables(&pause.locals),
+            (3, Some(pause)) => dap_binding_variables(&pause.globals),
+            (4, Some(pause)) => pause
+                .current_self
+                .as_ref()
+                .map(|value| vec![dap_value_variable("self".to_string(), value)])
+                .unwrap_or_default(),
+            (5, Some(pause)) => pause.tasks.iter().map(dap_task_variable).collect(),
+            _ => Vec::new(),
+        };
+        self.send_response(request, json!({ "variables": variables }))
+    }
+
+    fn send_threads_response(&mut self, request: &serde_json::Value) -> Result<()> {
+        self.send_response(request, json!({ "threads": [{ "id": 1, "name": "main" }] }))
+    }
+
+    fn send_output(&mut self, category: &str, output: &str) -> Result<()> {
+        if output.is_empty() {
+            return Ok(());
+        }
+        self.send_event(
+            "output",
+            json!({
+                "category": category,
+                "output": output,
+            }),
+        )
+    }
+
+    fn send_event(&mut self, event: &str, body: serde_json::Value) -> Result<()> {
+        let message = json!({
+            "seq": self.next_seq(),
+            "type": "event",
+            "event": event,
+            "body": body,
+        });
+        write_dap_message(&mut self.writer, &message)
+    }
+
+    fn send_response(
+        &mut self,
+        request: &serde_json::Value,
+        body: serde_json::Value,
+    ) -> Result<()> {
+        let message = json!({
+            "seq": self.next_seq(),
+            "type": "response",
+            "request_seq": dap_request_seq(request),
+            "success": true,
+            "command": dap_request_command(request),
+            "body": body,
+        });
+        write_dap_message(&mut self.writer, &message)
+    }
+
+    fn send_error_response(&mut self, request: &serde_json::Value, message: &str) -> Result<()> {
+        let response = json!({
+            "seq": self.next_seq(),
+            "type": "response",
+            "request_seq": dap_request_seq(request),
+            "success": false,
+            "command": dap_request_command(request),
+            "message": message,
+            "body": {
+                "error": {
+                    "id": 1,
+                    "format": message,
+                },
+            },
+        });
+        write_dap_message(&mut self.writer, &response)
+    }
+
+    fn next_seq(&mut self) -> i64 {
+        let seq = self.seq;
+        self.seq += 1;
+        seq
+    }
+}
+
+fn run_debug_adapter() -> Result<()> {
+    let adapter = Rc::new(RefCell::new(DapAdapter::stdio()));
+    let setup = {
+        let mut adapter = adapter.borrow_mut();
+        adapter.read_setup()?
+    };
+    let Some(setup) = setup else {
+        return Ok(());
+    };
+
+    let chunk = match compile_source_file(&setup.program) {
+        Ok(chunk) => chunk,
+        Err(error) => {
+            let mut adapter = adapter.borrow_mut();
+            adapter.send_output("stderr", &format!("{error:#}\n"))?;
+            adapter.send_event("terminated", json!({}))?;
+            return Err(error);
+        }
+    };
+
+    let mut vm = cli_vm(setup.args, &CapabilityOptions::default())?;
+    vm.enable_debug();
+    for breakpoint in setup.breakpoints {
+        vm.add_line_breakpoint(breakpoint.path, breakpoint.line);
+    }
+
+    let adapter_for_controller = Rc::clone(&adapter);
+    vm.set_debug_controller(move |pause| {
+        let mut adapter = adapter_for_controller.borrow_mut();
+        match adapter.handle_pause(pause) {
+            Ok(action) => action,
+            Err(error) => {
+                adapter.pause_error = Some(error.to_string());
+                DebugAction::Abort
+            }
+        }
+    });
+
+    let result = vm.run_chunk(&chunk);
+
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.send_output("stdout", vm.stdout())?;
+        adapter.send_output("stderr", vm.stderr())?;
+        if let Some(error) = adapter.pause_error.take() {
+            adapter.send_output("stderr", &format!("debug adapter error: {error}\n"))?;
+            adapter.send_event("terminated", json!({}))?;
+            bail!("debug adapter error: {error}");
+        }
+    }
+
+    match result {
+        Ok(()) => {
+            adapter.borrow_mut().send_event("terminated", json!({}))?;
+            Ok(())
+        }
+        Err(ricochet_vm::VmError::ExitRequested { .. }) => {
+            adapter.borrow_mut().send_event("terminated", json!({}))?;
+            Ok(())
+        }
+        Err(error) => {
+            let message = runtime_error_message(&vm, &error);
+            let mut adapter = adapter.borrow_mut();
+            adapter.send_output("stderr", &format!("{message}\n"))?;
+            adapter.send_event("terminated", json!({}))?;
+            bail!("{message}");
+        }
+    }
+}
+
+fn read_dap_message(reader: &mut impl BufRead) -> Result<Option<serde_json::Value>> {
+    let mut content_length = None;
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader.read_line(&mut line)?;
+        if bytes_read == 0 {
+            return Ok(None);
+        }
+        let header = line.trim_end_matches(&['\r', '\n'][..]);
+        if header.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = header.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = Some(value.trim().parse::<usize>()?);
+            }
+        }
+    }
+
+    let content_length = content_length.context("DAP message missing Content-Length header")?;
+    let mut content = vec![0; content_length];
+    reader.read_exact(&mut content)?;
+    let message = serde_json::from_slice(&content)?;
+    Ok(Some(message))
+}
+
+fn write_dap_message(writer: &mut impl Write, message: &serde_json::Value) -> Result<()> {
+    let content = serde_json::to_vec(message)?;
+    write!(writer, "Content-Length: {}\r\n\r\n", content.len())?;
+    writer.write_all(&content)?;
+    writer.flush()?;
+    Ok(())
+}
+
+fn dap_request_command(request: &serde_json::Value) -> &str {
+    request
+        .get("command")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+}
+
+fn dap_request_seq(request: &serde_json::Value) -> i64 {
+    request
+        .get("seq")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(0)
+}
+
+fn dap_source_location(source: &str) -> (String, usize) {
+    let before_frame = source.split_once(" [").map_or(source, |(source, _)| source);
+    before_frame
+        .rsplit_once(':')
+        .and_then(|(path, line)| {
+            line.parse::<usize>()
+                .ok()
+                .map(|line| (path.to_string(), line))
+        })
+        .unwrap_or_else(|| (before_frame.to_string(), 1))
+}
+
+fn dap_binding_variables(bindings: &[(String, Value)]) -> Vec<serde_json::Value> {
+    bindings
+        .iter()
+        .map(|(name, value)| dap_value_variable(name.clone(), value))
+        .collect()
+}
+
+fn dap_value_variable(name: String, value: &Value) -> serde_json::Value {
+    json!({
+        "name": name,
+        "value": format!("{value:?}"),
+        "variablesReference": 0,
+    })
+}
+
+fn dap_task_variable(task: &DebugTask) -> serde_json::Value {
+    json!({
+        "name": task.id.to_string(),
+        "value": format!(
+            "{} pending={} running={} completed={} failed={}",
+            task.status, task.pending, task.running, task.completed, task.failed
+        ),
+        "variablesReference": 0,
     })
 }
 

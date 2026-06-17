@@ -1,8 +1,9 @@
 # Ricochet VS Code Grammar
 
 This folder contains a VS Code-compatible extension for Ricochet `.rco` source
-files. It contributes both a TextMate grammar and a language-client bridge that
-launches `rco lsp` over stdio.
+files. It contributes a TextMate grammar, a language-client bridge that
+launches `rco lsp` over stdio, and a Ricochet debug configuration that launches
+`rco debug-adapter` over stdio.
 
 The grammar registers the `source.ricochet` scope and highlights:
 
@@ -22,8 +23,10 @@ single-document rename support.
 The extension also includes `Ricochet: Run With Stack Visualizer`, which runs
 the active `.rco` file with `rco run --trace-file` and opens a separate IDE
 panel showing the recorded instruction timeline, stack, locals, globals, and
-`self` values. This is trace-backed today and is intended to evolve into the
-same visual surface used by live debugger sessions.
+`self` values. Live Ricochet debug sessions use the same configured `rco`
+binary, support source breakpoints and step controls, and update `Ricochet:
+Show Debugger Stack` with the paused frame, stack, locals, globals, `self`, and
+task scopes.
 
 To try it locally, open this folder as an extension development host:
 

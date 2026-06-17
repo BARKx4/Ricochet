@@ -8,6 +8,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde_json::json;
+
 #[test]
 fn new_creates_mvc_project_skeleton() {
     let source_path = temp_source_path();
@@ -3626,6 +3628,84 @@ fn debug_json_pause_includes_task_snapshot() {
     assert_eq!(pause["tasks"][0]["id"], 0);
     assert_eq!(pause["tasks"][0]["status"], "running");
     assert_eq!(pause["tasks"][0]["running"], true);
+}
+
+#[test]
+fn debug_adapter_serves_breakpoint_stack_scopes_and_variables() {
+    let source_path = write_source(
+        r#"
+"Ada" name var
+name get
+"Ada" assert-equals
+"done"
+"#,
+    );
+    let source = path_to_slash_for_test(&source_path);
+    let mut input = Vec::new();
+    for message in [
+        json!({"seq":1,"type":"request","command":"initialize","arguments":{"adapterID":"ricochet","linesStartAt1":true,"columnsStartAt1":true}}),
+        json!({"seq":2,"type":"request","command":"launch","arguments":{"program":source}}),
+        json!({"seq":3,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":source},"breakpoints":[{"line":3}]}}),
+        json!({"seq":4,"type":"request","command":"configurationDone","arguments":{}}),
+        json!({"seq":5,"type":"request","command":"stackTrace","arguments":{"threadId":1}}),
+        json!({"seq":6,"type":"request","command":"scopes","arguments":{"frameId":1}}),
+        json!({"seq":7,"type":"request","command":"variables","arguments":{"variablesReference":3}}),
+        json!({"seq":8,"type":"request","command":"continue","arguments":{"threadId":1}}),
+    ] {
+        write_lsp_message(&mut input, &message);
+    }
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-adapter")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco debug-adapter should launch");
+    child
+        .stdin
+        .as_mut()
+        .expect("debug adapter stdin should be open")
+        .write_all(&input)
+        .expect("debug adapter messages should write");
+    let output = child
+        .wait_with_output()
+        .expect("debug adapter should finish");
+    assert_run_success_for("rco debug-adapter", "DAP smoke", &output);
+    let messages = read_lsp_messages(&output.stdout);
+
+    assert!(messages.iter().any(|message| {
+        message["type"] == "event"
+            && message["event"] == "stopped"
+            && message["body"]["reason"] == "breakpoint"
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "stackTrace"
+            && message["body"]["stackFrames"][0]["line"] == 3
+            && message["body"]["stackFrames"][0]["name"] == "<main>"
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "scopes"
+            && message["body"]["scopes"]
+                .as_array()
+                .expect("scopes should be an array")
+                .iter()
+                .any(|scope| scope["name"] == "Locals")
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "variables"
+            && message["body"]["variables"]
+                .as_array()
+                .expect("variables should be an array")
+                .iter()
+                .any(|variable| variable["name"] == "name")
+    }));
+    assert!(messages
+        .iter()
+        .any(|message| { message["type"] == "event" && message["event"] == "terminated" }));
 }
 
 #[test]

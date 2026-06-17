@@ -10,7 +10,9 @@
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:ricochet",
-    "onCommand:ricochet.runWithStackVisualizer"
+    "onCommand:ricochet.runWithStackVisualizer",
+    "onCommand:ricochet.showDebuggerStack",
+    "onDebugResolve:ricochet"
   ],
   "categories": [
     "Programming Languages"
@@ -25,7 +27,7 @@
         "ricochet.server.path": {
           "type": "string",
           "default": "rco",
-          "description": "Path to the Ricochet CLI executable used to launch `rco lsp`."
+          "description": "Path to the Ricochet CLI executable used to launch `rco lsp` and `rco debug-adapter`."
         },
         "ricochet.server.trace": {
           "type": "boolean",
@@ -42,6 +44,51 @@
       {
         "command": "ricochet.runWithStackVisualizer",
         "title": "Ricochet: Run With Stack Visualizer"
+      },
+      {
+        "command": "ricochet.showDebuggerStack",
+        "title": "Ricochet: Show Debugger Stack"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "ricochet",
+        "label": "Ricochet",
+        "languages": [
+          "ricochet"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "type": "object",
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Ricochet .rco file to debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments passed to the Ricochet program.",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "ricochet",
+            "request": "launch",
+            "name": "Debug Ricochet File",
+            "program": "${file}",
+            "args": []
+          }
+        ]
       }
     ],
     "languages": [
