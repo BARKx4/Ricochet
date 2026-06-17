@@ -190,6 +190,24 @@ enum Command {
             help = "Publish to a local file-backed package registry"
         )]
         registry: PathBuf,
+        #[arg(
+            long = "provenance-file",
+            value_name = "PATH",
+            help = "Attach a provenance attestation file to the registry package metadata"
+        )]
+        provenance_file: Option<PathBuf>,
+        #[arg(
+            long = "signature-file",
+            value_name = "PATH",
+            help = "Attach a detached package signature file to the registry package metadata"
+        )]
+        signature_file: Option<PathBuf>,
+        #[arg(
+            long = "signature-kind",
+            value_name = "KIND",
+            help = "Describe the detached signature format, for example minisign or sigstore"
+        )]
+        signature_kind: Option<String>,
         #[arg(long, help = "Validate and describe the publish without writing files")]
         dry_run: bool,
     },
@@ -651,8 +669,20 @@ pub async fn run_cli() -> Result<()> {
         Command::Publish {
             path,
             registry,
+            provenance_file,
+            signature_file,
+            signature_kind,
             dry_run,
-        } => publish_package(path.as_deref(), &registry, dry_run)?,
+        } => publish_package(
+            path.as_deref(),
+            &registry,
+            PublishRegistryOptions {
+                dry_run,
+                provenance_file: provenance_file.as_deref(),
+                signature_file: signature_file.as_deref(),
+                signature_kind: signature_kind.as_deref(),
+            },
+        )?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
         Command::Audit { path, json } => audit_dependencies(path.as_deref(), json)?,
@@ -2168,6 +2198,9 @@ struct DependencySpec {
     version_req: Option<String>,
     package_version: Option<String>,
     integrity: Option<String>,
+    provenance: Option<String>,
+    signature: Option<String>,
+    signature_kind: Option<String>,
     display_source: String,
 }
 
@@ -2182,6 +2215,9 @@ struct LockedPackage {
     version_req: Option<String>,
     package_version: Option<String>,
     integrity: Option<String>,
+    provenance: Option<String>,
+    signature: Option<String>,
+    signature_kind: Option<String>,
 }
 
 #[derive(Debug)]
@@ -2205,6 +2241,24 @@ enum DependencySource {
 struct RegistryPackage {
     package_dir: PathBuf,
     version: String,
+    integrity: String,
+    provenance: Option<String>,
+    signature: Option<String>,
+    signature_kind: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct PublishRegistryOptions<'a> {
+    dry_run: bool,
+    provenance_file: Option<&'a Path>,
+    signature_file: Option<&'a Path>,
+    signature_kind: Option<&'a str>,
+}
+
+#[derive(Debug)]
+struct PublishArtifact {
+    source: PathBuf,
+    target: &'static str,
     integrity: String,
 }
 
@@ -2250,7 +2304,11 @@ fn add_dependency(
     Ok(())
 }
 
-fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result<()> {
+fn publish_package(
+    path: Option<&str>,
+    registry: &Path,
+    options: PublishRegistryOptions<'_>,
+) -> Result<()> {
     let manifest_path = project_manifest_path_for_command("publish", path)?;
     let package_root = manifest_path
         .parent()
@@ -2274,6 +2332,28 @@ fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result
         bail!("publish registry must not be inside the package being published");
     }
 
+    if options.signature_kind.is_some() && options.signature_file.is_none() {
+        bail!("--signature-kind requires --signature-file");
+    }
+    let signature_kind = if options.signature_file.is_some() {
+        Some(options.signature_kind.unwrap_or("detached"))
+    } else {
+        None
+    };
+    if let Some(signature_kind) = signature_kind {
+        validate_signature_kind(signature_kind)?;
+    }
+    let provenance = prepare_publish_artifact(
+        "provenance attestation",
+        options.provenance_file,
+        "provenance.attestation",
+    )?;
+    let signature = prepare_publish_artifact(
+        "detached signature",
+        options.signature_file,
+        "signature.sig",
+    )?;
+
     let package_integrity = package_tree_integrity(package_root)?;
     let version_root = registry_root.join(name).join(version);
     let destination = version_root.join("package");
@@ -2284,11 +2364,21 @@ fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result
         );
     }
 
-    if dry_run {
+    if options.dry_run {
         println!(
             "would publish {name} {version} to {} with integrity {package_integrity}",
             version_root.display()
         );
+        if let Some(provenance) = &provenance {
+            println!("would attach provenance {}", provenance.integrity);
+        }
+        if let Some(signature) = &signature {
+            println!(
+                "would attach {} signature {}",
+                signature_kind.unwrap_or("detached"),
+                signature.integrity
+            );
+        }
         return Ok(());
     }
 
@@ -2303,11 +2393,39 @@ fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result
             "published package integrity changed while copying: expected {package_integrity}, got {copied_integrity}"
         );
     }
+    if let Some(provenance) = &provenance {
+        copy_publish_artifact(provenance, &version_root)?;
+    }
+    if let Some(signature) = &signature {
+        copy_publish_artifact(signature, &version_root)?;
+    }
 
     let mut metadata_doc = DocumentMut::new();
-    metadata_doc["package"]["name"] = value(name);
-    metadata_doc["package"]["version"] = value(version);
-    metadata_doc["package"]["integrity"] = value(package_integrity.clone());
+    let mut package_table = Table::new();
+    package_table["name"] = value(name);
+    package_table["version"] = value(version);
+    package_table["integrity"] = value(package_integrity.clone());
+    metadata_doc
+        .as_table_mut()
+        .insert("package", Item::Table(package_table));
+    let mut provenance_table = Table::new();
+    let mut has_provenance = false;
+    if let Some(provenance) = &provenance {
+        provenance_table["attestation"] = value(provenance.target);
+        provenance_table["attestation_integrity"] = value(provenance.integrity.clone());
+        has_provenance = true;
+    }
+    if let Some(signature) = &signature {
+        provenance_table["signature"] = value(signature.target);
+        provenance_table["signature_integrity"] = value(signature.integrity.clone());
+        provenance_table["signature_kind"] = value(signature_kind.unwrap_or("detached"));
+        has_provenance = true;
+    }
+    if has_provenance {
+        metadata_doc
+            .as_table_mut()
+            .insert("provenance", Item::Table(provenance_table));
+    }
     fs::write(version_root.join("metadata.toml"), metadata_doc.to_string()).with_context(|| {
         format!(
             "failed to write {}",
@@ -2319,7 +2437,83 @@ fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result
         "published {name} {version} to {} with integrity {package_integrity}",
         version_root.display()
     );
+    if let Some(provenance) = &provenance {
+        println!("attached provenance {}", provenance.integrity);
+    }
+    if let Some(signature) = &signature {
+        println!(
+            "attached {} signature {}",
+            signature_kind.unwrap_or("detached"),
+            signature.integrity
+        );
+    }
     Ok(())
+}
+
+fn prepare_publish_artifact(
+    label: &str,
+    source: Option<&Path>,
+    target: &'static str,
+) -> Result<Option<PublishArtifact>> {
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let metadata = fs::symlink_metadata(source)
+        .with_context(|| format!("failed to inspect {label} {}", source.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "{label} must be a regular file, not a symlink: {}",
+            source.display()
+        );
+    }
+    if !metadata.is_file() {
+        bail!("{label} is not a file: {}", source.display());
+    }
+    Ok(Some(PublishArtifact {
+        source: source.to_path_buf(),
+        target,
+        integrity: file_integrity(source)?,
+    }))
+}
+
+fn copy_publish_artifact(artifact: &PublishArtifact, version_root: &Path) -> Result<()> {
+    let destination = version_root.join(artifact.target);
+    fs::copy(&artifact.source, &destination).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            artifact.source.display(),
+            destination.display()
+        )
+    })?;
+    let copied_integrity = file_integrity(&destination)?;
+    if copied_integrity != artifact.integrity {
+        bail!(
+            "published artifact {} changed while copying: expected {}, got {}",
+            artifact.target,
+            artifact.integrity,
+            copied_integrity
+        );
+    }
+    Ok(())
+}
+
+fn file_integrity(path: &Path) -> Result<String> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    Ok(format!("sha256:{}", hex_digest(&digest)))
+}
+
+fn validate_signature_kind(kind: &str) -> Result<&str> {
+    if kind.is_empty()
+        || !kind
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.')
+    {
+        bail!("invalid signature kind {kind:?}; use letters, numbers, _, - or .");
+    }
+    Ok(kind)
 }
 
 fn install_dependencies() -> Result<()> {
@@ -2390,6 +2584,9 @@ fn install_dependencies() -> Result<()> {
             version_req,
             package_version: None,
             integrity: None,
+            provenance: None,
+            signature: None,
+            signature_kind: None,
             display_source: registry
                 .as_ref()
                 .map(|registry| format!("registry:{name} from {registry}"))
@@ -2477,6 +2674,9 @@ struct DependencyAuditEntry {
     version_req: Option<String>,
     locked_version: Option<String>,
     locked_integrity: Option<String>,
+    locked_provenance: Option<String>,
+    locked_signature: Option<String>,
+    locked_signature_kind: Option<String>,
     status: String,
     issues: Vec<String>,
 }
@@ -2524,10 +2724,24 @@ fn dependency_audit_report(
             {
                 issues.push(error.to_string());
             }
-            let (locked_version, locked_integrity) = locked
+            let (
+                locked_version,
+                locked_integrity,
+                locked_provenance,
+                locked_signature,
+                locked_signature_kind,
+            ) = locked
                 .as_ref()
-                .map(|lock| (lock.package_version.clone(), lock.integrity.clone()))
-                .unwrap_or((None, None));
+                .map(|lock| {
+                    (
+                        lock.package_version.clone(),
+                        lock.integrity.clone(),
+                        lock.provenance.clone(),
+                        lock.signature.clone(),
+                        lock.signature_kind.clone(),
+                    )
+                })
+                .unwrap_or((None, None, None, None, None));
             entries.push(DependencyAuditEntry {
                 name: name.to_string(),
                 kind: dependency_kind(&spec).to_string(),
@@ -2536,6 +2750,9 @@ fn dependency_audit_report(
                 version_req: spec.version_req,
                 locked_version,
                 locked_integrity,
+                locked_provenance,
+                locked_signature,
+                locked_signature_kind,
                 status: if issues.is_empty() {
                     "ok".to_string()
                 } else {
@@ -2573,6 +2790,13 @@ fn print_dependency_audit_report(report: &DependencyAuditReport) {
         }
         if let Some(integrity) = &entry.locked_integrity {
             println!("  integrity: {integrity}");
+        }
+        if let Some(provenance) = &entry.locked_provenance {
+            println!("  provenance: {provenance}");
+        }
+        if let Some(signature) = &entry.locked_signature {
+            let kind = entry.locked_signature_kind.as_deref().unwrap_or("detached");
+            println!("  signature: {kind} {signature}");
         }
         for issue in &entry.issues {
             println!("  issue: {issue}");
@@ -2667,6 +2891,9 @@ fn dependency_spec_from_manifest_table(
         version_req,
         package_version: None,
         integrity: None,
+        provenance: None,
+        signature: None,
+        signature_kind: None,
         display_source: String::new(),
     })
 }
@@ -2898,6 +3125,30 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
     if let Some(integrity) = integrity.as_deref() {
         validate_package_integrity(integrity)?;
     }
+    let provenance = table
+        .get("provenance")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(provenance) = provenance.as_deref() {
+        validate_package_integrity(provenance)?;
+    }
+    let signature = table
+        .get("signature")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(signature) = signature.as_deref() {
+        validate_package_integrity(signature)?;
+    }
+    let signature_kind = table
+        .get("signature_kind")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(signature_kind) = signature_kind.as_deref() {
+        validate_signature_kind(signature_kind)?;
+    }
+    if signature_kind.is_some() && signature.is_none() {
+        bail!("lock entry for {name} has signature_kind without signature");
+    }
 
     Ok(Some(LockedPackage {
         source,
@@ -2909,6 +3160,9 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         version_req,
         package_version,
         integrity,
+        provenance,
+        signature,
+        signature_kind,
     }))
 }
 
@@ -3096,6 +3350,9 @@ fn dependency_spec(
                 version_req,
                 package_version: metadata.version,
                 integrity: Some(package_tree_integrity(&absolute_path)?),
+                provenance: None,
+                signature: None,
+                signature_kind: None,
                 display_source: path,
             })
         }
@@ -3116,6 +3373,9 @@ fn dependency_spec(
                 version_req,
                 package_version: None,
                 integrity: None,
+                provenance: None,
+                signature: None,
+                signature_kind: None,
                 display_source: original_source.to_string(),
             })
         }
@@ -3149,6 +3409,9 @@ fn dependency_spec(
                 version_req,
                 package_version: None,
                 integrity: None,
+                provenance: None,
+                signature: None,
+                signature_kind: None,
                 display_source: format!("registry:{name} from {registry}"),
             })
         }
@@ -3331,6 +3594,9 @@ fn install_registry_dependency(
     }
     spec.package_version = Some(package.version);
     spec.integrity = Some(package.integrity);
+    spec.provenance = package.provenance;
+    spec.signature = package.signature;
+    spec.signature_kind = package.signature_kind;
     Ok(())
 }
 
@@ -3431,6 +3697,9 @@ fn registry_package_at(
     }
     let integrity = package_tree_integrity(&package_dir)?;
     let metadata_path = version_root.join("metadata.toml");
+    let mut provenance = None;
+    let mut signature = None;
+    let mut signature_kind = None;
     if metadata_path.is_file() {
         let registry_metadata = fs::read_to_string(&metadata_path)
             .with_context(|| format!("failed to read {}", metadata_path.display()))?;
@@ -3449,12 +3718,112 @@ fn registry_package_at(
                 );
             }
         }
+        if let Some(provenance_table) = registry_metadata.get("provenance").and_then(Item::as_table)
+        {
+            provenance = registry_artifact_integrity(
+                &version_root,
+                package_name,
+                version,
+                provenance_table,
+                "attestation",
+                "attestation_integrity",
+            )?;
+            signature = registry_artifact_integrity(
+                &version_root,
+                package_name,
+                version,
+                provenance_table,
+                "signature",
+                "signature_integrity",
+            )?;
+            signature_kind = provenance_table
+                .get("signature_kind")
+                .and_then(Item::as_str)
+                .map(str::to_string);
+            if let Some(signature_kind) = signature_kind.as_deref() {
+                validate_signature_kind(signature_kind)?;
+            }
+            if signature_kind.is_some() && signature.is_none() {
+                bail!(
+                    "registry package {} {} has signature_kind without signature metadata",
+                    package_name,
+                    version
+                );
+            }
+        }
     }
     Ok(RegistryPackage {
         package_dir,
         version: version.to_string(),
         integrity,
+        provenance,
+        signature,
+        signature_kind,
     })
+}
+
+fn registry_artifact_integrity(
+    version_root: &Path,
+    package_name: &str,
+    version: &str,
+    table: &Table,
+    path_key: &str,
+    integrity_key: &str,
+) -> Result<Option<String>> {
+    let path = table.get(path_key).and_then(Item::as_str);
+    let integrity = table.get(integrity_key).and_then(Item::as_str);
+    match (path, integrity) {
+        (None, None) => Ok(None),
+        (Some(_), None) => bail!(
+            "registry package {} {} has provenance {} without {}",
+            package_name,
+            version,
+            path_key,
+            integrity_key
+        ),
+        (None, Some(_)) => bail!(
+            "registry package {} {} has provenance {} without {}",
+            package_name,
+            version,
+            integrity_key,
+            path_key
+        ),
+        (Some(path), Some(expected)) => {
+            validate_project_relative_path(path, "registry provenance artifact")?;
+            validate_package_integrity(expected)?;
+            let artifact_path = version_root.join(path);
+            let metadata = fs::symlink_metadata(&artifact_path)
+                .with_context(|| format!("failed to inspect {}", artifact_path.display()))?;
+            if metadata.file_type().is_symlink() {
+                bail!(
+                    "registry package {} {} provenance artifact is a symlink: {}",
+                    package_name,
+                    version,
+                    artifact_path.display()
+                );
+            }
+            if !metadata.is_file() {
+                bail!(
+                    "registry package {} {} provenance artifact is missing: {}",
+                    package_name,
+                    version,
+                    artifact_path.display()
+                );
+            }
+            let actual = file_integrity(&artifact_path)?;
+            if actual != expected {
+                bail!(
+                    "registry package {} {} provenance artifact {} integrity is {}, but file hashes to {}",
+                    package_name,
+                    version,
+                    path,
+                    expected,
+                    actual
+                );
+            }
+            Ok(Some(expected.to_string()))
+        }
+    }
 }
 
 fn resolve_registry_root(project_root: &Path, registry: &str) -> Result<PathBuf> {
@@ -3913,6 +4282,24 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     if let Some(integrity) = &spec.integrity {
         validate_package_integrity(integrity)?;
         package["integrity"] = value(integrity.clone());
+    }
+    if let Some(provenance) = &spec.provenance {
+        validate_package_integrity(provenance)?;
+        package["provenance"] = value(provenance.clone());
+    }
+    if let Some(signature) = &spec.signature {
+        validate_package_integrity(signature)?;
+        package["signature"] = value(signature.clone());
+    }
+    if let Some(signature_kind) = &spec.signature_kind {
+        validate_signature_kind(signature_kind)?;
+        if spec.signature.is_none() {
+            bail!(
+                "signature_kind cannot be written without signature for {}",
+                spec.name
+            );
+        }
+        package["signature_kind"] = value(signature_kind.clone());
     }
     packages.insert(&spec.name, Item::Table(package));
 

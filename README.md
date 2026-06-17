@@ -47,8 +47,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Package workflow: record, install, verify, audit, and locally publish
   path/GitHub/registry dependencies, enforce semver requirements, pin Git
   dependencies to immutable commits in `ricochet.lock`, store deterministic
-  `sha256:` package-content integrity hashes, and import package sources by
-  package name.
+  `sha256:` package-content integrity hashes, attach provenance/signature
+  digests to registry packages, and import package sources by package name.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -192,6 +192,8 @@ Add a package dependency from a Ricochet project:
 rco add ./packages/greeter
 rco add ./packages/greeter --version "^0.2.0"
 rco publish ./packages/greeter --registry ../ricochet-registry
+rco publish ./packages/greeter --registry ../ricochet-registry `
+  --provenance-file provenance.json --signature-file greeter.sig --signature-kind minisign
 rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
@@ -203,8 +205,11 @@ rco audit --json
 commit, optional local registry, optional semantic version requirement, resolved
 package version, and `sha256:` content integrity hash. `rco publish --registry`
 creates a file-backed local registry entry for packages with `[package] name`
-and `version`; `rco add registry:name --registry PATH` installs from that
-registry, or uses `RICOCHET_REGISTRY` when `--registry` is omitted. `rco install`
+and `version`; optional `--provenance-file`, `--signature-file`, and
+`--signature-kind` flags attach registry metadata and lockfile-visible
+`sha256:` digests for external attestation/signing workflows. `rco add
+registry:name --registry PATH` installs from that registry, or uses
+`RICOCHET_REGISTRY` when `--registry` is omitted. `rco install`
 and `rco verify` reject packages whose `[package] version` does not satisfy the
 manifest requirement, and `rco verify` recomputes the package tree hash while
 ignoring VCS metadata, so it catches local path changes, registry cache drift,

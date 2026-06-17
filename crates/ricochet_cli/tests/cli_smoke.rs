@@ -1747,6 +1747,99 @@ fn publish_and_install_local_registry_dependency() {
 }
 
 #[test]
+fn publish_records_provenance_and_signature_hooks() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    let provenance_file = base.join("provenance.json");
+    let signature_file = base.join("signature.sig");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from signed registry\"\nend\n",
+    );
+    fs::create_dir_all(base).expect("base temp directory should exist");
+    fs::write(
+        &provenance_file,
+        r#"{"builder":"local-ci","source":"workspace"}"#,
+    )
+    .expect("provenance file should be written");
+    fs::write(&signature_file, "detached-signature").expect("signature file should be written");
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--provenance-file")
+        .arg(&provenance_file)
+        .arg("--signature-file")
+        .arg(&signature_file)
+        .arg("--signature-kind")
+        .arg("minisign")
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "provenance package", &publish);
+
+    let version_root = registry.join("greeter").join("0.2.3");
+    let metadata =
+        fs::read_to_string(version_root.join("metadata.toml")).expect("metadata should exist");
+    assert!(metadata.contains("provenance"));
+    assert!(metadata.contains("attestation = \"provenance.attestation\""));
+    assert!(metadata.contains("attestation_integrity = \"sha256:"));
+    assert!(metadata.contains("signature = \"signature.sig\""));
+    assert!(metadata.contains("signature_integrity = \"sha256:"));
+    assert!(metadata.contains("signature_kind = \"minisign\""));
+    assert!(version_root.join("provenance.attestation").is_file());
+    assert!(version_root.join("signature.sig").is_file());
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--version")
+        .arg("^0.2.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "provenance registry dependency", &add);
+
+    let lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("provenance = \"sha256:"));
+    assert!(lock.contains("signature = \"sha256:"));
+    assert!(lock.contains("signature_kind = \"minisign\""));
+
+    let audit = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("audit")
+        .arg("--json")
+        .current_dir(&app)
+        .output()
+        .expect("rco audit should launch");
+    assert_run_success_for("rco audit --json", "provenance dependency", &audit);
+    let report: serde_json::Value =
+        serde_json::from_slice(&audit.stdout).expect("audit output should be JSON");
+    let dependency = &report["dependencies"][0];
+    assert!(dependency["locked_provenance"]
+        .as_str()
+        .expect("provenance should be present")
+        .starts_with("sha256:"));
+    assert!(dependency["locked_signature"]
+        .as_str()
+        .expect("signature should be present")
+        .starts_with("sha256:"));
+    assert_eq!(dependency["locked_signature_kind"], "minisign");
+}
+
+#[test]
 fn publish_dry_run_does_not_create_registry_directory() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");
