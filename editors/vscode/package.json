@@ -1,16 +1,44 @@
 {
   "name": "ricochet-language",
   "displayName": "Ricochet Language",
-  "description": "Syntax highlighting for Ricochet .rco files.",
+  "description": "Syntax highlighting and language-server support for Ricochet .rco files.",
   "version": "0.1.0",
   "publisher": "ricochet",
   "engines": {
     "vscode": "^1.84.0"
   },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:ricochet"
+  ],
   "categories": [
     "Programming Languages"
   ],
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
   "contributes": {
+    "configuration": {
+      "title": "Ricochet",
+      "properties": {
+        "ricochet.server.path": {
+          "type": "string",
+          "default": "rco",
+          "description": "Path to the Ricochet CLI executable used to launch `rco lsp`."
+        },
+        "ricochet.server.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Trace Ricochet LSP JSON-RPC messages to the extension host log."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "ricochet.restartLanguageServer",
+        "title": "Ricochet: Restart Language Server"
+      }
+    ],
     "languages": [
       {
         "id": "ricochet",

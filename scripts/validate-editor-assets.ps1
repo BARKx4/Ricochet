@@ -4,11 +4,12 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $PackagePath = Join-Path $Root "editors\vscode\package.json"
+$ExtensionPath = Join-Path $Root "editors\vscode\extension.js"
 $LanguageConfigurationPath = Join-Path $Root "editors\vscode\language-configuration.json"
 $GrammarPath = Join-Path $Root "editors\vscode\syntaxes\ricochet.tmLanguage.json"
 $DocsAppPath = Join-Path $Root "docs\reference\app.js"
 
-foreach ($path in @($PackagePath, $LanguageConfigurationPath, $GrammarPath, $DocsAppPath)) {
+foreach ($path in @($PackagePath, $ExtensionPath, $LanguageConfigurationPath, $GrammarPath, $DocsAppPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Required editor validation input is missing: $path"
     }
@@ -21,6 +22,18 @@ $docsSource = Get-Content -LiteralPath $DocsAppPath -Raw
 
 if ($package.contributes.languages[0].id -ne "ricochet") {
     throw "VS Code package must contribute the ricochet language id"
+}
+if ($package.main -ne "./extension.js") {
+    throw "VS Code package must point main at extension.js"
+}
+if (-not ($package.activationEvents -contains "onLanguage:ricochet")) {
+    throw "VS Code package must activate on the ricochet language"
+}
+if (-not $package.dependencies."vscode-languageclient") {
+    throw "VS Code package must depend on vscode-languageclient for LSP wiring"
+}
+if (-not $package.contributes.configuration.properties."ricochet.server.path") {
+    throw "VS Code package must expose ricochet.server.path"
 }
 if ($package.contributes.grammars[0].scopeName -ne "source.ricochet") {
     throw "VS Code grammar must use the source.ricochet scope"

@@ -19,6 +19,8 @@ use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use serde_json::json;
 use toml_edit::{value, DocumentMut, Item, Table};
 
+mod lsp;
+
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
@@ -167,6 +169,10 @@ enum Command {
         path: String,
         #[arg(long, help = "Pretty-print the JSON response")]
         pretty: bool,
+    },
+    Lsp {
+        #[arg(long, help = "Trace JSON-RPC messages to stderr")]
+        trace: bool,
     },
     Doc {
         path: Option<String>,
@@ -584,6 +590,7 @@ pub async fn run_cli() -> Result<()> {
             doctor(path.as_deref().unwrap_or("."), capabilities)?
         }
         Command::LspDiagnostics { path, pretty } => lsp_diagnostics(&path, pretty)?,
+        Command::Lsp { trace } => lsp::run_lsp_server(trace)?,
         Command::Doc { path } => doc_path(path.as_deref().unwrap_or("."))?,
         Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
         Command::Serve {

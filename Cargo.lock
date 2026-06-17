@@ -2957,6 +2957,7 @@ dependencies = [
  "ricochet_vm",
  "ricochet_web",
  "rusqlite",
+ "serde",
  "serde_json",
  "tao",
  "tokio",

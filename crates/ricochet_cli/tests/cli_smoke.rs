@@ -750,6 +750,84 @@ fn lsp_diagnostics_reports_compile_error_json() {
 }
 
 #[test]
+fn lsp_server_initializes_and_publishes_live_diagnostics() {
+    let uri = "file:///workspace/Bad.rco";
+    let mut input = Vec::new();
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    );
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+    );
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"ricochet","version":1,"text":"User Model Subclass\n  \"email\" Accessor\n"}}}),
+    );
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":1,"character":4}}}),
+    );
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+    );
+    write_lsp_message(
+        &mut input,
+        &serde_json::json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco lsp should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("lsp stdin should be piped")
+        .write_all(&input)
+        .expect("lsp input should write");
+
+    let output = child.wait_with_output().expect("lsp should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco lsp failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let messages = read_lsp_messages(&output.stdout);
+    assert!(
+        messages.iter().any(|message| message["id"] == 1
+            && message["result"]["capabilities"]["semanticTokensProvider"].is_object()),
+        "initialize response should advertise semantic tokens\nstdout:\n{stdout}"
+    );
+    assert!(
+        messages.iter().any(
+            |message| message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["diagnostics"][0]["message"]
+                    == "expected end, found end of file"
+        ),
+        "didOpen should publish compile diagnostics\nstdout:\n{stdout}"
+    );
+    assert!(
+        messages.iter().any(|message| message["id"] == 2
+            && message["result"]["items"]
+                .as_array()
+                .expect("completion result should contain items")
+                .iter()
+                .any(|item| item["label"] == "Accessor")),
+        "completion response should include Ricochet words\nstdout:\n{stdout}"
+    );
+}
+
+#[test]
 fn repl_preserves_stack_between_submissions() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("repl")
@@ -5613,6 +5691,40 @@ fn assert_run_success_for(command: &str, name: &str, output: &std::process::Outp
         output.status.success(),
         "{command} failed for {name}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+}
+
+fn write_lsp_message(output: &mut Vec<u8>, message: &serde_json::Value) {
+    let body = serde_json::to_vec(message).expect("LSP message should serialize");
+    write!(output, "Content-Length: {}\r\n\r\n", body.len()).expect("LSP header should write");
+    output.extend_from_slice(&body);
+}
+
+fn read_lsp_messages(output: &[u8]) -> Vec<serde_json::Value> {
+    let mut messages = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < output.len() {
+        let header_end = output[cursor..]
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .map(|position| cursor + position)
+            .expect("LSP response should include header terminator");
+        let header = String::from_utf8_lossy(&output[cursor..header_end]);
+        let length = header
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length:"))
+            .expect("LSP response should include Content-Length")
+            .trim()
+            .parse::<usize>()
+            .expect("LSP Content-Length should be numeric");
+        let body_start = header_end + 4;
+        let body_end = body_start + length;
+        messages.push(
+            serde_json::from_slice(&output[body_start..body_end])
+                .expect("LSP response body should be JSON"),
+        );
+        cursor = body_end;
+    }
+    messages
 }
 
 fn temp_source_path() -> PathBuf {

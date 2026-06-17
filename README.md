@@ -121,6 +121,7 @@ rco migrate apply my_beta_app
 rco doctor my_app
 rco verify my_app
 rco lsp-diagnostics my_app/app/Models/User.rco --pretty
+rco lsp
 rco doc my_app
 rco test my_app
 ```
@@ -433,11 +434,19 @@ name, and `files` contains every uploaded file. Upload values include
 
 ## Editor Support
 
-A VS Code-compatible TextMate grammar for `.rco` files lives in
-`editors/vscode`. It registers the `source.ricochet` scope and highlights
-Ricochet comments, strings, `$name` binding reads, postfix selectors,
-declarations, control flow, async words, route verbs, core built-ins,
-and collection types. `scripts/validate-editor-assets.ps1` checks the grammar
+A VS Code-compatible extension for `.rco` files lives in `editors/vscode`. It
+registers the `source.ricochet` scope, highlights Ricochet comments, strings,
+`$name` binding reads, postfix selectors, declarations, control flow, async
+words, route verbs, core built-ins, and collection types, and launches `rco lsp`
+for live editor support.
+
+`rco lsp` speaks stdio Language Server Protocol and provides live diagnostics,
+completion, hover, go-to-definition, document symbols, semantic tokens,
+document formatting, prepare-rename, and single-document rename support. The VS
+Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
+`Ricochet: Restart Language Server` for local toolchain rebuilds.
+
+`scripts/validate-editor-assets.ps1` checks the grammar and VS Code wiring
 against the reference word catalog, and release archives include this folder
 under `editors/vscode`.
 
