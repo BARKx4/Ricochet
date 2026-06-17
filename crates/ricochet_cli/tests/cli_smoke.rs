@@ -1459,6 +1459,7 @@ fn add_records_local_path_dependency_and_package_imports_are_runnable() {
     let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
     assert!(lock.contains("[package.greeter]"));
     assert!(lock.contains("source = \"path+./packages/greeter\""));
+    assert!(lock.contains("integrity = \"sha256:"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
@@ -1538,6 +1539,7 @@ fn install_locks_existing_local_path_dependencies() {
     assert!(lock.contains("[package.greeter]"));
     assert!(lock.contains("source = \"path+./packages/greeter\""));
     assert!(lock.contains("path = \"./packages/greeter\""));
+    assert!(lock.contains("integrity = \"sha256:"));
 }
 
 #[test]
@@ -1586,6 +1588,10 @@ fn install_uses_locked_git_commit_when_branch_moves() {
     assert!(
         first_lock.contains(&format!("commit = \"{first_commit}\"")),
         "lock should pin the first commit, got:\n{first_lock}"
+    );
+    assert!(
+        first_lock.contains("integrity = \"sha256:"),
+        "lock should pin package contents, got:\n{first_lock}"
     );
 
     fs::write(
@@ -1699,6 +1705,56 @@ fn verify_reports_clean_local_dependency_lock() {
     assert!(
         stdout.contains("verified greeter") && stdout.contains("verified 1 dependencies"),
         "stdout should report verified dependency, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn verify_rejects_changed_package_integrity() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/greeting.rco",
+        "\"packageHello\" function\n  \"hello from package\"\nend\n",
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "integrity fixture install", &install);
+
+    fs::write(
+        root.join("packages/greeter/greeting.rco"),
+        "\"packageHello\" function\n  \"tampered\"\nend\n",
+    )
+    .expect("package file should mutate");
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(root)
+        .output()
+        .expect("rco verify should launch");
+
+    assert!(
+        !verify.status.success(),
+        "rco verify should reject package content drift"
+    );
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(
+        stderr.contains("package integrity for greeter changed"),
+        "stderr should explain integrity mismatch, got:\n{stderr}"
     );
 }
 

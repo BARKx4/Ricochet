@@ -17,6 +17,7 @@ use ricochet_syntax::{
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 mod lsp;
@@ -2094,6 +2095,7 @@ struct DependencySpec {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    integrity: Option<String>,
     display_source: String,
 }
 
@@ -2104,6 +2106,7 @@ struct LockedPackage {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    integrity: Option<String>,
 }
 
 #[derive(Debug)]
@@ -2128,6 +2131,9 @@ fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()
 
     if spec.git.is_some() && !no_fetch {
         spec.commit = Some(fetch_git_dependency(project_root, &spec)?);
+    }
+    if !(spec.git.is_some() && no_fetch) {
+        spec.integrity = Some(package_integrity(project_root, &spec)?);
     }
 
     write_dependency_manifest(&manifest_path, &spec)?;
@@ -2200,6 +2206,7 @@ fn install_dependencies() -> Result<()> {
             git,
             rev,
             commit,
+            integrity: None,
             display_source,
         };
 
@@ -2219,6 +2226,7 @@ fn install_dependencies() -> Result<()> {
             } else {
                 spec.commit = Some(current_git_commit(&package_dir)?);
             }
+            spec.integrity = Some(package_integrity(project_root, &spec)?);
         } else {
             let dependency_dir = PathBuf::from(&spec.path);
             let dependency_dir = if dependency_dir.is_absolute() {
@@ -2233,6 +2241,7 @@ fn install_dependencies() -> Result<()> {
                     dependency_dir.display()
                 );
             }
+            spec.integrity = Some(package_integrity(project_root, &spec)?);
         }
 
         write_lockfile(&lock_path, &spec)?;
@@ -2307,6 +2316,7 @@ fn verify_dependency_manifest(
             git,
             rev,
             commit: None,
+            integrity: None,
             display_source: String::new(),
         };
 
@@ -2390,6 +2400,7 @@ fn verify_dependency(
                 spec.name
             );
         }
+        verify_package_integrity(project_root, spec, &lock)?;
     } else {
         if lock.git.is_some() || lock.commit.is_some() {
             bail!(
@@ -2405,6 +2416,7 @@ fn verify_dependency(
                 dependency_dir.display()
             );
         }
+        verify_package_integrity(project_root, spec, &lock)?;
     }
 
     Ok(())
@@ -2475,6 +2487,13 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
     if let Some(commit) = commit.as_deref() {
         validate_git_commit(commit)?;
     }
+    let integrity = table
+        .get("integrity")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(integrity) = integrity.as_deref() {
+        validate_package_integrity(integrity)?;
+    }
 
     Ok(Some(LockedPackage {
         source,
@@ -2482,6 +2501,7 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         git,
         rev,
         commit,
+        integrity,
     }))
 }
 
@@ -2578,6 +2598,7 @@ fn dependency_spec(
                 git: None,
                 rev: None,
                 commit: None,
+                integrity: Some(package_tree_integrity(&absolute_path)?),
                 display_source: path,
             })
         }
@@ -2594,6 +2615,7 @@ fn dependency_spec(
                 git: Some(git),
                 rev,
                 commit: None,
+                integrity: None,
                 display_source: original_source.to_string(),
             })
         }
@@ -2726,6 +2748,122 @@ fn resolve_local_dependency_dir(project_root: &Path, path: &str) -> Result<PathB
     };
     ensure_existing_project_dir(project_root, &dependency_dir, "local dependency")?;
     Ok(dependency_dir)
+}
+
+fn package_integrity(project_root: &Path, spec: &DependencySpec) -> Result<String> {
+    let package_dir = if spec.git.is_some() {
+        project_dependency_path(project_root, &spec.path, "git package cache")?
+    } else {
+        resolve_local_dependency_dir(project_root, &spec.path)?
+    };
+    package_tree_integrity(&package_dir)
+}
+
+fn verify_package_integrity(
+    project_root: &Path,
+    spec: &DependencySpec,
+    lock: &LockedPackage,
+) -> Result<()> {
+    let expected = lock.integrity.as_deref().with_context(|| {
+        format!(
+            "lock entry for {} is missing package integrity; run rco install",
+            spec.name
+        )
+    })?;
+    validate_package_integrity(expected)?;
+    let actual = package_integrity(project_root, spec)?;
+    if actual != expected {
+        bail!(
+            "package integrity for {} changed: expected {expected}, got {actual}; run rco install if this update is intentional",
+            spec.name
+        );
+    }
+    Ok(())
+}
+
+fn package_tree_integrity(package_dir: &Path) -> Result<String> {
+    if !package_dir.is_dir() {
+        bail!(
+            "cannot compute package integrity for non-directory {}",
+            package_dir.display()
+        );
+    }
+
+    let mut files = Vec::new();
+    collect_package_integrity_files(package_dir, package_dir, &mut files)?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"ricochet-package-integrity-v1\0");
+    for (relative, path) in files {
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read package file {}", path.display()))?;
+        hasher.update(relative.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(bytes.len().to_string().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(&bytes);
+        hasher.update(b"\0");
+    }
+
+    let digest = hasher.finalize();
+    Ok(format!("sha256:{}", hex_digest(&digest)))
+}
+
+fn collect_package_integrity_files(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "package integrity cannot include symlink {}; copy the target file into the package",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            if file_name == ".git" {
+                continue;
+            }
+            collect_package_integrity_files(root, &path, files)?;
+        } else if metadata.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to make {} package-relative", path.display()))?;
+            files.push((path_to_slash(relative), path));
+        }
+    }
+    Ok(())
+}
+
+fn validate_package_integrity(integrity: &str) -> Result<()> {
+    let Some(hex) = integrity.strip_prefix("sha256:") else {
+        bail!("invalid package integrity {integrity:?}; expected sha256:<64 hex chars>");
+    };
+    if hex.len() != 64 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        bail!("invalid package integrity {integrity:?}; expected sha256:<64 hex chars>");
+    }
+    Ok(())
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut output, "{byte:02x}").expect("writing to String should not fail");
+    }
+    output
 }
 
 fn validate_project_relative_path(path: &str, description: &str) -> Result<()> {
@@ -2883,6 +3021,10 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     }
     if let Some(commit) = &spec.commit {
         package["commit"] = value(commit.clone());
+    }
+    if let Some(integrity) = &spec.integrity {
+        validate_package_integrity(integrity)?;
+        package["integrity"] = value(integrity.clone());
     }
     packages.insert(&spec.name, Item::Table(package));
 

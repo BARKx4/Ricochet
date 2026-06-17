@@ -42,8 +42,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
 - Package workflow: record, install, and verify path/GitHub dependencies, pin
-  Git dependencies to immutable commits in `ricochet.lock`, and import local
-  package sources by package name.
+  Git dependencies to immutable commits in `ricochet.lock`, store deterministic
+  `sha256:` package-content integrity hashes, and import local package sources
+  by package name.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -190,6 +191,11 @@ rco install
 rco verify
 ```
 
+`ricochet.lock` records each resolved package source, cache path, optional Git
+commit, and `sha256:` content integrity hash. `rco verify` recomputes the
+package tree hash while ignoring VCS metadata, so it catches local path changes
+or cached Git package drift without fetching or rewriting anything.
+
 Local package dependencies can be imported by package name:
 
 ```forth
@@ -301,8 +307,9 @@ Use `rco doctor [path]` for a read-only health check of a source file, source
 tree, package project, or MVC app. Add `--capabilities` to print the MVC
 manifest capability surface that will matter for trusted local beta apps.
 Package projects can also run `rco verify [path]` to check dependency
-manifest/lock consistency, local path containment, and git package cache commit
-matches without fetching or rewriting anything.
+manifest/lock consistency, local path containment, git package cache commit
+matches, and locked package-content integrity without fetching or rewriting
+anything.
 
 `rco serve` keeps MVC process environment reads disabled unless you pass
 `--allow-env` or one or more `--env-allow NAME` entries. Prefer
