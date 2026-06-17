@@ -9,7 +9,8 @@
   },
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:ricochet"
+    "onLanguage:ricochet",
+    "onCommand:ricochet.runWithStackVisualizer"
   ],
   "categories": [
     "Programming Languages"
@@ -37,6 +38,10 @@
       {
         "command": "ricochet.restartLanguageServer",
         "title": "Ricochet: Restart Language Server"
+      },
+      {
+        "command": "ricochet.runWithStackVisualizer",
+        "title": "Ricochet: Run With Stack Visualizer"
       }
     ],
     "languages": [

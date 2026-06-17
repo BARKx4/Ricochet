@@ -44,10 +44,11 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Debugging workflow: trace instruction execution, pause on source breakpoints,
   inspect stack/locals/globals at pauses, and write JSON runtime traces with
   `rco run --trace-file`.
-- Package workflow: record, install, and verify path/GitHub dependencies, pin
-  Git dependencies to immutable commits in `ricochet.lock`, store deterministic
-  `sha256:` package-content integrity hashes, and import local package sources
-  by package name.
+- Package workflow: record, install, verify, audit, and locally publish
+  path/GitHub/registry dependencies, enforce semver requirements, pin Git
+  dependencies to immutable commits in `ricochet.lock`, store deterministic
+  `sha256:` package-content integrity hashes, and import package sources by
+  package name.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -466,7 +467,12 @@ for live editor support.
 completion, hover, go-to-definition, document symbols, semantic tokens,
 document formatting, prepare-rename, and single-document rename support. The VS
 Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
-`Ricochet: Restart Language Server` for local toolchain rebuilds.
+`Ricochet: Restart Language Server` for local toolchain rebuilds. `Ricochet:
+Run With Stack Visualizer` runs the active `.rco` file with `rco run
+--trace-file` and opens a separate IDE panel for the instruction timeline,
+stack, locals, globals, and `self` values. See
+`docs/debugger-integrations.md` for the shared trace contract intended for VS
+Code, future DAP support, and other IDE integrations.
 
 `scripts/validate-editor-assets.ps1` checks the grammar and VS Code wiring
 against the reference word catalog, and release archives include this folder

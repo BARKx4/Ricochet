@@ -29,11 +29,24 @@ if ($package.main -ne "./extension.js") {
 if (-not ($package.activationEvents -contains "onLanguage:ricochet")) {
     throw "VS Code package must activate on the ricochet language"
 }
+if (-not ($package.activationEvents -contains "onCommand:ricochet.runWithStackVisualizer")) {
+    throw "VS Code package must activate the stack visualizer command"
+}
 if (-not $package.dependencies."vscode-languageclient") {
     throw "VS Code package must depend on vscode-languageclient for LSP wiring"
 }
 if (-not $package.contributes.configuration.properties."ricochet.server.path") {
     throw "VS Code package must expose ricochet.server.path"
+}
+$commands = @($package.contributes.commands | ForEach-Object { $_.command })
+if (-not ($commands -contains "ricochet.runWithStackVisualizer")) {
+    throw "VS Code package must contribute the Ricochet stack visualizer command"
+}
+$extensionSource = Get-Content -LiteralPath $ExtensionPath -Raw
+foreach ($marker in @("runWithStackVisualizer", "createWebviewPanel", "--trace-file")) {
+    if (-not $extensionSource.Contains($marker)) {
+        throw "VS Code extension is missing stack visualizer marker: $marker"
+    }
 }
 if ($package.contributes.grammars[0].scopeName -ne "source.ricochet") {
     throw "VS Code grammar must use the source.ricochet scope"
