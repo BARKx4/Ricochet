@@ -1543,6 +1543,79 @@ fn install_locks_existing_local_path_dependencies() {
 }
 
 #[test]
+fn install_locks_semver_satisfied_dependency_version() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\nversion = \"^0.2.0\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+
+    assert_run_success_for("rco install", "semver satisfied dependency", &output);
+
+    let lock = fs::read_to_string(root.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(
+        lock.contains("version_req = \"^0.2.0\""),
+        "lock should record requested semver constraint, got:\n{lock}"
+    );
+    assert!(
+        lock.contains("version = \"0.2.3\""),
+        "lock should record package version, got:\n{lock}"
+    );
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(root)
+        .output()
+        .expect("rco verify should launch");
+    assert_run_success_for("rco verify", "semver satisfied lock", &verify);
+}
+
+#[test]
+fn install_rejects_unsatisfied_semver_dependency_version() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\nversion = \"^1.0.0\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco install should reject unsatisfied version requirement"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dependency greeter version 0.2.3 does not satisfy requirement ^1.0.0"),
+        "stderr should explain semver mismatch, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn install_uses_locked_git_commit_when_branch_moves() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");

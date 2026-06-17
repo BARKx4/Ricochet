@@ -293,7 +293,7 @@ if ($failures.Count -eq 0) {
         "rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",
         "rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",
         "rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]",
-        "rco add &lt;source&gt; [--name NAME] [--no-fetch]",
+        "rco add &lt;source&gt; [--name NAME] [--version REQ] [--no-fetch]",
         "rco verify [path]",
         "rco doctor [--capabilities] [path]",
         "rco lsp-diagnostics [--pretty] &lt;path&gt;",

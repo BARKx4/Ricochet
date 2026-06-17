@@ -186,15 +186,19 @@ Add a package dependency from a Ricochet project:
 
 ```powershell
 rco add ./packages/greeter
+rco add ./packages/greeter --version "^0.2.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
 ```
 
 `ricochet.lock` records each resolved package source, cache path, optional Git
-commit, and `sha256:` content integrity hash. `rco verify` recomputes the
-package tree hash while ignoring VCS metadata, so it catches local path changes
-or cached Git package drift without fetching or rewriting anything.
+commit, optional semantic version requirement, resolved package version, and
+`sha256:` content integrity hash. `rco install` and `rco verify` reject packages
+whose `[package] version` does not satisfy the manifest requirement, and
+`rco verify` recomputes the package tree hash while ignoring VCS metadata, so it
+catches local path changes or cached Git package drift without fetching or
+rewriting anything.
 
 Local package dependencies can be imported by package name:
 

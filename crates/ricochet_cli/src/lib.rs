@@ -16,6 +16,7 @@ use ricochet_syntax::{
 };
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
+use semver::{Version, VersionReq};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use toml_edit::{value, DocumentMut, Item, Table};
@@ -151,6 +152,12 @@ enum Command {
         source: String,
         #[arg(long)]
         name: Option<String>,
+        #[arg(
+            long = "version",
+            value_name = "REQ",
+            help = "Require the dependency package version to satisfy REQ, for example ^0.1.0"
+        )]
+        version: Option<String>,
         #[arg(long)]
         no_fetch: bool,
     },
@@ -583,8 +590,9 @@ pub async fn run_cli() -> Result<()> {
         Command::Add {
             source,
             name,
+            version,
             no_fetch,
-        } => add_dependency(&source, name.as_deref(), no_fetch)?,
+        } => add_dependency(&source, name.as_deref(), version.as_deref(), no_fetch)?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
         Command::Doctor { path, capabilities } => {
@@ -2095,6 +2103,8 @@ struct DependencySpec {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    version_req: Option<String>,
+    package_version: Option<String>,
     integrity: Option<String>,
     display_source: String,
 }
@@ -2106,6 +2116,8 @@ struct LockedPackage {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    version_req: Option<String>,
+    package_version: Option<String>,
     integrity: Option<String>,
 }
 
@@ -2121,18 +2133,24 @@ enum DependencySource {
     },
 }
 
-fn add_dependency(source: &str, name: Option<&str>, no_fetch: bool) -> Result<()> {
+fn add_dependency(
+    source: &str,
+    name: Option<&str>,
+    version_req: Option<&str>,
+    no_fetch: bool,
+) -> Result<()> {
     let manifest_path = find_project_manifest_for_current_dir("add")?;
     let project_root = manifest_path
         .parent()
         .expect("project manifest should have a parent");
     let dependency_source = parse_dependency_source(source)?;
-    let mut spec = dependency_spec(project_root, source, dependency_source, name)?;
+    let mut spec = dependency_spec(project_root, source, dependency_source, name, version_req)?;
 
     if spec.git.is_some() && !no_fetch {
         spec.commit = Some(fetch_git_dependency(project_root, &spec)?);
     }
     if !(spec.git.is_some() && no_fetch) {
+        spec.package_version = package_version_for_spec(project_root, &spec)?;
         spec.integrity = Some(package_integrity(project_root, &spec)?);
     }
 
@@ -2190,6 +2208,13 @@ fn install_dependencies() -> Result<()> {
             .to_string();
         let git = table.get("git").and_then(Item::as_str).map(str::to_string);
         let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let version_req = table
+            .get("version")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if let Some(version_req) = version_req.as_deref() {
+            validate_version_req(version_req)?;
+        }
         let commit = git
             .as_ref()
             .map(|_| locked_git_commit(&lock_path, name))
@@ -2206,6 +2231,8 @@ fn install_dependencies() -> Result<()> {
             git,
             rev,
             commit,
+            version_req,
+            package_version: None,
             integrity: None,
             display_source,
         };
@@ -2226,6 +2253,7 @@ fn install_dependencies() -> Result<()> {
             } else {
                 spec.commit = Some(current_git_commit(&package_dir)?);
             }
+            spec.package_version = package_version_for_spec(project_root, &spec)?;
             spec.integrity = Some(package_integrity(project_root, &spec)?);
         } else {
             let dependency_dir = PathBuf::from(&spec.path);
@@ -2241,6 +2269,7 @@ fn install_dependencies() -> Result<()> {
                     dependency_dir.display()
                 );
             }
+            spec.package_version = package_version_for_spec(project_root, &spec)?;
             spec.integrity = Some(package_integrity(project_root, &spec)?);
         }
 
@@ -2306,6 +2335,13 @@ fn verify_dependency_manifest(
             .to_string();
         let git = table.get("git").and_then(Item::as_str).map(str::to_string);
         let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let version_req = table
+            .get("version")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if let Some(version_req) = version_req.as_deref() {
+            validate_version_req(version_req)?;
+        }
         let spec = DependencySpec {
             name: name.to_string(),
             source: git
@@ -2316,6 +2352,8 @@ fn verify_dependency_manifest(
             git,
             rev,
             commit: None,
+            version_req,
+            package_version: None,
             integrity: None,
             display_source: String::new(),
         };
@@ -2360,6 +2398,14 @@ fn verify_dependency(
             spec.source
         );
     }
+    if lock.version_req != spec.version_req {
+        bail!(
+            "lock entry for {} has version requirement {:?}, expected {:?}",
+            spec.name,
+            lock.version_req,
+            spec.version_req
+        );
+    }
 
     if let Some(git) = spec.git.as_deref() {
         if lock.git.as_deref() != Some(git) {
@@ -2400,6 +2446,7 @@ fn verify_dependency(
                 spec.name
             );
         }
+        verify_package_version(project_root, spec, &lock)?;
         verify_package_integrity(project_root, spec, &lock)?;
     } else {
         if lock.git.is_some() || lock.commit.is_some() {
@@ -2416,6 +2463,7 @@ fn verify_dependency(
                 dependency_dir.display()
             );
         }
+        verify_package_version(project_root, spec, &lock)?;
         verify_package_integrity(project_root, spec, &lock)?;
     }
 
@@ -2487,6 +2535,20 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
     if let Some(commit) = commit.as_deref() {
         validate_git_commit(commit)?;
     }
+    let version_req = table
+        .get("version_req")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(version_req) = version_req.as_deref() {
+        validate_version_req(version_req)?;
+    }
+    let package_version = table
+        .get("version")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(package_version) = package_version.as_deref() {
+        validate_package_version(package_version)?;
+    }
     let integrity = table
         .get("integrity")
         .and_then(Item::as_str)
@@ -2501,6 +2563,8 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         git,
         rev,
         commit,
+        version_req,
+        package_version,
         integrity,
     }))
 }
@@ -2566,7 +2630,12 @@ fn dependency_spec(
     original_source: &str,
     source: DependencySource,
     name_override: Option<&str>,
+    version_req: Option<&str>,
 ) -> Result<DependencySpec> {
+    let version_req = version_req
+        .map(validate_version_req)
+        .transpose()?
+        .map(str::to_string);
     match source {
         DependencySource::Local { path } => {
             let current_dir =
@@ -2583,12 +2652,20 @@ fn dependency_spec(
                 );
             }
 
+            let metadata = read_package_metadata(&absolute_path)?;
             let name = match name_override {
                 Some(name) => name.to_string(),
-                None => read_package_name(&absolute_path)?
+                None => metadata
+                    .name
+                    .clone()
                     .unwrap_or_else(|| directory_package_name(&absolute_path)),
             };
             validate_package_name(&name)?;
+            validate_package_version_requirement(
+                &name,
+                version_req.as_deref(),
+                metadata.version.as_deref(),
+            )?;
             let path = dependency_path_value(project_root, &absolute_path, original_source)?;
 
             Ok(DependencySpec {
@@ -2598,6 +2675,8 @@ fn dependency_spec(
                 git: None,
                 rev: None,
                 commit: None,
+                version_req,
+                package_version: metadata.version,
                 integrity: Some(package_tree_integrity(&absolute_path)?),
                 display_source: path,
             })
@@ -2615,6 +2694,8 @@ fn dependency_spec(
                 git: Some(git),
                 rev,
                 commit: None,
+                version_req,
+                package_version: None,
                 integrity: None,
                 display_source: original_source.to_string(),
             })
@@ -2622,10 +2703,16 @@ fn dependency_spec(
     }
 }
 
-fn read_package_name(path: &Path) -> Result<Option<String>> {
+#[derive(Debug, Default)]
+struct PackageMetadata {
+    name: Option<String>,
+    version: Option<String>,
+}
+
+fn read_package_metadata(path: &Path) -> Result<PackageMetadata> {
     let manifest_path = path.join("ricochet.toml");
     if !manifest_path.is_file() {
-        return Ok(None);
+        return Ok(PackageMetadata::default());
     }
 
     let source = fs::read_to_string(&manifest_path)
@@ -2633,7 +2720,21 @@ fn read_package_name(path: &Path) -> Result<Option<String>> {
     let doc = source
         .parse::<DocumentMut>()
         .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
-    Ok(doc["package"]["name"].as_str().map(str::to_string))
+    let package = doc.get("package").and_then(Item::as_table);
+    let version = package
+        .and_then(|package| package.get("version"))
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(version) = version.as_deref() {
+        validate_package_version(version)?;
+    }
+    Ok(PackageMetadata {
+        name: package
+            .and_then(|package| package.get("name"))
+            .and_then(Item::as_str)
+            .map(str::to_string),
+        version,
+    })
 }
 
 fn directory_package_name(path: &Path) -> String {
@@ -2759,6 +2860,38 @@ fn package_integrity(project_root: &Path, spec: &DependencySpec) -> Result<Strin
     package_tree_integrity(&package_dir)
 }
 
+fn package_version_for_spec(project_root: &Path, spec: &DependencySpec) -> Result<Option<String>> {
+    let package_dir = if spec.git.is_some() {
+        project_dependency_path(project_root, &spec.path, "git package cache")?
+    } else {
+        resolve_local_dependency_dir(project_root, &spec.path)?
+    };
+    let metadata = read_package_metadata(&package_dir)?;
+    validate_package_version_requirement(
+        &spec.name,
+        spec.version_req.as_deref(),
+        metadata.version.as_deref(),
+    )?;
+    Ok(metadata.version)
+}
+
+fn verify_package_version(
+    project_root: &Path,
+    spec: &DependencySpec,
+    lock: &LockedPackage,
+) -> Result<()> {
+    let actual = package_version_for_spec(project_root, spec)?;
+    if lock.package_version != actual {
+        bail!(
+            "package version for {} changed: lock has {:?}, package has {:?}; run rco install if this update is intentional",
+            spec.name,
+            lock.package_version,
+            actual
+        );
+    }
+    validate_package_version_requirement(&spec.name, spec.version_req.as_deref(), actual.as_deref())
+}
+
 fn verify_package_integrity(
     project_root: &Path,
     spec: &DependencySpec,
@@ -2854,6 +2987,47 @@ fn validate_package_integrity(integrity: &str) -> Result<()> {
     };
     if hex.len() != 64 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
         bail!("invalid package integrity {integrity:?}; expected sha256:<64 hex chars>");
+    }
+    Ok(())
+}
+
+fn validate_package_version(version: &str) -> Result<&str> {
+    Version::parse(version).with_context(|| {
+        format!("invalid package version {version:?}; expected semantic version")
+    })?;
+    Ok(version)
+}
+
+fn validate_version_req(version_req: &str) -> Result<&str> {
+    VersionReq::parse(version_req).with_context(|| {
+        format!("invalid dependency version requirement {version_req:?}; expected semver syntax")
+    })?;
+    Ok(version_req)
+}
+
+fn validate_package_version_requirement(
+    package: &str,
+    version_req: Option<&str>,
+    package_version: Option<&str>,
+) -> Result<()> {
+    let Some(version_req) = version_req else {
+        if let Some(package_version) = package_version {
+            validate_package_version(package_version)?;
+        }
+        return Ok(());
+    };
+    let requirement = VersionReq::parse(version_req).with_context(|| {
+        format!("invalid dependency version requirement {version_req:?} for {package}")
+    })?;
+    let package_version = package_version.with_context(|| {
+        format!("dependency {package} declares version requirement {version_req:?}, but the package has no [package] version")
+    })?;
+    let version = Version::parse(package_version)
+        .with_context(|| format!("invalid package version {package_version:?} for {package}"))?;
+    if !requirement.matches(&version) {
+        bail!(
+            "dependency {package} version {package_version} does not satisfy requirement {version_req}"
+        );
     }
     Ok(())
 }
@@ -2992,6 +3166,9 @@ fn write_dependency_manifest(manifest_path: &Path, spec: &DependencySpec) -> Res
     if let Some(rev) = &spec.rev {
         dependency["rev"] = value(rev.clone());
     }
+    if let Some(version_req) = &spec.version_req {
+        dependency["version"] = value(version_req.clone());
+    }
     dependencies.insert(&spec.name, Item::Table(dependency));
 
     fs::write(manifest_path, doc.to_string())
@@ -3021,6 +3198,14 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     }
     if let Some(commit) = &spec.commit {
         package["commit"] = value(commit.clone());
+    }
+    if let Some(version_req) = &spec.version_req {
+        validate_version_req(version_req)?;
+        package["version_req"] = value(version_req.clone());
+    }
+    if let Some(package_version) = &spec.package_version {
+        validate_package_version(package_version)?;
+        package["version"] = value(package_version.clone());
     }
     if let Some(integrity) = &spec.integrity {
         validate_package_integrity(integrity)?;
