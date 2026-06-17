@@ -87,8 +87,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: GUI event/state callbacks, production auth hardening, streaming
-AI helpers, and richer schema package helpers.
+Still planned: production auth hardening, streaming AI helpers, and richer
+schema package helpers.
 
 ## Quickstart
 
@@ -311,12 +311,17 @@ response get "status" at println
 Build a webview document for desktop UI hosts:
 
 ```forth
-"Counter" 1 webview_heading heading var
+state map
+state get "count" 1 put! drop
+"Count: " state get "count" at to-string concat webview_text countText var
 "Increment" "increment" webview_button button var
-"<main>" $heading concat
+actions array
+actions get "Increment" "increment" "increment_counter" webview_action push! drop
+"<main>" $countText concat
+$countText concat
 $button concat
 "</main>" concat body var
-"Counter" $body webview_window value document var
+"Counter" $body state get actions get webview_window_state value document var
 ```
 
 Serve an MVC app from its project directory:

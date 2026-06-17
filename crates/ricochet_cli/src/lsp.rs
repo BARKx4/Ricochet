@@ -194,6 +194,16 @@ const WORD_DOCS: &[WordDoc] = &[
         "Create a native webview document/window value.",
     ),
     WordDoc::new(
+        "webview_action",
+        "webview",
+        "Describe a GUI action name and callback word.",
+    ),
+    WordDoc::new(
+        "webview_window_state",
+        "webview",
+        "Create a webview document with explicit state and actions.",
+    ),
+    WordDoc::new(
         "json-decode",
         "json",
         "Decode JSON text into Ricochet values.",

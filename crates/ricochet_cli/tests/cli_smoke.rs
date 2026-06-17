@@ -2808,6 +2808,70 @@ fn package_gui_creates_standalone_executable_that_exports_webview_document() {
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
+fn gui_exports_state_actions_and_dispatches_action_callbacks() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+( state -> Map ) render_counter function
+  state var
+  "Count: " state get "count" at to-string concat webview_text body var
+  actions array
+  actions get "Increment" "increment" "increment_counter" webview_action push! drop
+  "Counter" body get state get actions get webview_window_state value
+end
+
+( state event -> Map ) increment_counter function
+  event var
+  state var
+  state get "count" state get "count" at 1 + put! drop
+  state get render_counter
+end
+
+state map
+state get "count" 1 put! drop
+state get render_counter document var
+"#,
+    );
+    let initial_export_path = root.join("gui-initial.html");
+    let event_export_path = root.join("gui-event.html");
+
+    let preview_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &initial_export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch");
+    assert_run_success_for("rco gui", "GUI v2 initial document", &preview_output);
+    let initial_html =
+        fs::read_to_string(&initial_export_path).expect("initial GUI HTML should exist");
+    assert!(initial_html.contains("Count: 1"));
+    assert!(initial_html.contains("window.__RICOCHET_STATE__"));
+    assert!(initial_html.contains("\"count\":1"));
+    assert!(initial_html.contains("\"callback\":\"increment_counter\""));
+
+    let event_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &event_export_path)
+        .env(
+            "RICOCHET_GUI_EVENT",
+            r#"{"type":"action","action":"increment"}"#,
+        )
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch with event");
+    assert_run_success_for("rco gui", "GUI v2 action dispatch", &event_output);
+    let event_html = fs::read_to_string(&event_export_path).expect("event GUI HTML should exist");
+    assert!(event_html.contains("Count: 2"));
+    assert!(event_html.contains("\"count\":2"));
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");

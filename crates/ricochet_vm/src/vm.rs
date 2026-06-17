@@ -467,6 +467,10 @@ impl Vm {
         &self.stack
     }
 
+    pub fn push_value(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
     pub fn variables(&self) -> &BTreeMap<String, Value> {
         &self.variables
     }
@@ -1395,10 +1399,16 @@ impl Vm {
             "webview_button" => {
                 self.call_capability_method_word(word, Capability::Webview, "button")
             }
+            "webview_action" => {
+                self.call_capability_method_word(word, Capability::Webview, "action")
+            }
             "webview_input" => self.call_capability_method_word(word, Capability::Webview, "input"),
             "webview_link" => self.call_capability_method_word(word, Capability::Webview, "link"),
             "webview_container" => {
                 self.call_capability_method_word(word, Capability::Webview, "container")
+            }
+            "webview_window_state" => {
+                self.call_capability_method_word(word, Capability::Webview, "window-state")
             }
             "webview_window" | "webview_document" => {
                 self.call_capability_method_word(word, Capability::Webview, "window")
@@ -5579,12 +5589,21 @@ mod tests {
         );
         assert_eq!(document.get("width"), Some(Value::Number(800)));
         assert_eq!(document.get("height"), Some(Value::Number(600)));
+        let Some(Value::Map(state)) = document.get("state") else {
+            panic!("expected default state map, got {document:?}");
+        };
+        assert!(state.is_empty());
+        let Some(Value::Array(actions)) = document.get("actions") else {
+            panic!("expected default actions array, got {document:?}");
+        };
+        assert!(actions.is_empty());
 
         let Some(Value::String(html)) = document.get("html") else {
             panic!("expected document html, got {document:?}");
         };
         assert!(html.contains("<title>Counter &amp; Tools</title>"));
         assert!(html.contains("<h1>Ready</h1>"));
+        assert!(html.contains("window.__RICOCHET_STATE__"));
     }
 
     #[test]

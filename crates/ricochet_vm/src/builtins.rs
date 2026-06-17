@@ -306,9 +306,11 @@ impl Vm {
             "text" => self.method_webview_text(receiver, method),
             "heading" => self.method_webview_heading(receiver, method),
             "button" => self.method_webview_button(receiver, method),
+            "action" => self.method_webview_action(receiver, method),
             "input" => self.method_webview_input(receiver, method),
             "link" => self.method_webview_link(receiver, method),
             "container" => self.method_webview_container(receiver, method),
+            "window-state" => self.method_webview_window_state(receiver, method),
             "window" | "document" => self.method_webview_window(receiver, method),
             "matches?" => self.method_regex_matches(receiver, method),
             "captures" => self.method_regex_captures(receiver, method),
@@ -2778,6 +2780,22 @@ impl Vm {
         )))
     }
 
+    fn method_webview_action(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let callback = self.pop_string(method, "callback word string")?;
+        let action = self.pop_string(method, "action name string")?;
+        let label = self.pop_string(method, "button label string")?;
+        Ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("action".to_string())),
+                ("label".to_string(), Value::String(label)),
+                ("action".to_string(), Value::String(action)),
+                ("callback".to_string(), Value::String(callback)),
+            ])
+            .into(),
+        ))
+    }
+
     fn method_webview_input(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Webview, method)?;
         let value = self.pop_string(method, "input value string")?;
@@ -2816,7 +2834,9 @@ impl Vm {
         require_capability(receiver, Capability::Webview, method)?;
         let body = self.pop_string(method, "webview body HTML string")?;
         let title = self.pop_string(method, "webview title string")?;
-        let html = webview_document_html(&title, &body);
+        let state = Value::Map(BTreeMap::new().into());
+        let actions = Value::Array(Vec::new().into());
+        let html = webview_document_html(&title, &body, &state, &actions)?;
         Ok(Value::result_ok(Value::Map(
             BTreeMap::from([
                 ("type".to_string(), Value::String("webview".to_string())),
@@ -2825,9 +2845,51 @@ impl Vm {
                 ("html".to_string(), Value::String(html)),
                 ("width".to_string(), Value::Number(800)),
                 ("height".to_string(), Value::Number(600)),
+                ("state".to_string(), state),
+                ("actions".to_string(), actions),
             ])
             .into(),
         )))
+    }
+
+    fn method_webview_window_state(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let actions = self.pop_webview_actions(method)?;
+        let state = self.pop_webview_state(method)?;
+        let body = self.pop_string(method, "webview body HTML string")?;
+        let title = self.pop_string(method, "webview title string")?;
+        let html = webview_document_html(&title, &body, &state, &actions)?;
+        Ok(Value::result_ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("webview".to_string())),
+                ("title".to_string(), Value::String(title)),
+                ("body".to_string(), Value::String(body)),
+                ("html".to_string(), Value::String(html)),
+                ("width".to_string(), Value::Number(800)),
+                ("height".to_string(), Value::Number(600)),
+                ("state".to_string(), state),
+                ("actions".to_string(), actions),
+            ])
+            .into(),
+        )))
+    }
+
+    fn pop_webview_state(&mut self, word: &str) -> Result<Value, VmError> {
+        match self.pop(word)? {
+            state @ Value::Map(_) => Ok(state),
+            value => Err(method_type_error(word, "state map", &value)),
+        }
+    }
+
+    fn pop_webview_actions(&mut self, word: &str) -> Result<Value, VmError> {
+        match self.pop(word)? {
+            actions @ Value::Array(_) | actions @ Value::List(_) => Ok(actions),
+            value => Err(method_type_error(word, "actions array or list", &value)),
+        }
     }
 
     fn pop_string(&mut self, word: &str, expected: &str) -> Result<String, VmError> {
@@ -3288,8 +3350,15 @@ fn escape_html_attribute(value: &str) -> String {
     escaped
 }
 
-fn webview_document_html(title: &str, body: &str) -> String {
-    format!(
+fn webview_document_html(
+    title: &str,
+    body: &str,
+    state: &Value,
+    actions: &Value,
+) -> Result<String, VmError> {
+    let state_json = webview_json_literal("state", state)?;
+    let actions_json = webview_json_literal("actions", actions)?;
+    Ok(format!(
         r#"<!doctype html>
 <html lang="en">
 <head>
@@ -3313,11 +3382,40 @@ fn webview_document_html(title: &str, body: &str) -> String {
 </head>
 <body>
 {}
+<script>
+(() => {{
+  window.__RICOCHET_STATE__ = {};
+  window.__RICOCHET_ACTIONS__ = {};
+  document.addEventListener("click", (event) => {{
+    const target = event.target.closest("[data-rco-action]");
+    if (!target) return;
+    const message = {{
+      type: "action",
+      action: target.getAttribute("data-rco-action"),
+      state: window.__RICOCHET_STATE__
+    }};
+    if (window.ipc && typeof window.ipc.postMessage === "function") {{
+      window.ipc.postMessage(JSON.stringify(message));
+    }}
+  }});
+}})();
+</script>
 </body>
 </html>"#,
         escape_html_text(title),
-        body
-    )
+        body,
+        state_json,
+        actions_json
+    ))
+}
+
+fn webview_json_literal(name: &str, value: &Value) -> Result<String, VmError> {
+    value_to_json(value)
+        .and_then(|value| serde_json::to_string(&value).map_err(|error| error.to_string()))
+        .map_err(|message| VmError::InvalidArgument {
+            word: "webview_window_state".to_string(),
+            message: format!("webview {name} cannot be encoded as JSON: {message}"),
+        })
 }
 
 fn builtin_class_name(value: &Value) -> Option<&'static str> {

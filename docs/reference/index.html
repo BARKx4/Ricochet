@@ -190,10 +190,14 @@ packageHello</code></pre>
           </article>
           <article>
             <h3>Desktop Webview</h3>
-            <pre><code>"Counter" 1 webview_heading heading var
+            <pre><code>state map
+state get "count" 1 put! drop
+"Count: " state get "count" at to-string concat webview_text countText var
 "Increment" "increment" webview_button button var
-"Counter" $button webview_window value document var</code></pre>
-            <p>The webview globals build escaped HTML fragments and document maps for desktop webview hosts.</p>
+actions array
+actions get "Increment" "increment" "increment_counter" webview_action push! drop
+"Counter" $countText $button concat state get actions get webview_window_state value document var</code></pre>
+            <p>The webview globals build escaped HTML fragments and state/action document maps for desktop webview hosts.</p>
           </article>
           <article>
             <h3>Terminal UI</h3>
@@ -660,7 +664,7 @@ end</code></pre>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco migrate status [path]</code><span>Show migration status for a SQLite, PostgreSQL, or MySQL/MariaDB MVC project with `[database.default]` configured.</span></div>
           <div><code>rco migrate apply [path]</code><span>Apply pending SQL migrations from `db/migrations` and record them in `schema_migrations`.</span></div>
-          <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview_window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
+          <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview_window` or `webview_window_state` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
           <div><code>rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Run a terminal UI script without printing the ordinary final stack dump.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable; defaults to embedding bytecode from `main.rco`. `--tui` uses the console launcher without final stack output. `--gui` uses the `rco-gui` launcher for a webview document. Add `--mvc` with `--gui` to package an MVC project directory as a local-server desktop WebView app. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME|--as ALIAS] [--registry PATH|--registry-url URL] [--version REQ] [--no-fetch]</code><span>Record a path, `github:owner/repo@ref`, local `registry:name`, or static `registry:@scope/name` package dependency in `ricochet.toml` and `ricochet.lock`, optionally requiring the package `[package] version` to satisfy a semantic version requirement.</span></div>

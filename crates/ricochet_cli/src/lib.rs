@@ -11,7 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use ricochet_bytecode::Chunk;
+use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
     format_source, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
@@ -40,6 +40,7 @@ const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
+const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -432,12 +433,20 @@ struct MvcBundleFile {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct WebviewDocument {
     title: String,
     html: String,
     width: u32,
     height: u32,
+    state: Value,
+    actions: Vec<WebviewAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebviewAction {
+    action: String,
+    callback: String,
 }
 
 #[derive(Clone, Debug, Default, Args)]
@@ -5620,7 +5629,8 @@ fn render_webview_document(
     if let Err(error) = result {
         bail!("{}", runtime_error_message(&vm, &error));
     }
-    webview_document_from_vm(&vm)
+    let document = webview_document_from_vm(&vm)?;
+    dispatch_webview_event_if_requested(&mut vm, document)
 }
 
 fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
@@ -5637,7 +5647,7 @@ fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
     }
 
     bail!(
-        "GUI apps must leave a `webview .window` result on the stack or store it in a variable named `document`"
+        "GUI apps must leave a `webview_window` result on the stack or store it in a variable named `document`"
     )
 }
 
@@ -5666,7 +5676,82 @@ fn webview_document_from_map(map: &MapValue) -> Result<Option<WebviewDocument>> 
         html: required_document_string(map, "html")?,
         width: required_document_dimension(map, "width")?,
         height: required_document_dimension(map, "height")?,
+        state: optional_document_value(map, "state")
+            .unwrap_or_else(|| Value::Map(BTreeMap::new().into())),
+        actions: optional_document_value(map, "actions")
+            .map(|value| webview_actions_from_value(&value))
+            .transpose()?
+            .unwrap_or_default(),
     }))
+}
+
+fn dispatch_webview_event_if_requested(
+    vm: &mut Vm,
+    document: WebviewDocument,
+) -> Result<WebviewDocument> {
+    let Ok(event_source) = std::env::var(GUI_EVENT_ENV) else {
+        return Ok(document);
+    };
+    let event_json: serde_json::Value = serde_json::from_str(&event_source)
+        .with_context(|| format!("{GUI_EVENT_ENV} must be a JSON object"))?;
+    let action_name = event_json
+        .get("action")
+        .and_then(|value| value.as_str())
+        .context("GUI action event is missing string field `action`")?;
+    let action = document
+        .actions
+        .iter()
+        .find(|action| action.action == action_name)
+        .with_context(|| format!("GUI document has no action named {action_name:?}"))?;
+
+    vm.push_value(document.state.clone());
+    vm.push_value(json_to_ricochet_value(event_json));
+    let mut chunk = Chunk::new("<gui-event>");
+    chunk.push(Op::CallWord(action.callback.clone()), gui_event_span());
+    let result = vm.run_chunk(&chunk);
+    print!("{}", vm.stdout());
+    eprint!("{}", vm.stderr());
+    if let Err(error) = result {
+        bail!("{}", runtime_error_message(vm, &error));
+    }
+    webview_document_from_vm(vm).with_context(|| {
+        format!(
+            "GUI action callback {:?} must return a webview document",
+            action.callback
+        )
+    })
+}
+
+fn webview_actions_from_value(value: &Value) -> Result<Vec<WebviewAction>> {
+    let values = match value {
+        Value::Array(values) => values.snapshot(),
+        Value::List(values) => values.snapshot(),
+        value => bail!("webview document `actions` must be an array or list, got {value:?}"),
+    };
+
+    values
+        .iter()
+        .map(webview_action_from_value)
+        .collect::<Result<Vec<_>>>()
+}
+
+fn webview_action_from_value(value: &Value) -> Result<WebviewAction> {
+    let Value::Map(map) = value else {
+        bail!("webview action entries must be maps, got {value:?}");
+    };
+    if let Some(Value::String(kind)) = map.get("type") {
+        if kind != "action" {
+            bail!("webview action `type` must be \"action\", got {kind:?}");
+        }
+    }
+    Ok(WebviewAction {
+        action: required_document_string(map, "action")?,
+        callback: required_document_string(map, "callback")?,
+    })
+}
+
+fn optional_document_value(map: &MapValue, key: &str) -> Option<Value> {
+    map.get(key)
 }
 
 fn required_document_string(map: &MapValue, key: &str) -> Result<String> {
@@ -5686,6 +5771,43 @@ fn required_document_dimension(map: &MapValue, key: &str) -> Result<u32> {
         }
         Some(value) => bail!("webview document `{key}` must be a number, got {value:?}"),
         None => bail!("webview document is missing `{key}`"),
+    }
+}
+
+fn gui_event_span() -> SourceSpan {
+    SourceSpan {
+        file: "<gui-event>".to_string(),
+        start: 0,
+        end: 0,
+        line: 1,
+        column: 1,
+    }
+}
+
+fn json_to_ricochet_value(value: serde_json::Value) -> Value {
+    match value {
+        serde_json::Value::Null => Value::Nil,
+        serde_json::Value::Bool(value) => Value::Bool(value),
+        serde_json::Value::Number(value) => Value::Number(
+            value
+                .as_i64()
+                .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
+        ),
+        serde_json::Value::String(value) => Value::String(value),
+        serde_json::Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(json_to_ricochet_value)
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+        serde_json::Value::Object(values) => Value::Map(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, json_to_ricochet_value(value)))
+                .collect::<BTreeMap<_, _>>()
+                .into(),
+        ),
     }
 }
 

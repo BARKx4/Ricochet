@@ -1772,8 +1772,16 @@ const WORDS = [
     "aliases": ["webview"],
     "group": "system",
     "stack": "label:string action:string -> html:string",
-    "body": "Builds an escaped button with a `data-rco-action` attribute for future host event dispatch.",
+    "body": "Builds an escaped button with a `data-rco-action` attribute for GUI action dispatch.",
     "example": "\"Increment\" \"increment\" webview_button"
+  },
+  {
+    "word": "webview_action",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "label:string action:string callback:string -> map",
+    "body": "Builds a GUI action descriptor map with a callback word name.",
+    "example": "\"Increment\" \"increment\" \"increment_counter\" webview_action"
   },
   {
     "word": "webview_input",
@@ -1804,8 +1812,16 @@ const WORDS = [
     "aliases": ["webview_document"],
     "group": "system",
     "stack": "title:string bodyHtml:string -> result(map)",
-    "body": "Builds a webview document map with `type`, `title`, `body`, full `html`, and default `width`/`height` fields for `rco gui` and `rco package --gui` hosts.",
+    "body": "Builds a webview document map with `type`, `title`, `body`, full `html`, default `width`/`height`, empty `state`, and empty `actions` fields for `rco gui` and `rco package --gui` hosts.",
     "example": "\"Counter\" $body webview_window value"
+  },
+  {
+    "word": "webview_window_state",
+    "aliases": ["webview_document"],
+    "group": "system",
+    "stack": "title:string bodyHtml:string state:map actions:array -> result(map)",
+    "body": "Builds a webview document map with explicit `state` and `actions`; action callbacks receive `(state event -> document)`.",
+    "example": "\"Counter\" $body state get actions get webview_window_state value"
   },
   {
     "word": "inspect",
