@@ -1,0 +1,13 @@
+"../openai" import
+
+AiPackageTest TestCase Subclass
+  [
+    "TOKEN" ai_bearer_headers "Authorization" at
+    "Bearer TOKEN" assert-equals
+  ] "testBearerHeaders" Method
+  [
+    messages array
+    "gpt-test" messages get ai_openai_chat_body "model" at
+    "gpt-test" assert-equals
+  ] "testOpenAiBody" Method
+end

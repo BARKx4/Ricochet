@@ -1,0 +1,9 @@
+"../validation" import
+
+"email" "ada@example.com" form_field field var
+
+field get "value" at form_required println
+
+form_validation validation var
+
+validation get "email" "Email is required" form_error form_add_error json-encode println

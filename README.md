@@ -49,7 +49,13 @@ foundation that other developers can scaffold, run, inspect, and extend.
   path/GitHub/registry dependencies, enforce semver requirements, pin Git
   dependencies to immutable commits in `ricochet.lock`, store deterministic
   `sha256:` package-content integrity hashes, attach provenance/signature
-  digests to registry packages, and import package sources by package name.
+  digests to registry packages, rebuild/check static mirrorable registries,
+  search static registry indexes, install scoped registry packages through
+  `--registry-url`, and import package sources by local alias.
+- First-party beta packages: repo-local `@ricochet/auth`, `@ricochet/ai`,
+  `@ricochet/forms`, and `@ricochet/test_helpers` packages provide session
+  guards, provider HTTP request builders, form/validation helpers, and package
+  test utilities without moving app-specific workflows into language core.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -81,8 +87,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: GUI event/state callbacks, migrations, production auth packages,
-and structured AI/schema package helpers.
+Still planned: GUI event/state callbacks, production auth hardening, streaming
+AI helpers, and richer schema package helpers.
 
 ## Quickstart
 
@@ -195,7 +201,11 @@ rco add ./packages/greeter --version "^0.2.0"
 rco publish ./packages/greeter --registry ../ricochet-registry
 rco publish ./packages/greeter --registry ../ricochet-registry `
   --provenance-file provenance.json --signature-file greeter.sig --signature-kind minisign
+rco registry rebuild ../ricochet-registry
+rco registry check ../ricochet-registry
+rco search greeter --registry-url file:///E:/path/to/ricochet-registry/index.toml
 rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -208,15 +218,20 @@ package version, and `sha256:` content integrity hash. `rco publish --registry`
 creates a file-backed local registry entry for packages with `[package] name`
 and `version`; optional `--provenance-file`, `--signature-file`, and
 `--signature-kind` flags attach registry metadata and lockfile-visible
-`sha256:` digests for external attestation/signing workflows. `rco add
-registry:name --registry PATH` installs from that registry, or uses
-`RICOCHET_REGISTRY` when `--registry` is omitted. `rco install`
-and `rco verify` reject packages whose `[package] version` does not satisfy the
-manifest requirement, and `rco verify` recomputes the package tree hash while
+`sha256:` digests for external attestation/signing workflows. `rco registry
+rebuild PATH` writes a static `index.toml`, package metadata, and release-style
+archives, while `rco registry check PATH` verifies the generated hashes. `rco
+add registry:name --registry PATH` installs from the local registry layout, or
+uses `RICOCHET_REGISTRY` when `--registry` is omitted. `rco add
+registry:@scope/name --registry-url URL --as alias` installs from a static
+HTTP/file registry index with required `sha256:` archive verification. `rco
+install` and `rco verify` reject packages whose `[package] version` does not
+satisfy the manifest requirement, and `rco verify` recomputes the package tree hash while
 ignoring VCS metadata, so it catches local path changes, registry cache drift,
 or cached Git package drift without fetching or rewriting anything.
-Use `rco audit` for a human-readable dependency report or `rco audit --json`
-for CI and release tooling.
+Use `rco search QUERY --registry-url URL` to discover static registry packages,
+and use `rco audit` or `rco audit --json` for dependency reports in CI and
+release tooling.
 
 Local package dependencies can be imported by package name:
 

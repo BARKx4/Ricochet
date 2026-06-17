@@ -1,0 +1,5 @@
+[package]
+name = "@ricochet/test_helpers"
+version = "0.1.0"
+description = "Beta test helper words for Ricochet packages and MVC apps."
+license = "GPL-3.0"

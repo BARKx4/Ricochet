@@ -1,0 +1,9 @@
+"../session" import
+
+session map
+
+session get "user_id" "ada" put! drop
+
+session get auth_user_present println
+
+session get "/login" auth_route_guard json-encode println

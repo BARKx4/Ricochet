@@ -1,0 +1,16 @@
+"../validation" import
+
+FormsPackageTest TestCase Subclass
+  [
+    "name" "Ada" form_field "value" at
+    "Ada" assert-equals
+  ] "testFieldValue" Method
+  [
+    "  " form_required
+    false assert-equals
+  ] "testBlankRequired" Method
+  [
+    form_validation "email" "Email required" form_error form_add_error "ok" at
+    false assert-equals
+  ] "testValidationError" Method
+end

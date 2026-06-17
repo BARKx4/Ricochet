@@ -1,0 +1,39 @@
+(( Session and route guard helpers for trusted local Ricochet MVC apps. ))
+( session -> Bool ) auth_user_present function
+  session var
+  session get "user_id" has?
+end
+
+( session redirectPath -> Map ) auth_route_guard function
+  redirectPath var
+  session var
+  guard map
+  guard get "ok" session get auth_user_present put! drop
+  guard get "redirect" redirectPath get put! drop
+  guard get "reason" "missing_user_session" put! drop
+  guard get
+end
+
+( session -> String ) auth_csrf_token function
+  session var
+  session get "csrf_token" has? if
+    session get "csrf_token" at
+  else
+    ""
+  end
+end
+
+( session submittedToken -> Bool ) auth_csrf_valid function
+  submittedToken var
+  session var
+  session get auth_csrf_token submittedToken get =
+end
+
+( name -> Map ) auth_extension_point function
+  name var
+  extension map
+  extension get "package" "@ricochet/auth" put! drop
+  extension get "name" name get put! drop
+  extension get "stable" false put! drop
+  extension get
+end

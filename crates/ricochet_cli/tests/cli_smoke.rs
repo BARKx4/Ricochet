@@ -1922,6 +1922,141 @@ fn add_installs_static_registry_url_dependency_with_local_alias() {
 }
 
 #[test]
+fn first_party_packages_publish_to_static_registry_and_import_from_aliases() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let repo = repo_root_for_test();
+    let registry = base.join("registry");
+    let packages = [
+        ("ricochet_auth", "@ricochet/auth", "auth"),
+        ("ricochet_ai", "@ricochet/ai", "ai"),
+        ("ricochet_forms", "@ricochet/forms", "forms"),
+        (
+            "ricochet_test_helpers",
+            "@ricochet/test_helpers",
+            "test_helpers",
+        ),
+    ];
+
+    for (directory, identity, _) in packages {
+        let package_dir = repo.join("packages").join(directory);
+        assert!(
+            package_dir.is_dir(),
+            "first-party package {identity} should exist at {}",
+            package_dir.display()
+        );
+        let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("publish")
+            .arg(&package_dir)
+            .arg("--registry")
+            .arg(&registry)
+            .output()
+            .expect("rco publish should launch");
+        assert_run_success_for("rco publish", identity, &publish);
+    }
+
+    let rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for("rco registry rebuild", "first-party packages", &rebuild);
+
+    let check = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("check")
+        .arg(&registry)
+        .output()
+        .expect("rco registry check should launch");
+    assert_run_success_for("rco registry check", "first-party packages", &check);
+
+    let registry_url = file_url_for_test(&registry.join("index.toml"));
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("ricochet")
+        .arg("--registry-url")
+        .arg(&registry_url)
+        .output()
+        .expect("rco search should launch");
+    assert_run_success_for("rco search", "first-party packages", &search);
+    let search_stdout = String::from_utf8_lossy(&search.stdout);
+    for (_, identity, _) in packages {
+        assert!(
+            search_stdout.contains(identity),
+            "search should list {identity}, got:\n{search_stdout}"
+        );
+    }
+
+    let app = base.join("app");
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        "[package]\nname = \"first_party_app\"\n",
+    );
+    write_source_at(
+        &app,
+        "main.rco",
+        r#"
+"auth/session" import
+"ai/openai" import
+"forms/validation" import
+"test_helpers/assertions" import
+
+session map
+session get "user_id" "ada" put! drop
+session get auth_user_present
+
+headers map
+"Authorization" "Bearer token" headers get ai_header_put
+headers get "Authorization" at
+
+"body" "Hello" form_field
+"value" at
+
+"auth ok" "auth ok" test_assert_equal
+"package imports ready"
+"#,
+    );
+
+    for (_, identity, alias) in packages {
+        let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("add")
+            .arg(format!("registry:{identity}"))
+            .arg("--registry-url")
+            .arg(&registry_url)
+            .arg("--as")
+            .arg(alias)
+            .arg("--version")
+            .arg("^0.1.0")
+            .current_dir(&app)
+            .output()
+            .expect("rco add should launch");
+        assert_run_success_for("rco add", identity, &add);
+    }
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    for expected in [
+        "Bool(true)",
+        "String(\"Bearer token\")",
+        "String(\"Hello\")",
+        "String(\"package imports ready\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "first-party package app should output {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn publish_records_provenance_and_signature_hooks() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");
@@ -6614,10 +6749,11 @@ fn escape_ricochet_string(value: &str) -> String {
 }
 
 fn example_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join("examples")
-        .join(name)
+    repo_root_for_test().join("examples").join(name)
+}
+
+fn repo_root_for_test() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn assert_run_success(output: &std::process::Output) {

@@ -1,0 +1,18 @@
+"../assertions" import
+
+TestHelpersPackageTest TestCase Subclass
+  [
+    "Ada" "Ada" test_assert_equal
+    "Ada" assert-equals
+  ] "testAssertEqualReturnsActual" Method
+  [
+    response map
+    response get "status" 200 put! drop
+    response get test_http_ok
+    true assert-equals
+  ] "testHttpOk" Method
+  [
+    "Ada" "user" test_fixture "value" at
+    "Ada" assert-equals
+  ] "testFixture" Method
+end

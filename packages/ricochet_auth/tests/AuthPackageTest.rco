@@ -1,0 +1,16 @@
+"../session" import
+
+AuthPackageTest TestCase Subclass
+  [
+    session map
+    session get "user_id" "ada" put! drop
+    session get auth_user_present
+    true assert-equals
+  ] "testUserPresent" Method
+  [
+    session map
+    session get "csrf_token" "abc" put! drop
+    session get "abc" auth_csrf_valid
+    true assert-equals
+  ] "testCsrfValid" Method
+end

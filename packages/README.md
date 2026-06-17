@@ -1,0 +1,32 @@
+# Ricochet First-Party Packages
+
+These packages are beta developer targets for apps built with Ricochet. They are
+published through the static registry flow and intentionally live outside the
+language core.
+
+- `@ricochet/auth`: session guards, route guard result maps, CSRF/form-token
+  helpers, and extension points. It does not claim production password storage.
+- `@ricochet/ai`: provider-agnostic HTTP request maps, env-secret reference
+  helpers, OpenAI-compatible request builders, and response normalization.
+- `@ricochet/forms`: form field maps, required-field validation, validation
+  result maps, and multipart/upload helper maps.
+- `@ricochet/test_helpers`: package and MVC test assertions, fixture maps,
+  HTTP assertion helpers, and temporary workspace helper maps.
+
+Publish the packages into a local static registry:
+
+```powershell
+rco publish packages/ricochet_auth --registry .registry
+rco publish packages/ricochet_ai --registry .registry
+rco publish packages/ricochet_forms --registry .registry
+rco publish packages/ricochet_test_helpers --registry .registry
+rco registry rebuild .registry
+rco registry check .registry
+```
+
+Install from that registry with scoped identities and local aliases:
+
+```powershell
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/.registry/index.toml --as forms
+"forms/validation" import
+```
