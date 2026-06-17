@@ -41,6 +41,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
+- Debugging workflow: trace instruction execution, pause on source breakpoints,
+  inspect stack/locals/globals at pauses, and write JSON runtime traces with
+  `rco run --trace-file`.
 - Package workflow: record, install, and verify path/GitHub dependencies, pin
   Git dependencies to immutable commits in `ricochet.lock`, store deterministic
   `sha256:` package-content integrity hashes, and import local package sources

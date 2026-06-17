@@ -1053,6 +1053,13 @@ impl Vm {
             source: source_label(&instruction.span),
             opcode: format!("{:?}", instruction.op),
             stack: self.stack.clone(),
+            globals: debug_variables(&self.variables),
+            locals: self
+                .local_variables
+                .last()
+                .map(debug_variables)
+                .unwrap_or_default(),
+            current_self: self.self_stack.last().cloned(),
         };
         self.record_debug_event(DebugEvent::Paused(pause.clone()));
 
@@ -3560,6 +3567,13 @@ fn output_string(value: &Value) -> String {
 
 fn source_label(span: &SourceSpan) -> String {
     format!("{}:{}", span.file, span.line)
+}
+
+fn debug_variables(variables: &BTreeMap<String, Value>) -> Vec<(String, Value)> {
+    variables
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 fn is_known_predicate(name: &str) -> bool {

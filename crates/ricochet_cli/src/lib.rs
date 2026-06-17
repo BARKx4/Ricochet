@@ -14,7 +14,9 @@ use ricochet_syntax::{
     format_source, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
     LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr, TokenKind,
 };
-use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
+use ricochet_vm::{
+    DebugAction, DebugEvent, DebugPause, DebugPauseReason, MapValue, RicochetResult, Value, Vm,
+};
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use semver::{Version, VersionReq};
 use serde::Serialize;
@@ -71,6 +73,12 @@ enum Command {
         step: bool,
         #[arg(long = "breakpoint", value_name = "LINE")]
         breakpoints: Vec<usize>,
+        #[arg(
+            long = "trace-file",
+            value_name = "PATH",
+            help = "Write recorded debug events to a JSON trace file"
+        )]
+        trace_file: Option<PathBuf>,
         #[command(flatten)]
         capabilities: CapabilityOptions,
         path: String,
@@ -80,6 +88,12 @@ enum Command {
     RunBytecode {
         #[arg(long)]
         debug: bool,
+        #[arg(
+            long = "trace-file",
+            value_name = "PATH",
+            help = "Write recorded debug events to a JSON trace file"
+        )]
+        trace_file: Option<PathBuf>,
         #[command(flatten)]
         capabilities: CapabilityOptions,
         path: String,
@@ -518,6 +532,7 @@ pub async fn run_cli() -> Result<()> {
                         step: false,
                         breakpoints: &[],
                         breakpoint_file: None,
+                        trace_file: None,
                         args: std::env::args().skip(1).collect(),
                         capabilities: CapabilityOptions::default(),
                         print_final_stack: true,
@@ -563,16 +578,26 @@ pub async fn run_cli() -> Result<()> {
             debug,
             step,
             breakpoints,
+            trace_file,
             capabilities,
             path,
             args,
-        } => run_file(&path, debug, step, &breakpoints, args, capabilities)?,
+        } => run_file(
+            &path,
+            debug,
+            step,
+            &breakpoints,
+            trace_file.as_deref(),
+            args,
+            capabilities,
+        )?,
         Command::RunBytecode {
             debug,
+            trace_file,
             capabilities,
             path,
             args,
-        } => run_bytecode(&path, debug, args, capabilities)?,
+        } => run_bytecode(&path, debug, trace_file.as_deref(), args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Migrate { command } => migrate(command).await?,
         Command::Gui {
@@ -3910,6 +3935,7 @@ fn run_file(
     debug: bool,
     step: bool,
     breakpoints: &[usize],
+    trace_file: Option<&Path>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
@@ -3921,6 +3947,7 @@ fn run_file(
             step,
             breakpoints,
             breakpoint_file: Some(&chunk.file),
+            trace_file,
             args,
             capabilities,
             print_final_stack: true,
@@ -3931,6 +3958,7 @@ fn run_file(
 fn run_bytecode(
     path: &str,
     debug: bool,
+    trace_file: Option<&Path>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
@@ -3943,6 +3971,7 @@ fn run_bytecode(
             step: false,
             breakpoints: &[],
             breakpoint_file: None,
+            trace_file,
             args,
             capabilities,
             print_final_stack: true,
@@ -3964,6 +3993,7 @@ fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
             step: false,
             breakpoints: &[],
             breakpoint_file: None,
+            trace_file: None,
             args,
             capabilities,
             print_final_stack: false,
@@ -3983,6 +4013,7 @@ fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
             step: false,
             breakpoints: &[],
             breakpoint_file: None,
+            trace_file: None,
             args,
             capabilities: CapabilityOptions::default(),
             print_final_stack: false,
@@ -4329,6 +4360,7 @@ struct RunChunkCliOptions<'a> {
     step: bool,
     breakpoints: &'a [usize],
     breakpoint_file: Option<&'a str>,
+    trace_file: Option<&'a Path>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
     print_final_stack: bool,
@@ -4336,7 +4368,10 @@ struct RunChunkCliOptions<'a> {
 
 fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
     let mut vm = cli_vm(options.args, &options.capabilities)?;
-    let debugger_enabled = options.debug || options.step || !options.breakpoints.is_empty();
+    let debugger_enabled = options.debug
+        || options.step
+        || !options.breakpoints.is_empty()
+        || options.trace_file.is_some();
     if debugger_enabled {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
@@ -4352,12 +4387,15 @@ fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
         vm.add_line_breakpoint(file.to_string(), line);
     }
     if options.step || !options.breakpoints.is_empty() {
-        vm.set_debug_controller(|_| read_terminal_debug_action());
+        vm.set_debug_controller(read_terminal_debug_action);
     }
 
     let result = vm.run_chunk(chunk);
     print!("{}", vm.stdout());
     eprint!("{}", vm.stderr());
+    if let Some(trace_file) = options.trace_file {
+        write_debug_trace(trace_file, vm.debug_events())?;
+    }
     if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
         std::process::exit(code);
     }
@@ -4397,6 +4435,77 @@ fn runtime_error_message(vm: &Vm, error: &ricochet_vm::VmError) -> String {
     .render(&source)
 }
 
+fn write_debug_trace(path: &Path, events: &[DebugEvent]) -> Result<()> {
+    let trace: Vec<_> = events.iter().map(debug_event_json).collect();
+    let json = serde_json::to_string_pretty(&trace)?;
+    fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
+    match event {
+        DebugEvent::Paused(pause) => json!({
+            "event": "paused",
+            "reason": match pause.reason {
+                DebugPauseReason::Step => "step",
+                DebugPauseReason::Breakpoint => "breakpoint",
+            },
+            "frame": pause.frame,
+            "source": pause.source,
+            "opcode": pause.opcode,
+            "stack": debug_stack_json(&pause.stack),
+            "locals": debug_bindings_json(&pause.locals),
+            "globals": debug_bindings_json(&pause.globals),
+            "self": pause.current_self.as_ref().map(debug_value_json),
+        }),
+        DebugEvent::Instruction {
+            frame,
+            source,
+            opcode,
+            stack_before,
+            stack_after,
+        } => json!({
+            "event": "instruction",
+            "frame": frame,
+            "source": source,
+            "opcode": opcode,
+            "stack_before": debug_stack_json(stack_before),
+            "stack_after": debug_stack_json(stack_after),
+        }),
+        DebugEvent::Fault {
+            frame,
+            message,
+            stack,
+        } => json!({
+            "event": "fault",
+            "frame": frame,
+            "message": message,
+            "stack": debug_stack_json(stack),
+        }),
+    }
+}
+
+fn debug_stack_json(stack: &[Value]) -> Vec<serde_json::Value> {
+    stack.iter().map(debug_value_json).collect()
+}
+
+fn debug_bindings_json(bindings: &[(String, Value)]) -> Vec<serde_json::Value> {
+    bindings
+        .iter()
+        .map(|(name, value)| {
+            json!({
+                "name": name,
+                "value": debug_value_json(value),
+            })
+        })
+        .collect()
+}
+
+fn debug_value_json(value: &Value) -> serde_json::Value {
+    json!({
+        "debug": format!("{value:?}"),
+    })
+}
+
 fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
     let mut vm = Vm::default();
     capabilities.apply_to(&mut vm)?;
@@ -4411,7 +4520,7 @@ fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
     Ok(vm)
 }
 
-fn read_terminal_debug_action() -> DebugAction {
+fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
     loop {
         print!("debug> ");
         if io::stdout().flush().is_err() {
@@ -4425,9 +4534,24 @@ fn read_terminal_debug_action() -> DebugAction {
                 "" | "s" | "step" => return DebugAction::Step,
                 "c" | "continue" => return DebugAction::Continue,
                 "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
-                _ => println!("commands: step, continue, abort"),
+                "stack" => println!("{:?}", pause.stack),
+                "locals" => print_debug_bindings("locals", &pause.locals),
+                "globals" => print_debug_bindings("globals", &pause.globals),
+                "self" => println!("{:?}", pause.current_self),
+                _ => println!("commands: step, continue, abort, stack, locals, globals, self"),
             },
         }
+    }
+}
+
+fn print_debug_bindings(label: &str, bindings: &[(String, Value)]) {
+    if bindings.is_empty() {
+        println!("{label}: <empty>");
+        return;
+    }
+    println!("{label}:");
+    for (name, value) in bindings {
+        println!("  {name} = {value:?}");
     }
 }
 
@@ -4603,6 +4727,15 @@ fn print_debug_event(event: &DebugEvent) {
                 pause.source, pause.frame, pause.opcode
             );
             println!("  stack:  {:?}", pause.stack);
+            if !pause.locals.is_empty() {
+                println!("  locals: {:?}", pause.locals);
+            }
+            if !pause.globals.is_empty() {
+                println!("  globals: {:?}", pause.globals);
+            }
+            if let Some(current_self) = &pause.current_self {
+                println!("  self:   {current_self:?}");
+            }
         }
         DebugEvent::Instruction {
             frame,

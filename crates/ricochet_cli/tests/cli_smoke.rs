@@ -2880,6 +2880,86 @@ fn run_debug_breakpoint_pauses_inside_function_body() {
 }
 
 #[test]
+fn run_debug_breakpoint_prints_locals_for_current_frame() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        "work function\n  41 answer var\n  answer get\nend\nwork\n",
+    )
+    .expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--breakpoint")
+        .arg("3")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"continue\n")
+        .expect("debugger command should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "locals breakpoint should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("locals: [(\"answer\", Number(41))]"),
+        "pause should include current frame locals, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_trace_file_records_json_debug_events() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    fs::write(&source_path, "2\n3\n+\n").expect("temp source should be written");
+    let trace_path = root.join("trace.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--trace-file")
+        .arg(&trace_path)
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success_for("rco run --trace-file", "trace fixture", &output);
+
+    let trace = fs::read_to_string(&trace_path).expect("trace file should exist");
+    let trace: serde_json::Value = serde_json::from_str(&trace).expect("trace should be JSON");
+    let events = trace.as_array().expect("trace should be a JSON array");
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "instruction" && event["opcode"] == "CallWord(\"+\")"),
+        "trace should include plus instruction event, got:\n{trace:#?}"
+    );
+    assert!(
+        events.iter().any(|event| {
+            event["event"] == "instruction"
+                && event["stack_after"]
+                    .as_array()
+                    .is_some_and(|stack| stack.iter().any(|value| value["debug"] == "Number(5)"))
+        }),
+        "trace should include stack state after addition, got:\n{trace:#?}"
+    );
+}
+
+#[test]
 fn test_runs_testcase_methods() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

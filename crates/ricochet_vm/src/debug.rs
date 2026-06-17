@@ -20,6 +20,9 @@ pub struct DebugPause {
     pub source: String,
     pub opcode: String,
     pub stack: Vec<Value>,
+    pub globals: Vec<(String, Value)>,
+    pub locals: Vec<(String, Value)>,
+    pub current_self: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

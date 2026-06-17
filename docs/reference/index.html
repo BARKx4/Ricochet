@@ -614,8 +614,9 @@ end</code></pre>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy debug commands" title="Copy">copy</button><code>rco run --debug app.rco
 rco run --debug --step app.rco
 rco run --breakpoint 12 app.rco
+rco run --trace-file trace.json app.rco
 rco repl --debug</code></pre>
-            <p>Debug mode prints each instruction with stack before and after. Step mode pauses and accepts `step`, `continue`, or `abort`.</p>
+            <p>Debug mode prints each instruction with stack before and after. Step mode pauses and accepts `step`, `continue`, `abort`, `stack`, `locals`, `globals`, or `self`; trace files record JSON debug events for tooling.</p>
           </article>
 
           <article class="example-panel">
@@ -652,8 +653,8 @@ end</code></pre>
           <div><code>rco check [path]</code><span>Compile-check one file, a folder of `.rco` files, or an MVC app.</span></div>
           <div><code>rco fmt [--check] [path]</code><span>Format one `.rco` file or every `.rco` file under a directory.</span></div>
           <div><code>rco repl [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST]</code><span>Run interactive Ricochet input and print the stack after each chunk.</span></div>
-          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
-          <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
+          <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`; optionally record JSON debug trace events.</span></div>
+          <div><code>rco run-bytecode [--debug] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file; optionally record JSON debug trace events.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
           <div><code>rco migrate status [path]</code><span>Show migration status for a SQLite, PostgreSQL, or MySQL/MariaDB MVC project with `[database.default]` configured.</span></div>
           <div><code>rco migrate apply [path]</code><span>Apply pending SQL migrations from `db/migrations` and record them in `schema_migrations`.</span></div>
