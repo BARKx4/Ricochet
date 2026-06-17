@@ -1,0 +1,18 @@
+(( Set a breakpoint on `worker get await` to inspect the task snapshot. ))
+"debugger demo start" println
+
+[ 40 2 + ] spawn worker var
+
+"ada" name var
+
+name get uppercase upperName var
+
+worker get await answer var
+
+answer get 42 assert-equals
+
+worker get release-task
+
+upperName get println
+
+"debugger demo done" println

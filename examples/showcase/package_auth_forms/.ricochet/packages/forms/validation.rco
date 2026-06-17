@@ -1,0 +1,56 @@
+(( Form maps and validation result helpers. ))
+( name value -> Map ) form_field function
+  value var
+  name var
+  field map
+  field get "name" name get put! drop
+  field get "value" value get put! drop
+  field get
+end
+
+( value -> Bool ) form_required function
+  value var
+  value get nil? if
+    false
+  else
+    value get blank? false =
+  end
+end
+
+( field message -> Map ) form_error function
+  message var
+  field var
+  error map
+  error get "field" field get put! drop
+  error get "message" message get put! drop
+  error get
+end
+
+( -> Map ) form_validation function
+  validation map
+  errors array
+  validation get "ok" true put! drop
+  validation get "errors" errors get put! drop
+  validation get
+end
+
+( validation error -> Map ) form_add_error function
+  error var
+  validation var
+  validation get "errors" at error get push! drop
+  validation get "ok" false put! drop
+  validation get
+end
+
+( name filename contentType size -> Map ) form_multipart_file function
+  size var
+  contentType var
+  filename var
+  name var
+  file map
+  file get "name" name get put! drop
+  file get "filename" filename get put! drop
+  file get "content_type" contentType get put! drop
+  file get "size" size get put! drop
+  file get
+end

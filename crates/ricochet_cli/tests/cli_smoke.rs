@@ -4626,6 +4626,62 @@ fn examples_are_runnable_acceptance_suite() {
 }
 
 #[test]
+fn showcase_examples_are_runnable_acceptance_suite() {
+    let repo = repo_root_for_test();
+    let showcase = repo.join("examples").join("showcase");
+
+    let sqlite_notes = showcase.join("sqlite_notes");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg(&sqlite_notes)
+        .output()
+        .expect("rco check should launch for sqlite notes showcase");
+    assert_run_success_for("rco check", "showcase sqlite_notes", &output);
+
+    for script in [
+        showcase.join("package_auth_forms").join("main.rco"),
+        showcase.join("ai_provider_probe").join("main.rco"),
+        showcase.join("debugger_demo.rco"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("run")
+            .arg(&script)
+            .output()
+            .unwrap_or_else(|error| {
+                panic!("rco run should launch for {}: {error}", script.display())
+            });
+        assert_run_success_for("rco run", &script.display().to_string(), &output);
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg(showcase.join("ai_provider_probe").join("live_probe.rco"))
+        .output()
+        .expect("rco check should launch for live AI probe showcase");
+    assert_run_success_for("rco check", "showcase live_probe.rco", &output);
+
+    let export_source = temp_source_path();
+    let export_root = export_source
+        .parent()
+        .expect("temp source should have a parent");
+    fs::create_dir_all(export_root).expect("temp export directory should be created");
+    let export_path = export_root.join("showcase-gui-task-monitor.html");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg(showcase.join("gui_task_monitor.rco"))
+        .env("RICOCHET_GUI_EXPORT_HTML", &export_path)
+        .output()
+        .expect("rco gui should launch for showcase task monitor");
+    assert_run_success_for("rco gui", "showcase gui_task_monitor", &output);
+
+    let html = fs::read_to_string(&export_path).expect("GUI showcase export should exist");
+    assert!(html.contains("Ricochet GUI Task Monitor"));
+    assert!(html.contains("data-rco-action=\"increment\""));
+    assert!(html.contains("__RICOCHET_STATE__"));
+    assert!(html.contains("__RICOCHET_ACTIONS__"));
+}
+
+#[test]
 fn run_supports_everyday_arithmetic_and_boolean_words() {
     let output = run_source(
         r#"

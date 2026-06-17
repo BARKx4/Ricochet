@@ -171,6 +171,19 @@ rco tui examples/tui_counter.rco
 rco package examples/tui_counter.rco --tui --output tui-counter.exe
 ```
 
+Explore the beta showcase apps:
+
+```powershell
+rco check examples/showcase/sqlite_notes
+rco run examples/showcase/package_auth_forms/main.rco
+rco run examples/showcase/ai_provider_probe/main.rco
+rco gui examples/showcase/gui_task_monitor.rco
+rco debug --step examples/showcase/debugger_demo.rco
+```
+
+See `examples/showcase/README.md` for the SQLite notes MVC app, first-party
+package consumer, AI provider probe, GUI v2 task monitor, and debugger demo.
+
 Package an MVC app directory as a desktop beta build:
 
 ```powershell

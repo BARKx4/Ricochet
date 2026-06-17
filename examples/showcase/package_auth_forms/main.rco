@@ -1,0 +1,27 @@
+"auth/session" import
+
+"forms/validation" import
+
+session map
+
+session get "user_id" "ada" put! drop
+
+session get "csrf_token" "token-123" put! drop
+
+session get auth_user_present true assert-equals
+
+session get "token-123" auth_csrf_valid true assert-equals
+
+"email" "ada@example.com" form_field emailField var
+
+emailField get "value" at form_required true assert-equals
+
+form_validation validation var
+
+validation get "ok" at true assert-equals
+
+session get "/login" auth_route_guard guard var
+
+guard get "ok" at true assert-equals
+
+"package auth/forms showcase ready" println

@@ -1,0 +1,34 @@
+( state event -> Map ) monitor_increment function
+  event var
+  state var
+  state get "count" at 1 + nextCount var
+  state get "count" nextCount get put! drop
+  "Count: " nextCount get to-string concat webview_text countText var
+  "Increment" "increment" webview_button button var
+  actions array
+  actions get "Increment" "increment" "monitor_increment" webview_action push! drop
+  "<main><h1>Ricochet GUI Task Monitor</h1><p>" countText get concat "</p><p>Task snapshot retained in state.</p>" concat button get concat "</main>" concat body var
+  "Ricochet GUI Task Monitor" body get state get actions get webview_window_state value
+end
+
+[ 40 2 + ] spawn worker var
+
+state map
+
+state get "count" 0 put! drop
+
+state get "task_count" tasks count put! drop
+
+state get "worker_status" worker get status put! drop
+
+"Count: 0" webview_text countText var
+
+"Increment" "increment" webview_button button var
+
+actions array
+
+actions get "Increment" "increment" "monitor_increment" webview_action push! drop
+
+"<main><h1>Ricochet GUI Task Monitor</h1><p>" countText get concat "</p><p>Worker status: " concat worker get status concat "</p>" concat button get concat "</main>" concat body var
+
+"Ricochet GUI Task Monitor" body get state get actions get webview_window_state value

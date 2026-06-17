@@ -1,0 +1,3 @@
+GET "/" NotesController "index" route
+
+POST "/notes" NotesController "create" route

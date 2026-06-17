@@ -1,0 +1,5 @@
+[package]
+name = "@ricochet/forms"
+version = "0.1.0"
+description = "Beta form parsing and validation helpers for Ricochet MVC apps."
+license = "GPL-3.0"

@@ -1,0 +1,33 @@
+"ai/openai" import
+
+"OPENAI_API_KEY" env token var
+
+message map
+
+message get "role" "user" put! drop
+
+message get "content" "Return the word ricochet." put! drop
+
+messages array
+
+messages get message get push! drop
+
+"https://api.openai.com/v1" token get "gpt-4.1-mini" messages get ai_openai_chat_request request var
+
+hosts array
+
+hosts get "api.openai.com" push! drop
+
+request get "allowed_hosts" hosts get put! drop
+
+schemes array
+
+schemes get "https" push! drop
+
+request get "allowed_schemes" schemes get put! drop
+
+request get "timeout_ms" 30000 put! drop
+
+request get "max_response_bytes" 1048576 put! drop
+
+request get http_request value ai_response_summary json-encode println

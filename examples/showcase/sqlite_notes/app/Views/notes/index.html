@@ -1,0 +1,10 @@
+<link rel="stylesheet" href="/assets/app.css">
+<main>
+  <h1>{ title get }</h1>
+  <p>{ noteCount get } notes stored. First note: { firstTitle get }</p>
+  <form method="post" action="/notes">
+    <label>Title <input name="title" value="Ship the beta"></label>
+    <label>Body <textarea name="body">Stack-friendly apps are easier to inspect.</textarea></label>
+    <button type="submit">Add note</button>
+  </form>
+</main>

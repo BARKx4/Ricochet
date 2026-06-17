@@ -1,0 +1,7 @@
+Note Model Subclass
+  "notes" Table
+  "id" Accessor
+  "title" Accessor
+  "body" Accessor
+  "status" Accessor
+end

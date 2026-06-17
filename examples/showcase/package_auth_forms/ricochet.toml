@@ -1,0 +1,9 @@
+[package]
+name = "showcase_package_auth_forms"
+version = "0.1.0"
+
+[dependencies.auth]
+path = ".ricochet/packages/auth"
+
+[dependencies.forms]
+path = ".ricochet/packages/forms"
