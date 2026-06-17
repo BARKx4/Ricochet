@@ -2916,6 +2916,110 @@ fn run_debug_breakpoint_pauses_inside_function_body() {
 }
 
 #[test]
+fn run_debug_next_steps_over_function_body() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "work function\n  2\n  3\n  +\nend\nwork\n9\n")
+        .expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--breakpoint")
+        .arg("6")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"next\ncontinue\n")
+        .expect("debugger commands should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "next debugger command should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout_has_pause_at(&stdout, "breakpoint", 6, "<main>"),
+        "first pause should be at function call, got:\n{stdout}"
+    );
+    assert!(
+        stdout_has_pause_at(&stdout, "step", 7, "<main>"),
+        "next should pause after the function call returns, got:\n{stdout}"
+    );
+    assert!(
+        !stdout_has_pause_at(&stdout, "step", 2, "work"),
+        "next should not step into function body, got:\n{stdout}"
+    );
+    assert!(
+        !stdout_has_pause_at(&stdout, "step", 3, "work"),
+        "next should not step into function body, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_debug_out_steps_to_caller_frame() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(&source_path, "work function\n  2\n  3\n  +\nend\nwork\n9\n")
+        .expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--breakpoint")
+        .arg("2")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"out\ncontinue\n")
+        .expect("debugger commands should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "out debugger command should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout_has_pause_at(&stdout, "breakpoint", 2, "work"),
+        "first pause should be inside function, got:\n{stdout}"
+    );
+    assert!(
+        stdout_has_pause_at(&stdout, "step", 7, "<main>"),
+        "out should pause in caller after return, got:\n{stdout}"
+    );
+    assert!(
+        !stdout_has_pause_at(&stdout, "step", 3, "work"),
+        "out should not keep stepping inside function body, got:\n{stdout}"
+    );
+    assert!(
+        !stdout_has_pause_at(&stdout, "step", 4, "work"),
+        "out should not keep stepping inside function body, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_debug_breakpoint_prints_locals_for_current_frame() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
@@ -6193,6 +6297,14 @@ fn assert_run_success_for(command: &str, name: &str, output: &std::process::Outp
         output.status.success(),
         "{command} failed for {name}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+}
+
+fn stdout_has_pause_at(stdout: &str, reason: &str, source_line: usize, frame: &str) -> bool {
+    let prefix = format!("PAUSE {reason} ");
+    let location = format!(":{source_line} [{frame}]");
+    stdout
+        .lines()
+        .any(|line| line.starts_with(&prefix) && line.contains(&location))
 }
 
 fn write_lsp_message(output: &mut Vec<u8>, message: &serde_json::Value) {

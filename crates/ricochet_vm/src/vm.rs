@@ -141,6 +141,9 @@ pub struct Vm {
     debug_sink: Option<DebugSink>,
     debug_controller: Option<DebugController>,
     step_mode: bool,
+    step_over_depth: Option<usize>,
+    step_out_depth: Option<usize>,
+    debug_frame_depth: usize,
     breakpoints: BTreeSet<(String, usize)>,
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
@@ -188,6 +191,9 @@ impl Default for Vm {
             debug_sink: None,
             debug_controller: None,
             step_mode: false,
+            step_over_depth: None,
+            step_out_depth: None,
+            debug_frame_depth: 0,
             breakpoints: BTreeSet::new(),
             suppressed_breakpoint: None,
             instruction_limit: None,
@@ -959,6 +965,19 @@ impl Vm {
         frame: &str,
         allow_return: bool,
     ) -> Result<ExecutionSignal, VmError> {
+        let previous_depth = self.debug_frame_depth;
+        self.debug_frame_depth = previous_depth + 1;
+        let result = self.run_chunk_with_frame_inner(chunk, frame, allow_return);
+        self.debug_frame_depth = previous_depth;
+        result
+    }
+
+    fn run_chunk_with_frame_inner(
+        &mut self,
+        chunk: &Chunk,
+        frame: &str,
+        allow_return: bool,
+    ) -> Result<ExecutionSignal, VmError> {
         let mut ip = 0;
         while ip < chunk.instructions.len() {
             self.consume_instruction_budget()?;
@@ -1039,8 +1058,21 @@ impl Vm {
             .breakpoints
             .contains(&(instruction.span.file.clone(), instruction.span.line))
             && self.suppressed_breakpoint.as_ref() != Some(&breakpoint_site);
-        if !self.step_mode && !breakpoint_hit {
+        let step_over_hit = self
+            .step_over_depth
+            .is_some_and(|target| self.debug_frame_depth <= target);
+        let step_out_hit = self
+            .step_out_depth
+            .is_some_and(|target| self.debug_frame_depth < target);
+        let step_hit = self.step_mode || step_over_hit || step_out_hit;
+        if !step_hit && !breakpoint_hit {
             return Ok(());
+        }
+        if step_over_hit {
+            self.step_over_depth = None;
+        }
+        if step_out_hit {
+            self.step_out_depth = None;
         }
 
         let pause = DebugPause {
@@ -1075,6 +1107,26 @@ impl Vm {
                     self.suppressed_breakpoint = Some(breakpoint_site);
                 }
                 self.step_mode = true;
+                self.step_over_depth = None;
+                self.step_out_depth = None;
+                Ok(())
+            }
+            DebugAction::StepOver => {
+                if breakpoint_hit {
+                    self.suppressed_breakpoint = Some(breakpoint_site);
+                }
+                self.step_mode = false;
+                self.step_over_depth = Some(self.debug_frame_depth);
+                self.step_out_depth = None;
+                Ok(())
+            }
+            DebugAction::StepOut => {
+                if breakpoint_hit {
+                    self.suppressed_breakpoint = Some(breakpoint_site);
+                }
+                self.step_mode = false;
+                self.step_over_depth = None;
+                self.step_out_depth = Some(self.debug_frame_depth);
                 Ok(())
             }
             DebugAction::Continue => {
@@ -1082,6 +1134,8 @@ impl Vm {
                     self.suppressed_breakpoint = Some(breakpoint_site);
                 }
                 self.step_mode = false;
+                self.step_over_depth = None;
+                self.step_out_depth = None;
                 Ok(())
             }
             DebugAction::Abort => Err(VmError::ExecutionAborted {
@@ -3907,6 +3961,104 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::Number(5)]);
         assert_eq!(*pause_count.borrow(), 3);
+    }
+
+    #[test]
+    fn step_over_skips_nested_function_frame() {
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushNumber(2), SourceSpan { line: 2, ..span() });
+        function.push(Op::PushNumber(3), SourceSpan { line: 3, ..span() });
+        function.push(
+            Op::CallWord("+".to_string()),
+            SourceSpan { line: 4, ..span() },
+        );
+        function.push(Op::Return, SourceSpan { line: 4, ..span() });
+
+        let mut chunk = Chunk::new("test.rco");
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "work".to_string(),
+                block,
+                args: None,
+            },
+            SourceSpan { line: 1, ..span() },
+        );
+        chunk.push(
+            Op::CallWord("work".to_string()),
+            SourceSpan { line: 5, ..span() },
+        );
+        chunk.push(Op::PushNumber(10), SourceSpan { line: 6, ..span() });
+
+        let pauses = Rc::new(RefCell::new(Vec::new()));
+        let seen = pauses.clone();
+        let mut vm = Vm::default();
+        vm.add_line_breakpoint("test.rco", 5);
+        vm.set_debug_controller(move |pause| {
+            seen.borrow_mut().push(pause.clone());
+            if seen.borrow().len() == 1 {
+                DebugAction::StepOver
+            } else {
+                DebugAction::Continue
+            }
+        });
+
+        vm.run_chunk(&chunk).expect("step over continues");
+
+        let pauses = pauses.borrow();
+        assert_eq!(pauses.len(), 2);
+        assert_eq!(pauses[0].source, "test.rco:5");
+        assert_eq!(pauses[1].source, "test.rco:6");
+        assert_eq!(vm.stack(), &[Value::Number(5), Value::Number(10)]);
+    }
+
+    #[test]
+    fn step_out_pauses_in_caller_after_function_returns() {
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushNumber(2), SourceSpan { line: 2, ..span() });
+        function.push(Op::PushNumber(3), SourceSpan { line: 3, ..span() });
+        function.push(
+            Op::CallWord("+".to_string()),
+            SourceSpan { line: 4, ..span() },
+        );
+        function.push(Op::Return, SourceSpan { line: 4, ..span() });
+
+        let mut chunk = Chunk::new("test.rco");
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "work".to_string(),
+                block,
+                args: None,
+            },
+            SourceSpan { line: 1, ..span() },
+        );
+        chunk.push(
+            Op::CallWord("work".to_string()),
+            SourceSpan { line: 5, ..span() },
+        );
+        chunk.push(Op::PushNumber(10), SourceSpan { line: 6, ..span() });
+
+        let pauses = Rc::new(RefCell::new(Vec::new()));
+        let seen = pauses.clone();
+        let mut vm = Vm::default();
+        vm.add_line_breakpoint("test.rco", 2);
+        vm.set_debug_controller(move |pause| {
+            seen.borrow_mut().push(pause.clone());
+            if seen.borrow().len() == 1 {
+                DebugAction::StepOut
+            } else {
+                DebugAction::Continue
+            }
+        });
+
+        vm.run_chunk(&chunk).expect("step out continues");
+
+        let pauses = pauses.borrow();
+        assert_eq!(pauses.len(), 2);
+        assert_eq!(pauses[0].source, "test.rco:2");
+        assert_eq!(pauses[1].source, "test.rco:6");
+        assert_eq!(vm.stack(), &[Value::Number(5), Value::Number(10)]);
     }
 
     #[test]

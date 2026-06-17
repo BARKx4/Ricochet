@@ -3,6 +3,8 @@ use crate::value::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugAction {
     Step,
+    StepOver,
+    StepOut,
     Continue,
     Abort,
 }

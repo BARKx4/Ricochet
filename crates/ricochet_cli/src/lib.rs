@@ -4532,13 +4532,17 @@ fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
             Ok(0) | Err(_) => return DebugAction::Abort,
             Ok(_) => match command.trim().to_ascii_lowercase().as_str() {
                 "" | "s" | "step" => return DebugAction::Step,
+                "n" | "next" | "over" | "step-over" => return DebugAction::StepOver,
+                "o" | "out" | "step-out" => return DebugAction::StepOut,
                 "c" | "continue" => return DebugAction::Continue,
                 "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
                 "stack" => println!("{:?}", pause.stack),
                 "locals" => print_debug_bindings("locals", &pause.locals),
                 "globals" => print_debug_bindings("globals", &pause.globals),
                 "self" => println!("{:?}", pause.current_self),
-                _ => println!("commands: step, continue, abort, stack, locals, globals, self"),
+                _ => println!(
+                    "commands: step, next, out, continue, abort, stack, locals, globals, self"
+                ),
             },
         }
     }

@@ -42,8 +42,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
 - Debugging workflow: trace instruction execution, pause on source breakpoints,
-  inspect stack/locals/globals at pauses, and write JSON runtime traces with
-  `rco run --trace-file`.
+  step into/over/out of calls, inspect stack/locals/globals at pauses, and
+  write JSON runtime traces with `rco run --trace-file`.
 - Package workflow: record, install, verify, audit, and locally publish
   path/GitHub/registry dependencies, enforce semver requirements, pin Git
   dependencies to immutable commits in `ricochet.lock`, store deterministic
@@ -467,10 +467,11 @@ for live editor support.
 completion, hover, go-to-definition, document symbols, semantic tokens,
 document formatting, prepare-rename, and single-document rename support. The VS
 Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
-`Ricochet: Restart Language Server` for local toolchain rebuilds. `Ricochet:
-Run With Stack Visualizer` runs the active `.rco` file with `rco run
---trace-file` and opens a separate IDE panel for the instruction timeline,
-stack, locals, globals, and `self` values. See
+`Ricochet: Restart Language Server` for local toolchain rebuilds. Terminal
+debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
+`locals`, `globals`, and `self`. `Ricochet: Run With Stack Visualizer` runs the
+active `.rco` file with `rco run --trace-file` and opens a separate IDE panel
+for the instruction timeline, stack, locals, globals, and `self` values. See
 `docs/debugger-integrations.md` for the shared trace contract intended for VS
 Code, future DAP support, and other IDE integrations.
 

@@ -289,6 +289,7 @@ if ($failures.Count -eq 0) {
         "multiplier get 0 &gt; while",
         "rco run --debug --step app.rco",
         "rco run --trace-file trace.json app.rco",
+        "step``, ``next``, ``out``, ``continue``",
         "rco fmt [--check] [path]",
         "rco run [--debug] [--step] [--breakpoint LINE] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",
         "rco run-bytecode [--debug] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",

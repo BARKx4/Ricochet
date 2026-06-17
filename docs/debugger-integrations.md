@@ -6,6 +6,8 @@ instead of inventing editor-specific state models.
 Current CLI surface:
 
 ```powershell
+rco run --debug --step app.rco
+rco run --breakpoint 12 app.rco
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
 ```
@@ -56,5 +58,7 @@ Editor integration guidance:
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the
   compiler exposes stable instruction IDs.
+- Live debugger controls should map `step` to instruction stepping, `next` to
+  step-over, `out` to step-out, and `continue` to normal execution.
 - Live debugger integrations should keep the RPN mental model visible: current
   stack, current instruction, current frame locals, globals, and `self`.
