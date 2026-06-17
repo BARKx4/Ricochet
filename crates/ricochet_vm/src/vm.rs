@@ -14,7 +14,7 @@ use crate::approval_runtime::ApprovalRegistry;
 use crate::capability::Capability;
 use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
-use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
+use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
 use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
@@ -1092,6 +1092,7 @@ impl Vm {
                 .map(debug_variables)
                 .unwrap_or_default(),
             current_self: self.self_stack.last().cloned(),
+            tasks: self.debug_tasks(),
         };
         self.record_debug_event(DebugEvent::Paused(pause.clone()));
 
@@ -1150,6 +1151,20 @@ impl Vm {
             (sink.borrow_mut())(&event);
         }
         self.debug_events.push(event);
+    }
+
+    fn debug_tasks(&self) -> Vec<DebugTask> {
+        self.tasks
+            .keys()
+            .map(|task_id| DebugTask {
+                id: *task_id,
+                status: self.task_status(*task_id).to_string(),
+                pending: self.task_pending(*task_id),
+                running: self.task_running(*task_id),
+                completed: self.task_completed(*task_id),
+                failed: self.task_failed(*task_id),
+            })
+            .collect()
     }
 
     fn execute_instruction(

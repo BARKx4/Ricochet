@@ -16,7 +16,7 @@ pub use approval_runtime::ApprovalRegistry;
 pub use capability::Capability;
 pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use collection::{ArrayValue, ListValue, MapValue, SetValue};
-pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason};
+pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
 pub use object::Instance;
 pub use process_runtime::ProcessRegistry;
 pub use pty_runtime::PtyRegistry;

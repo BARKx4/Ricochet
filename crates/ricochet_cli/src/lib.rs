@@ -15,7 +15,8 @@ use ricochet_syntax::{
     LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr, TokenKind,
 };
 use ricochet_vm::{
-    DebugAction, DebugEvent, DebugPause, DebugPauseReason, MapValue, RicochetResult, Value, Vm,
+    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, MapValue, RicochetResult,
+    Value, Vm,
 };
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use semver::{Version, VersionReq};
@@ -4960,6 +4961,7 @@ fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
             "locals": debug_bindings_json(&pause.locals),
             "globals": debug_bindings_json(&pause.globals),
             "self": pause.current_self.as_ref().map(debug_value_json),
+            "tasks": debug_tasks_json(&pause.tasks),
         }),
         DebugEvent::Instruction {
             frame,
@@ -4999,6 +5001,22 @@ fn debug_bindings_json(bindings: &[(String, Value)]) -> Vec<serde_json::Value> {
             json!({
                 "name": name,
                 "value": debug_value_json(value),
+            })
+        })
+        .collect()
+}
+
+fn debug_tasks_json(tasks: &[DebugTask]) -> Vec<serde_json::Value> {
+    tasks
+        .iter()
+        .map(|task| {
+            json!({
+                "id": task.id,
+                "status": task.status,
+                "pending": task.pending,
+                "running": task.running,
+                "completed": task.completed,
+                "failed": task.failed,
             })
         })
         .collect()
@@ -5044,8 +5062,9 @@ fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
                 "locals" => print_debug_bindings("locals", &pause.locals),
                 "globals" => print_debug_bindings("globals", &pause.globals),
                 "self" => println!("{:?}", pause.current_self),
+                "tasks" => println!("{:?}", pause.tasks),
                 _ => println!(
-                    "commands: step, next, out, continue, abort, stack, locals, globals, self"
+                    "commands: step, next, out, continue, abort, stack, locals, globals, self, tasks"
                 ),
             },
         }
@@ -5243,6 +5262,9 @@ fn print_debug_event(event: &DebugEvent) {
             }
             if let Some(current_self) = &pause.current_self {
                 println!("  self:   {current_self:?}");
+            }
+            if !pause.tasks.is_empty() {
+                println!("  tasks:  {:?}", pause.tasks);
             }
         }
         DebugEvent::Instruction {

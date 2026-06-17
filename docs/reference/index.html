@@ -617,7 +617,7 @@ rco run --breakpoint 12 app.rco
 rco debug --json app.rco
 rco run --trace-file trace.json app.rco
 rco repl --debug</code></pre>
-            <p>Debug mode prints each instruction with stack before and after. Step mode pauses and accepts `step`, `next`, `out`, `continue`, `abort`, `stack`, `locals`, `globals`, or `self`; trace files record JSON debug events for tooling, and `rco debug --json` streams the same event contract as JSON Lines.</p>
+            <p>Debug mode prints each instruction with stack before and after. Step mode pauses and accepts `step`, `next`, `out`, `continue`, `abort`, `stack`, `locals`, `globals`, `self`, or `tasks`; trace files record JSON debug events for tooling, and `rco debug --json` streams the same event contract as JSON Lines.</p>
           </article>
 
           <article class="example-panel">
@@ -775,7 +775,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files. Watched MVC runtimes honor the same CLI and manifest-declared filesystem, HTTP, environment, process, and PTY capability setup as ordinary `rco serve`.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, explicit cleanup with `release-task`, and basic inspection with `id`, `info`, `status`, `pending?`, `running?`, `completed?`, `failed?`, `tasks`, and `runtime_capabilities "tasks" at`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
+          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, explicit cleanup with `release-task`, and basic inspection with `id`, `info`, `status`, `pending?`, `running?`, `completed?`, `failed?`, `tasks`, and `runtime_capabilities "tasks" at`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Debug pause events include task snapshots; deeper suspended-task stack inspection remains planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`; use `result_envelope` when an app/API boundary needs a `{ ok, data, error, meta }` map.</li>
           <li>Top-level method declarations are rejected; methods belong inside classes and use `[ body ] "name" Method`.</li>

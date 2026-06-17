@@ -291,6 +291,7 @@ if ($failures.Count -eq 0) {
         "rco debug --json app.rco",
         "rco run --trace-file trace.json app.rco",
         "step``, ``next``, ``out``, ``continue``",
+        "``self``, or ``tasks``",
         "rco fmt [--check] [path]",
         "rco run [--debug] [--step] [--breakpoint LINE] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",
         "rco debug [--json] [--step] [--breakpoint LINE] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]",

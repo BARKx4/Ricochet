@@ -3227,6 +3227,34 @@ fn debug_json_streams_json_lines_events() {
 }
 
 #[test]
+fn debug_json_pause_includes_task_snapshot() {
+    let source_path = write_source("[ 100 sleep 40 2 + ] spawn task var\ntask get id\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug")
+        .arg("--json")
+        .arg("--breakpoint")
+        .arg("2")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug should launch");
+    assert_run_success_for("rco debug --json --breakpoint", "task source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("debug line should be JSON"))
+        .collect();
+    let pause = events
+        .iter()
+        .find(|event| event["event"] == "paused")
+        .expect("debug stream should include pause event");
+    assert_eq!(pause["reason"], "breakpoint");
+    assert_eq!(pause["tasks"][0]["id"], 0);
+    assert_eq!(pause["tasks"][0]["status"], "running");
+    assert_eq!(pause["tasks"][0]["running"], true);
+}
+
+#[test]
 fn test_runs_testcase_methods() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))

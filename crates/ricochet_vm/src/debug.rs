@@ -25,6 +25,17 @@ pub struct DebugPause {
     pub globals: Vec<(String, Value)>,
     pub locals: Vec<(String, Value)>,
     pub current_self: Option<Value>,
+    pub tasks: Vec<DebugTask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebugTask {
+    pub id: u64,
+    pub status: String,
+    pub pending: bool,
+    pub running: bool,
+    pub completed: bool,
+    pub failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

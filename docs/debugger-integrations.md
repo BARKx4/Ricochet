@@ -38,7 +38,17 @@ stderr. Events currently use these shapes:
   "stack": [],
   "locals": [{ "name": "answer", "value": { "debug": "Number(41)" } }],
   "globals": [],
-  "self": null
+  "self": null,
+  "tasks": [
+    {
+      "id": 0,
+      "status": "running",
+      "pending": true,
+      "running": true,
+      "completed": false,
+      "failed": false
+    }
+  ]
 }
 ```
 
@@ -72,4 +82,5 @@ Editor integration guidance:
 - Live debugger controls should map `step` to instruction stepping, `next` to
   step-over, `out` to step-out, and `continue` to normal execution.
 - Live debugger integrations should keep the RPN mental model visible: current
-  stack, current instruction, current frame locals, globals, and `self`.
+  stack, current instruction, current frame locals, globals, `self`, and the
+  current task snapshot.

@@ -43,8 +43,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   and serve local web apps.
 - Debugging workflow: trace instruction execution, pause on source breakpoints,
   step into/over/out of calls, inspect stack/locals/globals at pauses, and
-  write JSON runtime traces with `rco run --trace-file` or stream JSON Lines
-  with `rco debug --json`.
+  inspect task snapshots at pauses; write JSON runtime traces with
+  `rco run --trace-file` or stream JSON Lines with `rco debug --json`.
 - Package workflow: record, install, verify, audit, and locally publish
   path/GitHub/registry dependencies, enforce semver requirements, pin Git
   dependencies to immutable commits in `ricochet.lock`, store deterministic
@@ -475,8 +475,8 @@ document formatting, prepare-rename, and single-document rename support. The VS
 Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
 `Ricochet: Restart Language Server` for local toolchain rebuilds. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
-`locals`, `globals`, and `self`; `rco debug --json` streams the same event
-contract as JSON Lines for editor adapters. `Ricochet: Run With Stack
+`locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
+event contract as JSON Lines for editor adapters. `Ricochet: Run With Stack
 Visualizer` runs the active `.rco` file with `rco run --trace-file` and opens a
 separate IDE panel for the instruction timeline, stack, locals, globals, and
 `self` values. See
