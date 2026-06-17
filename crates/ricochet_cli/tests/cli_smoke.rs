@@ -1616,6 +1616,220 @@ fn install_rejects_unsatisfied_semver_dependency_version() {
 }
 
 #[test]
+fn publish_and_install_local_registry_dependency() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from registry\"\nend\n",
+    );
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "local registry package", &publish);
+    assert!(
+        registry
+            .join("greeter")
+            .join("0.2.3")
+            .join("package")
+            .join("greeting.rco")
+            .is_file(),
+        "published registry package should contain package source"
+    );
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--version")
+        .arg("^0.2.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "local registry dependency", &add);
+
+    let manifest = fs::read_to_string(app.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[dependencies.greeter]"));
+    assert!(manifest.contains("path = \".ricochet/packages/greeter\""));
+    assert!(manifest.contains("registry = \""));
+    assert!(manifest.contains("version = \"^0.2.0\""));
+
+    let lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("source = \"registry+"));
+    assert!(lock.contains("version_req = \"^0.2.0\""));
+    assert!(lock.contains("version = \"0.2.3\""));
+    assert!(lock.contains("integrity = \"sha256:"));
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(&app)
+        .output()
+        .expect("rco verify should launch");
+    assert_run_success_for("rco verify", "registry dependency", &verify);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("String(\"hello from registry\")"),
+        "stdout should show imported registry package result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn publish_dry_run_does_not_create_registry_directory() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("missing_registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello\"\nend\n",
+    );
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--dry-run")
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish --dry-run", "local registry package", &publish);
+    assert!(
+        !registry.exists(),
+        "dry-run publish should not create the registry directory"
+    );
+}
+
+#[test]
+fn registry_install_keeps_locked_version_when_newer_version_exists() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"locked registry version\"\nend\n",
+    );
+    let first_publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "first registry version", &first_publish);
+
+    let app = base.join("app");
+    let registry_source = escape_toml_string(&path_to_slash_for_test(&registry));
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{registry_source}\"\nversion = \"^0.2.0\"\n"
+        ),
+    );
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let first_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "first registry install", &first_install);
+    let first_lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(first_lock.contains("version = \"0.2.3\""));
+
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.4\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"newer registry version\"\nend\n",
+    );
+    let second_publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "second registry version", &second_publish);
+
+    let second_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "locked registry install", &second_install);
+    let second_lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(
+        second_lock.contains("version = \"0.2.3\""),
+        "install should preserve locked version, got:\n{second_lock}"
+    );
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("String(\"locked registry version\")"),
+        "stdout should use locked package contents, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn install_uses_locked_git_commit_when_branch_moves() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");

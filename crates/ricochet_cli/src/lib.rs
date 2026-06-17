@@ -153,6 +153,12 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
         #[arg(
+            long,
+            value_name = "PATH",
+            help = "Use a local file-backed package registry for registry:name dependencies"
+        )]
+        registry: Option<PathBuf>,
+        #[arg(
             long = "version",
             value_name = "REQ",
             help = "Require the dependency package version to satisfy REQ, for example ^0.1.0"
@@ -160,6 +166,17 @@ enum Command {
         version: Option<String>,
         #[arg(long)]
         no_fetch: bool,
+    },
+    Publish {
+        path: Option<String>,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Publish to a local file-backed package registry"
+        )]
+        registry: PathBuf,
+        #[arg(long, help = "Validate and describe the publish without writing files")]
+        dry_run: bool,
     },
     Install,
     Verify {
@@ -590,9 +607,21 @@ pub async fn run_cli() -> Result<()> {
         Command::Add {
             source,
             name,
+            registry,
             version,
             no_fetch,
-        } => add_dependency(&source, name.as_deref(), version.as_deref(), no_fetch)?,
+        } => add_dependency(
+            &source,
+            name.as_deref(),
+            registry.as_deref(),
+            version.as_deref(),
+            no_fetch,
+        )?,
+        Command::Publish {
+            path,
+            registry,
+            dry_run,
+        } => publish_package(path.as_deref(), &registry, dry_run)?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
         Command::Doctor { path, capabilities } => {
@@ -2103,6 +2132,7 @@ struct DependencySpec {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    registry: Option<String>,
     version_req: Option<String>,
     package_version: Option<String>,
     integrity: Option<String>,
@@ -2116,6 +2146,7 @@ struct LockedPackage {
     git: Option<String>,
     rev: Option<String>,
     commit: Option<String>,
+    registry: Option<String>,
     version_req: Option<String>,
     package_version: Option<String>,
     integrity: Option<String>,
@@ -2131,11 +2162,24 @@ enum DependencySource {
         repo: String,
         rev: Option<String>,
     },
+    Registry {
+        name: String,
+        version: Option<String>,
+        registry: String,
+    },
+}
+
+#[derive(Debug)]
+struct RegistryPackage {
+    package_dir: PathBuf,
+    version: String,
+    integrity: String,
 }
 
 fn add_dependency(
     source: &str,
     name: Option<&str>,
+    registry: Option<&Path>,
     version_req: Option<&str>,
     no_fetch: bool,
 ) -> Result<()> {
@@ -2143,23 +2187,27 @@ fn add_dependency(
     let project_root = manifest_path
         .parent()
         .expect("project manifest should have a parent");
-    let dependency_source = parse_dependency_source(source)?;
+    let dependency_source = parse_dependency_source(source, registry)?;
     let mut spec = dependency_spec(project_root, source, dependency_source, name, version_req)?;
+    let skip_remote_fetch = no_fetch && (spec.git.is_some() || spec.registry.is_some());
 
     if spec.git.is_some() && !no_fetch {
         spec.commit = Some(fetch_git_dependency(project_root, &spec)?);
     }
-    if !(spec.git.is_some() && no_fetch) {
+    if spec.registry.is_some() && !no_fetch {
+        install_registry_dependency(project_root, &mut spec, None)?;
+    }
+    if !skip_remote_fetch {
         spec.package_version = package_version_for_spec(project_root, &spec)?;
         spec.integrity = Some(package_integrity(project_root, &spec)?);
     }
 
     write_dependency_manifest(&manifest_path, &spec)?;
-    if !(spec.git.is_some() && no_fetch) {
+    if !skip_remote_fetch {
         write_lockfile(&project_root.join("ricochet.lock"), &spec)?;
     }
 
-    if spec.git.is_some() && no_fetch {
+    if skip_remote_fetch {
         println!(
             "added {} from {} (fetch skipped)",
             spec.name, spec.display_source
@@ -2167,6 +2215,78 @@ fn add_dependency(
     } else {
         println!("added {} from {}", spec.name, spec.display_source);
     }
+    Ok(())
+}
+
+fn publish_package(path: Option<&str>, registry: &Path, dry_run: bool) -> Result<()> {
+    let manifest_path = project_manifest_path_for_command("publish", path)?;
+    let package_root = manifest_path
+        .parent()
+        .expect("package manifest should have a parent");
+    let metadata = read_package_metadata(package_root)?;
+    let name = metadata
+        .name
+        .as_deref()
+        .with_context(|| format!("{} must include [package] name", manifest_path.display()))?;
+    validate_package_name(name)?;
+    let version = metadata
+        .version
+        .as_deref()
+        .with_context(|| format!("{} must include [package] version", manifest_path.display()))?;
+    validate_package_version(version)?;
+
+    let registry_root = absolute_path_from_current(registry)?;
+    let package_root_canonical = fs::canonicalize(package_root)
+        .with_context(|| format!("failed to resolve {}", package_root.display()))?;
+    if registry_root.starts_with(&package_root_canonical) {
+        bail!("publish registry must not be inside the package being published");
+    }
+
+    let package_integrity = package_tree_integrity(package_root)?;
+    let version_root = registry_root.join(name).join(version);
+    let destination = version_root.join("package");
+    if version_root.exists() {
+        bail!(
+            "registry already contains {name} {version}: {}",
+            version_root.display()
+        );
+    }
+
+    if dry_run {
+        println!(
+            "would publish {name} {version} to {} with integrity {package_integrity}",
+            version_root.display()
+        );
+        return Ok(());
+    }
+
+    fs::create_dir_all(&registry_root)
+        .with_context(|| format!("failed to create {}", registry_root.display()))?;
+    fs::create_dir_all(&version_root)
+        .with_context(|| format!("failed to create {}", version_root.display()))?;
+    copy_package_tree(package_root, &destination)?;
+    let copied_integrity = package_tree_integrity(&destination)?;
+    if copied_integrity != package_integrity {
+        bail!(
+            "published package integrity changed while copying: expected {package_integrity}, got {copied_integrity}"
+        );
+    }
+
+    let mut metadata_doc = DocumentMut::new();
+    metadata_doc["package"]["name"] = value(name);
+    metadata_doc["package"]["version"] = value(version);
+    metadata_doc["package"]["integrity"] = value(package_integrity.clone());
+    fs::write(version_root.join("metadata.toml"), metadata_doc.to_string()).with_context(|| {
+        format!(
+            "failed to write {}",
+            version_root.join("metadata.toml").display()
+        )
+    })?;
+
+    println!(
+        "published {name} {version} to {} with integrity {package_integrity}",
+        version_root.display()
+    );
     Ok(())
 }
 
@@ -2196,18 +2316,16 @@ fn install_dependencies() -> Result<()> {
                 manifest_path.display()
             )
         })?;
-        let path = table
-            .get("path")
-            .and_then(Item::as_str)
-            .with_context(|| {
-                format!(
-                    "dependency {name} in {} must include a string path",
-                    manifest_path.display()
-                )
-            })?
-            .to_string();
         let git = table.get("git").and_then(Item::as_str).map(str::to_string);
         let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let registry = table
+            .get("registry")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if git.is_some() && registry.is_some() {
+            bail!("dependency {name} cannot include both git and registry");
+        }
+        let path = dependency_manifest_path(name, table, registry.is_some(), &manifest_path)?;
         let version_req = table
             .get("version")
             .and_then(Item::as_str)
@@ -2215,29 +2333,40 @@ fn install_dependencies() -> Result<()> {
         if let Some(version_req) = version_req.as_deref() {
             validate_version_req(version_req)?;
         }
+        let lock_doc = read_optional_toml_document(&lock_path)?;
+        let locked = locked_package(lock_doc.as_ref(), name)?;
         let commit = git
             .as_ref()
-            .map(|_| locked_git_commit(&lock_path, name))
-            .transpose()?
-            .flatten();
+            .and_then(|_| locked.as_ref().and_then(|lock| lock.commit.clone()));
         let display_source = git.clone().unwrap_or_else(|| path.clone());
         let mut spec = DependencySpec {
             name: name.to_string(),
             source: git
                 .as_ref()
                 .map(|git| format!("git+{git}"))
+                .or_else(|| {
+                    registry
+                        .as_ref()
+                        .map(|registry| format!("registry+{registry}#{name}"))
+                })
                 .unwrap_or_else(|| format!("path+{path}")),
             path: path.clone(),
             git,
             rev,
             commit,
+            registry: registry.clone(),
             version_req,
             package_version: None,
             integrity: None,
-            display_source,
+            display_source: registry
+                .as_ref()
+                .map(|registry| format!("registry:{name} from {registry}"))
+                .unwrap_or(display_source),
         };
 
-        if spec.git.is_some() {
+        if spec.registry.is_some() {
+            install_registry_dependency(project_root, &mut spec, locked.as_ref())?;
+        } else if spec.git.is_some() {
             let package_dir =
                 project_dependency_path(project_root, &spec.path, "git package cache")?;
             if !package_dir.is_dir() {
@@ -2323,18 +2452,16 @@ fn verify_dependency_manifest(
                 manifest_path.display()
             )
         })?;
-        let path = table
-            .get("path")
-            .and_then(Item::as_str)
-            .with_context(|| {
-                format!(
-                    "dependency {name} in {} must include a string path",
-                    manifest_path.display()
-                )
-            })?
-            .to_string();
         let git = table.get("git").and_then(Item::as_str).map(str::to_string);
         let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let registry = table
+            .get("registry")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if git.is_some() && registry.is_some() {
+            bail!("dependency {name} cannot include both git and registry");
+        }
+        let path = dependency_manifest_path(name, table, registry.is_some(), manifest_path)?;
         let version_req = table
             .get("version")
             .and_then(Item::as_str)
@@ -2347,11 +2474,17 @@ fn verify_dependency_manifest(
             source: git
                 .as_ref()
                 .map(|git| format!("git+{git}"))
+                .or_else(|| {
+                    registry
+                        .as_ref()
+                        .map(|registry| format!("registry+{registry}#{name}"))
+                })
                 .unwrap_or_else(|| format!("path+{path}")),
             path,
             git,
             rev,
             commit: None,
+            registry,
             version_req,
             package_version: None,
             integrity: None,
@@ -2407,7 +2540,24 @@ fn verify_dependency(
         );
     }
 
-    if let Some(git) = spec.git.as_deref() {
+    if let Some(registry) = spec.registry.as_deref() {
+        if lock.registry.as_deref() != Some(registry) {
+            bail!(
+                "lock entry for {} has registry {:?}, expected {:?}",
+                spec.name,
+                lock.registry,
+                registry
+            );
+        }
+        if lock.git.is_some() || lock.rev.is_some() || lock.commit.is_some() {
+            bail!(
+                "lock entry for {} is git-shaped, but manifest uses a registry",
+                spec.name
+            );
+        }
+        verify_package_version(project_root, spec, &lock)?;
+        verify_package_integrity(project_root, spec, &lock)?;
+    } else if let Some(git) = spec.git.as_deref() {
         if lock.git.as_deref() != Some(git) {
             bail!(
                 "lock entry for {} has git {:?}, expected {:?}",
@@ -2449,9 +2599,9 @@ fn verify_dependency(
         verify_package_version(project_root, spec, &lock)?;
         verify_package_integrity(project_root, spec, &lock)?;
     } else {
-        if lock.git.is_some() || lock.commit.is_some() {
+        if lock.git.is_some() || lock.commit.is_some() || lock.registry.is_some() {
             bail!(
-                "lock entry for {} is git-shaped, but manifest uses a local path",
+                "lock entry for {} is remote-shaped, but manifest uses a local path",
                 spec.name
             );
         }
@@ -2535,6 +2685,10 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
     if let Some(commit) = commit.as_deref() {
         validate_git_commit(commit)?;
     }
+    let registry = table
+        .get("registry")
+        .and_then(Item::as_str)
+        .map(str::to_string);
     let version_req = table
         .get("version_req")
         .and_then(Item::as_str)
@@ -2563,6 +2717,7 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         git,
         rev,
         commit,
+        registry,
         version_req,
         package_version,
         integrity,
@@ -2601,7 +2756,28 @@ fn find_project_manifest_for_current_dir(command: &str) -> Result<PathBuf> {
     bail!("rco {command} must be run inside a Ricochet project with ricochet.toml");
 }
 
-fn parse_dependency_source(source: &str) -> Result<DependencySource> {
+fn parse_dependency_source(source: &str, registry: Option<&Path>) -> Result<DependencySource> {
+    if let Some(rest) = source.strip_prefix("registry:") {
+        let (name, version) = rest
+            .split_once('@')
+            .map(|(name, version)| (name, Some(version.to_string())))
+            .unwrap_or((rest, None));
+        validate_package_name(name)?;
+        if let Some(version) = version.as_deref() {
+            validate_package_version(version)?;
+        }
+        let registry = registry_path_value(registry_source_path(registry)?.as_path(), false)?;
+        return Ok(DependencySource::Registry {
+            name: name.to_string(),
+            version,
+            registry,
+        });
+    }
+
+    if registry.is_some() {
+        bail!("--registry can only be used with registry:name dependencies");
+    }
+
     if let Some(rest) = source.strip_prefix("github:") {
         let (repository, rev) = rest
             .split_once('@')
@@ -2623,6 +2799,59 @@ fn parse_dependency_source(source: &str) -> Result<DependencySource> {
     Ok(DependencySource::Local {
         path: PathBuf::from(source),
     })
+}
+
+fn registry_source_path(registry: Option<&Path>) -> Result<PathBuf> {
+    if let Some(registry) = registry {
+        return Ok(registry.to_path_buf());
+    }
+    let value = std::env::var("RICOCHET_REGISTRY")
+        .context("registry dependencies require --registry PATH or RICOCHET_REGISTRY")?;
+    Ok(PathBuf::from(value))
+}
+
+fn registry_path_value(registry: &Path, create: bool) -> Result<String> {
+    let registry = absolute_path_from_current(registry)?;
+    if create {
+        fs::create_dir_all(&registry)
+            .with_context(|| format!("failed to create {}", registry.display()))?;
+    }
+    if !registry.is_dir() {
+        bail!(
+            "package registry is not a directory: {}",
+            registry.display()
+        );
+    }
+    let registry = fs::canonicalize(&registry)
+        .with_context(|| format!("failed to resolve {}", registry.display()))?;
+    Ok(path_to_slash(&registry))
+}
+
+fn absolute_path_from_current(path: &Path) -> Result<PathBuf> {
+    let current_dir = std::env::current_dir().context("failed to determine current directory")?;
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        current_dir.join(path)
+    })
+}
+
+fn dependency_manifest_path(
+    name: &str,
+    table: &Table,
+    is_registry: bool,
+    manifest_path: &Path,
+) -> Result<String> {
+    if let Some(path) = table.get("path").and_then(Item::as_str) {
+        return Ok(path.to_string());
+    }
+    if is_registry {
+        return Ok(format!(".ricochet/packages/{name}"));
+    }
+    bail!(
+        "dependency {name} in {} must include a string path",
+        manifest_path.display()
+    )
 }
 
 fn dependency_spec(
@@ -2675,6 +2904,7 @@ fn dependency_spec(
                 git: None,
                 rev: None,
                 commit: None,
+                registry: None,
                 version_req,
                 package_version: metadata.version,
                 integrity: Some(package_tree_integrity(&absolute_path)?),
@@ -2694,10 +2924,44 @@ fn dependency_spec(
                 git: Some(git),
                 rev,
                 commit: None,
+                registry: None,
                 version_req,
                 package_version: None,
                 integrity: None,
                 display_source: original_source.to_string(),
+            })
+        }
+        DependencySource::Registry {
+            name,
+            version,
+            registry,
+        } => {
+            let name = match name_override {
+                Some(name_override) => name_override.to_string(),
+                None => name,
+            };
+            validate_package_name(&name)?;
+            let version_req = match (version_req, version) {
+                (Some(_), Some(_)) => {
+                    bail!("use either registry:name@version or --version REQ, not both")
+                }
+                (Some(version_req), None) => Some(version_req),
+                (None, Some(version)) => Some(format!("={version}")),
+                (None, None) => None,
+            };
+            let path = format!(".ricochet/packages/{name}");
+            Ok(DependencySpec {
+                name: name.clone(),
+                path,
+                source: format!("registry+{registry}#{name}"),
+                git: None,
+                rev: None,
+                commit: None,
+                registry: Some(registry.clone()),
+                version_req,
+                package_version: None,
+                integrity: None,
+                display_source: format!("registry:{name} from {registry}"),
             })
         }
     }
@@ -2851,9 +3115,192 @@ fn resolve_local_dependency_dir(project_root: &Path, path: &str) -> Result<PathB
     Ok(dependency_dir)
 }
 
+fn install_registry_dependency(
+    project_root: &Path,
+    spec: &mut DependencySpec,
+    locked: Option<&LockedPackage>,
+) -> Result<()> {
+    let package = resolve_registry_package(project_root, spec, locked)?;
+    let package_cache =
+        project_dependency_path(project_root, &spec.path, "registry package cache")?;
+    if package_cache.exists() {
+        let cached_integrity = package_tree_integrity(&package_cache)?;
+        if cached_integrity != package.integrity {
+            bail!(
+                "registry package cache for {} already exists with integrity {cached_integrity}, expected {}; remove {} or choose a different dependency name",
+                spec.name,
+                package.integrity,
+                package_cache.display()
+            );
+        }
+    } else {
+        if let Some(parent) = package_cache.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+            ensure_existing_project_dir(project_root, parent, "registry package cache parent")?;
+        }
+        copy_package_tree(&package.package_dir, &package_cache)?;
+    }
+    spec.package_version = Some(package.version);
+    spec.integrity = Some(package.integrity);
+    Ok(())
+}
+
+fn resolve_registry_package(
+    project_root: &Path,
+    spec: &DependencySpec,
+    locked: Option<&LockedPackage>,
+) -> Result<RegistryPackage> {
+    let registry = spec
+        .registry
+        .as_deref()
+        .expect("resolve_registry_package only handles registry dependencies");
+    let registry_root = resolve_registry_root(project_root, registry)?;
+    let package_root = registry_root.join(&spec.name);
+    if !package_root.is_dir() {
+        bail!(
+            "registry {} does not contain package {}",
+            registry_root.display(),
+            spec.name
+        );
+    }
+
+    if let Some(locked_version) = locked.and_then(|lock| lock.package_version.as_deref()) {
+        if package_version_satisfies(spec.version_req.as_deref(), locked_version)? {
+            return registry_package_at(&package_root, &spec.name, locked_version);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(&package_root)
+        .with_context(|| format!("failed to read {}", package_root.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", package_root.display()))?;
+        if !entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", entry.path().display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let version_text = entry.file_name().to_string_lossy().to_string();
+        let version = Version::parse(&version_text).with_context(|| {
+            format!(
+                "registry package {} has invalid version directory {:?}",
+                spec.name, version_text
+            )
+        })?;
+        if package_version_satisfies(spec.version_req.as_deref(), &version_text)? {
+            candidates.push((version, version_text));
+        }
+    }
+    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+    let Some((_, version)) = candidates.pop() else {
+        let requirement = spec.version_req.as_deref().unwrap_or("*");
+        bail!(
+            "registry package {} has no version satisfying {}",
+            spec.name,
+            requirement
+        );
+    };
+
+    registry_package_at(&package_root, &spec.name, &version)
+}
+
+fn registry_package_at(
+    package_root: &Path,
+    package_name: &str,
+    version: &str,
+) -> Result<RegistryPackage> {
+    validate_package_version(version)?;
+    let version_root = package_root.join(version);
+    let package_dir = version_root.join("package");
+    if !package_dir.is_dir() {
+        bail!(
+            "registry package {} {} is missing package directory: {}",
+            package_name,
+            version,
+            package_dir.display()
+        );
+    }
+    let metadata = read_package_metadata(&package_dir)?;
+    if metadata.name.as_deref() != Some(package_name) {
+        bail!(
+            "registry package {} {} has manifest package name {:?}",
+            package_name,
+            version,
+            metadata.name
+        );
+    }
+    if metadata.version.as_deref() != Some(version) {
+        bail!(
+            "registry package {} {} has manifest version {:?}",
+            package_name,
+            version,
+            metadata.version
+        );
+    }
+    let integrity = package_tree_integrity(&package_dir)?;
+    let metadata_path = version_root.join("metadata.toml");
+    if metadata_path.is_file() {
+        let registry_metadata = fs::read_to_string(&metadata_path)
+            .with_context(|| format!("failed to read {}", metadata_path.display()))?;
+        let registry_metadata = registry_metadata
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
+        if let Some(recorded_integrity) = registry_metadata["package"]["integrity"].as_str() {
+            validate_package_integrity(recorded_integrity)?;
+            if recorded_integrity != integrity {
+                bail!(
+                    "registry package {} {} integrity metadata is {}, but package hashes to {}",
+                    package_name,
+                    version,
+                    recorded_integrity,
+                    integrity
+                );
+            }
+        }
+    }
+    Ok(RegistryPackage {
+        package_dir,
+        version: version.to_string(),
+        integrity,
+    })
+}
+
+fn resolve_registry_root(project_root: &Path, registry: &str) -> Result<PathBuf> {
+    let registry = PathBuf::from(registry);
+    let registry = if registry.is_absolute() {
+        registry
+    } else {
+        project_root.join(registry)
+    };
+    if !registry.is_dir() {
+        bail!(
+            "package registry is not a directory: {}",
+            registry.display()
+        );
+    }
+    Ok(registry)
+}
+
+fn package_version_satisfies(version_req: Option<&str>, package_version: &str) -> Result<bool> {
+    validate_package_version(package_version)?;
+    let Some(version_req) = version_req else {
+        return Ok(true);
+    };
+    let requirement = VersionReq::parse(version_req).with_context(|| {
+        format!("invalid dependency version requirement {version_req:?}; expected semver syntax")
+    })?;
+    let version = Version::parse(package_version)
+        .with_context(|| format!("invalid package version {package_version:?}"))?;
+    Ok(requirement.matches(&version))
+}
+
 fn package_integrity(project_root: &Path, spec: &DependencySpec) -> Result<String> {
-    let package_dir = if spec.git.is_some() {
-        project_dependency_path(project_root, &spec.path, "git package cache")?
+    let package_dir = if spec.git.is_some() || spec.registry.is_some() {
+        project_dependency_path(project_root, &spec.path, "package cache")?
     } else {
         resolve_local_dependency_dir(project_root, &spec.path)?
     };
@@ -2861,8 +3308,8 @@ fn package_integrity(project_root: &Path, spec: &DependencySpec) -> Result<Strin
 }
 
 fn package_version_for_spec(project_root: &Path, spec: &DependencySpec) -> Result<Option<String>> {
-    let package_dir = if spec.git.is_some() {
-        project_dependency_path(project_root, &spec.path, "git package cache")?
+    let package_dir = if spec.git.is_some() || spec.registry.is_some() {
+        project_dependency_path(project_root, &spec.path, "package cache")?
     } else {
         resolve_local_dependency_dir(project_root, &spec.path)?
     };
@@ -2976,6 +3423,68 @@ fn collect_package_integrity_files(
                 .strip_prefix(root)
                 .with_context(|| format!("failed to make {} package-relative", path.display()))?;
             files.push((path_to_slash(relative), path));
+        }
+    }
+    Ok(())
+}
+
+fn copy_package_tree(source: &Path, destination: &Path) -> Result<()> {
+    if !source.is_dir() {
+        bail!("package source is not a directory: {}", source.display());
+    }
+    if destination.exists() {
+        bail!(
+            "package destination already exists: {}",
+            destination.display()
+        );
+    }
+    fs::create_dir_all(destination)
+        .with_context(|| format!("failed to create {}", destination.display()))?;
+    copy_package_tree_entries(source, source, destination)
+}
+
+fn copy_package_tree_entries(root: &Path, current: &Path, destination_root: &Path) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "package copy cannot include symlink {}; copy the target file into the package",
+                path.display()
+            );
+        }
+        if file_name == ".git" && metadata.is_dir() {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .with_context(|| format!("failed to make {} package-relative", path.display()))?;
+        let destination = destination_root.join(relative);
+        if metadata.is_dir() {
+            fs::create_dir_all(&destination)
+                .with_context(|| format!("failed to create {}", destination.display()))?;
+            copy_package_tree_entries(root, &path, destination_root)?;
+        } else if metadata.is_file() {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            fs::copy(&path, &destination).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    path.display(),
+                    destination.display()
+                )
+            })?;
         }
     }
     Ok(())
@@ -3166,6 +3675,9 @@ fn write_dependency_manifest(manifest_path: &Path, spec: &DependencySpec) -> Res
     if let Some(rev) = &spec.rev {
         dependency["rev"] = value(rev.clone());
     }
+    if let Some(registry) = &spec.registry {
+        dependency["registry"] = value(registry.clone());
+    }
     if let Some(version_req) = &spec.version_req {
         dependency["version"] = value(version_req.clone());
     }
@@ -3199,6 +3711,9 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     if let Some(commit) = &spec.commit {
         package["commit"] = value(commit.clone());
     }
+    if let Some(registry) = &spec.registry {
+        package["registry"] = value(registry.clone());
+    }
     if let Some(version_req) = &spec.version_req {
         validate_version_req(version_req)?;
         package["version_req"] = value(version_req.clone());
@@ -3215,29 +3730,6 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
 
     fs::write(lock_path, doc.to_string())
         .with_context(|| format!("failed to write {}", lock_path.display()))
-}
-
-fn locked_git_commit(lock_path: &Path, name: &str) -> Result<Option<String>> {
-    if !lock_path.is_file() {
-        return Ok(None);
-    }
-    let source = fs::read_to_string(lock_path)
-        .with_context(|| format!("failed to read {}", lock_path.display()))?;
-    let doc = source
-        .parse::<DocumentMut>()
-        .with_context(|| format!("failed to parse {}", lock_path.display()))?;
-    let commit = doc
-        .get("package")
-        .and_then(Item::as_table)
-        .and_then(|packages| packages.get(name))
-        .and_then(Item::as_table)
-        .and_then(|package| package.get("commit"))
-        .and_then(Item::as_str)
-        .map(str::to_string);
-    if let Some(commit) = commit.as_deref() {
-        validate_git_commit(commit)?;
-    }
-    Ok(commit)
 }
 
 fn ensure_table<'a>(root: &'a mut Table, key: &str, path: &Path) -> Result<&'a mut Table> {

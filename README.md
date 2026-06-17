@@ -187,18 +187,23 @@ Add a package dependency from a Ricochet project:
 ```powershell
 rco add ./packages/greeter
 rco add ./packages/greeter --version "^0.2.0"
+rco publish ./packages/greeter --registry ../ricochet-registry
+rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
 ```
 
 `ricochet.lock` records each resolved package source, cache path, optional Git
-commit, optional semantic version requirement, resolved package version, and
-`sha256:` content integrity hash. `rco install` and `rco verify` reject packages
-whose `[package] version` does not satisfy the manifest requirement, and
-`rco verify` recomputes the package tree hash while ignoring VCS metadata, so it
-catches local path changes or cached Git package drift without fetching or
-rewriting anything.
+commit, optional local registry, optional semantic version requirement, resolved
+package version, and `sha256:` content integrity hash. `rco publish --registry`
+creates a file-backed local registry entry for packages with `[package] name`
+and `version`; `rco add registry:name --registry PATH` installs from that
+registry, or uses `RICOCHET_REGISTRY` when `--registry` is omitted. `rco install`
+and `rco verify` reject packages whose `[package] version` does not satisfy the
+manifest requirement, and `rco verify` recomputes the package tree hash while
+ignoring VCS metadata, so it catches local path changes, registry cache drift,
+or cached Git package drift without fetching or rewriting anything.
 
 Local package dependencies can be imported by package name:
 
