@@ -26,6 +26,9 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      - name: Run benchmark smoke
+        run: cargo run -p ricochet_cli --bin rco -- bench --smoke
+
       - name: Install cargo-audit
         shell: pwsh
         run: |

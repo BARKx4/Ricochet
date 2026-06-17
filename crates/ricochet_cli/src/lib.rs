@@ -2,13 +2,15 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
+use std::hint::black_box;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use axum::{body::Body, http::Request};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -30,6 +32,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use tar::{Archive, Builder, EntryType};
 use toml_edit::{value, DocumentMut, Item, Table};
+use tower::ServiceExt;
 
 mod lsp;
 
@@ -116,6 +119,14 @@ enum Command {
         args: Vec<String>,
     },
     DebugAdapter,
+    Bench {
+        #[arg(long, default_value_t = 5)]
+        iterations: usize,
+        #[arg(long, help = "Run a small CI-friendly benchmark smoke")]
+        smoke: bool,
+        #[arg(long, help = "Emit benchmark results as JSON")]
+        json: bool,
+    },
     RunBytecode {
         #[arg(long)]
         debug: bool,
@@ -700,6 +711,18 @@ pub async fn run_cli() -> Result<()> {
             capabilities,
         )?,
         Command::DebugAdapter => run_debug_adapter()?,
+        Command::Bench {
+            iterations,
+            smoke,
+            json,
+        } => {
+            run_benchmarks(BenchmarkOptions {
+                iterations,
+                smoke,
+                json,
+            })
+            .await?
+        }
         Command::RunBytecode {
             debug,
             trace_file,
@@ -1886,6 +1909,10 @@ struct NewProjectOptions {
 }
 
 fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
+    create_new_project(path, options, true)
+}
+
+fn create_new_project(path: &Path, options: NewProjectOptions, announce: bool) -> Result<()> {
     ensure_project_path_is_ready(path)?;
 
     fs::create_dir_all(path.join("app").join("Controllers"))
@@ -2014,12 +2041,14 @@ end
             initial_sqlite_migration_source(),
         )?;
         create_sqlite_development_database(path)?;
-        println!(
-            "created {} with SQLite database at {}",
-            path.display(),
-            path.join("db").join("development.sqlite3").display()
-        );
-    } else {
+        if announce {
+            println!(
+                "created {} with SQLite database at {}",
+                path.display(),
+                path.join("db").join("development.sqlite3").display()
+            );
+        }
+    } else if announce {
         println!("created {}", path.display());
     }
     Ok(())
@@ -6169,6 +6198,490 @@ fn debug_value_json(value: &Value) -> serde_json::Value {
     json!({
         "debug": format!("{value:?}"),
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BenchmarkOptions {
+    iterations: usize,
+    smoke: bool,
+    json: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BenchmarkWorkload {
+    parser_lines: usize,
+    vm_ops: usize,
+    dispatch_pairs: usize,
+    collection_ops: usize,
+    json_items: usize,
+    template_exprs: usize,
+    sqlite_requests: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkReport {
+    version: &'static str,
+    profile: String,
+    iterations: usize,
+    measurements: Vec<BenchmarkMeasurement>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkMeasurement {
+    name: String,
+    workload: String,
+    operations: u64,
+    iterations: usize,
+    min_ms: f64,
+    median_ms: f64,
+    max_ms: f64,
+    ops_per_second: f64,
+    notes: String,
+}
+
+async fn run_benchmarks(options: BenchmarkOptions) -> Result<()> {
+    let report = benchmark_report(options).await?;
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_benchmark_report(&report);
+    }
+    Ok(())
+}
+
+async fn benchmark_report(options: BenchmarkOptions) -> Result<BenchmarkReport> {
+    let iterations = if options.smoke {
+        1
+    } else {
+        options.iterations.max(1)
+    };
+    let workload = if options.smoke {
+        BenchmarkWorkload {
+            parser_lines: 200,
+            vm_ops: 1_000,
+            dispatch_pairs: 250,
+            collection_ops: 1_000,
+            json_items: 100,
+            template_exprs: 100,
+            sqlite_requests: 10,
+        }
+    } else {
+        BenchmarkWorkload {
+            parser_lines: 2_000,
+            vm_ops: 20_000,
+            dispatch_pairs: 2_500,
+            collection_ops: 20_000,
+            json_items: 1_000,
+            template_exprs: 500,
+            sqlite_requests: 100,
+        }
+    };
+
+    let repo_root = benchmark_repo_root()?;
+    let parse_source = generated_arithmetic_source(workload.parser_lines);
+    let vm_source = generated_arithmetic_source(workload.vm_ops);
+    let vm_chunk = compile_source("<bench-vm-arithmetic>", &vm_source)?;
+    let dispatch_source = generated_dispatch_source(workload.dispatch_pairs);
+    let dispatch_chunk = compile_source("<bench-dispatch>", &dispatch_source)?;
+    let collection_source = generated_collection_source(workload.collection_ops);
+    let collection_chunk = compile_source("<bench-collection>", &collection_source)?;
+    let json_source = generated_json_source(workload.json_items);
+    let json_chunk = compile_source("<bench-json>", &json_source)?;
+    let template = generated_template(workload.template_exprs);
+    let mut template_data = BTreeMap::new();
+    template_data.insert(
+        "title".to_string(),
+        Value::String("Ricochet <Benchmark>".to_string()),
+    );
+    template_data.insert("count".to_string(), Value::Number(42));
+    let package_root = repo_root.join("packages").join("ricochet_forms");
+    let package_files = count_package_files(&package_root)? as u64;
+
+    let mut measurements = Vec::new();
+    measurements.push(measure_sync(
+        "parser",
+        format!("{} source lines", workload.parser_lines),
+        workload.parser_lines as u64,
+        iterations,
+        "parse_module over generated arithmetic source",
+        || {
+            let parsed = parse_module(&parse_source)?;
+            black_box(parsed);
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "compiler",
+        format!("{} source lines", workload.parser_lines),
+        workload.parser_lines as u64,
+        iterations,
+        "compile_source over generated arithmetic source",
+        || {
+            let chunk = compile_source("<bench-compile>", &parse_source)?;
+            black_box(chunk.instructions.len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "vm_arithmetic",
+        format!("{} additions", workload.vm_ops),
+        workload.vm_ops as u64,
+        iterations,
+        "fresh VM running precompiled stack arithmetic",
+        || {
+            let mut vm = Vm::default();
+            vm.run_chunk(&vm_chunk)?;
+            black_box(vm.stack().len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "dispatch",
+        format!("{} function + method pairs", workload.dispatch_pairs),
+        (workload.dispatch_pairs * 2) as u64,
+        iterations,
+        "user function and OOP method calls",
+        || {
+            let mut vm = Vm::default();
+            vm.run_chunk(&dispatch_chunk)?;
+            black_box(vm.stack().len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "collection_mutation",
+        format!("{} array push! calls", workload.collection_ops),
+        workload.collection_ops as u64,
+        iterations,
+        "array mutation through collection helpers",
+        || {
+            let mut vm = Vm::default();
+            vm.run_chunk(&collection_chunk)?;
+            black_box(vm.stack().len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "json_encode_decode",
+        format!("{} object items", workload.json_items),
+        workload.json_items as u64,
+        iterations,
+        "JSON encode/decode of a generated nested map",
+        || {
+            let mut vm = Vm::default();
+            vm.run_chunk(&json_chunk)?;
+            black_box(vm.stack().len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "template_rendering",
+        format!("{} template expressions", workload.template_exprs * 2),
+        (workload.template_exprs * 2) as u64,
+        iterations,
+        "HTML template rendering with Ricochet expressions",
+        || {
+            let rendered = ricochet_web::render_template(
+                &template,
+                &template_data,
+                ricochet_web::EscapeMode::Html,
+            )?;
+            black_box(rendered.len());
+            Ok(())
+        },
+    )?);
+    measurements.push(measure_sync(
+        "package_verification",
+        format!("{package_files} package files"),
+        package_files,
+        iterations,
+        "deterministic package tree integrity hash",
+        || {
+            let integrity = package_tree_integrity(&package_root)?;
+            black_box(integrity);
+            Ok(())
+        },
+    )?);
+    measurements
+        .push(measure_sqlite_mvc_requests(&repo_root, workload.sqlite_requests, iterations).await?);
+
+    Ok(BenchmarkReport {
+        version: crate_version(),
+        profile: if options.smoke {
+            "smoke".to_string()
+        } else {
+            "local".to_string()
+        },
+        iterations,
+        measurements,
+    })
+}
+
+fn measure_sync<F>(
+    name: &str,
+    workload: String,
+    operations: u64,
+    iterations: usize,
+    notes: &str,
+    mut run: F,
+) -> Result<BenchmarkMeasurement>
+where
+    F: FnMut() -> Result<()>,
+{
+    let mut samples = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        let start = Instant::now();
+        run()?;
+        samples.push(start.elapsed());
+    }
+    Ok(benchmark_measurement(
+        name, workload, operations, iterations, notes, samples,
+    ))
+}
+
+async fn measure_sqlite_mvc_requests(
+    repo_root: &Path,
+    requests: usize,
+    iterations: usize,
+) -> Result<BenchmarkMeasurement> {
+    let project = benchmark_sqlite_project_path(repo_root)?;
+    create_new_project(&project, NewProjectOptions { with_sqlite: true }, false)?;
+    rewrite_benchmark_sqlite_manifest(&project)?;
+    let app = ricochet_web::build_served_app_from_dir(
+        &project,
+        false,
+        false,
+        &ricochet_web::ServeOptions::default(),
+    )
+    .await?;
+
+    let mut samples = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        let start = Instant::now();
+        for _ in 0..requests {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/users")
+                        .body(Body::empty())
+                        .context("failed to build benchmark request")?,
+                )
+                .await
+                .context("SQLite MVC benchmark request failed")?;
+            if !response.status().is_success() {
+                bail!(
+                    "SQLite MVC benchmark request returned {}",
+                    response.status()
+                );
+            }
+            let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .context("failed to read SQLite MVC benchmark response")?;
+            black_box(body.len());
+        }
+        samples.push(start.elapsed());
+    }
+
+    Ok(benchmark_measurement(
+        "sqlite_mvc_request",
+        format!("{requests} GET /users requests"),
+        requests as u64,
+        iterations,
+        "in-process Axum route through Ricochet MVC + SQLite Active Record",
+        samples,
+    ))
+}
+
+fn benchmark_measurement(
+    name: &str,
+    workload: String,
+    operations: u64,
+    iterations: usize,
+    notes: &str,
+    samples: Vec<Duration>,
+) -> BenchmarkMeasurement {
+    let mut sample_ms = samples
+        .iter()
+        .map(|duration| duration.as_secs_f64() * 1000.0)
+        .collect::<Vec<_>>();
+    sample_ms.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let min_ms = *sample_ms.first().unwrap_or(&0.0);
+    let median_ms = sample_ms[sample_ms.len() / 2];
+    let max_ms = *sample_ms.last().unwrap_or(&0.0);
+    let ops_per_second = if median_ms > 0.0 {
+        operations as f64 / (median_ms / 1000.0)
+    } else {
+        0.0
+    };
+    BenchmarkMeasurement {
+        name: name.to_string(),
+        workload,
+        operations,
+        iterations,
+        min_ms,
+        median_ms,
+        max_ms,
+        ops_per_second,
+        notes: notes.to_string(),
+    }
+}
+
+fn print_benchmark_report(report: &BenchmarkReport) {
+    println!(
+        "Ricochet {} benchmark profile={} iterations={}",
+        report.version, report.profile, report.iterations
+    );
+    println!("| benchmark | workload | median | throughput | notes |");
+    println!("| --- | ---: | ---: | ---: | --- |");
+    for measurement in &report.measurements {
+        println!(
+            "| {} | {} | {:.3} ms | {} ops/s | {} |",
+            measurement.name,
+            measurement.workload,
+            measurement.median_ms,
+            format_number(measurement.ops_per_second),
+            measurement.notes
+        );
+    }
+}
+
+fn format_number(value: f64) -> String {
+    if value >= 1_000_000.0 {
+        format!("{:.2}M", value / 1_000_000.0)
+    } else if value >= 1_000.0 {
+        format!("{:.2}k", value / 1_000.0)
+    } else {
+        format!("{value:.2}")
+    }
+}
+
+fn benchmark_repo_root() -> Result<PathBuf> {
+    let cwd = std::env::current_dir().context("failed to read current directory")?;
+    if cwd.join("packages").is_dir() && cwd.join("crates").is_dir() {
+        return Ok(cwd);
+    }
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
+}
+
+fn benchmark_sqlite_project_path(repo_root: &Path) -> Result<PathBuf> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock should be after Unix epoch")?
+        .as_nanos();
+    let root = repo_root
+        .join("target")
+        .join("bench")
+        .join(format!("sqlite-mvc-{}-{nanos}", std::process::id()));
+    Ok(root)
+}
+
+fn rewrite_benchmark_sqlite_manifest(project: &Path) -> Result<()> {
+    let manifest_path = project.join("ricochet.toml");
+    let manifest = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let database_path = path_to_slash(&project.join("db").join("development.sqlite3"));
+    let manifest = manifest.replace(
+        "url = \"db/development.sqlite3\"",
+        &format!("url = \"{database_path}\""),
+    );
+    fs::write(&manifest_path, manifest)
+        .with_context(|| format!("failed to write {}", manifest_path.display()))
+}
+
+fn count_package_files(path: &Path) -> Result<usize> {
+    let mut count = 0usize;
+    count_files_recursive(path, &mut count)?;
+    Ok(count)
+}
+
+fn count_files_recursive(path: &Path, count: &mut usize) -> Result<()> {
+    for entry in fs::read_dir(path).with_context(|| format!("failed to read {}", path.display()))? {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", path.display()))?;
+        let path = entry.path();
+        if path.is_dir() {
+            count_files_recursive(&path, count)?;
+        } else if path.is_file() {
+            *count += 1;
+        }
+    }
+    Ok(())
+}
+
+fn generated_arithmetic_source(lines: usize) -> String {
+    let mut source = String::new();
+    for _ in 0..lines {
+        source.push_str("1 2 + drop\n");
+    }
+    source
+}
+
+fn generated_dispatch_source(pairs: usize) -> String {
+    let mut source = String::from(
+        r#"Counter Object Subclass
+  [
+    42
+  ] "next" Method
+end
+
+( value -> Number ) bump function
+  value var
+  value get 1 +
+end
+
+Counter new counter var
+"#,
+    );
+    for _ in 0..pairs {
+        source.push_str("1 bump drop\n");
+        source.push_str("counter get next drop\n");
+    }
+    source
+}
+
+fn generated_collection_source(items: usize) -> String {
+    let mut source = String::from("items array\n");
+    for item in 0..items {
+        writeln!(&mut source, "items get {item} push! drop").expect("write to string succeeds");
+    }
+    source.push_str("items get count\n");
+    source
+}
+
+fn generated_json_source(items: usize) -> String {
+    let mut source = String::from("payload map\nitems array\n");
+    for item in 0..items {
+        writeln!(&mut source, "item{item} map").expect("write to string succeeds");
+        writeln!(&mut source, "item{item} get \"id\" {item} put! drop")
+            .expect("write to string succeeds");
+        writeln!(
+            &mut source,
+            "item{item} get \"name\" \"item-{item}\" put! drop"
+        )
+        .expect("write to string succeeds");
+        writeln!(&mut source, "items get item{item} get push! drop")
+            .expect("write to string succeeds");
+    }
+    source.push_str(
+        r#"payload get "items" items get put! drop
+payload get json-encode encoded var
+encoded get json-decode value decoded var
+decoded get "items" at count
+"#,
+    );
+    source
+}
+
+fn generated_template(expressions: usize) -> String {
+    let mut template = String::new();
+    for index in 0..expressions {
+        writeln!(
+            &mut template,
+            "<p>{{ title get }} #{index}: {{ count get }}</p>"
+        )
+        .expect("write to string succeeds");
+    }
+    template
 }
 
 #[derive(Debug, Clone)]

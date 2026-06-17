@@ -135,6 +135,7 @@ rco doctor my_app
 rco verify my_app
 rco lsp-diagnostics my_app/app/Models/User.rco --pretty
 rco lsp
+rco bench --smoke
 rco doc my_app
 rco test my_app
 ```
@@ -523,6 +524,15 @@ contracts.
 `scripts/validate-editor-assets.ps1` checks the grammar and VS Code wiring
 against the reference word catalog, and release archives include this folder
 under `editors/vscode`.
+
+## Benchmarks
+
+`rco bench` runs a repeatable local benchmark suite for parser/compiler work,
+VM arithmetic, function and method dispatch, collection mutation, JSON
+encode/decode, template rendering, package verification, and a SQLite MVC
+request path. Use `rco bench --smoke` for CI-sized coverage or
+`rco bench --iterations 5` for a local baseline. The current website-copy
+baseline lives in `docs/benchmarks/2026-06-17-baseline.md`.
 
 ## Developing Ricochet
 

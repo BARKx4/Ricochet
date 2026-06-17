@@ -24,6 +24,7 @@ ricochet_syntax = { path = "../ricochet_syntax" }
 ricochet_vm = { path = "../ricochet_vm" }
 ricochet_web = { path = "../ricochet_web" }
 anyhow.workspace = true
+axum.workspace = true
 clap.workspace = true
 flate2.workspace = true
 reqwest.workspace = true
@@ -35,6 +36,7 @@ sha2.workspace = true
 tar.workspace = true
 tokio.workspace = true
 toml_edit.workspace = true
+tower.workspace = true
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 tao = "0.35"

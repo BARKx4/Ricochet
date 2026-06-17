@@ -2960,6 +2960,7 @@ name = "ricochet_cli"
 version = "0.1.12"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "flate2",
  "reqwest",
@@ -2977,6 +2978,7 @@ dependencies = [
  "tar",
  "tokio",
  "toml_edit 0.22.27",
+ "tower",
  "wry",
 ]
 
