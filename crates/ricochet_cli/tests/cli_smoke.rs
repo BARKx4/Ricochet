@@ -1507,6 +1507,8 @@ fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
     let output_path = root.join(format!("mvc-app{}", std::env::consts::EXE_SUFFIX));
     let package_export_path = root.join("mvc-package.html");
     let asset_export_path = root.join("mvc-package.css");
+    let fs_export_path = root.join("mvc-package-fs.json");
+    let caps_export_path = root.join("mvc-package-caps.json");
 
     let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("new")
@@ -1514,6 +1516,72 @@ fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
         .output()
         .expect("rco new should launch");
     assert_run_success_for("rco new", "mvc_app", &new_output);
+
+    let manifest_path = project_path.join("ricochet.toml");
+    let manifest = fs::read_to_string(&manifest_path).expect("manifest should be readable");
+    fs::write(
+        &manifest_path,
+        format!(
+            r#"{manifest}
+
+[web.capabilities]
+fs_root = "."
+env_allow = ["RICOCHET_MVC_PACKAGE_ENV_TEST"]
+allow_process = true
+process_root = "."
+allow_pty = true
+http_allow_hosts = ["127.0.0.1"]
+"#
+        ),
+    )
+    .expect("manifest should declare packaged capabilities");
+
+    fs::write(
+        project_path.join("config").join("routes.rco"),
+        r#"GET "/" HomeController "index" route
+GET "/users" UserController "index" route
+GET "/fs-check" FsCheckController "show" route
+GET "/caps" CapabilityController "show" route
+"#,
+    )
+    .expect("routes should be extended");
+    fs::write(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("FsCheckController.rco"),
+        r#"FsCheckController Controller Subclass
+  [
+    "ricochet.toml" fs_exists? exists var
+    map data var
+    data get "exists" exists get put! data set
+    data get json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("fs check controller should be written");
+    fs::write(
+        project_path
+            .join("app")
+            .join("Controllers")
+            .join("CapabilityController.rco"),
+        r#"CapabilityController Controller Subclass
+  [
+    "RICOCHET_MVC_PACKAGE_ENV_TEST" env value envValue var
+    runtime_capabilities caps var
+    map data var
+    data get "env" envValue get put! data set
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put! data set
+    data get "process_enabled" caps get "process" at "enabled" at put! data set
+    data get "pty_enabled" caps get "pty" at "enabled" at put! data set
+    data get "http_enabled" caps get "http" at "enabled" at put! data set
+    data get json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("capability controller should be written");
 
     let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("package")
@@ -1559,6 +1627,51 @@ fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
         css.contains("font-family: system-ui"),
         "exported MVC CSS should include scaffolded stylesheet, got:\n{css}"
     );
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &fs_export_path)
+        .env("RICOCHET_GUI_EXPORT_PATH", "/fs-check")
+        .output()
+        .expect("packaged Ricochet MVC GUI executable should export filesystem route");
+    assert_run_success_for(
+        "packaged MVC GUI executable",
+        "mvc-app filesystem route",
+        &output,
+    );
+
+    let fs_json =
+        fs::read_to_string(fs_export_path).expect("packaged MVC fs route should be exported");
+    assert!(
+        fs_json.contains("\"exists\":true"),
+        "packaged MVC fs route should have app-local filesystem capability, got:\n{fs_json}"
+    );
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &caps_export_path)
+        .env("RICOCHET_GUI_EXPORT_PATH", "/caps")
+        .env("RICOCHET_MVC_PACKAGE_ENV_TEST", "package-visible")
+        .output()
+        .expect("packaged Ricochet MVC GUI executable should export capability route");
+    assert_run_success_for(
+        "packaged MVC GUI executable",
+        "mvc-app manifest capability route",
+        &output,
+    );
+
+    let caps_json = fs::read_to_string(caps_export_path)
+        .expect("packaged MVC capability route should be exported");
+    for expected in [
+        "\"env\":\"package-visible\"",
+        "\"fs_enabled\":true",
+        "\"process_enabled\":true",
+        "\"pty_enabled\":true",
+        "\"http_enabled\":true",
+    ] {
+        assert!(
+            caps_json.contains(expected),
+            "packaged MVC caps route should contain {expected}, got:\n{caps_json}"
+        );
+    }
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]

@@ -27,7 +27,7 @@ use crate::active_record::{ModelMapping, MysqlDatabase, PostgresDatabase, Sqlite
 use crate::ai_capability::{install_ai_capability, AiProvider};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
-use crate::manifest::{DatabaseDefault, Manifest, SessionSecure, StaticFiles};
+use crate::manifest::{DatabaseDefault, Manifest, SessionSecure, StaticFiles, WebCapabilities};
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
@@ -324,26 +324,15 @@ impl ServeOptions {
         if self.fs_readonly && self.fs_root.is_none() {
             bail!("--fs-readonly requires --fs-root");
         }
-        if self.watch && !self.http_allow_hosts.is_empty() {
-            bail!("--http-allow-host is not supported with --watch yet");
-        }
-        if self.watch && self.allow_env {
-            bail!("--allow-env is not supported with --watch yet");
-        }
-        if self.watch && !self.env_allow.is_empty() {
-            bail!("--env-allow is not supported with --watch yet");
-        }
-        if self.allow_env && !self.env_allow.is_empty() {
-            bail!("--allow-env cannot be used with --env-allow");
-        }
-        if self.watch && self.allow_process {
-            bail!("--allow-process is not supported with --watch yet");
-        }
-        if self.watch && self.allow_pty {
-            bail!("--allow-pty is not supported with --watch yet");
-        }
         Ok(())
     }
+}
+
+#[derive(Clone, Default)]
+struct ServeCapabilityState {
+    process_registry: ProcessRegistry,
+    pty_registry: PtyRegistry,
+    approval_registry: ApprovalRegistry,
 }
 
 pub fn build_test_app() -> Result<Router> {
@@ -377,10 +366,25 @@ pub fn build_app_from_dir_with_database(
 }
 
 pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
+    build_watched_app_from_dir_with_options(project_root, &ServeOptions::default())
+}
+
+pub fn build_watched_app_from_dir_with_options(
+    project_root: impl AsRef<Path>,
+    options: &ServeOptions,
+) -> Result<Router> {
     let project_root = project_root.as_ref().to_path_buf();
     let builder_root = project_root.clone();
+    let builder_options = options.clone();
+    let capability_state = Arc::new(ServeCapabilityState::default());
     let builder: RuntimeBuilder = Arc::new(move || {
         let vm_setup = model_vm_setup(&builder_root)?;
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            &builder_root,
+            vm_setup,
+            &builder_options,
+            capability_state.clone(),
+        )?;
         build_runtime_from_dir_internal(&builder_root, vm_setup)
     });
 
@@ -391,10 +395,30 @@ pub fn build_watched_app_from_dir_with_trace(
     project_root: impl AsRef<Path>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
+    build_watched_app_from_dir_with_options_and_trace(
+        project_root,
+        &ServeOptions::default(),
+        trace_sink,
+    )
+}
+
+pub fn build_watched_app_from_dir_with_options_and_trace(
+    project_root: impl AsRef<Path>,
+    options: &ServeOptions,
+    trace_sink: WatchTraceSink,
+) -> Result<Router> {
     let project_root = project_root.as_ref().to_path_buf();
     let builder_root = project_root.clone();
+    let builder_options = options.clone();
+    let capability_state = Arc::new(ServeCapabilityState::default());
     let builder: RuntimeBuilder = Arc::new(move || {
         let vm_setup = model_vm_setup(&builder_root)?;
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            &builder_root,
+            vm_setup,
+            &builder_options,
+            capability_state.clone(),
+        )?;
         build_runtime_from_dir_internal(&builder_root, vm_setup)
     });
 
@@ -405,11 +429,31 @@ pub fn build_watched_app_from_dir_with_database(
     project_root: impl AsRef<Path>,
     backend: Arc<dyn DatabaseBackend>,
 ) -> Result<Router> {
+    build_watched_app_from_dir_with_database_and_options(
+        project_root,
+        backend,
+        &ServeOptions::default(),
+    )
+}
+
+pub fn build_watched_app_from_dir_with_database_and_options(
+    project_root: impl AsRef<Path>,
+    backend: Arc<dyn DatabaseBackend>,
+    options: &ServeOptions,
+) -> Result<Router> {
     let project_root = project_root.as_ref().to_path_buf();
     let builder_root = project_root.clone();
+    let builder_options = options.clone();
+    let capability_state = Arc::new(ServeCapabilityState::default());
     let builder: RuntimeBuilder = Arc::new(move || {
         let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        build_runtime_from_dir_internal(&builder_root, Some(vm_setup))
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            &builder_root,
+            Some(vm_setup),
+            &builder_options,
+            capability_state.clone(),
+        )?;
+        build_runtime_from_dir_internal(&builder_root, vm_setup)
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, None)
@@ -420,11 +464,33 @@ pub fn build_watched_app_from_dir_with_database_and_trace(
     backend: Arc<dyn DatabaseBackend>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
+    build_watched_app_from_dir_with_database_options_and_trace(
+        project_root,
+        backend,
+        &ServeOptions::default(),
+        trace_sink,
+    )
+}
+
+pub fn build_watched_app_from_dir_with_database_options_and_trace(
+    project_root: impl AsRef<Path>,
+    backend: Arc<dyn DatabaseBackend>,
+    options: &ServeOptions,
+    trace_sink: WatchTraceSink,
+) -> Result<Router> {
     let project_root = project_root.as_ref().to_path_buf();
     let builder_root = project_root.clone();
+    let builder_options = options.clone();
+    let capability_state = Arc::new(ServeCapabilityState::default());
     let builder: RuntimeBuilder = Arc::new(move || {
         let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        build_runtime_from_dir_internal(&builder_root, Some(vm_setup))
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            &builder_root,
+            Some(vm_setup),
+            &builder_options,
+            capability_state.clone(),
+        )?;
+        build_runtime_from_dir_internal(&builder_root, vm_setup)
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
@@ -2281,38 +2347,113 @@ pub async fn build_served_app_from_dir(
 ) -> Result<Router> {
     let project_root = project_root.as_ref();
     let manifest = load_manifest(project_root)?;
+    let effective_options = apply_manifest_capabilities(project_root, &manifest, options);
+    effective_options.validate()?;
     let watch_trace_sink = (watch && debug).then(stdout_watch_trace_sink);
     match (watch, manifest.database.default) {
         (true, Some(database)) => {
             let backend = connect_database_backend(&database).await?;
             if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_database_and_trace(
+                build_watched_app_from_dir_with_database_options_and_trace(
                     project_root,
                     backend,
+                    &effective_options,
                     trace_sink,
                 )
             } else {
-                build_watched_app_from_dir_with_database(project_root, backend)
+                build_watched_app_from_dir_with_database_and_options(
+                    project_root,
+                    backend,
+                    &effective_options,
+                )
             }
         }
         (true, None) => {
             if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_trace(project_root, trace_sink)
+                build_watched_app_from_dir_with_options_and_trace(
+                    project_root,
+                    &effective_options,
+                    trace_sink,
+                )
             } else {
-                build_watched_app_from_dir(project_root)
+                build_watched_app_from_dir_with_options(project_root, &effective_options)
             }
         }
         (false, Some(database)) => {
             let backend = connect_database_backend(&database).await?;
             let vm_setup = database_vm_setup(project_root, backend)?;
-            let vm_setup =
-                compose_serve_capability_vm_setup(project_root, Some(vm_setup), options)?;
+            let vm_setup = compose_serve_capability_vm_setup(
+                project_root,
+                Some(vm_setup),
+                &effective_options,
+            )?;
             build_app_from_dir_internal(project_root, vm_setup)
         }
         (false, None) => {
             let vm_setup = model_vm_setup(project_root)?;
-            let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
+            let vm_setup =
+                compose_serve_capability_vm_setup(project_root, vm_setup, &effective_options)?;
             build_app_from_dir_internal(project_root, vm_setup)
+        }
+    }
+}
+
+fn apply_manifest_capabilities(
+    project_root: &Path,
+    manifest: &Manifest,
+    options: &ServeOptions,
+) -> ServeOptions {
+    let mut effective = options.clone();
+    let capabilities = &manifest.web.capabilities;
+
+    apply_manifest_paths(project_root, capabilities, &mut effective);
+    if capabilities.fs_readonly {
+        effective.fs_readonly = true;
+    }
+    if capabilities.allow_env {
+        effective.allow_env = true;
+    }
+    append_unique(&mut effective.env_allow, &capabilities.env_allow);
+    if capabilities.allow_process {
+        effective.allow_process = true;
+    }
+    if capabilities.allow_pty {
+        effective.allow_pty = true;
+    }
+    append_unique(
+        &mut effective.http_allow_hosts,
+        &capabilities.http_allow_hosts,
+    );
+
+    effective
+}
+
+fn apply_manifest_paths(
+    project_root: &Path,
+    capabilities: &WebCapabilities,
+    options: &mut ServeOptions,
+) {
+    if let Some(root) = capabilities.fs_root.as_deref() {
+        options.fs_root = Some(resolve_manifest_path(project_root, root));
+    }
+    if let Some(root) = capabilities.process_root.as_deref() {
+        options.process_root = Some(resolve_manifest_path(project_root, root));
+    }
+}
+
+fn resolve_manifest_path(project_root: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        project_root.join(path)
+    }
+}
+
+fn append_unique(target: &mut Vec<String>, values: &[String]) {
+    for value in values {
+        if !target.contains(value) {
+            target.push(value.clone());
         }
     }
 }
@@ -2322,9 +2463,20 @@ fn compose_serve_capability_vm_setup(
     vm_setup: Option<VmSetup>,
     options: &ServeOptions,
 ) -> Result<Option<VmSetup>> {
-    if options.watch && options.fs_root.is_some() {
-        bail!("--fs-root is not supported with --watch yet");
-    }
+    compose_serve_capability_vm_setup_with_state(
+        project_root,
+        vm_setup,
+        options,
+        Arc::new(ServeCapabilityState::default()),
+    )
+}
+
+fn compose_serve_capability_vm_setup_with_state(
+    project_root: &Path,
+    vm_setup: Option<VmSetup>,
+    options: &ServeOptions,
+    capability_state: Arc<ServeCapabilityState>,
+) -> Result<Option<VmSetup>> {
     let root = if let Some(root) = &options.fs_root {
         let root = if root.is_absolute() {
             root.clone()
@@ -2341,7 +2493,8 @@ fn compose_serve_capability_vm_setup(
         None
     };
     let readonly = options.fs_readonly;
-    let allow_env = options.allow_env || !options.env_allow.is_empty();
+    let allow_all_env = options.allow_env;
+    let allow_env = allow_all_env || !options.env_allow.is_empty();
     let env_allow = Arc::new(options.env_allow.clone());
     let allow_process = options.allow_process;
     let process_root = if let Some(root) = options.process_root.clone() {
@@ -2356,17 +2509,14 @@ fn compose_serve_capability_vm_setup(
     };
     let allow_pty = options.allow_pty;
     let http_allow_hosts = Arc::new(options.http_allow_hosts.clone());
-    let process_registry = ProcessRegistry::default();
-    let pty_registry = PtyRegistry::default();
-    let approval_registry = ApprovalRegistry::default();
     Ok(Some(Arc::new(move |vm| {
         let mut capabilities = match &vm_setup {
             Some(setup) => setup(vm)?,
             None => BTreeMap::new(),
         };
-        vm.set_approval_registry(approval_registry.clone());
+        vm.set_approval_registry(capability_state.approval_registry.clone());
         vm.set_environment_enabled(allow_env);
-        if env_allow.is_empty() {
+        if allow_all_env || env_allow.is_empty() {
             vm.clear_environment_allowed_names();
         } else {
             vm.set_environment_allowed_names((*env_allow).clone());
@@ -2378,14 +2528,14 @@ fn compose_serve_capability_vm_setup(
             vm.set_process_root((**process_root).clone());
         }
         if allow_process {
-            vm.set_process_registry(process_registry.clone());
+            vm.set_process_registry(capability_state.process_registry.clone());
             capabilities.insert(
                 "process".to_string(),
                 Value::Capability(Capability::Process),
             );
         }
         if allow_pty {
-            vm.set_pty_registry(pty_registry.clone());
+            vm.set_pty_registry(capability_state.pty_registry.clone());
         }
         if let Some(root) = &root {
             vm.set_filesystem_root((**root).clone());
@@ -2471,5 +2621,22 @@ mod tests {
         options
             .validate()
             .expect("watch should be a valid serve option");
+    }
+
+    #[test]
+    fn serve_options_accept_watch_with_capability_flags() {
+        let options = ServeOptions {
+            watch: true,
+            allow_env: true,
+            allow_process: true,
+            allow_pty: true,
+            fs_root: Some(PathBuf::from(".")),
+            http_allow_hosts: vec!["127.0.0.1".to_string()],
+            ..ServeOptions::default()
+        };
+
+        options
+            .validate()
+            .expect("watch should support serve capability flags");
     }
 }

@@ -323,6 +323,11 @@ escape = "html"
 dir = "public"
 mount = "/assets"
 
+[web.capabilities]
+fs_root = "."
+env_allow = ["RICOCHET_SESSION_SECRET"]
+http_allow_hosts = ["127.0.0.1"]
+
 [web.session]
 signing_secret_env = "RICOCHET_SESSION_SECRET"
 encryption_secret_env = "RICOCHET_SESSION_ENCRYPTION_SECRET"
@@ -752,7 +757,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>MVC request body parsing is in-memory with a 16 MiB beta limit. Multipart uploads expose UTF-8 `text` when possible and `data_base64` for arbitrary bytes; streaming upload APIs remain planned work.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
-          <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files.</li>
+          <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files. Watched MVC runtimes honor the same CLI and manifest-declared filesystem, HTTP, environment, process, and PTY capability setup as ordinary `rco serve`.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
           <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `id`, `status`, `pending?`, `running?`, `completed?`, `failed?`, and `tasks`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>

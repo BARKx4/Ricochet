@@ -2438,6 +2438,227 @@ end
 }
 
 #[tokio::test]
+async fn served_mvc_applies_manifest_web_capabilities() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "manifest_capabilities"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.capabilities]
+fs_root = "."
+env_allow = ["RICOCHET_MVC_MANIFEST_ENV_TEST"]
+allow_process = true
+process_root = "."
+allow_pty = true
+http_allow_hosts = ["127.0.0.1"]
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/caps" CapabilityController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/CapabilityController.rco"),
+        r#"
+CapabilityController Controller Subclass
+  [
+    "RICOCHET_MVC_MANIFEST_ENV_TEST" env value envValue var
+    runtime_capabilities caps var
+    map data var
+    data get "env" envValue get put! drop
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put! drop
+    data get "process_enabled" caps get "process" at "enabled" at put! drop
+    data get "pty_enabled" caps get "pty" at "enabled" at put! drop
+    data get "http_enabled" caps get "http" at "enabled" at put! drop
+    data get json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+    std::env::set_var("RICOCHET_MVC_MANIFEST_ENV_TEST", "manifest-visible");
+
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions::default(),
+    )
+    .await
+    .expect("build served app with manifest-declared capabilities");
+
+    let response = app
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "manifest capabilities should allow the controller, body was {}",
+        String::from_utf8_lossy(&body)
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+
+    assert_eq!(body["env"], "manifest-visible");
+    assert_eq!(body["fs_enabled"], true);
+    assert_eq!(body["process_enabled"], true);
+    assert_eq!(body["pty_enabled"], true);
+    assert_eq!(body["http_enabled"], true);
+}
+
+#[tokio::test]
+async fn watched_mvc_applies_serve_and_manifest_capabilities() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "watched_manifest_capabilities"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.capabilities]
+env_allow = ["RICOCHET_MVC_WATCH_ENV_TEST"]
+http_allow_hosts = ["127.0.0.1"]
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/caps" CapabilityController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/CapabilityController.rco"),
+        r#"
+CapabilityController Controller Subclass
+  [
+    "RICOCHET_MVC_WATCH_ENV_TEST" env value envValue var
+    runtime_capabilities caps var
+    map data var
+    "RICOCHET_MVC_WATCH_ENV_EXTRA" env value extraEnvValue var
+    data get "env" envValue get put! drop
+    data get "extra_env" extraEnvValue get put! drop
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put! drop
+    data get "process_enabled" caps get "process" at "enabled" at put! drop
+    data get "pty_enabled" caps get "pty" at "enabled" at put! drop
+    data get "http_enabled" caps get "http" at "enabled" at put! drop
+    data get "revision" "before" put! drop
+    data get json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+    std::env::set_var("RICOCHET_MVC_WATCH_ENV_TEST", "watch-visible");
+    std::env::set_var("RICOCHET_MVC_WATCH_ENV_EXTRA", "watch-extra-visible");
+
+    let options = ricochet_web::server::ServeOptions {
+        watch: true,
+        allow_env: true,
+        allow_process: true,
+        allow_pty: true,
+        fs_root: Some(project_root.clone()),
+        http_allow_hosts: vec!["localhost".to_string()],
+        ..ricochet_web::server::ServeOptions::default()
+    };
+
+    let app = ricochet_web::server::build_served_app_from_dir(&project_root, true, true, &options)
+        .await
+        .expect("build watched app with serve and manifest capabilities");
+
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "watched capability response should succeed, body was {}",
+        String::from_utf8_lossy(&body)
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+    assert_eq!(body["env"], "watch-visible");
+    assert_eq!(body["extra_env"], "watch-extra-visible");
+    assert_eq!(body["fs_enabled"], true);
+    assert_eq!(body["process_enabled"], true);
+    assert_eq!(body["pty_enabled"], true);
+    assert_eq!(body["http_enabled"], true);
+    assert_eq!(body["revision"], "before");
+
+    fs::write(
+        project_root.join("app/Controllers/CapabilityController.rco"),
+        r#"
+CapabilityController Controller Subclass
+  [
+    runtime_capabilities caps var
+    map data var
+    data get "process_enabled" caps get "process" at "enabled" at put! drop
+    data get "http_enabled" caps get "http" at "enabled" at put! drop
+    data get "revision" "after" put! drop
+    data get json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be rewritten");
+
+    let response = app
+        .oneshot(Request::builder().uri("/caps").body(Body::empty()).unwrap())
+        .await
+        .expect("reloaded capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "reloaded watched capability response should succeed, body was {}",
+        String::from_utf8_lossy(&body)
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+    assert_eq!(body["process_enabled"], true);
+    assert_eq!(body["http_enabled"], true);
+    assert_eq!(body["revision"], "after");
+}
+
+#[tokio::test]
 async fn served_mvc_keeps_environment_disabled_when_only_filesystem_is_allowed() {
     let project_root = temp_project_path();
     let fs_root = project_root.join("data");

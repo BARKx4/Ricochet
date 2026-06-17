@@ -276,13 +276,16 @@ rco serve --allow-process --fs-root .
 rco serve --allow-process --process-root .\scripts
 rco serve --allow-pty --fs-root .
 rco serve --watch
+rco serve --watch --fs-root . --http-allow-host 127.0.0.1
 ```
 
 `--watch` reloads Ricochet MVC routes, controllers, models, views, and the
 manifest between requests. If a reload fails, the request returns a clear MVC
 error and the next request retries after you fix the source. Combine `--watch`
 with `--debug` to print reload trace lines with the new revision and changed
-files.
+files. The same filesystem, HTTP, environment, process, and PTY capability
+flags used by ordinary `rco serve` are also honored by watched MVC runtimes and
+by each hot-reloaded revision.
 
 `rco serve` keeps MVC process environment reads disabled unless you pass
 `--allow-env` or one or more `--env-allow NAME` entries. Prefer
@@ -539,9 +542,9 @@ For MVC servers, `rco serve` enables filesystem and HTTP only through
 `--fs-root` and `--http-allow-host`, and enables process environment reads only
 through `--allow-env` or `--env-allow`. MVC process execution requires
 `--allow-process`, MVC PTY sessions require `--allow-pty`, and
-`--process-root` can narrow execution cwd values; `--watch` currently rejects
-env, filesystem, HTTP, process, and PTY host access so hot reload cannot orphan
-interactive sessions or stale capability state.
+`--process-root` can narrow execution cwd values. Watched MVC runtimes use the
+same capability setup and share retained approval, process, and PTY registries
+across hot reloads.
 
 For v1 beta testing, keep `trusted` for your own local scripts and generated
 apps. Use `sandboxed` for untrusted examples, bug reports, package reviews, or

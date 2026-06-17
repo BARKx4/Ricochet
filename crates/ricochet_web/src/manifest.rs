@@ -28,6 +28,8 @@ pub struct Web {
     pub static_files: StaticFiles,
     #[serde(default)]
     pub session: Session,
+    #[serde(default)]
+    pub capabilities: WebCapabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -50,6 +52,19 @@ impl Default for StaticFiles {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Views {
     pub escape: EscapeMode,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct WebCapabilities {
+    pub fs_root: Option<String>,
+    pub fs_readonly: bool,
+    pub allow_env: bool,
+    pub env_allow: Vec<String>,
+    pub allow_process: bool,
+    pub process_root: Option<String>,
+    pub allow_pty: bool,
+    pub http_allow_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

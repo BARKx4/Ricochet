@@ -1972,13 +1972,12 @@ async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Resu
         )
     })?;
 
-    let app = ricochet_web::build_served_app_from_dir(
-        &project_root,
-        false,
-        false,
-        &ricochet_web::ServeOptions::default(),
-    )
-    .await?;
+    let serve_options = ricochet_web::ServeOptions {
+        fs_root: Some(project_root.clone()),
+        ..Default::default()
+    };
+    let app = ricochet_web::build_served_app_from_dir(&project_root, false, false, &serve_options)
+        .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .context("failed to bind local MVC GUI server")?;

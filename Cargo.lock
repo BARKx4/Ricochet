@@ -2939,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_bytecode"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -2947,7 +2947,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_compiler"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "ricochet_bytecode",
@@ -2976,14 +2976,14 @@ dependencies = [
 
 [[package]]
 name = "ricochet_syntax"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "ricochet_vm"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "crossterm",
  "getrandom 0.3.4",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_web"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "axum",
