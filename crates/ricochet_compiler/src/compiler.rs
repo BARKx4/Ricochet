@@ -1,7 +1,7 @@
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_syntax::{
-    parse_module, ArgsDecl, ClassDecl, Expr, Item, MethodDecl, Module, ParseError, Span,
-    SpannedExpr,
+    line_column, line_starts, parse_error_diagnostic, parse_module, ArgsDecl, ClassDecl, Expr,
+    Item, MethodDecl, Module, ParseError, SourceDiagnostic, Span, SpannedExpr,
 };
 use thiserror::Error;
 
@@ -9,10 +9,14 @@ use thiserror::Error;
 pub enum CompileError {
     #[error(transparent)]
     Parse(#[from] ParseError),
-    #[error("unsupported compiler feature: {0}")]
-    Unsupported(String),
-    #[error("{0} can only be used inside a loop")]
-    LoopControlOutsideLoop(String),
+    #[error("unsupported compiler feature: {feature}")]
+    Unsupported {
+        feature: String,
+        span: Span,
+        help: Option<String>,
+    },
+    #[error("{word} can only be used inside a loop")]
+    LoopControlOutsideLoop { word: String, span: Span },
 }
 
 pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
@@ -20,6 +24,33 @@ pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
     let mut compiler = Compiler::from_source(file, source);
     compiler.compile_module(&module)?;
     Ok(compiler.finish())
+}
+
+pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> String {
+    match error {
+        CompileError::Parse(error) => parse_error_diagnostic(file, source, error).render(source),
+        CompileError::Unsupported {
+            feature,
+            span,
+            help,
+        } => {
+            let mut diagnostic = SourceDiagnostic::new(
+                file,
+                *span,
+                format!("unsupported compiler feature: {feature}"),
+            );
+            if let Some(help) = help {
+                diagnostic = diagnostic.with_help(help.clone());
+            }
+            diagnostic.render(source)
+        }
+        CompileError::LoopControlOutsideLoop { word, span } => SourceDiagnostic::new(
+            file,
+            *span,
+            format!("{word} can only be used inside a loop"),
+        )
+        .render(source),
+    }
 }
 
 struct Compiler {
@@ -66,10 +97,14 @@ impl Compiler {
             Item::Class(class) => self.compile_class(class),
             Item::Expr { expr, span, .. } => self.compile_expr_item(expr, *span),
             Item::Function(function) => self.compile_function_decl(function),
-            Item::Method(method) => Err(CompileError::Unsupported(format!(
-                "top-level method declaration {}",
-                method.name
-            ))),
+            Item::Method(method) => Err(CompileError::Unsupported {
+                feature: format!("top-level method declaration {}", method.name),
+                span: method.span,
+                help: Some(
+                    "methods must be declared inside a class body with postfix Method syntax"
+                        .to_string(),
+                ),
+            }),
         }
     }
 
@@ -159,14 +194,16 @@ impl Compiler {
                 Ok(())
             }
             Item::Expr { expr, span, .. } => self.compile_expr_item(expr, *span),
-            Item::Class(class) => Err(CompileError::Unsupported(format!(
-                "nested class declaration {}",
-                class.name
-            ))),
-            Item::Function(function) => Err(CompileError::Unsupported(format!(
-                "function declaration {}",
-                function.name
-            ))),
+            Item::Class(class) => Err(CompileError::Unsupported {
+                feature: format!("nested class declaration {}", class.name),
+                span: class.span,
+                help: Some("move nested classes to the top level".to_string()),
+            }),
+            Item::Function(function) => Err(CompileError::Unsupported {
+                feature: format!("function declaration {}", function.name),
+                span: function.span,
+                help: Some("move function declarations to the top level".to_string()),
+            }),
         }
     }
 
@@ -196,9 +233,14 @@ impl Compiler {
         match expr {
             Expr::Symbol(word) => self.compile_symbol(word),
             Expr::BangWord(word) => self.push(Op::CallWord(word.clone())),
-            Expr::DotWord(word) => Err(CompileError::Unsupported(format!(
-                "leading-dot method syntax {word:?} is no longer supported; use postfix selectors"
-            ))),
+            Expr::DotWord(word) => Err(CompileError::Unsupported {
+                feature: format!("leading-dot method syntax {word:?}"),
+                span: self.default_span,
+                help: Some(
+                    "use postfix selectors, for example: user email.get or http_request"
+                        .to_string(),
+                ),
+            }),
             Expr::Reference(name) => {
                 self.push(Op::PushString(name.clone()))?;
                 self.push(Op::CallWord("get".to_string()))
@@ -211,9 +253,11 @@ impl Compiler {
                 self.push(Op::PushBlock(block))
             }
             Expr::Sequence(exprs) => self.compile_exprs(exprs),
-            Expr::Args(_) => Err(CompileError::Unsupported(
-                "argument declarations".to_string(),
-            )),
+            Expr::Args(_) => Err(CompileError::Unsupported {
+                feature: "argument declarations".to_string(),
+                span: self.default_span,
+                help: Some("remove the signature and pop arguments from the stack".to_string()),
+            }),
             Expr::If {
                 then_body,
                 else_body,
@@ -309,7 +353,10 @@ impl Compiler {
             "return" => self.push(Op::Return),
             "break" => {
                 if self.loop_stack.is_empty() {
-                    return Err(CompileError::LoopControlOutsideLoop(word.to_string()));
+                    return Err(CompileError::LoopControlOutsideLoop {
+                        word: word.to_string(),
+                        span: self.default_span,
+                    });
                 }
                 let jump = self.chunk.instructions.len();
                 self.push(Op::Jump(usize::MAX))?;
@@ -325,7 +372,10 @@ impl Compiler {
                     .loop_stack
                     .last()
                     .map(|context| context.continue_target)
-                    .ok_or_else(|| CompileError::LoopControlOutsideLoop(word.to_string()))?;
+                    .ok_or_else(|| CompileError::LoopControlOutsideLoop {
+                        word: word.to_string(),
+                        span: self.default_span,
+                    })?;
                 self.push(Op::Jump(target))
             }
             word => self.push(Op::CallWord(word.to_string())),
@@ -445,25 +495,6 @@ fn args_spec(args: &ArgsDecl) -> ArgsSpec {
     }
 }
 
-fn line_starts(source: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    for (index, byte) in source.bytes().enumerate() {
-        if byte == b'\n' {
-            starts.push(index + 1);
-        }
-    }
-    starts
-}
-
-fn line_column(line_starts: &[usize], offset: usize) -> (usize, usize) {
-    let line_index = match line_starts.binary_search(&offset) {
-        Ok(index) => index,
-        Err(index) => index.saturating_sub(1),
-    };
-    let line_start = line_starts.get(line_index).copied().unwrap_or(0);
-    (line_index + 1, offset.saturating_sub(line_start) + 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,6 +533,17 @@ mod tests {
                 Op::CallWord("+".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn formats_parse_errors_with_source_context() {
+        let source = "User Model Subclass\n  \"email\" Accessor\n";
+        let error = compile_source("User.rco", source).expect_err("missing end should fail");
+        let rendered = format_compile_error("User.rco", source, &error);
+
+        assert!(rendered.contains("error: expected end, found end of file"));
+        assert!(rendered.contains("--> User.rco:3:1"));
+        assert!(rendered.contains("| ^"));
     }
 
     #[test]
@@ -909,7 +951,13 @@ mod tests {
         for word in ["break", "continue"] {
             assert_eq!(
                 compile_source("test.rco", word),
-                Err(CompileError::LoopControlOutsideLoop(word.to_string()))
+                Err(CompileError::LoopControlOutsideLoop {
+                    word: word.to_string(),
+                    span: Span {
+                        start: 0,
+                        end: word.len()
+                    },
+                })
             );
         }
     }

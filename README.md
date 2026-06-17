@@ -20,8 +20,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Language runtime: Rust bytecode VM, dynamic OOP, stack/debug tracing, regular
   expressions, collections, and postfix control flow.
 - Task model: first-class task values with `spawn`, `await`, `await-all`,
-  retained completed/failed status, eager background execution, task inspection,
-  and task-returning HTTP helpers.
+  retained completed/failed status, explicit `release-task` cleanup, eager
+  background execution, task inspection, and task-returning HTTP helpers.
 - Approval model: local apps can create approval records, claim a generated
   token exactly once, and complete or reject the record with retained audit
   state through `approval_create`, `approval_claim`, `approval_complete`,
@@ -41,9 +41,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
   package standalone executables, generate Markdown docs, run Ricochet tests,
   and serve local web apps.
-- Package workflow: record and install path/GitHub dependencies, pin Git
-  dependencies to immutable commits in `ricochet.lock`, and import local package
-  sources by package name.
+- Package workflow: record, install, and verify path/GitHub dependencies, pin
+  Git dependencies to immutable commits in `ricochet.lock`, and import local
+  package sources by package name.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -58,6 +58,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   tables with `find`, `all`, `where`, `count`, `first`, `exists?`, `insert`,
   `update`, `default-page`, `limit`, `page`, `order-page`, `where-limit`,
   `where-page`, and `where-order-page`.
+- Database migrations: apply ordered SQL migrations from `db/migrations` to
+  SQLite, PostgreSQL, or MySQL/MariaDB projects and track them in
+  `schema_migrations`.
 - Local beta scaffold: `rco new --with-sqlite` creates a zero-service app with
   a seeded SQLite database, `/users` Active Record page, and copyable
   form/session login loop. New apps include `public/app.css` served at
@@ -113,6 +116,11 @@ Then use `rco` as the Ricochet toolchain:
 rco new my_app
 rco new --with-sqlite my_beta_app
 rco routes my_app
+rco migrate status my_beta_app
+rco migrate apply my_beta_app
+rco doctor my_app
+rco verify my_app
+rco lsp-diagnostics my_app/app/Models/User.rco --pretty
 rco doc my_app
 rco test my_app
 ```
@@ -178,6 +186,7 @@ Add a package dependency from a Ricochet project:
 rco add ./packages/greeter
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
+rco verify
 ```
 
 Local package dependencies can be imported by package name:
@@ -211,8 +220,8 @@ $answer status
 $answer running?
 tasks count
 $answer await
+$answer release-task
 $answer status
-$answer await
 handles array
 $handles [ 20 2 + ] spawn push! drop
 $handles [ 30 4 + ] spawn push! drop
@@ -286,6 +295,13 @@ with `--debug` to print reload trace lines with the new revision and changed
 files. The same filesystem, HTTP, environment, process, and PTY capability
 flags used by ordinary `rco serve` are also honored by watched MVC runtimes and
 by each hot-reloaded revision.
+
+Use `rco doctor [path]` for a read-only health check of a source file, source
+tree, package project, or MVC app. Add `--capabilities` to print the MVC
+manifest capability surface that will matter for trusted local beta apps.
+Package projects can also run `rco verify [path]` to check dependency
+manifest/lock consistency, local path containment, and git package cache commit
+matches without fetching or rewriting anything.
 
 `rco serve` keeps MVC process environment reads disabled unless you pass
 `--allow-env` or one or more `--env-allow NAME` entries. Prefer
@@ -421,7 +437,9 @@ A VS Code-compatible TextMate grammar for `.rco` files lives in
 `editors/vscode`. It registers the `source.ricochet` scope and highlights
 Ricochet comments, strings, `$name` binding reads, postfix selectors,
 declarations, control flow, async words, route verbs, core built-ins,
-and collection types.
+and collection types. `scripts/validate-editor-assets.ps1` checks the grammar
+against the reference word catalog, and release archives include this folder
+under `editors/vscode`.
 
 ## Developing Ricochet
 
@@ -452,9 +470,9 @@ cargo audit
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 ```
 
-The acceptance suite validates the static reference docs, examples, scaffolded
-project checks/tests, and a live `rco serve` smoke request against the generated
-no-database scaffold.
+The acceptance suite validates the static reference docs, editor assets,
+examples, scaffolded project checks/tests, and a live `rco serve` smoke request
+against the generated no-database scaffold.
 
 ## Release Packaging
 

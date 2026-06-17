@@ -11,10 +11,12 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
-    format_source, parse_module, ArgsDecl, Expr, Item as SyntaxItem, LexError, Module, ParseError,
-    SpannedExpr, TokenKind,
+    format_source, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
+    LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr, TokenKind,
 };
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
+use ricochet_web::{MysqlDatabase, PostgresDatabase};
+use serde_json::json;
 use toml_edit::{value, DocumentMut, Item, Table};
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
@@ -82,6 +84,10 @@ enum Command {
     Build {
         path: Option<String>,
     },
+    Migrate {
+        #[command(subcommand)]
+        command: MigrateCommand,
+    },
     Gui {
         #[command(flatten)]
         capabilities: CapabilityOptions,
@@ -146,6 +152,22 @@ enum Command {
         no_fetch: bool,
     },
     Install,
+    Verify {
+        path: Option<String>,
+    },
+    Doctor {
+        path: Option<String>,
+        #[arg(
+            long,
+            help = "Print effective manifest capability declarations for MVC apps"
+        )]
+        capabilities: bool,
+    },
+    LspDiagnostics {
+        path: String,
+        #[arg(long, help = "Pretty-print the JSON response")]
+        pretty: bool,
+    },
     Doc {
         path: Option<String>,
     },
@@ -225,6 +247,12 @@ enum Command {
         capabilities: CapabilityOptions,
         path: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum MigrateCommand {
+    Status { path: Option<String> },
+    Apply { path: Option<String> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -509,6 +537,7 @@ pub async fn run_cli() -> Result<()> {
             args,
         } => run_bytecode(&path, debug, args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
+        Command::Migrate { command } => migrate(command).await?,
         Command::Gui {
             capabilities,
             path,
@@ -550,6 +579,11 @@ pub async fn run_cli() -> Result<()> {
             no_fetch,
         } => add_dependency(&source, name.as_deref(), no_fetch)?,
         Command::Install => install_dependencies()?,
+        Command::Verify { path } => verify_dependencies(path.as_deref())?,
+        Command::Doctor { path, capabilities } => {
+            doctor(path.as_deref().unwrap_or("."), capabilities)?
+        }
+        Command::LspDiagnostics { path, pretty } => lsp_diagnostics(&path, pretty)?,
         Command::Doc { path } => doc_path(path.as_deref().unwrap_or("."))?,
         Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
         Command::Serve {
@@ -756,6 +790,711 @@ fn check_source_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn doctor(path: &str, show_capabilities: bool) -> Result<()> {
+    let path = Path::new(path);
+    let mut report = DoctorReport::default();
+
+    println!("Ricochet doctor");
+    doctor_step(&mut report, "path", || {
+        if path.exists() {
+            Ok(path
+                .canonicalize()
+                .unwrap_or_else(|_| path.to_path_buf())
+                .display()
+                .to_string())
+        } else {
+            bail!("path does not exist: {}", path.display())
+        }
+    });
+
+    if path.is_file() {
+        doctor_step(&mut report, "source compile", || {
+            check_source_file(path)?;
+            Ok("single source file compiles".to_string())
+        });
+        report.finish()?;
+        return Ok(());
+    }
+
+    if !path.is_dir() {
+        doctor_step(&mut report, "path kind", || -> Result<String> {
+            bail!("path is neither a file nor a directory: {}", path.display())
+        });
+        report.finish()?;
+        return Ok(());
+    }
+
+    let manifest_path = path.join("ricochet.toml");
+    if manifest_path.is_file() {
+        doctor_mvc_project(path, &manifest_path, show_capabilities, &mut report)?;
+    } else {
+        doctor_source_tree(path, &mut report)?;
+    }
+
+    report.finish()
+}
+
+fn doctor_mvc_project(
+    project_root: &Path,
+    manifest_path: &Path,
+    show_capabilities: bool,
+    report: &mut DoctorReport,
+) -> Result<()> {
+    let manifest_source = fs::read_to_string(manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest = match manifest_source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))
+    {
+        Ok(manifest) => {
+            let name = manifest
+                .get("package")
+                .and_then(Item::as_table)
+                .and_then(|package| package.get("name"))
+                .and_then(Item::as_str)
+                .unwrap_or("<unnamed>");
+            println!("OK manifest: package {name}");
+            Some(manifest)
+        }
+        Err(error) => {
+            report.failures += 1;
+            eprintln!("FAIL manifest: {error:#}");
+            None
+        }
+    };
+
+    if let Some(manifest) = manifest.as_ref() {
+        doctor_step(report, "dependencies", || {
+            let verified =
+                verify_dependency_manifest(project_root, manifest_path, manifest, false)?;
+            Ok(format!("{verified} package dependency lock(s) verified"))
+        });
+    }
+
+    let has_web = manifest
+        .as_ref()
+        .is_some_and(|manifest| manifest.get("web").and_then(Item::as_table).is_some());
+    doctor_step(report, "project kind", || {
+        Ok(if has_web {
+            "MVC app".to_string()
+        } else {
+            "package/source project".to_string()
+        })
+    });
+    if has_web {
+        doctor_step(report, "routes", || {
+            let routes = ricochet_web::routes_from_dir(project_root)?;
+            Ok(format!("{} route(s)", routes.len()))
+        });
+        doctor_step(report, "MVC app build", || {
+            let _app = ricochet_web::server::build_app_from_dir(project_root)?;
+            Ok("controllers, models, routes, and views compile".to_string())
+        });
+    }
+    doctor_step(report, "source files", || {
+        let mut files = Vec::new();
+        collect_rco_files(project_root, &mut files)?;
+        files.sort();
+        if has_web {
+            Ok(format!("{} .rco file(s) discovered", files.len()))
+        } else {
+            for file in &files {
+                check_source_file(file)?;
+            }
+            Ok(format!("{} .rco file(s) compile", files.len()))
+        }
+    });
+
+    if show_capabilities {
+        if let Some(manifest) = manifest {
+            print_doctor_capabilities(&manifest);
+        }
+    }
+
+    Ok(())
+}
+
+fn doctor_source_tree(path: &Path, report: &mut DoctorReport) -> Result<()> {
+    doctor_step(report, "source files", || {
+        let mut files = Vec::new();
+        collect_rco_files(path, &mut files)?;
+        files.sort();
+        for file in &files {
+            check_source_file(file)?;
+        }
+        Ok(format!("{} .rco file(s) compile", files.len()))
+    });
+    Ok(())
+}
+
+fn print_doctor_capabilities(manifest: &DocumentMut) {
+    println!("Capabilities:");
+    let Some(capabilities) = manifest
+        .get("web")
+        .and_then(Item::as_table)
+        .and_then(|web| web.get("capabilities"))
+        .and_then(Item::as_table)
+    else {
+        println!("  web.capabilities: <none>");
+        return;
+    };
+
+    for key in [
+        "fs_root",
+        "fs_readonly",
+        "allow_env",
+        "env_allow",
+        "allow_process",
+        "process_root",
+        "allow_pty",
+        "http_allow_hosts",
+    ] {
+        if let Some(value) = capabilities.get(key) {
+            println!("  {key}: {}", value.to_string().trim());
+        }
+    }
+}
+
+#[derive(Default)]
+struct DoctorReport {
+    failures: usize,
+}
+
+impl DoctorReport {
+    fn finish(self) -> Result<()> {
+        if self.failures > 0 {
+            bail!("doctor found {} issue(s)", self.failures);
+        }
+        println!("Doctor found no issues.");
+        Ok(())
+    }
+}
+
+fn doctor_step<T>(
+    report: &mut DoctorReport,
+    name: &str,
+    check: impl FnOnce() -> Result<T>,
+) -> Option<T>
+where
+    T: std::fmt::Display,
+{
+    match check() {
+        Ok(detail) => {
+            println!("OK {name}: {detail}");
+            Some(detail)
+        }
+        Err(error) => {
+            report.failures += 1;
+            eprintln!("FAIL {name}: {error:#}");
+            None
+        }
+    }
+}
+
+fn lsp_diagnostics(path: &str, pretty: bool) -> Result<()> {
+    let path = Path::new(path);
+    if !path.is_file() {
+        bail!(
+            "lsp-diagnostics path must be a source file: {}",
+            path.display()
+        );
+    }
+
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let file = path.to_string_lossy().into_owned();
+    let diagnostics = match compile_source(&file, &source) {
+        Ok(_) => Vec::new(),
+        Err(error) => vec![compile_error_lsp_diagnostic(&file, &source, &error)],
+    };
+    let payload = json!({
+        "uri": file_uri(path),
+        "diagnostics": diagnostics,
+    });
+
+    if pretty {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", serde_json::to_string(&payload)?);
+    }
+    Ok(())
+}
+
+fn compile_error_lsp_diagnostic(
+    file: &str,
+    source: &str,
+    error: &CompileError,
+) -> serde_json::Value {
+    let (span, message, help) = match error {
+        CompileError::Parse(error) => {
+            let diagnostic = ricochet_syntax::parse_error_diagnostic(file, source, error);
+            (diagnostic.span, diagnostic.message, diagnostic.help)
+        }
+        CompileError::Unsupported {
+            feature,
+            span,
+            help,
+        } => (
+            *span,
+            format!("unsupported compiler feature: {feature}"),
+            help.clone(),
+        ),
+        CompileError::LoopControlOutsideLoop { word, span } => (
+            *span,
+            format!("{word} can only be used inside a loop"),
+            None,
+        ),
+    };
+    let range = utf16_range_for_span(source, span);
+    let mut diagnostic = json!({
+        "range": {
+            "start": {
+                "line": range.start.line,
+                "character": range.start.character,
+            },
+            "end": {
+                "line": range.end.line,
+                "character": range.end.character,
+            },
+        },
+        "severity": 1,
+        "source": "ricochet",
+        "message": message,
+    });
+    if let Some(help) = help {
+        diagnostic["codeDescription"] = json!({ "href": "https://github.com/BARKx4/Ricochet" });
+        diagnostic["data"] = json!({ "help": help });
+    }
+    diagnostic
+}
+
+fn file_uri(path: &Path) -> String {
+    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut path = path.to_string_lossy().replace('\\', "/");
+    if !path.starts_with('/') {
+        path = format!("/{path}");
+    }
+    format!("file://{}", percent_encode_uri_path(&path))
+}
+
+fn percent_encode_uri_path(path: &str) -> String {
+    let mut encoded = String::new();
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char)
+            }
+            byte => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+async fn migrate(command: MigrateCommand) -> Result<()> {
+    match command {
+        MigrateCommand::Status { path } => {
+            migrate_status(Path::new(path.as_deref().unwrap_or("."))).await
+        }
+        MigrateCommand::Apply { path } => {
+            migrate_apply(Path::new(path.as_deref().unwrap_or("."))).await
+        }
+    }
+}
+
+async fn migrate_status(path: &Path) -> Result<()> {
+    let project_root = migration_project_root(path)?;
+    let Some(database) = project_database_config(&project_root)? else {
+        println!("No [database.default] configured.");
+        return Ok(());
+    };
+    let migrations = discover_migrations(&project_root)?;
+    let target = migration_target(&project_root, &database);
+
+    println!("Migrations for {target}");
+    if migrations.is_empty() {
+        println!("No migration files found in db/migrations.");
+        return Ok(());
+    }
+    let applied = migration_applied_versions(&project_root, &database).await?;
+    for migration in migrations {
+        let marker = if applied.contains(&migration.version) {
+            "x"
+        } else {
+            " "
+        };
+        println!("[{marker}] {}", migration.version);
+    }
+    Ok(())
+}
+
+async fn migrate_apply(path: &Path) -> Result<()> {
+    let project_root = migration_project_root(path)?;
+    let Some(database) = project_database_config(&project_root)? else {
+        bail!("No [database.default] configured.");
+    };
+    let migrations = discover_migrations(&project_root)?;
+    if migrations.is_empty() {
+        println!("No migration files found in db/migrations.");
+        return Ok(());
+    }
+
+    match database.adapter.as_str() {
+        "sqlite" => migrate_apply_sqlite(&project_root, &database, migrations),
+        "postgres" | "postgresql" => migrate_apply_postgres(&database, migrations).await,
+        "mysql" | "mariadb" => migrate_apply_mysql(&database, migrations).await,
+        adapter => bail!(
+            "rco migrate supports sqlite, postgres, and mysql projects; found adapter {:?}",
+            adapter
+        ),
+    }
+}
+
+async fn migration_applied_versions(
+    project_root: &Path,
+    database: &MigrationDatabase,
+) -> Result<BTreeSet<String>> {
+    match database.adapter.as_str() {
+        "sqlite" => {
+            let database_path = sqlite_database_path(project_root, &database.url);
+            sqlite_applied_migrations_if_present(&database_path)
+        }
+        "postgres" | "postgresql" => {
+            let database = PostgresDatabase::connect(&database.url)
+                .await
+                .context("failed to connect to PostgreSQL for migrations")?;
+            let versions = database
+                .migration_versions()
+                .await
+                .context("failed to read PostgreSQL schema_migrations")?;
+            Ok(versions
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<BTreeSet<_>>())
+        }
+        "mysql" | "mariadb" => {
+            let database = MysqlDatabase::connect(&database.url)
+                .await
+                .context("failed to connect to MySQL for migrations")?;
+            let versions = database
+                .migration_versions()
+                .await
+                .context("failed to read MySQL schema_migrations")?;
+            Ok(versions
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<BTreeSet<_>>())
+        }
+        adapter => bail!(
+            "rco migrate supports sqlite, postgres, and mysql projects; found adapter {:?}",
+            adapter
+        ),
+    }
+}
+
+fn migrate_apply_sqlite(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+) -> Result<()> {
+    let database_path = sqlite_database_path(project_root, &database.url);
+    if let Some(parent) = database_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let mut connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    ensure_schema_migrations_table(&connection)?;
+    let mut applied = sqlite_applied_migrations(&connection)?;
+    let mut applied_count = 0usize;
+    for migration in migrations {
+        if applied.contains(&migration.version) {
+            continue;
+        }
+        let sql = fs::read_to_string(&migration.path)
+            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let tx = connection
+            .transaction()
+            .with_context(|| format!("failed to start migration {}", migration.version))?;
+        tx.execute_batch(&sql)
+            .with_context(|| format!("failed to apply migration {}", migration.version))?;
+        tx.execute(
+            "insert into schema_migrations (version, applied_at) values (?1, ?2)",
+            (&migration.version, migration_timestamp()),
+        )
+        .with_context(|| format!("failed to record migration {}", migration.version))?;
+        tx.commit()
+            .with_context(|| format!("failed to commit migration {}", migration.version))?;
+        applied.insert(migration.version.clone());
+        applied_count += 1;
+        println!("applied {}", migration.version);
+    }
+
+    print_migration_apply_summary(applied_count);
+    Ok(())
+}
+
+async fn migrate_apply_postgres(
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+) -> Result<()> {
+    let database = PostgresDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to PostgreSQL for migrations")?;
+    database
+        .ensure_schema_migrations_table()
+        .await
+        .context("failed to create PostgreSQL schema_migrations")?;
+    let mut applied = database
+        .migration_versions()
+        .await
+        .context("failed to read PostgreSQL schema_migrations")?
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let mut applied_count = 0usize;
+    for migration in migrations {
+        if applied.contains(&migration.version) {
+            continue;
+        }
+        let sql = fs::read_to_string(&migration.path)
+            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let applied_at = migration_timestamp();
+        database
+            .apply_migration(&migration.version, &applied_at, &sql)
+            .await
+            .with_context(|| format!("failed to apply migration {}", migration.version))?;
+        applied.insert(migration.version.clone());
+        applied_count += 1;
+        println!("applied {}", migration.version);
+    }
+    print_migration_apply_summary(applied_count);
+    Ok(())
+}
+
+async fn migrate_apply_mysql(
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+) -> Result<()> {
+    let database = MysqlDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to MySQL for migrations")?;
+    database
+        .ensure_schema_migrations_table()
+        .await
+        .context("failed to create MySQL schema_migrations")?;
+    let mut applied = database
+        .migration_versions()
+        .await
+        .context("failed to read MySQL schema_migrations")?
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let mut applied_count = 0usize;
+    for migration in migrations {
+        if applied.contains(&migration.version) {
+            continue;
+        }
+        let sql = fs::read_to_string(&migration.path)
+            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let applied_at = migration_timestamp();
+        database
+            .apply_migration(&migration.version, &applied_at, &sql)
+            .await
+            .with_context(|| format!("failed to apply migration {}", migration.version))?;
+        applied.insert(migration.version.clone());
+        applied_count += 1;
+        println!("applied {}", migration.version);
+    }
+    print_migration_apply_summary(applied_count);
+    Ok(())
+}
+
+fn print_migration_apply_summary(applied_count: usize) {
+    if applied_count == 0 {
+        println!("No pending migrations.");
+    } else {
+        println!("Applied {applied_count} migration(s).");
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MigrationDatabase {
+    adapter: String,
+    url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MigrationFile {
+    version: String,
+    path: PathBuf,
+}
+
+fn migration_project_root(path: &Path) -> Result<PathBuf> {
+    let path = if path.is_file() {
+        path.parent().unwrap_or_else(|| Path::new("."))
+    } else {
+        path
+    };
+    let canonical = fs::canonicalize(path)
+        .with_context(|| format!("failed to resolve migration path {}", path.display()))?;
+    if canonical.join("ricochet.toml").is_file() {
+        return Ok(canonical);
+    }
+    for ancestor in canonical.ancestors() {
+        if ancestor.join("ricochet.toml").is_file() {
+            return Ok(ancestor.to_path_buf());
+        }
+    }
+    bail!(
+        "migrate must be run inside a Ricochet project with ricochet.toml: {}",
+        path.display()
+    )
+}
+
+fn project_database_config(project_root: &Path) -> Result<Option<MigrationDatabase>> {
+    let manifest_path = project_root.join("ricochet.toml");
+    let manifest_source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest = manifest_source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let Some(default) = manifest
+        .get("database")
+        .and_then(Item::as_table)
+        .and_then(|database| database.get("default"))
+        .and_then(Item::as_table)
+    else {
+        return Ok(None);
+    };
+    let adapter = default
+        .get("adapter")
+        .and_then(Item::as_str)
+        .context("database.default.adapter must be a string")?
+        .to_string();
+    let url = default
+        .get("url")
+        .and_then(Item::as_str)
+        .context("database.default.url must be a string")?
+        .to_string();
+    Ok(Some(MigrationDatabase { adapter, url }))
+}
+
+fn migration_target(project_root: &Path, database: &MigrationDatabase) -> String {
+    match database.adapter.as_str() {
+        "sqlite" => sqlite_database_path(project_root, &database.url)
+            .display()
+            .to_string(),
+        "postgres" | "postgresql" => "PostgreSQL database".to_string(),
+        "mysql" | "mariadb" => "MySQL database".to_string(),
+        adapter => format!("{adapter} database"),
+    }
+}
+
+fn sqlite_database_path(project_root: &Path, url: &str) -> PathBuf {
+    let path = Path::new(url);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    }
+}
+
+fn discover_migrations(project_root: &Path) -> Result<Vec<MigrationFile>> {
+    let migrations_dir = project_root.join("db").join("migrations");
+    if !migrations_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut migrations = Vec::new();
+    for entry in fs::read_dir(&migrations_dir)
+        .with_context(|| format!("failed to read {}", migrations_dir.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("failed to read entry in {}", migrations_dir.display()))?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("sql") {
+            continue;
+        }
+        let version = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .context("migration file name must be UTF-8")?
+            .to_string();
+        validate_migration_version(&version, &path)?;
+        migrations.push(MigrationFile { version, path });
+    }
+    migrations.sort_by(|left, right| left.version.cmp(&right.version));
+    Ok(migrations)
+}
+
+fn validate_migration_version(version: &str, path: &Path) -> Result<()> {
+    if version.is_empty()
+        || !version.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        })
+    {
+        bail!(
+            "migration file name must contain only letters, digits, '_' or '-': {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn sqlite_applied_migrations_if_present(database_path: &Path) -> Result<BTreeSet<String>> {
+    if !database_path.is_file() {
+        return Ok(BTreeSet::new());
+    }
+    let connection = rusqlite::Connection::open(database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    if !schema_migrations_table_exists(&connection)? {
+        return Ok(BTreeSet::new());
+    }
+    sqlite_applied_migrations(&connection)
+}
+
+fn ensure_schema_migrations_table(connection: &rusqlite::Connection) -> Result<()> {
+    connection
+        .execute_batch(
+            r#"
+create table if not exists schema_migrations (
+  version text primary key,
+  applied_at text not null
+);
+"#,
+        )
+        .context("failed to create schema_migrations table")?;
+    Ok(())
+}
+
+fn schema_migrations_table_exists(connection: &rusqlite::Connection) -> Result<bool> {
+    let count: i64 = connection.query_row(
+        "select count(*) from sqlite_master where type = 'table' and name = 'schema_migrations'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+fn sqlite_applied_migrations(connection: &rusqlite::Connection) -> Result<BTreeSet<String>> {
+    let mut statement = connection
+        .prepare("select version from schema_migrations order by version")
+        .context("failed to read schema_migrations")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut applied = BTreeSet::new();
+    for row in rows {
+        applied.insert(row?);
+    }
+    Ok(applied)
+}
+
+fn migration_timestamp() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    millis.to_string()
+}
+
 fn routes(path: &str) -> Result<()> {
     let path = Path::new(path);
     if !path.is_dir() {
@@ -953,8 +1692,8 @@ fn new_project(path: &Path, options: NewProjectOptions) -> Result<()> {
     fs::create_dir_all(path.join("public"))
         .with_context(|| format!("failed to create public in {}", path.display()))?;
     if options.with_sqlite {
-        fs::create_dir_all(path.join("db"))
-            .with_context(|| format!("failed to create db in {}", path.display()))?;
+        fs::create_dir_all(path.join("db").join("migrations"))
+            .with_context(|| format!("failed to create db/migrations in {}", path.display()))?;
     }
 
     write_project_file(
@@ -1053,6 +1792,12 @@ end
     )?;
 
     if options.with_sqlite {
+        write_project_file(
+            path.join("db")
+                .join("migrations")
+                .join("0001_create_users.sql"),
+            initial_sqlite_migration_source(),
+        )?;
         create_sqlite_development_database(path)?;
         println!(
             "created {} with SQLite database at {}",
@@ -1217,14 +1962,8 @@ fn auth_show_view_source() -> &'static str {
     "<h1>{ title get }</h1>\n<p>Signed in as { userEmail get }</p>\n<form method=\"post\" action=\"/logout\">\n  <button type=\"submit\">Sign out</button>\n</form>\n"
 }
 
-fn create_sqlite_development_database(path: &Path) -> Result<()> {
-    let database_path = path.join("db").join("development.sqlite3");
-    let connection = rusqlite::Connection::open(&database_path)
-        .with_context(|| format!("failed to create {}", database_path.display()))?;
-    connection
-        .execute_batch(
-            r#"
-create table users (
+fn initial_sqlite_migration_source() -> &'static str {
+    r#"create table users (
   id integer primary key,
   email text not null,
   name text not null
@@ -1233,8 +1972,28 @@ create table users (
 insert into users (email, name) values
   ('ada@example.com', 'Ada Lovelace'),
   ('grace@example.com', 'Grace Hopper');
+"#
+}
+
+fn create_sqlite_development_database(path: &Path) -> Result<()> {
+    let database_path = path.join("db").join("development.sqlite3");
+    let connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to create {}", database_path.display()))?;
+    connection
+        .execute_batch(&format!(
+            r#"
+create table if not exists schema_migrations (
+  version text primary key,
+  applied_at text not null
+);
+
+{}
+
+insert into schema_migrations (version, applied_at)
+values ('0001_create_users', 'scaffold');
 "#,
-        )
+            initial_sqlite_migration_source()
+        ))
         .with_context(|| format!("failed to seed {}", database_path.display()))?;
     Ok(())
 }
@@ -1329,6 +2088,15 @@ struct DependencySpec {
     rev: Option<String>,
     commit: Option<String>,
     display_source: String,
+}
+
+#[derive(Debug)]
+struct LockedPackage {
+    source: String,
+    path: String,
+    git: Option<String>,
+    rev: Option<String>,
+    commit: Option<String>,
 }
 
 #[derive(Debug)]
@@ -1469,6 +2237,265 @@ fn install_dependencies() -> Result<()> {
         println!("no dependencies to install");
     }
     Ok(())
+}
+
+fn verify_dependencies(path: Option<&str>) -> Result<()> {
+    let manifest_path = project_manifest_path_for_command("verify", path)?;
+    let project_root = manifest_path
+        .parent()
+        .expect("project manifest should have a parent");
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let verified = verify_dependency_manifest(project_root, &manifest_path, &doc, true)?;
+    println!("verified {verified} dependencies");
+    Ok(())
+}
+
+fn verify_dependency_manifest(
+    project_root: &Path,
+    manifest_path: &Path,
+    doc: &DocumentMut,
+    verbose: bool,
+) -> Result<usize> {
+    let lock_path = project_root.join("ricochet.lock");
+    let lock_doc = read_optional_toml_document(&lock_path)?;
+    let Some(dependencies) = doc.get("dependencies").and_then(Item::as_table) else {
+        verify_no_stale_lock_packages(&lock_path, lock_doc.as_ref(), &BTreeSet::new())?;
+        return Ok(0);
+    };
+
+    let mut declared = BTreeSet::new();
+    let mut verified = 0usize;
+    for (name, item) in dependencies.iter() {
+        validate_package_name(name)?;
+        declared.insert(name.to_string());
+        let table = item.as_table().with_context(|| {
+            format!(
+                "dependency {name} in {} must be a table",
+                manifest_path.display()
+            )
+        })?;
+        let path = table
+            .get("path")
+            .and_then(Item::as_str)
+            .with_context(|| {
+                format!(
+                    "dependency {name} in {} must include a string path",
+                    manifest_path.display()
+                )
+            })?
+            .to_string();
+        let git = table.get("git").and_then(Item::as_str).map(str::to_string);
+        let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+        let spec = DependencySpec {
+            name: name.to_string(),
+            source: git
+                .as_ref()
+                .map(|git| format!("git+{git}"))
+                .unwrap_or_else(|| format!("path+{path}")),
+            path,
+            git,
+            rev,
+            commit: None,
+            display_source: String::new(),
+        };
+
+        verify_dependency(project_root, &lock_path, lock_doc.as_ref(), &spec)?;
+        if verbose {
+            println!("verified {}", spec.name);
+        }
+        verified += 1;
+    }
+
+    verify_no_stale_lock_packages(&lock_path, lock_doc.as_ref(), &declared)?;
+    Ok(verified)
+}
+
+fn verify_dependency(
+    project_root: &Path,
+    lock_path: &Path,
+    lock_doc: Option<&DocumentMut>,
+    spec: &DependencySpec,
+) -> Result<()> {
+    let Some(lock) = locked_package(lock_doc, &spec.name)? else {
+        bail!(
+            "dependency {} is missing from {}; run rco install",
+            spec.name,
+            lock_path.display()
+        );
+    };
+    if lock.path != spec.path {
+        bail!(
+            "lock entry for {} has path {:?}, expected {:?}",
+            spec.name,
+            lock.path,
+            spec.path
+        );
+    }
+    if lock.source != spec.source {
+        bail!(
+            "lock entry for {} has source {:?}, expected {:?}",
+            spec.name,
+            lock.source,
+            spec.source
+        );
+    }
+
+    if let Some(git) = spec.git.as_deref() {
+        if lock.git.as_deref() != Some(git) {
+            bail!(
+                "lock entry for {} has git {:?}, expected {:?}",
+                spec.name,
+                lock.git,
+                git
+            );
+        }
+        if lock.rev.as_deref() != spec.rev.as_deref() {
+            bail!(
+                "lock entry for {} has rev {:?}, expected {:?}",
+                spec.name,
+                lock.rev,
+                spec.rev
+            );
+        }
+        let commit = lock.commit.as_deref().with_context(|| {
+            format!(
+                "git dependency {} is not pinned; run rco install",
+                spec.name
+            )
+        })?;
+        validate_git_commit(commit)?;
+        let package_dir = project_dependency_path(project_root, &spec.path, "git package cache")?;
+        if !package_dir.is_dir() {
+            bail!(
+                "package cache for {} is missing: {}; run rco install",
+                spec.name,
+                package_dir.display()
+            );
+        }
+        let actual = current_git_commit(&package_dir)?;
+        if actual != commit {
+            bail!(
+                "package cache for {} is at {actual}, expected locked commit {commit}",
+                spec.name
+            );
+        }
+    } else {
+        if lock.git.is_some() || lock.commit.is_some() {
+            bail!(
+                "lock entry for {} is git-shaped, but manifest uses a local path",
+                spec.name
+            );
+        }
+        let dependency_dir = resolve_local_dependency_dir(project_root, &spec.path)?;
+        if !dependency_dir.is_dir() {
+            bail!(
+                "local Ricochet dependency {} is not a directory: {}",
+                spec.name,
+                dependency_dir.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_no_stale_lock_packages(
+    lock_path: &Path,
+    lock_doc: Option<&DocumentMut>,
+    declared: &BTreeSet<String>,
+) -> Result<()> {
+    let Some(packages) = lock_doc
+        .and_then(|doc| doc.get("package"))
+        .and_then(Item::as_table)
+    else {
+        return Ok(());
+    };
+
+    for (name, _) in packages.iter() {
+        if !declared.contains(name) {
+            bail!(
+                "{} contains package {name:?}, but ricochet.toml does not declare it",
+                lock_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn read_optional_toml_document(path: &Path) -> Result<Option<DocumentMut>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    source
+        .parse::<DocumentMut>()
+        .map(Some)
+        .with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<LockedPackage>> {
+    let Some(table) = lock_doc
+        .and_then(|doc| doc.get("package"))
+        .and_then(Item::as_table)
+        .and_then(|packages| packages.get(name))
+        .and_then(Item::as_table)
+    else {
+        return Ok(None);
+    };
+
+    let source = table
+        .get("source")
+        .and_then(Item::as_str)
+        .with_context(|| format!("lock entry for {name} must include a string source"))?
+        .to_string();
+    let path = table
+        .get("path")
+        .and_then(Item::as_str)
+        .with_context(|| format!("lock entry for {name} must include a string path"))?
+        .to_string();
+    let git = table.get("git").and_then(Item::as_str).map(str::to_string);
+    let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+    let commit = table
+        .get("commit")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(commit) = commit.as_deref() {
+        validate_git_commit(commit)?;
+    }
+
+    Ok(Some(LockedPackage {
+        source,
+        path,
+        git,
+        rev,
+        commit,
+    }))
+}
+
+fn project_manifest_path_for_command(command: &str, path: Option<&str>) -> Result<PathBuf> {
+    let Some(path) = path else {
+        return find_project_manifest_for_current_dir(command);
+    };
+    let path = Path::new(path);
+    let manifest_path = if path.file_name().is_some_and(|name| name == "ricochet.toml") {
+        path.to_path_buf()
+    } else {
+        path.join("ricochet.toml")
+    };
+    if manifest_path.is_file() {
+        Ok(manifest_path)
+    } else {
+        bail!(
+            "rco {command} expected a Ricochet project path with ricochet.toml: {}",
+            path.display()
+        );
+    }
 }
 
 fn find_project_manifest_for_current_dir(command: &str) -> Result<PathBuf> {
@@ -1681,6 +2708,17 @@ fn project_dependency_path(project_root: &Path, path: &str, description: &str) -
     let candidate = project_root.join(Path::new(path));
     ensure_contained_candidate(project_root, &candidate, description)?;
     Ok(candidate)
+}
+
+fn resolve_local_dependency_dir(project_root: &Path, path: &str) -> Result<PathBuf> {
+    let dependency_dir = PathBuf::from(path);
+    let dependency_dir = if dependency_dir.is_absolute() {
+        dependency_dir
+    } else {
+        project_root.join(dependency_dir)
+    };
+    ensure_existing_project_dir(project_root, &dependency_dir, "local dependency")?;
+    Ok(dependency_dir)
 }
 
 fn validate_project_relative_path(path: &str, description: &str) -> Result<()> {
@@ -2083,7 +3121,9 @@ fn render_webview_document(
     if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
         std::process::exit(code);
     }
-    result?;
+    if let Err(error) = result {
+        bail!("{}", runtime_error_message(&vm, &error));
+    }
     webview_document_from_vm(&vm)
 }
 
@@ -2332,13 +3372,40 @@ fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
     if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
         std::process::exit(code);
     }
-    result?;
+    if let Err(error) = result {
+        bail!("{}", runtime_error_message(&vm, &error));
+    }
 
     if options.print_final_stack {
         println!("{:?}", vm.stack());
     }
 
     Ok(())
+}
+
+fn runtime_error_message(vm: &Vm, error: &ricochet_vm::VmError) -> String {
+    let Some(site) = vm.last_error_site() else {
+        return error.to_string();
+    };
+    let source = match fs::read_to_string(&site.span.file) {
+        Ok(source) => source,
+        Err(_) => {
+            return format!(
+                "{error}\n --> {}:{}:{}\nhelp: while executing {} in {}",
+                site.span.file, site.span.line, site.span.column, site.opcode, site.frame
+            );
+        }
+    };
+    SourceDiagnostic::new(
+        site.span.file.clone(),
+        Span {
+            start: site.span.start,
+            end: site.span.end,
+        },
+        error.to_string(),
+    )
+    .with_help(format!("while executing {} in {}", site.opcode, site.frame))
+    .render(&source)
 }
 
 fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
@@ -2789,11 +3856,44 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
     let project_root = project_root
         .canonicalize()
         .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
+    validate_mvc_bundle_manifest(&project_root, &manifest_path)?;
     let output_path = absolute_package_output_path(output)?;
     let mut files = Vec::new();
     collect_mvc_bundle_files(&project_root, &project_root, &output_path, &mut files)?;
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(MvcBundle { files })
+}
+
+fn validate_mvc_bundle_manifest(project_root: &Path, manifest_path: &Path) -> Result<()> {
+    let source = fs::read_to_string(manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    verify_dependency_manifest(project_root, manifest_path, &manifest, false)?;
+
+    let Some(capabilities) = manifest
+        .get("web")
+        .and_then(Item::as_table)
+        .and_then(|web| web.get("capabilities"))
+        .and_then(Item::as_table)
+    else {
+        return Ok(());
+    };
+
+    for key in ["fs_root", "process_root"] {
+        let Some(value) = capabilities.get(key) else {
+            continue;
+        };
+        let path = value
+            .as_str()
+            .with_context(|| format!("web.capabilities.{key} must be a string path"))?;
+        validate_project_relative_path(path, &format!("web.capabilities.{key}"))?;
+        let candidate = project_root.join(path);
+        ensure_contained_candidate(project_root, &candidate, &format!("web.capabilities.{key}"))?;
+    }
+
+    Ok(())
 }
 
 fn absolute_package_output_path(output: &Path) -> Result<PathBuf> {

@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::{Chunk, Op};
 
-use crate::compile_source;
+use crate::{compile_source, format_compile_error};
 
 pub fn compile_file_with_imports(source_path: impl AsRef<Path>) -> Result<Chunk> {
     SourceResolver::default().compile_file(source_path.as_ref())
@@ -46,7 +46,9 @@ impl SourceResolver {
             append_chunk(&mut combined, chunk);
         }
 
-        let own_chunk = compile_source(&file, &source_without_imports)?;
+        let own_chunk = compile_source(&file, &source_without_imports).map_err(|error| {
+            anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
+        })?;
         append_chunk(&mut combined, own_chunk);
         self.visiting.remove(&canonical);
         self.loaded.insert(canonical);

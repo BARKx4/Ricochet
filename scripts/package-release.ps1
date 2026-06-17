@@ -159,6 +159,7 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot "LICENSE") -Destination $PackageDir
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "examples") -Destination (Join-Path $PackageDir "examples")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\assets") -Destination (Join-Path $PackageDir "docs\assets")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\reference") -Destination (Join-Path $PackageDir "docs\reference")
+Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "editors\vscode") -Destination (Join-Path $PackageDir "editors\vscode")
 
 $releaseNotes = @"
 Ricochet v$Version ($Target)

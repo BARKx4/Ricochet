@@ -92,6 +92,13 @@ pub enum VmError {
     UnknownTask(u64),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeErrorSite {
+    pub frame: String,
+    pub span: SourceSpan,
+    pub opcode: String,
+}
+
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
 type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
@@ -130,6 +137,7 @@ pub struct Vm {
     max_running_tasks: usize,
     debug_enabled: bool,
     debug_events: Vec<DebugEvent>,
+    last_error_site: Option<RuntimeErrorSite>,
     debug_sink: Option<DebugSink>,
     debug_controller: Option<DebugController>,
     step_mode: bool,
@@ -176,6 +184,7 @@ impl Default for Vm {
             max_running_tasks: DEFAULT_MAX_RUNNING_TASKS,
             debug_enabled: false,
             debug_events: Vec::new(),
+            last_error_site: None,
             debug_sink: None,
             debug_controller: None,
             step_mode: false,
@@ -709,6 +718,10 @@ impl Vm {
         &self.debug_events
     }
 
+    pub fn last_error_site(&self) -> Option<&RuntimeErrorSite> {
+        self.last_error_site.as_ref()
+    }
+
     pub fn clear_debug_events(&mut self) {
         self.debug_events.clear();
     }
@@ -934,6 +947,7 @@ impl Vm {
 
     pub fn run_chunk(&mut self, chunk: &Chunk) -> Result<(), VmError> {
         self.suppressed_breakpoint = None;
+        self.last_error_site = None;
         self.instructions_executed = 0;
         self.run_chunk_with_frame(chunk, "<main>", false)
             .map(|_| ())
@@ -972,6 +986,13 @@ impl Vm {
                 Ok(ExecutionSignal::Jump(target)) => ip = target,
                 Ok(ExecutionSignal::Return) => return Ok(ExecutionSignal::Return),
                 Err(error) => {
+                    if self.last_error_site.is_none() {
+                        self.last_error_site = Some(RuntimeErrorSite {
+                            frame: frame.to_string(),
+                            span: instruction.span.clone(),
+                            opcode: format!("{:?}", &instruction.op),
+                        });
+                    }
                     if self.debug_enabled {
                         self.record_debug_event(DebugEvent::Fault {
                             frame: frame.to_string(),
@@ -1211,6 +1232,7 @@ impl Vm {
             "spawn" => self.call_spawn(word),
             "await" => self.call_await(word),
             "await-all" => self.call_await_all(word),
+            "release-task" => self.call_release_task(word),
             "tasks" => self.call_tasks(word),
             "send" => self.call_send(word),
             "at" => self.call_receiver_argument_method(word, "at"),
@@ -1367,6 +1389,7 @@ impl Vm {
             "text" => self.call_text(word),
             "json" => self.call_json(word),
             "redirect" => self.call_redirect(word),
+            "info" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
             "status" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
             "status" => self.call_status(word),
             "header" => self.call_header(word),
@@ -1914,6 +1937,39 @@ impl Vm {
         Ok(())
     }
 
+    fn call_release_task(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let task_id = match self.pop(word)? {
+            Value::Task(task_id) => task_id,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "task".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let released = match self.tasks.get(&task_id) {
+            Some(TaskState::Finished(_)) => {
+                self.tasks.remove(&task_id);
+                true
+            }
+            Some(TaskState::Running(_)) => {
+                self.stack = stack_before;
+                return Err(VmError::HostError {
+                    word: word.to_string(),
+                    message: "task must be awaited before release-task".to_string(),
+                });
+            }
+            None => false,
+        };
+
+        self.stack.push(Value::Bool(released));
+        Ok(())
+    }
+
     fn resolve_task(&mut self, task_id: u64) -> Result<Value, VmError> {
         let Some(task) = self.tasks.remove(&task_id) else {
             return Err(VmError::UnknownTask(task_id));
@@ -1980,6 +2036,14 @@ impl Vm {
                 TaskState::Running(_) | TaskState::Finished(_) => None,
             })
             .collect()
+    }
+
+    pub(super) fn task_count(&self) -> usize {
+        self.tasks.len()
+    }
+
+    pub(super) fn running_task_count(&self) -> usize {
+        self.pending_task_ids().len()
     }
 
     pub(super) fn filesystem_writes_enabled(&self) -> bool {
@@ -2054,9 +2118,29 @@ impl Vm {
                 )
             })
             .unwrap_or(Value::Nil);
+        let task_count = i64::try_from(self.task_count()).unwrap_or(i64::MAX);
+        let running_task_count = i64::try_from(self.running_task_count()).unwrap_or(i64::MAX);
+        let max_running_tasks = i64::try_from(self.max_running_tasks).unwrap_or(i64::MAX);
+        let global_running_tasks =
+            i64::try_from(GLOBAL_RUNNING_TASKS.load(Ordering::Acquire)).unwrap_or(i64::MAX);
 
         Value::Map(
             BTreeMap::from([
+                (
+                    "tasks".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("known".to_string(), Value::Number(task_count)),
+                            ("running".to_string(), Value::Number(running_task_count)),
+                            ("max_running".to_string(), Value::Number(max_running_tasks)),
+                            (
+                                "global_running".to_string(),
+                                Value::Number(global_running_tasks),
+                            ),
+                        ])
+                        .into(),
+                    ),
+                ),
                 (
                     "filesystem".to_string(),
                     Value::Map(
@@ -3942,6 +4026,24 @@ mod tests {
     }
 
     #[test]
+    fn index_of_names_the_receiver_on_receiver_type_errors() {
+        let result = Value::result_ok(Value::String("haystack".to_string()));
+        let mut vm = Vm::default();
+        vm.stack.push(result.clone());
+        vm.stack.push(Value::String("needle".to_string()));
+
+        assert_eq!(
+            vm.call_word("index-of"),
+            Err(VmError::TypeError {
+                word: "index-of".to_string(),
+                expected: "receiver string".to_string(),
+                actual: "result".to_string(),
+            })
+        );
+        assert_eq!(vm.stack(), &[result, Value::String("needle".to_string())]);
+    }
+
+    #[test]
     fn json_encode_rejects_cyclic_collections_without_overflowing() {
         let map = MapValue::default();
         map.insert("self".to_string(), Value::Map(map.clone()));
@@ -4096,6 +4198,49 @@ mod tests {
         assert_eq!(
             vm.stack(),
             &[Value::String("Ada".to_string()), Value::Number(3)]
+        );
+    }
+
+    #[test]
+    fn run_chunk_records_runtime_error_site() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushString("Ada".to_string()), span());
+        chunk.push(Op::PushNumber(3), span());
+        chunk.push(
+            Op::CallWord("less-than?".to_string()),
+            SourceSpan {
+                start: 8,
+                end: 18,
+                line: 1,
+                column: 9,
+                ..span()
+            },
+        );
+
+        let mut vm = Vm::default();
+        let error = vm.run_chunk(&chunk).expect_err("comparison should fail");
+
+        assert_eq!(
+            error,
+            VmError::TypeError {
+                word: "less-than?".to_string(),
+                expected: "number".to_string(),
+                actual: "string".to_string(),
+            }
+        );
+        assert_eq!(
+            vm.last_error_site(),
+            Some(&RuntimeErrorSite {
+                frame: "<main>".to_string(),
+                span: SourceSpan {
+                    file: "test.rco".to_string(),
+                    start: 8,
+                    end: 18,
+                    line: 1,
+                    column: 9,
+                },
+                opcode: "CallWord(\"less-than?\")".to_string(),
+            })
         );
     }
 

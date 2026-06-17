@@ -654,11 +654,16 @@ end</code></pre>
           <div><code>rco run [--debug] [--step] [--breakpoint LINE] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Compile and execute a script with CLI arguments available through `args`.</span></div>
           <div><code>rco run-bytecode [--debug] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
+          <div><code>rco migrate status [path]</code><span>Show migration status for a SQLite, PostgreSQL, or MySQL/MariaDB MVC project with `[database.default]` configured.</span></div>
+          <div><code>rco migrate apply [path]</code><span>Apply pending SQL migrations from `db/migrations` and record them in `schema_migrations`.</span></div>
           <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview_window` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
           <div><code>rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] &lt;path&gt; [args...]</code><span>Run a terminal UI script without printing the ordinary final stack dump.</span></div>
           <div><code>rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]</code><span>Create a standalone launcher executable; defaults to embedding bytecode from `main.rco`. `--tui` uses the console launcher without final stack output. `--gui` uses the `rco-gui` launcher for a webview document. Add `--mvc` with `--gui` to package an MVC project directory as a local-server desktop WebView app. On Linux, repeat `--linux-package` to also create portable tarballs or Debian packages.</span></div>
           <div><code>rco add &lt;source&gt; [--name NAME] [--no-fetch]</code><span>Record a path or `github:owner/repo@ref` package dependency in `ricochet.toml` and `ricochet.lock`.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches when needed.</span></div>
+          <div><code>rco verify [path]</code><span>Read-only package integrity preflight: validate dependency manifest/lock consistency, local path containment, and git package cache commits.</span></div>
+          <div><code>rco doctor [--capabilities] [path]</code><span>Run a read-only health check for a source file, source tree, package project, or MVC app; optionally print manifest capability declarations.</span></div>
+          <div><code>rco lsp-diagnostics [--pretty] &lt;path&gt;</code><span>Emit source diagnostics as JSON ranges suitable for lightweight editor integrations.</span></div>
           <div><code>rco doc [path]</code><span>Generate Markdown documentation for declarations, doc comments, table mappings, fields, methods, and functions.</span></div>
           <div><code>rco serve [--host HOST] [--port PORT] [--debug] [--watch] [--allow-env] [--no-env] [--env-allow NAME] [--allow-process] [--process-root PATH] [--allow-pty] [--fs-root PATH] [--fs-readonly] [--http-allow-host HOST]</code><span>Run the current directory as an MVC web app. `--allow-env` enables all process environment reads, `--env-allow` enables only named environment variables, `--allow-process` enables direct child process execution, `--process-root` narrows process and PTY cwd values, and `--allow-pty` enables pseudo-terminal sessions for trusted local apps; filesystem and HTTP stay bounded by `--fs-root` and `--http-allow-host`. `--watch` reloads routes, controllers, models, views, and the manifest between requests.</span></div>
           <div><code>rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [path]</code><span>Run `TestCase` subclasses, optionally matching `ClassName.methodName` by substring. In an MVC project, app sources load before tests.</span></div>
@@ -676,7 +681,8 @@ now println
             <h3>Packages</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy package commands" title="Copy">copy</button><code>rco add ./packages/greeter
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
-rco install</code></pre>
+rco install
+rco verify</code></pre>
           </article>
           <article class="example-panel">
             <h3>Tasks</h3>
@@ -687,8 +693,8 @@ task get running?
 task get completed?
 tasks count
 task get await
+task get release-task
 task get status
-task get await
 handles array
 handles get [ 20 2 + ] spawn push! drop
 handles get [ 30 4 + ] spawn push! drop
@@ -759,7 +765,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; production auth remains package work.</li>
           <li>`rco serve --watch` is a development hot reload path. Active requests keep their runtime snapshot; new requests use the newest successfully reloaded revision, and `--debug --watch` prints reload traces with changed files. Watched MVC runtimes honor the same CLI and manifest-declared filesystem, HTTP, environment, process, and PTY capability setup as ordinary `rco serve`.</li>
           <li>Package imports are static. GitHub sources can be recorded with `--no-fetch`; fetching uses `git clone` when enabled.</li>
-          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, and basic inspection with `id`, `status`, `pending?`, `running?`, `completed?`, `failed?`, and `tasks`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
+          <li>Task values support eager `spawn`, explicit `await`/`await-all`, retained completed/failed status, explicit cleanup with `release-task`, and basic inspection with `id`, `info`, `status`, `pending?`, `running?`, `completed?`, `failed?`, `tasks`, and `runtime_capabilities "tasks" at`; HTTP globals also expose `http_get_task`, `http_post_json_task`, and `http_request_task` for task-returning requests. Richer suspended-task debugger views remain planned work.</li>
           <li>The MVC `ai` capability supports OpenAI-compatible chat completions through `[ai.default]`; provider packages, streaming, and structured schema validation remain planned work.</li>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`; use `result_envelope` when an app/API boundary needs a `{ ok, data, error, meta }` map.</li>
           <li>Top-level method declarations are rejected; methods belong inside classes and use `[ body ] "name" Method`.</li>

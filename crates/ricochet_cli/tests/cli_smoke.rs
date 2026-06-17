@@ -176,6 +176,14 @@ fn new_with_sqlite_creates_ready_database_project() {
     assert!(manifest.contains("[database.default]"));
     assert!(manifest.contains("adapter = \"sqlite\""));
     assert!(manifest.contains("url = \"db/development.sqlite3\""));
+    let initial_migration = fs::read_to_string(
+        project_path
+            .join("db")
+            .join("migrations")
+            .join("0001_create_users.sql"),
+    )
+    .expect("initial migration should exist");
+    assert!(initial_migration.contains("create table users"));
 
     let model = fs::read_to_string(project_path.join("app").join("Models").join("User.rco"))
         .expect("model should exist");
@@ -234,6 +242,58 @@ fn new_with_sqlite_creates_ready_database_project() {
         })
         .expect("seeded user should be queryable");
     assert_eq!(first_email, "ada@example.com");
+    let initial_version: String = connection
+        .query_row("select version from schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("initial migration should be recorded");
+    assert_eq!(initial_version, "0001_create_users");
+
+    fs::write(
+        project_path
+            .join("db")
+            .join("migrations")
+            .join("0002_create_notes.sql"),
+        "create table notes (id integer primary key, body text not null);\n",
+    )
+    .expect("second migration should be written");
+
+    let status_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("status")
+        .arg(&project_path)
+        .output()
+        .expect("rco migrate status should launch");
+    let status_stdout = String::from_utf8_lossy(&status_output.stdout);
+    let status_stderr = String::from_utf8_lossy(&status_output.stderr);
+    assert!(
+        status_output.status.success(),
+        "migrate status should pass\nstdout:\n{status_stdout}\nstderr:\n{status_stderr}"
+    );
+    assert!(status_stdout.contains("[x] 0001_create_users"));
+    assert!(status_stdout.contains("[ ] 0002_create_notes"));
+
+    let apply_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("apply")
+        .arg(&project_path)
+        .output()
+        .expect("rco migrate apply should launch");
+    let apply_stdout = String::from_utf8_lossy(&apply_output.stdout);
+    let apply_stderr = String::from_utf8_lossy(&apply_output.stderr);
+    assert!(
+        apply_output.status.success(),
+        "migrate apply should pass\nstdout:\n{apply_stdout}\nstderr:\n{apply_stderr}"
+    );
+    assert!(apply_stdout.contains("applied 0002_create_notes"));
+    let notes_count: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'notes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("notes table check should run");
+    assert_eq!(notes_count, 1);
 
     let check_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("check")
@@ -262,6 +322,53 @@ fn new_with_sqlite_creates_ready_database_project() {
         test_stdout.contains("2 tests, 0 failed"),
         "SQLite scaffolded test summary should pass, got:\n{test_stdout}"
     );
+}
+
+#[test]
+fn migrate_status_recognizes_postgres_and_mysql_without_files() {
+    for (adapter, url, target) in [
+        (
+            "postgres",
+            "postgres://app:secret@db.example.com/app",
+            "PostgreSQL database",
+        ),
+        (
+            "mysql",
+            "mysql://app:secret@db.example.com/app",
+            "MySQL database",
+        ),
+    ] {
+        let source_path = temp_source_path();
+        let root = source_path
+            .parent()
+            .expect("source path has parent")
+            .join(format!("{adapter}_migration_app"));
+        write_source_at(
+            &root,
+            "ricochet.toml",
+            &format!(
+                "[package]\nname = \"migration_app\"\n\n[database.default]\nadapter = \"{adapter}\"\nurl = \"{url}\"\n"
+            ),
+        );
+
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("migrate")
+            .arg("status")
+            .arg(&root)
+            .output()
+            .expect("rco migrate status should launch");
+
+        assert_run_success_for("rco migrate status", adapter, &output);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(target) && stdout.contains("No migration files found"),
+            "stdout should identify {adapter} target without requiring a live database, got:\n{stdout}"
+        );
+        assert!(
+            !stdout.contains("secret"),
+            "migration status should not echo database credentials, got:\n{stdout}"
+        );
+    }
 }
 
 #[test]
@@ -404,6 +511,242 @@ fn check_reports_invalid_source_file() {
         stderr.contains("invalid number literal"),
         "stderr should include parser error, got:\n{stderr}"
     );
+    assert!(
+        stderr.contains("main.rco:1:1"),
+        "stderr should include source location, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("| 9223372036854775808"),
+        "stderr should include source line, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("| ^"),
+        "stderr should include a source caret, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_reports_runtime_error_source_context() {
+    let source_path = write_source("\"Ada\" 3 less-than?\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("type error in less-than?"),
+        "stderr should include runtime error, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("main.rco:1:9"),
+        "stderr should include runtime source location, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("| \"Ada\" 3 less-than?"),
+        "stderr should include runtime source line, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("help: while executing CallWord(\"less-than?\") in <main>"),
+        "stderr should include opcode/frame help, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn doctor_reports_clean_source_file() {
+    let source_path = write_source("42\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("doctor")
+        .arg(&source_path)
+        .output()
+        .expect("rco doctor should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco doctor should pass\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("OK source compile: single source file compiles"),
+        "stdout should include source compile check, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Doctor found no issues."),
+        "stdout should include clean summary, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn doctor_reports_invalid_source_file() {
+    let source_path = write_source("9223372036854775808\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("doctor")
+        .arg(&source_path)
+        .output()
+        .expect("rco doctor should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco doctor should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("FAIL source compile"),
+        "stderr should include failed source check, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("invalid number literal"),
+        "stderr should include compile diagnostic, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("doctor found 1 issue(s)"),
+        "stderr should include failure summary, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn doctor_reports_scaffolded_mvc_project_capabilities() {
+    let source_path = temp_source_path();
+    let project_path = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("doctor_app");
+
+    let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+    assert!(
+        new_output.status.success(),
+        "rco new should succeed before doctor\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&new_output.stdout),
+        String::from_utf8_lossy(&new_output.stderr)
+    );
+
+    let manifest_path = project_path.join("ricochet.toml");
+    let mut manifest = fs::read_to_string(&manifest_path).expect("manifest should exist");
+    manifest.push_str(
+        r#"
+
+[web.capabilities]
+fs_root = "."
+allow_env = true
+http_allow_hosts = ["127.0.0.1"]
+"#,
+    );
+    fs::write(&manifest_path, manifest).expect("manifest should update");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("doctor")
+        .arg("--capabilities")
+        .arg(&project_path)
+        .output()
+        .expect("rco doctor should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco doctor should pass for scaffold\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("OK MVC app build"),
+        "stdout should include MVC build check, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Capabilities:"),
+        "stdout should include capability summary, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("allow_env: true"),
+        "stdout should include env capability, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("http_allow_hosts"),
+        "stdout should include HTTP allowlist capability, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn doctor_reports_package_manifest_without_web_as_package_project() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    write_source_at(root, "ricochet.toml", "[package]\nname = \"package_app\"\n");
+    write_source_at(root, "main.rco", "\"hello package\" println\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("doctor")
+        .arg(root)
+        .output()
+        .expect("rco doctor should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco doctor should pass for package manifest\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("OK project kind: package/source project"),
+        "stdout should identify package/source project, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("routes"),
+        "package/source doctor should not run MVC route checks, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn lsp_diagnostics_reports_compile_error_json() {
+    let source_path = write_source("9223372036854775808\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lsp-diagnostics")
+        .arg(&source_path)
+        .output()
+        .expect("rco lsp-diagnostics should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco lsp-diagnostics should succeed for diagnostic output\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("diagnostics output should be JSON");
+    let diagnostics = payload["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    assert_eq!(diagnostics.len(), 1, "stdout:\n{stdout}");
+    assert!(
+        diagnostics[0]["message"]
+            .as_str()
+            .expect("message should be string")
+            .contains("invalid number literal"),
+        "stdout:\n{stdout}"
+    );
+    assert_eq!(diagnostics[0]["range"]["start"]["line"], 0);
+    assert_eq!(diagnostics[0]["range"]["start"]["character"], 0);
+    assert_eq!(diagnostics[0]["source"], "ricochet");
 }
 
 #[test]
@@ -1247,6 +1590,68 @@ fn install_rejects_git_dependency_path_outside_project_root() {
 }
 
 #[test]
+fn verify_reports_clean_local_dependency_lock() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "verify fixture install", &install);
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(root)
+        .output()
+        .expect("rco verify should launch");
+    assert_run_success_for("rco verify", "local dependency lock", &verify);
+    let stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(
+        stdout.contains("verified greeter") && stdout.contains("verified 1 dependencies"),
+        "stdout should report verified dependency, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn verify_rejects_git_dependency_without_lock() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\ngit = \"https://github.com/example/greeter.git\"\nrev = \"main\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(root)
+        .output()
+        .expect("rco verify should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco verify should reject unlocked git dependencies"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dependency greeter is missing from") && stderr.contains("run rco install"),
+        "stderr should explain missing lock entry, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn doc_generates_markdown_for_declarations_and_doc_comments() {
     let source_path = temp_source_path();
     let root = source_path.parent().expect("source path has parent");
@@ -1674,6 +2079,55 @@ end
     }
 }
 
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn package_mvc_rejects_capability_root_outside_bundle() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    let project_path = root.join("mvc_escape_app");
+    let output_path = root.join(format!("mvc-escape-app{}", std::env::consts::EXE_SUFFIX));
+
+    let new_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("new")
+        .arg(&project_path)
+        .output()
+        .expect("rco new should launch");
+    assert_run_success_for("rco new", "mvc_escape_app", &new_output);
+
+    let manifest_path = project_path.join("ricochet.toml");
+    let mut manifest = fs::read_to_string(&manifest_path).expect("manifest should exist");
+    manifest.push_str(
+        r#"
+
+[web.capabilities]
+fs_root = ".."
+"#,
+    );
+    fs::write(&manifest_path, manifest).expect("manifest should update");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg(&project_path)
+        .arg("--gui")
+        .arg("--mvc")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("rco package --gui --mvc should launch");
+
+    assert!(
+        !package_output.status.success(),
+        "rco package --mvc should reject escaped capability roots"
+    );
+    let stderr = String::from_utf8_lossy(&package_output.stderr);
+    assert!(
+        stderr.contains("web.capabilities.fs_root path must not contain .. components"),
+        "stderr should explain escaped capability root, got:\n{stderr}"
+    );
+}
+
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 #[test]
 fn package_gui_rejects_unsupported_hosts() {
@@ -1823,8 +2277,10 @@ fn run_debug_prints_fault_trace_before_error() {
         "stdout should include preserved fault stack, got:\n{stdout}"
     );
     assert!(
-        stderr.contains("Error: stack underflow in +"),
-        "stderr should include anyhow error, got:\n{stderr}"
+        stderr.contains("stack underflow in +")
+            && stderr.contains("1 | 1 +")
+            && stderr.contains("help: while executing"),
+        "stderr should include source-aware runtime error, got:\n{stderr}"
     );
 }
 
@@ -2527,6 +2983,10 @@ task get running?
 task get completed?
 task get failed?
 tasks
+task get info
+runtime_capabilities "tasks" at "known" at
+runtime_capabilities "tasks" at "running" at
+runtime_capabilities "tasks" at "max_running" at
 tasks count
 task get await
 task get status
@@ -2549,8 +3009,14 @@ tasks count
         "stdout should show the task running before await, got:\n{stdout}"
     );
     assert!(
-        stdout.contains(r#"Map({"id": Number(0), "status": String("running")})"#),
+        stdout.contains(
+            r#"Map({"completed": Bool(false), "failed": Bool(false), "id": Number(0), "pending": Bool(true), "running": Bool(true), "status": String("running")})"#
+        ),
         "stdout should include running task metadata, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(64)"),
+        "stdout should show the configured max running task count, got:\n{stdout}"
     );
     assert!(
         stdout.contains("Number(22)"),
@@ -2601,6 +3067,38 @@ task get await
     assert!(
         stdout.contains("Bool(true)") && stdout.contains("Number(7)"),
         "await should still return the cached task value, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_releases_completed_task_handles() {
+    let output = run_source(
+        r#"
+[ 40 2 + ] spawn task var
+task get await
+task get release-task
+task get status
+runtime_capabilities "tasks" at "known" at
+"#,
+    );
+    assert_run_success_for("rco run", "release completed task", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(42)"),
+        "stdout should show awaited task value, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(true)"),
+        "stdout should show release-task succeeded, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"consumed\")"),
+        "stdout should show consumed task status after release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(0)"),
+        "stdout should show no retained tasks after release, got:\n{stdout}"
     );
 }
 

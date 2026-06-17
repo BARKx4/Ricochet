@@ -31,6 +31,10 @@ $docsValidator = Join-Path $Root "docs\reference\validate.ps1"
 Write-Host "==> docs reference validation"
 & $docsValidator
 
+$editorValidator = Join-Path $Root "scripts\validate-editor-assets.ps1"
+Write-Host "==> editor asset validation"
+& $editorValidator
+
 $examplesRoot = Join-Path $Root "examples"
 $examples = @(
     "basic-oop.rco",

@@ -440,11 +440,27 @@ const WORDS = [
     "example": "task get await"
   },
   {
+    "word": "await-all",
+    "aliases": [],
+    "group": "control",
+    "stack": "array|list -> array",
+    "body": "Awaits an array or list of task handles and returns their results in input order. Completed handles reuse their cached values.",
+    "example": "handles get await-all"
+  },
+  {
+    "word": "release-task",
+    "aliases": [],
+    "group": "control",
+    "stack": "task -> bool",
+    "body": "Releases an awaited completed or failed task handle from the current VM's retained task table. Running tasks must be awaited before release.",
+    "example": "task get await\ntask get release-task"
+  },
+  {
     "word": "tasks",
     "aliases": [],
     "group": "inspect",
     "stack": "-> array",
-    "body": "Returns metadata maps for active spawned tasks in the current VM.",
+    "body": "Returns metadata maps for running spawned tasks in the current VM. Individual task handles expose id/status/predicate metadata through `info`.",
     "example": "tasks count"
   },
   {
@@ -1846,6 +1862,14 @@ const WORDS = [
     "stack": "task -> number",
     "body": "Returns a spawned task handle's numeric id.",
     "example": "task get id"
+  },
+  {
+    "word": "info",
+    "aliases": [],
+    "group": "inspect",
+    "stack": "task -> map",
+    "body": "Returns a task metadata map with `id`, `status`, `pending`, `running`, `completed`, and `failed` fields.",
+    "example": "task get info"
   },
   {
     "word": "status",

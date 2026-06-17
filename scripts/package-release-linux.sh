@@ -156,6 +156,7 @@ cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
+copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
 
 cat > "$package_dir/RELEASE.txt" <<EOF
 Ricochet v$version ($target)
@@ -213,6 +214,7 @@ if [[ "$build_deb" -eq 1 ]]; then
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
   copy_release_directory "$repo_root/examples" "$deb_root/usr/share/ricochet/examples"
   copy_release_directory "$repo_root/docs/reference" "$deb_root/usr/share/doc/ricochet/reference"
+  copy_release_directory "$repo_root/editors/vscode" "$deb_root/usr/share/ricochet/editors/vscode"
 
   installed_size="$(du -sk "$deb_root/usr" | awk '{ print $1 }')"
   cat > "$deb_root/DEBIAN/control" <<EOF

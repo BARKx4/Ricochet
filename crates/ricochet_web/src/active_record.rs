@@ -524,6 +524,86 @@ impl PostgresDatabase {
         Ok(())
     }
 
+    pub async fn execute_batch(&self, sql: &str) -> Result<(), ActiveRecordError> {
+        self.client
+            .batch_execute(sql)
+            .await
+            .map_err(|error| database_error("execute migration", error))?;
+        Ok(())
+    }
+
+    pub async fn migration_versions(&self) -> Result<Option<Vec<String>>, ActiveRecordError> {
+        let exists = self
+            .client
+            .query_one(
+                "select exists (select 1 from information_schema.tables where table_schema = current_schema() and table_name = 'schema_migrations')",
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("list migrations", error))?
+            .get::<_, bool>(0);
+        if !exists {
+            return Ok(None);
+        }
+        let rows = self
+            .client
+            .query(
+                "select version from schema_migrations order by version",
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("list migrations", error))?;
+        Ok(Some(rows.into_iter().map(|row| row.get(0)).collect()))
+    }
+
+    pub async fn ensure_schema_migrations_table(&self) -> Result<(), ActiveRecordError> {
+        self.execute_batch(
+            r#"
+create table if not exists schema_migrations (
+  version text primary key,
+  applied_at text not null
+);
+"#,
+        )
+        .await
+    }
+
+    pub async fn record_migration(
+        &self,
+        version: &str,
+        applied_at: &str,
+    ) -> Result<(), ActiveRecordError> {
+        self.client
+            .execute(
+                "insert into schema_migrations (version, applied_at) values ($1, $2)",
+                &[&version, &applied_at],
+            )
+            .await
+            .map_err(|error| database_error("record migration", error))?;
+        Ok(())
+    }
+
+    pub async fn apply_migration(
+        &self,
+        version: &str,
+        applied_at: &str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        self.execute_batch("begin").await?;
+        let result = async {
+            self.execute_batch(sql).await?;
+            self.record_migration(version, applied_at).await
+        }
+        .await;
+        match result {
+            Ok(()) => self.execute_batch("commit").await,
+            Err(error) => {
+                let _ = self.execute_batch("rollback").await;
+                Err(error)
+            }
+        }
+    }
+
     pub async fn find(
         &self,
         mapping: &ModelMapping,
@@ -1149,6 +1229,101 @@ impl MysqlDatabase {
             .await
             .map_err(|error| mysql_error("ping", error))?;
         Ok(())
+    }
+
+    pub async fn execute_batch(&self, sql: &str) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("execute migration", error))?;
+        for statement in sql
+            .split(';')
+            .map(str::trim)
+            .filter(|statement| !statement.is_empty())
+        {
+            connection
+                .query_drop(statement)
+                .await
+                .map_err(|error| mysql_error("execute migration", error))?;
+        }
+        Ok(())
+    }
+
+    pub async fn migration_versions(&self) -> Result<Option<Vec<String>>, ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("list migrations", error))?;
+        let exists: Option<u8> = connection
+            .exec_first(
+                "select 1 from information_schema.tables where table_schema = database() and table_name = 'schema_migrations'",
+                (),
+            )
+            .await
+            .map_err(|error| mysql_error("list migrations", error))?;
+        if exists.is_none() {
+            return Ok(None);
+        }
+        let rows: Vec<String> = connection
+            .query("select version from schema_migrations order by version")
+            .await
+            .map_err(|error| mysql_error("list migrations", error))?;
+        Ok(Some(rows))
+    }
+
+    pub async fn ensure_schema_migrations_table(&self) -> Result<(), ActiveRecordError> {
+        self.execute_batch(
+            r#"
+create table if not exists schema_migrations (
+  version varchar(255) primary key,
+  applied_at varchar(64) not null
+);
+"#,
+        )
+        .await
+    }
+
+    pub async fn record_migration(
+        &self,
+        version: &str,
+        applied_at: &str,
+    ) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("record migration", error))?;
+        connection
+            .exec_drop(
+                "insert into schema_migrations (version, applied_at) values (?, ?)",
+                (version, applied_at),
+            )
+            .await
+            .map_err(|error| mysql_error("record migration", error))?;
+        Ok(())
+    }
+
+    pub async fn apply_migration(
+        &self,
+        version: &str,
+        applied_at: &str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        self.execute_batch("start transaction").await?;
+        let result = async {
+            self.execute_batch(sql).await?;
+            self.record_migration(version, applied_at).await
+        }
+        .await;
+        match result {
+            Ok(()) => self.execute_batch("commit").await,
+            Err(error) => {
+                let _ = self.execute_batch("rollback").await;
+                Err(error)
+            }
+        }
     }
 
     pub async fn find(
