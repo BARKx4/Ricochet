@@ -192,6 +192,7 @@ rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
+rco audit --json
 ```
 
 `ricochet.lock` records each resolved package source, cache path, optional Git
@@ -204,6 +205,8 @@ and `rco verify` reject packages whose `[package] version` does not satisfy the
 manifest requirement, and `rco verify` recomputes the package tree hash while
 ignoring VCS metadata, so it catches local path changes, registry cache drift,
 or cached Git package drift without fetching or rewriting anything.
+Use `rco audit` for a human-readable dependency report or `rco audit --json`
+for CI and release tooling.
 
 Local package dependencies can be imported by package name:
 

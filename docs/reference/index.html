@@ -664,6 +664,7 @@ end</code></pre>
           <div><code>rco publish [path] --registry PATH [--dry-run]</code><span>Publish a package project with `[package] name` and `version` into a file-backed local registry.</span></div>
           <div><code>rco install</code><span>Install manifest dependencies into `ricochet.lock`, fetching missing GitHub package caches or local registry packages when needed and recording semantic version requirements, resolved package versions, and deterministic `sha256:` package-content integrity hashes.</span></div>
           <div><code>rco verify [path]</code><span>Read-only package integrity preflight: validate dependency manifest/lock consistency, local path containment, local registry cache contents, git package cache commits, version requirements, and locked package-content hashes.</span></div>
+          <div><code>rco audit [path] [--json]</code><span>Print a read-only dependency audit report with source kind, lock status, resolved version, integrity, stale lock entries, and machine-readable JSON output for tooling.</span></div>
           <div><code>rco doctor [--capabilities] [path]</code><span>Run a read-only health check for a source file, source tree, package project, or MVC app; optionally print manifest capability declarations.</span></div>
           <div><code>rco lsp [--trace]</code><span>Run the stdio Ricochet language server for editors. It provides live diagnostics, completion, hover, go-to-definition, document symbols, semantic tokens, formatting, prepare-rename, and single-document rename support.</span></div>
           <div><code>rco lsp-diagnostics [--pretty] &lt;path&gt;</code><span>Emit source diagnostics as JSON ranges suitable for lightweight editor integrations.</span></div>
@@ -686,7 +687,8 @@ now println
 rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
-rco verify</code></pre>
+rco verify
+rco audit --json</code></pre>
           </article>
           <article class="example-panel">
             <h3>Tasks</h3>

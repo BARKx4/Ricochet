@@ -1584,6 +1584,49 @@ fn install_locks_semver_satisfied_dependency_version() {
 }
 
 #[test]
+fn audit_reports_locked_dependency_status_as_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\nversion = \"^0.2.0\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "audit fixture", &install);
+
+    let audit = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("audit")
+        .arg("--json")
+        .current_dir(root)
+        .output()
+        .expect("rco audit should launch");
+    assert_run_success_for("rco audit --json", "locked dependency", &audit);
+    let report: serde_json::Value =
+        serde_json::from_slice(&audit.stdout).expect("audit output should be JSON");
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["dependencies"][0]["name"], "greeter");
+    assert_eq!(report["dependencies"][0]["kind"], "path");
+    assert_eq!(report["dependencies"][0]["status"], "ok");
+    assert_eq!(report["dependencies"][0]["version_req"], "^0.2.0");
+    assert_eq!(report["dependencies"][0]["locked_version"], "0.2.3");
+    assert!(report["dependencies"][0]["locked_integrity"]
+        .as_str()
+        .expect("integrity should be a string")
+        .starts_with("sha256:"));
+}
+
+#[test]
 fn install_rejects_unsatisfied_semver_dependency_version() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");

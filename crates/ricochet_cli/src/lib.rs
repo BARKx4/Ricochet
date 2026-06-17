@@ -17,6 +17,7 @@ use ricochet_syntax::{
 use ricochet_vm::{DebugAction, DebugEvent, DebugPauseReason, MapValue, RicochetResult, Value, Vm};
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use semver::{Version, VersionReq};
+use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use toml_edit::{value, DocumentMut, Item, Table};
@@ -181,6 +182,11 @@ enum Command {
     Install,
     Verify {
         path: Option<String>,
+    },
+    Audit {
+        path: Option<String>,
+        #[arg(long, help = "Emit the dependency audit report as JSON")]
+        json: bool,
     },
     Doctor {
         path: Option<String>,
@@ -624,6 +630,7 @@ pub async fn run_cli() -> Result<()> {
         } => publish_package(path.as_deref(), &registry, dry_run)?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
+        Command::Audit { path, json } => audit_dependencies(path.as_deref(), json)?,
         Command::Doctor { path, capabilities } => {
             doctor(path.as_deref().unwrap_or("."), capabilities)?
         }
@@ -2428,6 +2435,135 @@ fn verify_dependencies(path: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+struct DependencyAuditReport {
+    manifest: String,
+    ok: bool,
+    dependencies: Vec<DependencyAuditEntry>,
+    stale_locks: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DependencyAuditEntry {
+    name: String,
+    kind: String,
+    source: String,
+    path: String,
+    version_req: Option<String>,
+    locked_version: Option<String>,
+    locked_integrity: Option<String>,
+    status: String,
+    issues: Vec<String>,
+}
+
+fn audit_dependencies(path: Option<&str>, json_output: bool) -> Result<()> {
+    let manifest_path = project_manifest_path_for_command("audit", path)?;
+    let project_root = manifest_path
+        .parent()
+        .expect("project manifest should have a parent");
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let doc = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let report = dependency_audit_report(project_root, &manifest_path, &doc)?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_dependency_audit_report(&report);
+    }
+    if !report.ok {
+        bail!("dependency audit found issues");
+    }
+    Ok(())
+}
+
+fn dependency_audit_report(
+    project_root: &Path,
+    manifest_path: &Path,
+    doc: &DocumentMut,
+) -> Result<DependencyAuditReport> {
+    let lock_path = project_root.join("ricochet.lock");
+    let lock_doc = read_optional_toml_document(&lock_path)?;
+    let mut entries = Vec::new();
+    let mut declared = BTreeSet::new();
+
+    if let Some(dependencies) = doc.get("dependencies").and_then(Item::as_table) {
+        for (name, item) in dependencies.iter() {
+            declared.insert(name.to_string());
+            let spec = dependency_spec_from_manifest_table(name, item, manifest_path)?;
+            let locked = locked_package(lock_doc.as_ref(), name)?;
+            let mut issues = Vec::new();
+            if let Err(error) =
+                verify_dependency(project_root, &lock_path, lock_doc.as_ref(), &spec)
+            {
+                issues.push(error.to_string());
+            }
+            let (locked_version, locked_integrity) = locked
+                .as_ref()
+                .map(|lock| (lock.package_version.clone(), lock.integrity.clone()))
+                .unwrap_or((None, None));
+            entries.push(DependencyAuditEntry {
+                name: name.to_string(),
+                kind: dependency_kind(&spec).to_string(),
+                source: spec.source,
+                path: spec.path,
+                version_req: spec.version_req,
+                locked_version,
+                locked_integrity,
+                status: if issues.is_empty() {
+                    "ok".to_string()
+                } else {
+                    "problem".to_string()
+                },
+                issues,
+            });
+        }
+    }
+
+    let stale_locks = stale_lock_packages(lock_doc.as_ref(), &declared);
+    let ok = entries.iter().all(|entry| entry.issues.is_empty()) && stale_locks.is_empty();
+    Ok(DependencyAuditReport {
+        manifest: path_to_slash(manifest_path),
+        ok,
+        dependencies: entries,
+        stale_locks,
+    })
+}
+
+fn print_dependency_audit_report(report: &DependencyAuditReport) {
+    println!("Dependency audit for {}", report.manifest);
+    if report.dependencies.is_empty() {
+        println!("no dependencies declared");
+    }
+    for entry in &report.dependencies {
+        println!("- {} [{}] {}", entry.name, entry.kind, entry.status);
+        println!("  source: {}", entry.source);
+        println!("  path: {}", entry.path);
+        if let Some(version_req) = &entry.version_req {
+            let locked = entry.locked_version.as_deref().unwrap_or("<unlocked>");
+            println!("  version: {version_req} -> {locked}");
+        } else if let Some(locked) = &entry.locked_version {
+            println!("  version: {locked}");
+        }
+        if let Some(integrity) = &entry.locked_integrity {
+            println!("  integrity: {integrity}");
+        }
+        for issue in &entry.issues {
+            println!("  issue: {issue}");
+        }
+    }
+    if !report.stale_locks.is_empty() {
+        println!("stale lock entries:");
+        for name in &report.stale_locks {
+            println!("- {name}");
+        }
+    }
+    if report.ok {
+        println!("dependency audit passed");
+    }
+}
+
 fn verify_dependency_manifest(
     project_root: &Path,
     manifest_path: &Path,
@@ -2446,51 +2582,7 @@ fn verify_dependency_manifest(
     for (name, item) in dependencies.iter() {
         validate_package_name(name)?;
         declared.insert(name.to_string());
-        let table = item.as_table().with_context(|| {
-            format!(
-                "dependency {name} in {} must be a table",
-                manifest_path.display()
-            )
-        })?;
-        let git = table.get("git").and_then(Item::as_str).map(str::to_string);
-        let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
-        let registry = table
-            .get("registry")
-            .and_then(Item::as_str)
-            .map(str::to_string);
-        if git.is_some() && registry.is_some() {
-            bail!("dependency {name} cannot include both git and registry");
-        }
-        let path = dependency_manifest_path(name, table, registry.is_some(), manifest_path)?;
-        let version_req = table
-            .get("version")
-            .and_then(Item::as_str)
-            .map(str::to_string);
-        if let Some(version_req) = version_req.as_deref() {
-            validate_version_req(version_req)?;
-        }
-        let spec = DependencySpec {
-            name: name.to_string(),
-            source: git
-                .as_ref()
-                .map(|git| format!("git+{git}"))
-                .or_else(|| {
-                    registry
-                        .as_ref()
-                        .map(|registry| format!("registry+{registry}#{name}"))
-                })
-                .unwrap_or_else(|| format!("path+{path}")),
-            path,
-            git,
-            rev,
-            commit: None,
-            registry,
-            version_req,
-            package_version: None,
-            integrity: None,
-            display_source: String::new(),
-        };
-
+        let spec = dependency_spec_from_manifest_table(name, item, manifest_path)?;
         verify_dependency(project_root, &lock_path, lock_doc.as_ref(), &spec)?;
         if verbose {
             println!("verified {}", spec.name);
@@ -2500,6 +2592,68 @@ fn verify_dependency_manifest(
 
     verify_no_stale_lock_packages(&lock_path, lock_doc.as_ref(), &declared)?;
     Ok(verified)
+}
+
+fn dependency_spec_from_manifest_table(
+    name: &str,
+    item: &Item,
+    manifest_path: &Path,
+) -> Result<DependencySpec> {
+    validate_package_name(name)?;
+    let table = item.as_table().with_context(|| {
+        format!(
+            "dependency {name} in {} must be a table",
+            manifest_path.display()
+        )
+    })?;
+    let git = table.get("git").and_then(Item::as_str).map(str::to_string);
+    let rev = table.get("rev").and_then(Item::as_str).map(str::to_string);
+    let registry = table
+        .get("registry")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if git.is_some() && registry.is_some() {
+        bail!("dependency {name} cannot include both git and registry");
+    }
+    let path = dependency_manifest_path(name, table, registry.is_some(), manifest_path)?;
+    let version_req = table
+        .get("version")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(version_req) = version_req.as_deref() {
+        validate_version_req(version_req)?;
+    }
+    Ok(DependencySpec {
+        name: name.to_string(),
+        source: git
+            .as_ref()
+            .map(|git| format!("git+{git}"))
+            .or_else(|| {
+                registry
+                    .as_ref()
+                    .map(|registry| format!("registry+{registry}#{name}"))
+            })
+            .unwrap_or_else(|| format!("path+{path}")),
+        path,
+        git,
+        rev,
+        commit: None,
+        registry,
+        version_req,
+        package_version: None,
+        integrity: None,
+        display_source: String::new(),
+    })
+}
+
+fn dependency_kind(spec: &DependencySpec) -> &'static str {
+    if spec.registry.is_some() {
+        "registry"
+    } else if spec.git.is_some() {
+        "git"
+    } else {
+        "path"
+    }
 }
 
 fn verify_dependency(
@@ -2625,23 +2779,32 @@ fn verify_no_stale_lock_packages(
     lock_doc: Option<&DocumentMut>,
     declared: &BTreeSet<String>,
 ) -> Result<()> {
+    let stale = stale_lock_packages(lock_doc, declared);
+    if let Some(name) = stale.first() {
+        bail!(
+            "{} contains package {name:?}, but ricochet.toml does not declare it",
+            lock_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn stale_lock_packages(lock_doc: Option<&DocumentMut>, declared: &BTreeSet<String>) -> Vec<String> {
     let Some(packages) = lock_doc
         .and_then(|doc| doc.get("package"))
         .and_then(Item::as_table)
     else {
-        return Ok(());
+        return Vec::new();
     };
 
+    let mut stale = Vec::new();
     for (name, _) in packages.iter() {
         if !declared.contains(name) {
-            bail!(
-                "{} contains package {name:?}, but ricochet.toml does not declare it",
-                lock_path.display()
-            );
+            stale.push(name.to_string());
         }
     }
-
-    Ok(())
+    stale
 }
 
 fn read_optional_toml_document(path: &Path) -> Result<Option<DocumentMut>> {
