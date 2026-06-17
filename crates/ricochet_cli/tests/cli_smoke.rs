@@ -1747,6 +1747,181 @@ fn publish_and_install_local_registry_dependency() {
 }
 
 #[test]
+fn registry_rebuild_writes_static_index_and_searches_scoped_packages() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"@ricochet/greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from static registry\"\nend\n",
+    );
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "scoped registry package", &publish);
+
+    let rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for("rco registry rebuild", "static registry index", &rebuild);
+
+    let index = fs::read_to_string(registry.join("index.toml")).expect("index should exist");
+    assert!(index.contains("format = \"ricochet-static-registry-v1\""));
+    assert!(index.contains("\"@ricochet/greeter\""));
+    assert!(index.contains("packages/@ricochet/greeter.toml"));
+
+    let package = fs::read_to_string(
+        registry
+            .join("packages")
+            .join("@ricochet")
+            .join("greeter.toml"),
+    )
+    .expect("package metadata should exist");
+    assert!(package.contains("name = \"@ricochet/greeter\""));
+    assert!(package.contains("version = \"0.2.3\""));
+    assert!(
+        package.contains("archive = \"artifacts/@ricochet/greeter/0.2.3/greeter-0.2.3.tar.gz\"")
+    );
+    assert!(package.contains("archive_integrity = \"sha256:"));
+    assert!(
+        registry
+            .join("artifacts")
+            .join("@ricochet")
+            .join("greeter")
+            .join("0.2.3")
+            .join("greeter-0.2.3.tar.gz")
+            .is_file(),
+        "registry rebuild should create a static package archive"
+    );
+
+    let registry_url = file_url_for_test(&registry.join("index.toml"));
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greeter")
+        .arg("--registry-url")
+        .arg(&registry_url)
+        .output()
+        .expect("rco search should launch");
+    assert_run_success_for("rco search", "scoped static registry package", &search);
+    let stdout = String::from_utf8_lossy(&search.stdout);
+    assert!(
+        stdout.contains("@ricochet/greeter 0.2.3"),
+        "search should show scoped package and version, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn add_installs_static_registry_url_dependency_with_local_alias() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"@ricochet/greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from static registry\"\nend\n",
+    );
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "scoped registry package", &publish);
+    let rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for("rco registry rebuild", "static registry index", &rebuild);
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+    let registry_url = file_url_for_test(&registry.join("index.toml"));
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:@ricochet/greeter")
+        .arg("--registry-url")
+        .arg(&registry_url)
+        .arg("--as")
+        .arg("greeter")
+        .arg("--version")
+        .arg("^0.2.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "static registry dependency", &add);
+
+    let manifest = fs::read_to_string(app.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[dependencies.greeter]"));
+    assert!(manifest.contains("package = \"@ricochet/greeter\""));
+    assert!(manifest.contains("path = \".ricochet/packages/greeter\""));
+    assert!(manifest.contains(&format!(
+        "registry = \"{}\"",
+        escape_toml_string(&registry_url)
+    )));
+    assert!(manifest.contains("version = \"^0.2.0\""));
+
+    let lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("[package.greeter]"));
+    assert!(lock.contains("package = \"@ricochet/greeter\""));
+    assert!(lock.contains("source = \"registry+"));
+    assert!(lock.contains("#@ricochet/greeter\""));
+    assert!(lock.contains("version_req = \"^0.2.0\""));
+    assert!(lock.contains("version = \"0.2.3\""));
+    assert!(lock.contains("integrity = \"sha256:"));
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(&app)
+        .output()
+        .expect("rco verify should launch");
+    assert_run_success_for("rco verify", "static registry dependency", &verify);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("String(\"hello from static registry\")"),
+        "stdout should show imported static registry package result, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn publish_records_provenance_and_signature_hooks() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");
@@ -6353,6 +6528,10 @@ fn path_to_slash_for_test(path: &Path) -> String {
 
 fn escape_toml_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn file_url_for_test(path: &Path) -> String {
+    format!("file:///{}", path_to_slash_for_test(path))
 }
 
 fn spawn_single_response_http_server(

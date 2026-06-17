@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
@@ -8,6 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
@@ -23,6 +26,7 @@ use semver::{Version, VersionReq};
 use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tar::{Archive, Builder, EntryType};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 mod lsp;
@@ -39,6 +43,9 @@ const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
+const STATIC_REGISTRY_FORMAT: &str = "ricochet-static-registry-v1";
+const MAX_STATIC_REGISTRY_METADATA_BYTES: usize = 2 * 1024 * 1024;
+const MAX_STATIC_REGISTRY_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
@@ -188,11 +195,23 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
         #[arg(
+            long = "as",
+            value_name = "NAME",
+            help = "Use NAME as the local import/dependency alias"
+        )]
+        alias: Option<String>,
+        #[arg(
             long,
             value_name = "PATH",
             help = "Use a local file-backed package registry for registry:name dependencies"
         )]
         registry: Option<PathBuf>,
+        #[arg(
+            long = "registry-url",
+            value_name = "URL",
+            help = "Use a static package registry index URL for registry:name dependencies"
+        )]
+        registry_url: Option<String>,
         #[arg(
             long = "version",
             value_name = "REQ",
@@ -230,6 +249,21 @@ enum Command {
         signature_kind: Option<String>,
         #[arg(long, help = "Validate and describe the publish without writing files")]
         dry_run: bool,
+    },
+    Registry {
+        #[command(subcommand)]
+        command: RegistryCommand,
+    },
+    Search {
+        query: String,
+        #[arg(long, value_name = "PATH", help = "Search a local static registry")]
+        registry: Option<PathBuf>,
+        #[arg(
+            long = "registry-url",
+            value_name = "URL",
+            help = "Search a static package registry index URL"
+        )]
+        registry_url: Option<String>,
     },
     Install,
     Verify {
@@ -342,6 +376,12 @@ enum Command {
 enum MigrateCommand {
     Status { path: Option<String> },
     Apply { path: Option<String> },
+}
+
+#[derive(Debug, Subcommand)]
+enum RegistryCommand {
+    Rebuild { path: PathBuf },
+    Check { path: PathBuf },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -694,16 +734,24 @@ pub async fn run_cli() -> Result<()> {
         Command::Add {
             source,
             name,
+            alias,
             registry,
+            registry_url,
             version,
             no_fetch,
-        } => add_dependency(
-            &source,
-            name.as_deref(),
-            registry.as_deref(),
-            version.as_deref(),
-            no_fetch,
-        )?,
+        } => {
+            if name.is_some() && alias.is_some() {
+                bail!("use either --name or --as, not both");
+            }
+            add_dependency(
+                &source,
+                alias.as_deref().or(name.as_deref()),
+                registry.as_deref(),
+                registry_url.as_deref(),
+                version.as_deref(),
+                no_fetch,
+            )?
+        }
         Command::Publish {
             path,
             registry,
@@ -721,6 +769,15 @@ pub async fn run_cli() -> Result<()> {
                 signature_kind: signature_kind.as_deref(),
             },
         )?,
+        Command::Registry { command } => match command {
+            RegistryCommand::Rebuild { path } => rebuild_static_registry(&path)?,
+            RegistryCommand::Check { path } => check_static_registry(&path)?,
+        },
+        Command::Search {
+            query,
+            registry,
+            registry_url,
+        } => search_registry(&query, registry.as_deref(), registry_url.as_deref())?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
         Command::Audit { path, json } => audit_dependencies(path.as_deref(), json)?,
@@ -2227,6 +2284,7 @@ fn project_name(path: &Path) -> String {
 #[derive(Debug)]
 struct DependencySpec {
     name: String,
+    package: Option<String>,
     path: String,
     source: String,
     git: Option<String>,
@@ -2242,9 +2300,16 @@ struct DependencySpec {
     display_source: String,
 }
 
+impl DependencySpec {
+    fn registry_package_name(&self) -> &str {
+        self.package.as_deref().unwrap_or(&self.name)
+    }
+}
+
 #[derive(Debug)]
 struct LockedPackage {
     source: String,
+    package: Option<String>,
     path: String,
     git: Option<String>,
     rev: Option<String>,
@@ -2269,7 +2334,7 @@ enum DependencySource {
         rev: Option<String>,
     },
     Registry {
-        name: String,
+        package: String,
         version: Option<String>,
         registry: String,
     },
@@ -2304,6 +2369,7 @@ fn add_dependency(
     source: &str,
     name: Option<&str>,
     registry: Option<&Path>,
+    registry_url: Option<&str>,
     version_req: Option<&str>,
     no_fetch: bool,
 ) -> Result<()> {
@@ -2311,7 +2377,7 @@ fn add_dependency(
     let project_root = manifest_path
         .parent()
         .expect("project manifest should have a parent");
-    let dependency_source = parse_dependency_source(source, registry)?;
+    let dependency_source = parse_dependency_source(source, registry, registry_url)?;
     let mut spec = dependency_spec(project_root, source, dependency_source, name, version_req)?;
     let skip_remote_fetch = no_fetch && (spec.git.is_some() || spec.registry.is_some());
 
@@ -2356,7 +2422,7 @@ fn publish_package(
         .name
         .as_deref()
         .with_context(|| format!("{} must include [package] name", manifest_path.display()))?;
-    validate_package_name(name)?;
+    validate_registry_package_name(name)?;
     let version = metadata
         .version
         .as_deref()
@@ -2393,7 +2459,9 @@ fn publish_package(
     )?;
 
     let package_integrity = package_tree_integrity(package_root)?;
-    let version_root = registry_root.join(name).join(version);
+    let version_root = registry_root
+        .join(registry_package_relative_path(name))
+        .join(version);
     let destination = version_root.join("package");
     if version_root.exists() {
         bail!(
@@ -2535,12 +2603,700 @@ fn copy_publish_artifact(artifact: &PublishArtifact, version_root: &Path) -> Res
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct StaticRegistryIndex {
+    source: String,
+    packages: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+struct StaticRegistryPackageMetadata {
+    name: String,
+    versions: Vec<StaticRegistryVersion>,
+}
+
+#[derive(Debug, Clone)]
+struct StaticRegistryVersion {
+    version: String,
+    archive: String,
+    archive_integrity: String,
+    package_integrity: String,
+    yanked: bool,
+    provenance: Option<String>,
+    signature: Option<String>,
+    signature_kind: Option<String>,
+}
+
+fn rebuild_static_registry(path: &Path) -> Result<()> {
+    let registry_root = absolute_path_from_current(path)?;
+    if !registry_root.is_dir() {
+        bail!(
+            "static registry rebuild expected an existing registry directory: {}",
+            registry_root.display()
+        );
+    }
+
+    let mut packages: BTreeMap<String, Vec<StaticRegistryVersion>> = BTreeMap::new();
+    for package_root in local_registry_package_roots(&registry_root)? {
+        for version_entry in fs::read_dir(&package_root)
+            .with_context(|| format!("failed to read {}", package_root.display()))?
+        {
+            let version_entry = version_entry
+                .with_context(|| format!("failed to read entry in {}", package_root.display()))?;
+            let version_root = version_entry.path();
+            if !version_entry
+                .file_type()
+                .with_context(|| format!("failed to inspect {}", version_root.display()))?
+                .is_dir()
+            {
+                continue;
+            }
+            let version = version_entry.file_name().to_string_lossy().to_string();
+            validate_package_version(&version)?;
+            let package_dir = version_root.join("package");
+            if !package_dir.is_dir() {
+                continue;
+            }
+            let metadata = read_package_metadata(&package_dir)?;
+            let package_name = metadata.name.with_context(|| {
+                format!(
+                    "registry package {} is missing [package] name",
+                    package_dir.display()
+                )
+            })?;
+            validate_registry_package_name(&package_name)?;
+            let registry_package = registry_package_at(&package_root, &package_name, &version)
+                .with_context(|| {
+                    format!("failed to validate registry package {package_name} {version}")
+                })?;
+
+            let archive_relative = registry_package_archive_relative_path(&package_name, &version);
+            let archive_path = registry_root.join(&archive_relative);
+            create_package_archive(&registry_package.package_dir, &archive_path)?;
+            let archive_integrity = file_integrity(&archive_path)?;
+
+            packages
+                .entry(package_name)
+                .or_default()
+                .push(StaticRegistryVersion {
+                    version,
+                    archive: path_to_slash(&archive_relative),
+                    archive_integrity,
+                    package_integrity: registry_package.integrity,
+                    yanked: false,
+                    provenance: registry_package.provenance,
+                    signature: registry_package.signature,
+                    signature_kind: registry_package.signature_kind,
+                });
+        }
+    }
+
+    if packages.is_empty() {
+        bail!(
+            "registry {} does not contain any publishable packages",
+            registry_root.display()
+        );
+    }
+
+    let mut index_doc = DocumentMut::new();
+    let mut registry_table = Table::new();
+    registry_table["format"] = value(STATIC_REGISTRY_FORMAT);
+    index_doc
+        .as_table_mut()
+        .insert("registry", Item::Table(registry_table));
+    let mut packages_table = Table::new();
+    for (package, versions) in packages.iter_mut() {
+        versions.sort_by(|left, right| {
+            Version::parse(&left.version)
+                .expect("validated package version should parse")
+                .cmp(
+                    &Version::parse(&right.version)
+                        .expect("validated package version should parse"),
+                )
+        });
+        let metadata_relative = registry_package_metadata_relative_path(package);
+        write_static_package_metadata(&registry_root, package, versions, &metadata_relative)?;
+        packages_table[package] = value(path_to_slash(&metadata_relative));
+    }
+    index_doc
+        .as_table_mut()
+        .insert("packages", Item::Table(packages_table));
+    fs::write(registry_root.join("index.toml"), index_doc.to_string()).with_context(|| {
+        format!(
+            "failed to write {}",
+            registry_root.join("index.toml").display()
+        )
+    })?;
+
+    println!(
+        "rebuilt static registry {} with {} packages",
+        registry_root.display(),
+        packages.len()
+    );
+    Ok(())
+}
+
+fn check_static_registry(path: &Path) -> Result<()> {
+    let registry_root = absolute_path_from_current(path)?;
+    let index_source = file_url_from_path(&registry_root.join("index.toml"));
+    let index = load_static_registry_index(&index_source)?;
+    let mut checked = 0usize;
+    for (package, metadata_path) in &index.packages {
+        let metadata = load_static_registry_package(&index.source, package, metadata_path)?;
+        for version in metadata.versions {
+            validate_package_integrity(&version.archive_integrity)?;
+            validate_package_integrity(&version.package_integrity)?;
+            let archive_source = resolve_static_registry_resource(&index.source, &version.archive)?;
+            let archive_path = file_url_to_path(&archive_source).with_context(|| {
+                format!(
+                    "rco registry check requires local file archives, got {}",
+                    archive_source
+                )
+            })?;
+            let actual = file_integrity(&archive_path)?;
+            if actual != version.archive_integrity {
+                bail!(
+                    "static registry archive for {} {} has integrity {}, expected {}",
+                    metadata.name,
+                    version.version,
+                    actual,
+                    version.archive_integrity
+                );
+            }
+            checked += 1;
+        }
+    }
+    println!("checked {checked} static registry versions");
+    Ok(())
+}
+
+fn search_registry(query: &str, registry: Option<&Path>, registry_url: Option<&str>) -> Result<()> {
+    if registry.is_some() && registry_url.is_some() {
+        bail!("use either --registry or --registry-url, not both");
+    }
+    let index_source = if let Some(registry_url) = registry_url {
+        validate_static_registry_url(registry_url)?.to_string()
+    } else {
+        let registry = registry
+            .map(absolute_path_from_current)
+            .transpose()?
+            .unwrap_or_else(|| PathBuf::from("."));
+        file_url_from_path(&registry.join("index.toml"))
+    };
+    let index = load_static_registry_index(&index_source)?;
+    let query = query.to_ascii_lowercase();
+    let mut found = 0usize;
+    for (package, metadata_path) in &index.packages {
+        if !package.to_ascii_lowercase().contains(&query) {
+            continue;
+        }
+        let metadata = load_static_registry_package(&index.source, package, metadata_path)?;
+        let Some(version) = latest_static_registry_version(&metadata.versions, None) else {
+            continue;
+        };
+        println!("{} {}", metadata.name, version.version);
+        found += 1;
+    }
+    if found == 0 {
+        println!("no packages found");
+    }
+    Ok(())
+}
+
+fn local_registry_package_roots(registry_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut roots = Vec::new();
+    for entry in fs::read_dir(registry_root)
+        .with_context(|| format!("failed to read {}", registry_root.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("failed to read entry in {}", registry_root.display()))?;
+        if !entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", entry.path().display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == "packages" || name == "artifacts" {
+            continue;
+        }
+        if name.starts_with('@') {
+            for scoped_entry in fs::read_dir(entry.path())
+                .with_context(|| format!("failed to read {}", entry.path().display()))?
+            {
+                let scoped_entry = scoped_entry.with_context(|| {
+                    format!("failed to read entry in {}", entry.path().display())
+                })?;
+                if scoped_entry
+                    .file_type()
+                    .with_context(|| {
+                        format!("failed to inspect {}", scoped_entry.path().display())
+                    })?
+                    .is_dir()
+                {
+                    roots.push(scoped_entry.path());
+                }
+            }
+        } else {
+            roots.push(entry.path());
+        }
+    }
+    roots.sort();
+    Ok(roots)
+}
+
+fn write_static_package_metadata(
+    registry_root: &Path,
+    package: &str,
+    versions: &[StaticRegistryVersion],
+    metadata_relative: &Path,
+) -> Result<()> {
+    let metadata_path = registry_root.join(metadata_relative);
+    if let Some(parent) = metadata_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let mut doc = DocumentMut::new();
+    let mut package_table = Table::new();
+    package_table["name"] = value(package);
+    doc.as_table_mut()
+        .insert("package", Item::Table(package_table));
+
+    let versions_array = doc["versions"].or_insert(Item::ArrayOfTables(Default::default()));
+    let versions_array = versions_array
+        .as_array_of_tables_mut()
+        .expect("versions should be an array of tables");
+    for version in versions {
+        let mut table = Table::new();
+        table["version"] = value(version.version.clone());
+        table["archive"] = value(version.archive.clone());
+        table["archive_integrity"] = value(version.archive_integrity.clone());
+        table["package_integrity"] = value(version.package_integrity.clone());
+        table["yanked"] = value(version.yanked);
+        if let Some(provenance) = &version.provenance {
+            table["provenance"] = value(provenance.clone());
+        }
+        if let Some(signature) = &version.signature {
+            table["signature"] = value(signature.clone());
+        }
+        if let Some(signature_kind) = &version.signature_kind {
+            table["signature_kind"] = value(signature_kind.clone());
+        }
+        versions_array.push(table);
+    }
+
+    fs::write(&metadata_path, doc.to_string())
+        .with_context(|| format!("failed to write {}", metadata_path.display()))
+}
+
+fn create_package_archive(package_dir: &Path, archive_path: &Path) -> Result<()> {
+    package_tree_integrity(package_dir)?;
+    if let Some(parent) = archive_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let file = fs::File::create(archive_path)
+        .with_context(|| format!("failed to create {}", archive_path.display()))?;
+    let encoder = GzEncoder::new(file, Compression::default());
+    let mut builder = Builder::new(encoder);
+    append_package_archive_entries(package_dir, package_dir, &mut builder)?;
+    builder
+        .finish()
+        .with_context(|| format!("failed to finish {}", archive_path.display()))?;
+    let encoder = builder
+        .into_inner()
+        .with_context(|| format!("failed to finish {}", archive_path.display()))?;
+    encoder
+        .finish()
+        .with_context(|| format!("failed to finish {}", archive_path.display()))?;
+    Ok(())
+}
+
+fn append_package_archive_entries(
+    root: &Path,
+    current: &Path,
+    builder: &mut Builder<GzEncoder<fs::File>>,
+) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "package archive cannot include symlink {}; copy the target file into the package",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            if file_name == ".git" {
+                continue;
+            }
+            append_package_archive_entries(root, &path, builder)?;
+        } else if metadata.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to make {} package-relative", path.display()))?;
+            builder
+                .append_path_with_name(&path, relative)
+                .with_context(|| format!("failed to archive {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn load_static_registry_index(source: &str) -> Result<StaticRegistryIndex> {
+    validate_static_registry_url(source)?;
+    let bytes = read_static_registry_bytes(source, MAX_STATIC_REGISTRY_METADATA_BYTES)?;
+    let text = String::from_utf8(bytes).context("static registry index must be UTF-8")?;
+    let doc = text
+        .parse::<DocumentMut>()
+        .context("failed to parse static registry index")?;
+    let format = doc
+        .get("registry")
+        .and_then(Item::as_table)
+        .and_then(|registry| registry.get("format"))
+        .and_then(Item::as_str)
+        .context("static registry index must include [registry] format")?;
+    if format != STATIC_REGISTRY_FORMAT {
+        bail!("unsupported static registry format {format:?}");
+    }
+    let packages_table = doc
+        .get("packages")
+        .and_then(Item::as_table)
+        .context("static registry index must include [packages]")?;
+    let mut packages = BTreeMap::new();
+    for (package, item) in packages_table.iter() {
+        validate_registry_package_name(package)?;
+        let metadata = item
+            .as_str()
+            .with_context(|| format!("static registry package {package} must map to a string"))?;
+        validate_static_registry_relative_path(metadata, "package metadata")?;
+        packages.insert(package.to_string(), metadata.to_string());
+    }
+    Ok(StaticRegistryIndex {
+        source: source.to_string(),
+        packages,
+    })
+}
+
+fn load_static_registry_package(
+    index_source: &str,
+    expected_package: &str,
+    metadata_path: &str,
+) -> Result<StaticRegistryPackageMetadata> {
+    let metadata_source = resolve_static_registry_resource(index_source, metadata_path)?;
+    let bytes = read_static_registry_bytes(&metadata_source, MAX_STATIC_REGISTRY_METADATA_BYTES)?;
+    let text =
+        String::from_utf8(bytes).context("static registry package metadata must be UTF-8")?;
+    let doc = text
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse static registry package {expected_package}"))?;
+    let package = doc
+        .get("package")
+        .and_then(Item::as_table)
+        .and_then(|package| package.get("name"))
+        .and_then(Item::as_str)
+        .context("static registry package metadata must include [package] name")?;
+    validate_registry_package_name(package)?;
+    if package != expected_package {
+        bail!(
+            "static registry package metadata name {:?} does not match index package {:?}",
+            package,
+            expected_package
+        );
+    }
+    let versions_array = doc
+        .get("versions")
+        .and_then(Item::as_array_of_tables)
+        .context("static registry package metadata must include [[versions]]")?;
+    let mut versions = Vec::new();
+    for table in versions_array {
+        let version = table
+            .get("version")
+            .and_then(Item::as_str)
+            .context("static registry version must include version")?
+            .to_string();
+        validate_package_version(&version)?;
+        let archive = table
+            .get("archive")
+            .and_then(Item::as_str)
+            .context("static registry version must include archive")?
+            .to_string();
+        validate_static_registry_relative_or_absolute_url(&archive, "archive")?;
+        let archive_integrity = table
+            .get("archive_integrity")
+            .and_then(Item::as_str)
+            .context("static registry version must include archive_integrity")?
+            .to_string();
+        validate_package_integrity(&archive_integrity)?;
+        let package_integrity = table
+            .get("package_integrity")
+            .and_then(Item::as_str)
+            .context("static registry version must include package_integrity")?
+            .to_string();
+        validate_package_integrity(&package_integrity)?;
+        let yanked = table.get("yanked").and_then(Item::as_bool).unwrap_or(false);
+        let provenance = table
+            .get("provenance")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if let Some(provenance) = provenance.as_deref() {
+            validate_package_integrity(provenance)?;
+        }
+        let signature = table
+            .get("signature")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if let Some(signature) = signature.as_deref() {
+            validate_package_integrity(signature)?;
+        }
+        let signature_kind = table
+            .get("signature_kind")
+            .and_then(Item::as_str)
+            .map(str::to_string);
+        if let Some(signature_kind) = signature_kind.as_deref() {
+            validate_signature_kind(signature_kind)?;
+        }
+        if signature_kind.is_some() && signature.is_none() {
+            bail!(
+                "static registry version {package} {version} has signature_kind without signature"
+            );
+        }
+        versions.push(StaticRegistryVersion {
+            version,
+            archive,
+            archive_integrity,
+            package_integrity,
+            yanked,
+            provenance,
+            signature,
+            signature_kind,
+        });
+    }
+    Ok(StaticRegistryPackageMetadata {
+        name: package.to_string(),
+        versions,
+    })
+}
+
+fn latest_static_registry_version<'a>(
+    versions: &'a [StaticRegistryVersion],
+    requirement: Option<&str>,
+) -> Option<&'a StaticRegistryVersion> {
+    let requirement = requirement.and_then(|req| VersionReq::parse(req).ok());
+    let mut candidates = versions
+        .iter()
+        .filter(|version| !version.yanked)
+        .filter_map(|version| {
+            let parsed = Version::parse(&version.version).ok()?;
+            if requirement
+                .as_ref()
+                .is_some_and(|requirement| !requirement.matches(&parsed))
+            {
+                return None;
+            }
+            Some((parsed, version))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+    candidates.pop().map(|(_, version)| version)
+}
+
+fn static_registry_version<'a>(
+    metadata: &'a StaticRegistryPackageMetadata,
+    spec: &DependencySpec,
+    locked: Option<&LockedPackage>,
+) -> Result<&'a StaticRegistryVersion> {
+    if let Some(locked_version) = locked.and_then(|lock| lock.package_version.as_deref()) {
+        if package_version_satisfies(spec.version_req.as_deref(), locked_version)? {
+            if let Some(version) = metadata
+                .versions
+                .iter()
+                .find(|version| version.version == locked_version)
+            {
+                return Ok(version);
+            }
+        }
+    }
+    latest_static_registry_version(&metadata.versions, spec.version_req.as_deref()).with_context(
+        || {
+            let requirement = spec.version_req.as_deref().unwrap_or("*");
+            format!(
+                "static registry package {} has no version satisfying {}",
+                metadata.name, requirement
+            )
+        },
+    )
+}
+
+fn validate_static_registry_relative_path(path: &str, label: &str) -> Result<()> {
+    if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("file://") {
+        bail!("{label} must be a registry-relative path, got {path:?}");
+    }
+    validate_project_relative_path(path, label)
+}
+
+fn validate_static_registry_relative_or_absolute_url(value: &str, label: &str) -> Result<()> {
+    if value.starts_with("http://") || value.starts_with("https://") || value.starts_with("file://")
+    {
+        validate_static_registry_url(value)?;
+        return Ok(());
+    }
+    validate_static_registry_relative_path(value, label)
+}
+
+fn resolve_static_registry_resource(index_source: &str, resource: &str) -> Result<String> {
+    validate_static_registry_relative_or_absolute_url(resource, "static registry resource")?;
+    if resource.starts_with("http://")
+        || resource.starts_with("https://")
+        || resource.starts_with("file://")
+    {
+        return Ok(resource.to_string());
+    }
+    if index_source.starts_with("file://") {
+        let index_path = file_url_to_path(index_source)
+            .with_context(|| format!("invalid file registry URL {index_source:?}"))?;
+        let base = index_path
+            .parent()
+            .with_context(|| format!("file registry URL {index_source:?} has no parent"))?;
+        return Ok(file_url_from_path(&base.join(resource)));
+    }
+    let slash = index_source
+        .rfind('/')
+        .with_context(|| format!("static registry index URL {index_source:?} has no base path"))?;
+    Ok(format!("{}/{}", &index_source[..slash], resource))
+}
+
+fn read_static_registry_bytes(source: &str, limit: usize) -> Result<Vec<u8>> {
+    validate_static_registry_url(source)?;
+    if let Some(path) = file_url_to_path(source) {
+        let metadata =
+            fs::metadata(&path).with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.len() as usize > limit {
+            bail!(
+                "static registry file {} is too large: {} bytes",
+                path.display(),
+                metadata.len()
+            );
+        }
+        return fs::read(&path).with_context(|| format!("failed to read {}", path.display()));
+    }
+
+    let response = reqwest::blocking::get(source)
+        .with_context(|| format!("failed to fetch static registry resource {source}"))?
+        .error_for_status()
+        .with_context(|| format!("static registry resource {source} returned an error"))?;
+    let bytes = response
+        .bytes()
+        .with_context(|| format!("failed to read static registry resource {source}"))?;
+    if bytes.len() > limit {
+        bail!(
+            "static registry resource {source} is too large: {} bytes",
+            bytes.len()
+        );
+    }
+    Ok(bytes.to_vec())
+}
+
+fn file_url_from_path(path: &Path) -> String {
+    let path = path_to_slash(path);
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    }
+}
+
+fn file_url_to_path(source: &str) -> Option<PathBuf> {
+    let mut path = source.strip_prefix("file://")?.to_string();
+    if path.len() >= 4
+        && path.as_bytes()[0] == b'/'
+        && path.as_bytes()[2] == b':'
+        && path.as_bytes()[1].is_ascii_alphabetic()
+    {
+        path.remove(0);
+    }
+    Some(PathBuf::from(path))
+}
+
 fn file_integrity(path: &Path) -> Result<String> {
     let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    Ok(bytes_integrity(&bytes))
+}
+
+fn bytes_integrity(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    hasher.update(bytes);
     let digest = hasher.finalize();
-    Ok(format!("sha256:{}", hex_digest(&digest)))
+    format!("sha256:{}", hex_digest(&digest))
+}
+
+fn extract_package_archive(bytes: &[u8], destination: &Path) -> Result<()> {
+    if destination.exists() {
+        bail!(
+            "package archive destination already exists: {}",
+            destination.display()
+        );
+    }
+    fs::create_dir_all(destination)
+        .with_context(|| format!("failed to create {}", destination.display()))?;
+    let decoder = GzDecoder::new(bytes);
+    let mut archive = Archive::new(decoder);
+    for entry in archive
+        .entries()
+        .context("failed to read static registry package archive")?
+    {
+        let mut entry = entry.context("failed to read static registry archive entry")?;
+        let entry_type = entry.header().entry_type();
+        if entry_type == EntryType::Symlink || entry_type == EntryType::Link {
+            bail!("static registry package archives must not contain links");
+        }
+        if !(entry_type == EntryType::Regular || entry_type == EntryType::Directory) {
+            bail!("static registry package archives may only contain files and directories");
+        }
+        let entry_path = entry
+            .path()
+            .context("failed to read static registry archive path")?
+            .into_owned();
+        validate_archive_relative_path(&entry_path)?;
+        let destination_path = destination.join(&entry_path);
+        if entry_type == EntryType::Directory {
+            fs::create_dir_all(&destination_path)
+                .with_context(|| format!("failed to create {}", destination_path.display()))?;
+        } else {
+            if let Some(parent) = destination_path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            let mut output = fs::File::create(&destination_path)
+                .with_context(|| format!("failed to create {}", destination_path.display()))?;
+            io::copy(&mut entry, &mut output)
+                .with_context(|| format!("failed to unpack {}", destination_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_archive_relative_path(path: &Path) -> Result<()> {
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => bail!("static registry archive path must not contain .."),
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("static registry archive path must be relative")
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_signature_kind(kind: &str) -> Result<&str> {
@@ -2586,8 +3342,18 @@ fn install_dependencies() -> Result<()> {
             .get("registry")
             .and_then(Item::as_str)
             .map(str::to_string);
+        let package = table
+            .get("package")
+            .and_then(Item::as_str)
+            .map(str::to_string);
         if git.is_some() && registry.is_some() {
             bail!("dependency {name} cannot include both git and registry");
+        }
+        if package.is_some() && registry.is_none() {
+            bail!("dependency {name} can only include package with a registry");
+        }
+        if let Some(package) = package.as_deref() {
+            validate_registry_package_name(package)?;
         }
         let path = dependency_manifest_path(name, table, registry.is_some(), &manifest_path)?;
         let version_req = table
@@ -2605,13 +3371,14 @@ fn install_dependencies() -> Result<()> {
         let display_source = git.clone().unwrap_or_else(|| path.clone());
         let mut spec = DependencySpec {
             name: name.to_string(),
+            package: package.clone().filter(|package| package != name),
             source: git
                 .as_ref()
                 .map(|git| format!("git+{git}"))
                 .or_else(|| {
-                    registry
-                        .as_ref()
-                        .map(|registry| format!("registry+{registry}#{name}"))
+                    registry.as_ref().map(|registry| {
+                        format!("registry+{registry}#{}", package.as_deref().unwrap_or(name))
+                    })
                 })
                 .unwrap_or_else(|| format!("path+{path}")),
             path: path.clone(),
@@ -2627,7 +3394,14 @@ fn install_dependencies() -> Result<()> {
             signature_kind: None,
             display_source: registry
                 .as_ref()
-                .map(|registry| format!("registry:{name} from {registry}"))
+                .map(|registry| {
+                    let package = package.as_deref().unwrap_or(name);
+                    if package == name {
+                        format!("registry:{package} from {registry}")
+                    } else {
+                        format!("registry:{package} as {name} from {registry}")
+                    }
+                })
                 .unwrap_or(display_source),
         };
 
@@ -2899,8 +3673,18 @@ fn dependency_spec_from_manifest_table(
         .get("registry")
         .and_then(Item::as_str)
         .map(str::to_string);
+    let package = table
+        .get("package")
+        .and_then(Item::as_str)
+        .map(str::to_string);
     if git.is_some() && registry.is_some() {
         bail!("dependency {name} cannot include both git and registry");
+    }
+    if package.is_some() && registry.is_none() {
+        bail!("dependency {name} can only include package with a registry");
+    }
+    if let Some(package) = package.as_deref() {
+        validate_registry_package_name(package)?;
     }
     let path = dependency_manifest_path(name, table, registry.is_some(), manifest_path)?;
     let version_req = table
@@ -2912,13 +3696,14 @@ fn dependency_spec_from_manifest_table(
     }
     Ok(DependencySpec {
         name: name.to_string(),
+        package: package.clone().filter(|package| package != name),
         source: git
             .as_ref()
             .map(|git| format!("git+{git}"))
             .or_else(|| {
-                registry
-                    .as_ref()
-                    .map(|registry| format!("registry+{registry}#{name}"))
+                registry.as_ref().map(|registry| {
+                    format!("registry+{registry}#{}", package.as_deref().unwrap_or(name))
+                })
             })
             .unwrap_or_else(|| format!("path+{path}")),
         path,
@@ -2973,6 +3758,14 @@ fn verify_dependency(
             spec.name,
             lock.source,
             spec.source
+        );
+    }
+    if lock.package != spec.package {
+        bail!(
+            "lock entry for {} has package {:?}, expected {:?}",
+            spec.name,
+            lock.package,
+            spec.package
         );
     }
     if lock.version_req != spec.version_req {
@@ -3124,6 +3917,13 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         .and_then(Item::as_str)
         .with_context(|| format!("lock entry for {name} must include a string source"))?
         .to_string();
+    let package = table
+        .get("package")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(package) = package.as_deref() {
+        validate_registry_package_name(package)?;
+    }
     let path = table
         .get("path")
         .and_then(Item::as_str)
@@ -3190,6 +3990,7 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
 
     Ok(Some(LockedPackage {
         source,
+        package,
         path,
         git,
         rev,
@@ -3236,19 +4037,26 @@ fn find_project_manifest_for_current_dir(command: &str) -> Result<PathBuf> {
     bail!("rco {command} must be run inside a Ricochet project with ricochet.toml");
 }
 
-fn parse_dependency_source(source: &str, registry: Option<&Path>) -> Result<DependencySource> {
+fn parse_dependency_source(
+    source: &str,
+    registry: Option<&Path>,
+    registry_url: Option<&str>,
+) -> Result<DependencySource> {
     if let Some(rest) = source.strip_prefix("registry:") {
-        let (name, version) = rest
-            .split_once('@')
-            .map(|(name, version)| (name, Some(version.to_string())))
-            .unwrap_or((rest, None));
-        validate_package_name(name)?;
+        if registry.is_some() && registry_url.is_some() {
+            bail!("use either --registry or --registry-url, not both");
+        }
+        let (package, version) = split_registry_package_version(rest)?;
+        validate_registry_package_name(package)?;
         if let Some(version) = version.as_deref() {
             validate_package_version(version)?;
         }
-        let registry = registry_path_value(registry_source_path(registry)?.as_path(), false)?;
+        let registry = match registry_url {
+            Some(registry_url) => validate_static_registry_url(registry_url)?.to_string(),
+            None => registry_path_value(registry_source_path(registry)?.as_path(), false)?,
+        };
         return Ok(DependencySource::Registry {
-            name: name.to_string(),
+            package: package.to_string(),
             version,
             registry,
         });
@@ -3256,6 +4064,9 @@ fn parse_dependency_source(source: &str, registry: Option<&Path>) -> Result<Depe
 
     if registry.is_some() {
         bail!("--registry can only be used with registry:name dependencies");
+    }
+    if registry_url.is_some() {
+        bail!("--registry-url can only be used with registry:name dependencies");
     }
 
     if let Some(rest) = source.strip_prefix("github:") {
@@ -3288,6 +4099,27 @@ fn registry_source_path(registry: Option<&Path>) -> Result<PathBuf> {
     let value = std::env::var("RICOCHET_REGISTRY")
         .context("registry dependencies require --registry PATH or RICOCHET_REGISTRY")?;
     Ok(PathBuf::from(value))
+}
+
+fn split_registry_package_version(source: &str) -> Result<(&str, Option<String>)> {
+    if source.is_empty() {
+        bail!("registry dependency package name must not be empty");
+    }
+    let version_separator = if let Some(rest) = source.strip_prefix('@') {
+        rest.rfind('@').map(|index| index + 1)
+    } else {
+        source.rfind('@')
+    };
+    if let Some(index) = version_separator {
+        let package = &source[..index];
+        let version = &source[index + 1..];
+        if version.is_empty() {
+            bail!("registry dependency version must not be empty");
+        }
+        Ok((package, Some(version.to_string())))
+    } else {
+        Ok((source, None))
+    }
 }
 
 fn registry_path_value(registry: &Path, create: bool) -> Result<String> {
@@ -3379,6 +4211,7 @@ fn dependency_spec(
 
             Ok(DependencySpec {
                 name,
+                package: None,
                 path: path.clone(),
                 source: format!("path+{path}"),
                 git: None,
@@ -3402,6 +4235,7 @@ fn dependency_spec(
 
             Ok(DependencySpec {
                 name,
+                package: None,
                 path,
                 source: format!("git+{git}"),
                 git: Some(git),
@@ -3418,13 +4252,14 @@ fn dependency_spec(
             })
         }
         DependencySource::Registry {
-            name,
+            package,
             version,
             registry,
         } => {
+            validate_registry_package_name(&package)?;
             let name = match name_override {
                 Some(name_override) => name_override.to_string(),
-                None => name,
+                None => default_dependency_alias(&package).to_string(),
             };
             validate_package_name(&name)?;
             let version_req = match (version_req, version) {
@@ -3436,10 +4271,16 @@ fn dependency_spec(
                 (None, None) => None,
             };
             let path = format!(".ricochet/packages/{name}");
+            let package_field = if package == name {
+                None
+            } else {
+                Some(package.clone())
+            };
             Ok(DependencySpec {
                 name: name.clone(),
+                package: package_field,
                 path,
-                source: format!("registry+{registry}#{name}"),
+                source: format!("registry+{registry}#{package}"),
                 git: None,
                 rev: None,
                 commit: None,
@@ -3450,7 +4291,11 @@ fn dependency_spec(
                 provenance: None,
                 signature: None,
                 signature_kind: None,
-                display_source: format!("registry:{name} from {registry}"),
+                display_source: if package == name {
+                    format!("registry:{package} from {registry}")
+                } else {
+                    format!("registry:{package} as {name} from {registry}")
+                },
             })
         }
     }
@@ -3507,6 +4352,66 @@ fn validate_package_name(name: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_registry_package_name(name: &str) -> Result<()> {
+    if let Some(rest) = name.strip_prefix('@') {
+        let (scope, package) = rest.split_once('/').with_context(|| {
+            format!("invalid scoped Ricochet package name {name:?}; expected @scope/name")
+        })?;
+        if package.contains('/') {
+            bail!("invalid scoped Ricochet package name {name:?}; expected @scope/name");
+        }
+        validate_registry_package_segment(scope, "scope", name)?;
+        validate_registry_package_segment(package, "package", name)?;
+        return Ok(());
+    }
+
+    validate_package_name(name)
+}
+
+fn validate_registry_package_segment(segment: &str, label: &str, package: &str) -> Result<()> {
+    if segment.is_empty()
+        || !segment
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        bail!("invalid {label} in Ricochet package name {package:?}; use letters, numbers, _ or -");
+    }
+    Ok(())
+}
+
+fn default_dependency_alias(package: &str) -> &str {
+    package.rsplit('/').next().unwrap_or(package)
+}
+
+fn registry_package_relative_path(package: &str) -> PathBuf {
+    package.split('/').collect()
+}
+
+fn registry_package_metadata_relative_path(package: &str) -> PathBuf {
+    PathBuf::from("packages")
+        .join(registry_package_relative_path(package))
+        .with_extension("toml")
+}
+
+fn registry_package_archive_relative_path(package: &str, version: &str) -> PathBuf {
+    let leaf = default_dependency_alias(package);
+    PathBuf::from("artifacts")
+        .join(registry_package_relative_path(package))
+        .join(version)
+        .join(format!("{leaf}-{version}.tar.gz"))
+}
+
+fn validate_static_registry_url(registry_url: &str) -> Result<&str> {
+    if registry_url.starts_with("https://")
+        || registry_url.starts_with("http://")
+        || registry_url.starts_with("file://")
+    {
+        Ok(registry_url)
+    } else {
+        bail!("static registry URL {registry_url:?} must start with https://, http://, or file://");
+    }
 }
 
 fn dependency_path_value(
@@ -3609,6 +4514,14 @@ fn install_registry_dependency(
     spec: &mut DependencySpec,
     locked: Option<&LockedPackage>,
 ) -> Result<()> {
+    let registry = spec
+        .registry
+        .as_deref()
+        .expect("install_registry_dependency only handles registry dependencies");
+    if is_static_registry_source(registry) {
+        return install_static_registry_dependency(project_root, spec, locked);
+    }
+
     let package = resolve_registry_package(project_root, spec, locked)?;
     let package_cache =
         project_dependency_path(project_root, &spec.path, "registry package cache")?;
@@ -3638,6 +4551,103 @@ fn install_registry_dependency(
     Ok(())
 }
 
+fn install_static_registry_dependency(
+    project_root: &Path,
+    spec: &mut DependencySpec,
+    locked: Option<&LockedPackage>,
+) -> Result<()> {
+    let registry = spec
+        .registry
+        .as_deref()
+        .expect("install_static_registry_dependency only handles registry dependencies");
+    let index = load_static_registry_index(registry)?;
+    let package_name = spec.registry_package_name();
+    let metadata_path = index
+        .packages
+        .get(package_name)
+        .with_context(|| format!("static registry does not contain package {package_name}"))?;
+    let metadata = load_static_registry_package(&index.source, package_name, metadata_path)?;
+    let version = static_registry_version(&metadata, spec, locked)?;
+    let package_cache =
+        project_dependency_path(project_root, &spec.path, "static registry package cache")?;
+
+    if package_cache.exists() {
+        let cached_integrity = package_tree_integrity(&package_cache)?;
+        if cached_integrity != version.package_integrity {
+            bail!(
+                "static registry package cache for {} already exists with integrity {cached_integrity}, expected {}; remove {} or choose a different dependency name",
+                spec.name,
+                version.package_integrity,
+                package_cache.display()
+            );
+        }
+    } else {
+        if let Some(parent) = package_cache.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+            ensure_existing_project_dir(
+                project_root,
+                parent,
+                "static registry package cache parent",
+            )?;
+        }
+        let archive_source = resolve_static_registry_resource(&index.source, &version.archive)?;
+        let archive_bytes =
+            read_static_registry_bytes(&archive_source, MAX_STATIC_REGISTRY_ARCHIVE_BYTES)?;
+        let actual_archive_integrity = bytes_integrity(&archive_bytes);
+        if actual_archive_integrity != version.archive_integrity {
+            bail!(
+                "static registry archive for {} {} has integrity {}, expected {}",
+                metadata.name,
+                version.version,
+                actual_archive_integrity,
+                version.archive_integrity
+            );
+        }
+        extract_package_archive(&archive_bytes, &package_cache)?;
+        let extracted_metadata = read_package_metadata(&package_cache)?;
+        if extracted_metadata.name.as_deref() != Some(&metadata.name) {
+            bail!(
+                "static registry archive for {} {} has manifest package name {:?}",
+                metadata.name,
+                version.version,
+                extracted_metadata.name
+            );
+        }
+        if extracted_metadata.version.as_deref() != Some(&version.version) {
+            bail!(
+                "static registry archive for {} {} has manifest version {:?}",
+                metadata.name,
+                version.version,
+                extracted_metadata.version
+            );
+        }
+        let extracted_integrity = package_tree_integrity(&package_cache)?;
+        if extracted_integrity != version.package_integrity {
+            bail!(
+                "static registry archive for {} {} unpacked to integrity {}, expected {}",
+                metadata.name,
+                version.version,
+                extracted_integrity,
+                version.package_integrity
+            );
+        }
+    }
+
+    spec.package_version = Some(version.version.clone());
+    spec.integrity = Some(version.package_integrity.clone());
+    spec.provenance = version.provenance.clone();
+    spec.signature = version.signature.clone();
+    spec.signature_kind = version.signature_kind.clone();
+    Ok(())
+}
+
+fn is_static_registry_source(registry: &str) -> bool {
+    registry.starts_with("http://")
+        || registry.starts_with("https://")
+        || registry.starts_with("file://")
+}
+
 fn resolve_registry_package(
     project_root: &Path,
     spec: &DependencySpec,
@@ -3648,18 +4658,19 @@ fn resolve_registry_package(
         .as_deref()
         .expect("resolve_registry_package only handles registry dependencies");
     let registry_root = resolve_registry_root(project_root, registry)?;
-    let package_root = registry_root.join(&spec.name);
+    let package_name = spec.registry_package_name();
+    let package_root = registry_root.join(registry_package_relative_path(package_name));
     if !package_root.is_dir() {
         bail!(
             "registry {} does not contain package {}",
             registry_root.display(),
-            spec.name
+            package_name
         );
     }
 
     if let Some(locked_version) = locked.and_then(|lock| lock.package_version.as_deref()) {
         if package_version_satisfies(spec.version_req.as_deref(), locked_version)? {
-            return registry_package_at(&package_root, &spec.name, locked_version);
+            return registry_package_at(&package_root, package_name, locked_version);
         }
     }
 
@@ -3680,7 +4691,7 @@ fn resolve_registry_package(
         let version = Version::parse(&version_text).with_context(|| {
             format!(
                 "registry package {} has invalid version directory {:?}",
-                spec.name, version_text
+                package_name, version_text
             )
         })?;
         if package_version_satisfies(spec.version_req.as_deref(), &version_text)? {
@@ -3692,12 +4703,12 @@ fn resolve_registry_package(
         let requirement = spec.version_req.as_deref().unwrap_or("*");
         bail!(
             "registry package {} has no version satisfying {}",
-            spec.name,
+            package_name,
             requirement
         );
     };
 
-    registry_package_at(&package_root, &spec.name, &version)
+    registry_package_at(&package_root, package_name, &version)
 }
 
 fn registry_package_at(
@@ -4263,6 +5274,9 @@ fn write_dependency_manifest(manifest_path: &Path, spec: &DependencySpec) -> Res
 
     let dependencies = ensure_table(doc.as_table_mut(), "dependencies", manifest_path)?;
     let mut dependency = Table::new();
+    if let Some(package) = &spec.package {
+        dependency["package"] = value(package.clone());
+    }
     dependency["path"] = value(spec.path.clone());
     if let Some(git) = &spec.git {
         dependency["git"] = value(git.clone());
@@ -4296,6 +5310,9 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     let packages = ensure_table(doc.as_table_mut(), "package", lock_path)?;
     let mut package = Table::new();
     package["source"] = value(spec.source.clone());
+    if let Some(package_name) = &spec.package {
+        package["package"] = value(package_name.clone());
+    }
     package["path"] = value(spec.path.clone());
     if let Some(git) = &spec.git {
         package["git"] = value(git.clone());
