@@ -8,11 +8,14 @@ Current CLI surface:
 ```powershell
 rco run --debug --step app.rco
 rco run --breakpoint 12 app.rco
+rco debug --json app.rco
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
 ```
 
-Trace files are JSON arrays. Events currently use these shapes:
+Trace files are JSON arrays. `rco debug --json` streams the same event objects
+as newline-delimited JSON, plus `output` events for captured program stdout and
+stderr. Events currently use these shapes:
 
 ```json
 {
@@ -48,12 +51,20 @@ Trace files are JSON arrays. Events currently use these shapes:
 }
 ```
 
+```json
+{
+  "event": "output",
+  "stream": "stdout",
+  "text": "42\n"
+}
+```
+
 Editor integration guidance:
 
 - VS Code should render stack visualization in a Webview panel fed by this trace
   contract first, then later by live debug events.
 - Other IDEs should consume the same event contract through either saved traces,
-  a future `rco debug --json` stream, or a Debug Adapter Protocol bridge.
+  `rco debug --json`, or a Debug Adapter Protocol bridge.
 - Stack visualizers should treat `debug` strings as the stable beta display
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the

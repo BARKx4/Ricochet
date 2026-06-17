@@ -85,6 +85,25 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    Debug {
+        #[arg(long, help = "Emit debugger events as JSON Lines")]
+        json: bool,
+        #[arg(long)]
+        step: bool,
+        #[arg(long = "breakpoint", value_name = "LINE")]
+        breakpoints: Vec<usize>,
+        #[arg(
+            long = "trace-file",
+            value_name = "PATH",
+            help = "Also write recorded debug events to a JSON trace file"
+        )]
+        trace_file: Option<PathBuf>,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     RunBytecode {
         #[arg(long)]
         debug: bool,
@@ -553,6 +572,7 @@ pub async fn run_cli() -> Result<()> {
                         trace_file: None,
                         args: std::env::args().skip(1).collect(),
                         capabilities: CapabilityOptions::default(),
+                        debug_output: DebugOutput::Text,
                         print_final_stack: true,
                     },
                 )?
@@ -603,6 +623,23 @@ pub async fn run_cli() -> Result<()> {
         } => run_file(
             &path,
             debug,
+            step,
+            &breakpoints,
+            trace_file.as_deref(),
+            args,
+            capabilities,
+        )?,
+        Command::Debug {
+            json,
+            step,
+            breakpoints,
+            trace_file,
+            capabilities,
+            path,
+            args,
+        } => debug_file(
+            &path,
+            json,
             step,
             &breakpoints,
             trace_file.as_deref(),
@@ -4337,7 +4374,38 @@ fn run_file(
             trace_file,
             args,
             capabilities,
+            debug_output: DebugOutput::Text,
             print_final_stack: true,
+        },
+    )
+}
+
+fn debug_file(
+    path: &str,
+    json_output: bool,
+    step: bool,
+    breakpoints: &[usize],
+    trace_file: Option<&Path>,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
+    let chunk = compile_source_file(Path::new(path))?;
+    run_chunk_cli(
+        &chunk,
+        RunChunkCliOptions {
+            debug: true,
+            step,
+            breakpoints,
+            breakpoint_file: Some(&chunk.file),
+            trace_file,
+            args,
+            capabilities,
+            debug_output: if json_output {
+                DebugOutput::JsonLines
+            } else {
+                DebugOutput::Text
+            },
+            print_final_stack: false,
         },
     )
 }
@@ -4361,6 +4429,7 @@ fn run_bytecode(
             trace_file,
             args,
             capabilities,
+            debug_output: DebugOutput::Text,
             print_final_stack: true,
         },
     )
@@ -4383,6 +4452,7 @@ fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
             trace_file: None,
             args,
             capabilities,
+            debug_output: DebugOutput::Text,
             print_final_stack: false,
         },
     )
@@ -4403,6 +4473,7 @@ fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
             trace_file: None,
             args,
             capabilities: CapabilityOptions::default(),
+            debug_output: DebugOutput::Text,
             print_final_stack: false,
         },
     )
@@ -4742,6 +4813,12 @@ fn open_native_webview_url(_title: &str, _url: &str, _width: u32, _height: u32) 
     bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DebugOutput {
+    Text,
+    JsonLines,
+}
+
 struct RunChunkCliOptions<'a> {
     debug: bool,
     step: bool,
@@ -4750,6 +4827,7 @@ struct RunChunkCliOptions<'a> {
     trace_file: Option<&'a Path>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
+    debug_output: DebugOutput,
     print_final_stack: bool,
 }
 
@@ -4758,10 +4836,14 @@ fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
     let debugger_enabled = options.debug
         || options.step
         || !options.breakpoints.is_empty()
-        || options.trace_file.is_some();
+        || options.trace_file.is_some()
+        || options.debug_output == DebugOutput::JsonLines;
     if debugger_enabled {
         vm.enable_debug();
-        vm.set_debug_sink(print_debug_event);
+        match options.debug_output {
+            DebugOutput::Text => vm.set_debug_sink(print_debug_event),
+            DebugOutput::JsonLines => vm.set_debug_sink(print_debug_event_json_line),
+        }
     }
     if options.step {
         vm.enable_step_debugging();
@@ -4773,13 +4855,35 @@ fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
         let file = options.breakpoint_file.unwrap_or(&chunk.file);
         vm.add_line_breakpoint(file.to_string(), line);
     }
-    if options.step || !options.breakpoints.is_empty() {
+    if options.debug_output == DebugOutput::Text
+        && (options.step || !options.breakpoints.is_empty())
+    {
         vm.set_debug_controller(read_terminal_debug_action);
     }
 
     let result = vm.run_chunk(chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
+    match options.debug_output {
+        DebugOutput::Text => {
+            print!("{}", vm.stdout());
+            eprint!("{}", vm.stderr());
+        }
+        DebugOutput::JsonLines => {
+            if !vm.stdout().is_empty() {
+                emit_json_line(json!({
+                    "event": "output",
+                    "stream": "stdout",
+                    "text": vm.stdout(),
+                }))?;
+            }
+            if !vm.stderr().is_empty() {
+                emit_json_line(json!({
+                    "event": "output",
+                    "stream": "stderr",
+                    "text": vm.stderr(),
+                }))?;
+            }
+        }
+    }
     if let Some(trace_file) = options.trace_file {
         write_debug_trace(trace_file, vm.debug_events())?;
     }
@@ -4826,6 +4930,19 @@ fn write_debug_trace(path: &Path, events: &[DebugEvent]) -> Result<()> {
     let trace: Vec<_> = events.iter().map(debug_event_json).collect();
     let json = serde_json::to_string_pretty(&trace)?;
     fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn print_debug_event_json_line(event: &DebugEvent) {
+    let value = debug_event_json(event);
+    println!(
+        "{}",
+        serde_json::to_string(&value).expect("debug event JSON should serialize")
+    );
+}
+
+fn emit_json_line(value: serde_json::Value) -> Result<()> {
+    println!("{}", serde_json::to_string(&value)?);
+    Ok(())
 }
 
 fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
