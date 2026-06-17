@@ -2197,6 +2197,42 @@ fn run_bytecode_executes_built_chunk() {
 }
 
 #[test]
+fn run_bytecode_trace_file_records_json_debug_events() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "8 5 +\n");
+
+    let build_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("build")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco build should launch");
+    assert_run_success_for("rco build", "main.rco", &build_output);
+
+    let trace_path = root.join("bytecode-trace.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run-bytecode")
+        .arg("--trace-file")
+        .arg(&trace_path)
+        .arg(root.join("build").join("app.rcob"))
+        .output()
+        .expect("rco run-bytecode should launch");
+    assert_run_success_for("rco run-bytecode --trace-file", "build/app.rcob", &output);
+
+    let trace = fs::read_to_string(&trace_path).expect("trace file should exist");
+    let trace: serde_json::Value = serde_json::from_str(&trace).expect("trace should be JSON");
+    assert!(
+        trace
+            .as_array()
+            .expect("trace should be an array")
+            .iter()
+            .any(|event| event["event"] == "instruction" && event["opcode"] == "CallWord(\"+\")"),
+        "bytecode trace should include plus instruction, got:\n{trace:#?}"
+    );
+}
+
+#[test]
 fn package_creates_standalone_executable_that_runs_embedded_bytecode() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
