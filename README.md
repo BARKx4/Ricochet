@@ -657,7 +657,7 @@ inventory drift check, examples, scaffolded project checks/tests, and a live
 
 ## Release Packaging
 
-See `docs/releases/v0.1.15-beta.md` for the current beta release notes,
+See `docs/releases/v0.1.16-beta.md` for the current beta release notes,
 hardening checklist, and artifact smoke-test expectations.
 
 Windows release packages are built from this repository with:

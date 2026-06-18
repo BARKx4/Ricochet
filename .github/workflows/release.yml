@@ -131,14 +131,16 @@ jobs:
             throw "Windows portable ZIP was not found in dist."
           }
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $tmp
-          $packageDir = Get-ChildItem -LiteralPath $tmp -Directory | Select-Object -First 1
-          if (-not $packageDir) {
-            throw "Expanded Windows package directory was not found."
+          $rcoCandidates = @(Get-ChildItem -LiteralPath $tmp -Recurse -File -Filter 'rco.exe')
+          if ($rcoCandidates.Count -ne 1) {
+            throw "Expected exactly one rco.exe in the expanded Windows package, found $($rcoCandidates.Count)."
           }
-          $rco = Join-Path $packageDir.FullName 'rco.exe'
+          $rco = $rcoCandidates[0].FullName
+          $packageDir = Split-Path -Parent $rco
 
           $basic = Join-Path $tmp 'basic-oop.exe'
-          & $rco package examples\basic-oop.rco --output $basic --package-name basic-oop --package-version $version
+          $basicSource = Join-Path $packageDir 'examples\basic-oop.rco'
+          & $rco package $basicSource --output $basic --package-name basic-oop --package-version $version
           if ($LASTEXITCODE -ne 0) {
             throw "Packaged rco failed to package basic-oop."
           }
@@ -151,14 +153,15 @@ jobs:
           }
 
           $webview = Join-Path $tmp 'webview-ui.exe'
-          & $rco package examples\webview_ui.rco --gui --output $webview --package-name webview-ui --package-version $version
+          $webviewSource = Join-Path $packageDir 'examples\webview_ui.rco'
+          & $rco package $webviewSource --gui --output $webview --package-name webview-ui --package-version $version
           if ($LASTEXITCODE -ne 0) {
             throw "Packaged rco failed to package webview-ui."
           }
           $env:RICOCHET_GUI_EXPORT_HTML = Join-Path $tmp 'webview-ui.html'
-          & $webview
-          if ($LASTEXITCODE -ne 0) {
-            throw "Packaged webview-ui executable failed."
+          $webviewProcess = Start-Process -FilePath $webview -Wait -PassThru
+          if ($webviewProcess.ExitCode -ne 0) {
+            throw "Packaged webview-ui executable failed with exit code $($webviewProcess.ExitCode)."
           }
           if (-not (Select-String -LiteralPath $env:RICOCHET_GUI_EXPORT_HTML -Pattern '<title>Ricochet Desktop UI</title>' -Quiet)) {
             throw "Packaged webview-ui HTML export did not contain the expected title."
