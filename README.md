@@ -547,7 +547,7 @@ diagnostics warn when old `name get` variable reads should be written as
 quick fixes for both; keep `"name" get` only when the variable name is
 intentionally data on the stack. Use `rco lint [--json] [path]` to run those
 same compile and syntax diagnostics over a file or directory in CI before
-`rco fmt` rewrites legacy variable reads. Terminal
+`rco fmt` rewrites legacy variable reads and leading-dot syntax. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks

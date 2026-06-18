@@ -1682,6 +1682,32 @@ end
 }
 
 #[test]
+fn fmt_rewrites_legacy_leading_dot_syntax() {
+    let source_path = write_source(
+        r#"
+self .email get println
+http .request value
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("fmt")
+        .arg(&source_path)
+        .output()
+        .expect("rco fmt should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco fmt failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let formatted = fs::read_to_string(&source_path).expect("formatted source should be readable");
+    assert_eq!(formatted, "self email.get println\n\nhttp_request value\n");
+}
+
+#[test]
 fn run_loads_static_string_imports_before_main_source() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
