@@ -8,9 +8,15 @@ end
   redirectPath var
   session var
   guard map
-  guard get "ok" session get auth_user_present put! drop
-  guard get "redirect" redirectPath get put! drop
-  guard get "reason" "missing_user_session" put! drop
+  session get auth_user_present ok var
+  guard get "ok" ok get put! drop
+  ok get if
+    guard get "redirect" nil put! drop
+    guard get "reason" nil put! drop
+  else
+    guard get "redirect" redirectPath get put! drop
+    guard get "reason" "missing_user_session" put! drop
+  end
   guard get
 end
 
@@ -26,7 +32,48 @@ end
 ( session submittedToken -> Bool ) auth_csrf_valid function
   submittedToken var
   session var
-  session get auth_csrf_token submittedToken get =
+  session get auth_csrf_token storedToken var
+  storedToken get blank? if
+    false
+  else
+    submittedToken get blank? if
+      false
+    else
+      storedToken get submittedToken get =
+    end
+  end
+end
+
+( session submittedToken -> Map ) auth_csrf_check function
+  submittedToken var
+  session var
+  check map
+  session get submittedToken get auth_csrf_valid ok var
+  check get "ok" ok get put! drop
+  ok get if
+    check get "reason" nil put! drop
+  else
+    check get "reason" "invalid_csrf_token" put! drop
+  end
+  check get
+end
+
+( userId csrfToken -> Map ) auth_session_for_user function
+  csrfToken var
+  userId var
+  session map
+  session get "user_id" userId get put! drop
+  session get "csrf_token" csrfToken get put! drop
+  session get "authenticated" true put! drop
+  session get
+end
+
+( -> Map ) auth_secure_cookie_options function
+  options map
+  options get "http_only" true put! drop
+  options get "same_site" "Lax" put! drop
+  options get "secure" true put! drop
+  options get
 end
 
 ( name -> Map ) auth_extension_point function

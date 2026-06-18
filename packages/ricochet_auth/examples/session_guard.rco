@@ -1,9 +1,11 @@
 "../session" import
 
-session map
-
-session get "user_id" "ada" put! drop
+"ada" "csrf-token" auth_session_for_user session var
 
 session get auth_user_present println
 
 session get "/login" auth_route_guard json-encode println
+
+session get "csrf-token" auth_csrf_check json-encode println
+
+auth_secure_cookie_options json-encode println
