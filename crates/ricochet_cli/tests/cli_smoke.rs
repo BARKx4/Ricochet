@@ -793,6 +793,18 @@ fn words_json_lists_builtin_editor_inventory() {
             .any(|entry| entry["word"] == "http_request_new"),
         "inventory should include structured HTTP helpers\nstdout:\n{stdout}"
     );
+    for alias in ["env", "GET", "multiply", "length", "webview_document"] {
+        assert!(
+            words.iter().any(|entry| entry["word"] == alias),
+            "inventory should include token alias {alias}\nstdout:\n{stdout}"
+        );
+    }
+    for prose_alias in ["Active Record", "collection", "HTTP"] {
+        assert!(
+            words.iter().all(|entry| entry["word"] != prose_alias),
+            "inventory should not expose prose alias {prose_alias} as a completion\nstdout:\n{stdout}"
+        );
+    }
 }
 
 #[test]

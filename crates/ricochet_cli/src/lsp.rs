@@ -361,6 +361,8 @@ pub(crate) fn word_docs() -> &'static [WordDoc] {
 #[derive(Debug, Deserialize)]
 struct ReferenceWordDoc {
     word: String,
+    #[serde(default)]
+    aliases: Vec<String>,
     group: String,
     stack: String,
     body: String,
@@ -372,14 +374,29 @@ fn build_word_docs() -> Vec<WordDoc> {
     let mut seen = BTreeSet::new();
 
     if let Ok(reference_docs) = parse_reference_word_docs(REFERENCE_APP_JS) {
-        for entry in reference_docs {
+        for entry in &reference_docs {
             if seen.insert(entry.word.clone()) {
-                let documentation = reference_word_markdown(&entry);
+                let documentation = reference_word_markdown(entry);
                 docs.push(WordDoc {
-                    label: Cow::Owned(entry.word),
-                    detail: Cow::Owned(entry.group),
+                    label: Cow::Owned(entry.word.clone()),
+                    detail: Cow::Owned(entry.group.clone()),
                     documentation: Cow::Owned(documentation),
                 });
+            }
+        }
+        for entry in &reference_docs {
+            for alias in &entry.aliases {
+                if is_lsp_word_alias(alias) && seen.insert(alias.clone()) {
+                    docs.push(WordDoc {
+                        label: Cow::Owned(alias.clone()),
+                        detail: Cow::Owned(entry.group.clone()),
+                        documentation: Cow::Owned(format!(
+                            "Alias for `{}`.\n\n{}",
+                            entry.word,
+                            reference_word_markdown(entry)
+                        )),
+                    });
+                }
             }
         }
     }
@@ -391,6 +408,25 @@ fn build_word_docs() -> Vec<WordDoc> {
     }
 
     docs
+}
+
+fn is_lsp_word_alias(alias: &str) -> bool {
+    matches!(
+        alias,
+        "multiply"
+            | "divide"
+            | "modulo"
+            | "else"
+            | "end"
+            | "GET"
+            | "POST"
+            | "PUT"
+            | "PATCH"
+            | "DELETE"
+            | "length"
+            | "env"
+            | "webview_document"
+    )
 }
 
 fn reference_word_markdown(entry: &ReferenceWordDoc) -> String {
