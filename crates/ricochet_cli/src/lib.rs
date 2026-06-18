@@ -1393,6 +1393,12 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         .count();
 
     let mut failures = Vec::new();
+    if !duplicate_words.is_empty() {
+        failures.push(format!(
+            "docs reference contains duplicate words: {}",
+            duplicate_words.join(", ")
+        ));
+    }
     if !missing_from_grammar.is_empty() {
         failures.push(format!(
             "TextMate grammar is missing documented words: {}",

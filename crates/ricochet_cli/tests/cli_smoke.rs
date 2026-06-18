@@ -826,6 +826,68 @@ fn words_check_validates_reference_docs_and_textmate_inventory() {
 }
 
 #[test]
+fn words_check_rejects_duplicate_reference_words() {
+    let root = repo_root_for_test();
+    let temp = temp_source_path()
+        .parent()
+        .expect("temp source path should have parent")
+        .join("words-duplicate-check");
+    fs::create_dir_all(&temp).expect("temp words check dir should be created");
+    let docs_app = temp.join("app.js");
+    let source = fs::read_to_string(root.join("docs/reference/app.js"))
+        .expect("reference docs app should be readable");
+    let duplicate = r#"  {
+    "word": "env_get",
+    "aliases": [],
+    "group": "system",
+    "stack": "name:string -> result(string)",
+    "body": "Duplicate fixture.",
+    "example": "\"RICOCHET_EXAMPLE_TEST\" env_get"
+  }
+];"#;
+    let terminator = if source.contains("\r\n];\r\n\r\nconst groupLabels") {
+        "\r\n];\r\n\r\nconst groupLabels"
+    } else {
+        "\n];\n\nconst groupLabels"
+    };
+    assert!(
+        source.contains(terminator),
+        "reference docs fixture should contain WORDS terminator"
+    );
+    let source = source.replacen(
+        terminator,
+        &format!(",\n{duplicate}\n\nconst groupLabels"),
+        1,
+    );
+    assert!(
+        source.contains("\"Duplicate fixture.\""),
+        "duplicate docs fixture should include injected entry"
+    );
+    fs::write(&docs_app, source).expect("duplicate docs app fixture should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("words")
+        .arg("--check")
+        .arg("--docs-app")
+        .arg(&docs_app)
+        .arg("--grammar")
+        .arg(root.join("editors/vscode/syntaxes/ricochet.tmLanguage.json"))
+        .output()
+        .expect("rco words --check should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "rco words --check should reject duplicate reference entries\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs reference contains duplicate words: env_get"),
+        "stderr should identify the duplicate word, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn lsp_server_initializes_and_publishes_live_diagnostics() {
     let uri = "file:///workspace/Bad.rco";
     let mut input = Vec::new();
