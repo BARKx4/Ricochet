@@ -7,35 +7,35 @@ AiPackageTest TestCase Subclass
   ] "testBearerHeaders" Method
   [
     messages array
-    "gpt-test" messages get ai_openai_chat_body "model" at
+    "gpt-test" $messages ai_openai_chat_body "model" at
     "gpt-test" assert-equals
   ] "testOpenAiBody" Method
   [
     messages array
-    "gpt-test" messages get ai_openai_chat_stream_body "stream" at
+    "gpt-test" $messages ai_openai_chat_stream_body "stream" at
     true assert-equals
   ] "testOpenAiStreamBody" Method
   [
     messages array
-    "https://api.example.test/v1" "TOKEN" "gpt-test" messages get ai_openai_chat_stream_request request var
-    request get "headers" at "Accept" at
+    "https://api.example.test/v1" "TOKEN" "gpt-test" $messages ai_openai_chat_stream_request request var
+    $request "headers" at "Accept" at
     "text/event-stream" assert-equals
-    request get "json" at "stream" at
+    $request "json" at "stream" at
     true assert-equals
   ] "testOpenAiStreamRequest" Method
   [
     "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n" body var
-    body get ai_sse_data_lines count
+    $body ai_sse_data_lines count
     3 assert-equals
   ] "testSseDataLines" Method
   [
     "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n" body var
-    body get ai_sse_json_events count
+    $body ai_sse_json_events count
     2 assert-equals
   ] "testSseJsonEventsSkipDone" Method
   [
     "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n" body var
-    body get ai_openai_stream_text
+    $body ai_openai_stream_text
     "Hello" assert-equals
   ] "testOpenAiStreamText" Method
 end

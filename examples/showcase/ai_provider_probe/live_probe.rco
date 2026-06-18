@@ -4,30 +4,30 @@
 
 message map
 
-message get "role" "user" put! drop
+$message "role" "user" put! drop
 
-message get "content" "Return the word ricochet." put! drop
+$message "content" "Return the word ricochet." put! drop
 
 messages array
 
-messages get message get push! drop
+$messages $message push! drop
 
-"https://api.openai.com/v1" token get "gpt-4.1-mini" messages get ai_openai_chat_request request var
+"https://api.openai.com/v1" $token "gpt-4.1-mini" $messages ai_openai_chat_request request var
 
 hosts array
 
-hosts get "api.openai.com" push! drop
+$hosts "api.openai.com" push! drop
 
-request get "allowed_hosts" hosts get put! drop
+$request "allowed_hosts" $hosts put! drop
 
 schemes array
 
-schemes get "https" push! drop
+$schemes "https" push! drop
 
-request get "allowed_schemes" schemes get put! drop
+$request "allowed_schemes" $schemes put! drop
 
-request get 30000 http_timeout value request set
+$request 30000 http_timeout value request set
 
-request get "max_response_bytes" 1048576 put! drop
+$request "max_response_bytes" 1048576 put! drop
 
-request get http_request value ai_response_summary json-encode println
+$request http_request value ai_response_summary json-encode println

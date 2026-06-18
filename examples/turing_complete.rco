@@ -4,9 +4,9 @@
 6 multiplicand var
 7 multiplier var
 
-multiplier get 0 > while
-  product get multiplicand get + product set
-  multiplier get 1 - multiplier set
+$multiplier 0 > while
+  $product $multiplicand + product set
+  $multiplier 1 - multiplier set
 end
 
-product get println
+$product println

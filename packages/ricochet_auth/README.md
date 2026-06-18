@@ -11,7 +11,7 @@ storage or user credential policy.
 "auth/session" import
 
 "ada" "csrf-token" auth_session_for_user session var
-session get auth_user_present
-session get "csrf-token" auth_csrf_check "ok" at
+$session auth_user_present
+$session "csrf-token" auth_csrf_check "ok" at
 auth_secure_cookie_options
 ```

@@ -4,9 +4,10 @@ Date: 2026-06-09
 Status: Historical draft, superseded for syntax details
 
 > Syntax note, 2026-06-15: Ricochet had a pre-launch postfix syntax reset after
-> this draft. Treat examples in this document that use `subclass`, `field`,
-> `table`, leading-dot calls such as `.all`, or bang declarations such as
-> `!method` as historical. Current feature work must follow the canonical
+> this draft. Treat examples in this document that use `name get` for ordinary
+> variable reads, `subclass`, `field`, `table`, leading-dot calls such as
+> `.all`, or bang declarations such as `!method` as historical. Current feature
+> work must follow the canonical
 > postfix rules in the repo-root `AGENTS.md`, `README.md`, and
 > `docs/reference/index.html`: capitalized OOP declarations such as `Subclass`,
 > `Accessor`, `Table`, and `Method`; receiver-before-selector calls such as
@@ -710,9 +711,9 @@ end
 ```
 
 AI calls return `Result` objects today. The first-party AI package includes
-OpenAI-compatible request builders and bounded SSE response-body parsing; true
-incremental HTTP streaming transport and richer provider packages remain future
-work.
+OpenAI-compatible request builders, bounded SSE response-body parsing, and can
+pair with retained core `http_stream_start` / `http_stream_read` jobs for
+long-running streams. Richer provider packages remain future work.
 
 ## Debugger
 

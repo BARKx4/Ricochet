@@ -23,6 +23,9 @@ use wait_timeout::ChildExt;
 use super::*;
 use crate::approval_runtime::{ApprovalCreateRequest, ApprovalRuntimeError, ApprovalSnapshot};
 use crate::capability::Capability;
+use crate::http_stream_runtime::{
+    HttpStreamRead, HttpStreamRequest, HttpStreamRuntimeError, HttpStreamSnapshot,
+};
 use crate::process_runtime::{ProcessRead, ProcessRequest, ProcessRuntimeError, ProcessSnapshot};
 use crate::pty_runtime::{PtyRead, PtyRequest, PtyRuntimeError, PtySnapshot};
 use crate::regex_value::RegexValue;
@@ -1943,6 +1946,138 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_http_stream_start(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+
+        let stack_before = self.stack.clone();
+        let request = match self.pop(word) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match http_request_from_value(request) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        if let Err(error) = self.check_http_url_allowed(word, &request.url) {
+            self.stack
+                .push(Value::result_err("PermissionError", error.to_string()));
+            return Ok(());
+        }
+        if let Some(error) = http_request_policy_error(&request) {
+            self.stack.push(error);
+            return Ok(());
+        }
+        let stream_request = HttpStreamRequest {
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            json: request.json,
+            body: request.body,
+            timeout: request.timeout,
+            max_response_bytes: request.max_response_bytes,
+        };
+        let result = match self.http_stream_registry().start(stream_request) {
+            Ok(snapshot) => Value::result_ok(http_stream_snapshot_value(&snapshot)),
+            Err(error) => http_stream_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_http_streams(&mut self) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: "http_streams".to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+        let streams = self
+            .http_stream_registry()
+            .streams()
+            .iter()
+            .map(http_stream_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(streams.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_http_stream(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_http_stream_id(word)?;
+        let result = self
+            .http_stream_registry()
+            .stream(id)
+            .map(|snapshot| Value::result_ok(http_stream_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_http_stream_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_http_stream_cancel(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_http_stream_id(word)?;
+        let result = self
+            .http_stream_registry()
+            .cancel(id)
+            .map(|snapshot| Value::result_ok(http_stream_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_http_stream_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_http_stream_read(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let id = match self.pop_http_stream_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let offset = match http_stream_read_offset(options) {
+            Ok(offset) => offset,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .http_stream_registry()
+            .read(id, offset)
+            .map(|read| Value::result_ok(http_stream_read_value(&read)))
+            .unwrap_or_else(|| unknown_http_stream_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_process_env_put(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let value = match self.pop_string(word, "process environment variable value string") {
@@ -2555,6 +2690,19 @@ impl Vm {
             value => Err(VmError::InvalidArgument {
                 word: word.to_string(),
                 message: format!("process job id cannot be negative: {value}"),
+            }),
+        }
+    }
+
+    fn pop_http_stream_id(&mut self, word: &str) -> Result<u64, VmError> {
+        match self.pop_number(word)? {
+            value if value >= 0 => u64::try_from(value).map_err(|_| VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "HTTP stream id is too large".to_string(),
+            }),
+            value => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("HTTP stream id cannot be negative: {value}"),
             }),
         }
     }
@@ -4389,6 +4537,50 @@ fn pty_read_offset(options: Value) -> Result<usize, Value> {
     Ok(offset)
 }
 
+fn http_stream_read_offset(options: Value) -> Result<usize, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "HttpStreamRequestError",
+            format!(
+                "HTTP stream read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let offset = match options.remove("offset") {
+        Some(Value::Number(value)) if value >= 0 => usize::try_from(value).map_err(|_| {
+            Value::result_err(
+                "HttpStreamRequestError",
+                "HTTP stream read option offset is too large",
+            )
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "HttpStreamRequestError",
+                format!("HTTP stream read option offset cannot be negative: {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => 0,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpStreamRequestError",
+                format!(
+                    "HTTP stream read option offset must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "HttpStreamRequestError",
+            format!("unknown HTTP stream read option: {key}"),
+        ));
+    }
+    Ok(offset)
+}
+
 fn pty_empty_options(options: Value, expected: &str) -> Result<(), Value> {
     let Value::Map(options) = options else {
         return Err(Value::result_err(
@@ -4564,6 +4756,68 @@ fn approval_snapshot_value(snapshot: &ApprovalSnapshot) -> Value {
 
 fn approval_runtime_error_value(error: ApprovalRuntimeError) -> Value {
     Value::result_err(error.kind, error.message)
+}
+
+fn http_stream_snapshot_value(snapshot: &HttpStreamSnapshot) -> Value {
+    let status_code = snapshot
+        .status_code
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    let headers = snapshot
+        .headers
+        .iter()
+        .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("method".to_string(), Value::String(snapshot.method.clone())),
+            ("url".to_string(), Value::String(snapshot.url.clone())),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("running".to_string(), Value::Bool(snapshot.running)),
+            ("success".to_string(), Value::Bool(snapshot.success)),
+            ("status_code".to_string(), status_code),
+            ("headers".to_string(), Value::Map(headers.into())),
+            ("error".to_string(), error),
+            (
+                "body_len".to_string(),
+                Value::Number(snapshot.body_len as i64),
+            ),
+            (
+                "body_truncated".to_string(),
+                Value::Bool(snapshot.body_truncated),
+            ),
+            ("cancelled".to_string(), Value::Bool(snapshot.cancelled)),
+        ])
+        .into(),
+    )
+}
+
+fn http_stream_read_value(read: &HttpStreamRead) -> Value {
+    let mut values = match http_stream_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    values.insert("body".to_string(), Value::String(read.body.clone()));
+    values.insert("offset".to_string(), Value::Number(read.offset as i64));
+    Value::Map(values.into())
+}
+
+fn http_stream_runtime_error_value(error: HttpStreamRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn unknown_http_stream_value(id: u64) -> Value {
+    Value::result_err("UnknownHttpStream", format!("unknown HTTP stream: {id}"))
 }
 
 fn pty_snapshot_value(snapshot: &PtySnapshot) -> Value {

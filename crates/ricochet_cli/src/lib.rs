@@ -2386,7 +2386,7 @@ fn create_new_project(path: &Path, options: NewProjectOptions, announce: bool) -
         r#"HomeController Controller Subclass
   [
     "Hello Ricochet" title var
-    ctx get
+    $ctx
     "home/index" swap view
   ] "index" Method
 end
@@ -2415,7 +2415,7 @@ end
             .join("Views")
             .join("home")
             .join("index.html"),
-        "<link rel=\"stylesheet\" href=\"/assets/app.css\">\n<h1>{ title get }</h1>\n",
+        "<link rel=\"stylesheet\" href=\"/assets/app.css\">\n<h1>{ $title }</h1>\n",
     )?;
     write_project_file(
         path.join("app")
@@ -2454,8 +2454,8 @@ end
     users array
     User new
     "grace@example.com" swap email.set
-    users get swap push! drop
-    users get count
+    $users swap push! drop
+    $users count
     1 assert-equals
   ] "testCollectionsCanHoldModels" Method
 end
@@ -2543,15 +2543,15 @@ fn user_controller_source(options: NewProjectOptions) -> &'static str {
   ( session ctx ) [
     ctx var
     session var
-    session get "last_page" "users" put! drop
+    $session "last_page" "users" put! drop
     User default-page
     dup ok? if
       value users var
-      users get count userCount var
-      users get first firstUser var
-      firstUser get "email" at firstEmail var
+      $users count userCount var
+      $users first firstUser var
+      $firstUser "email" at firstEmail var
       "Users" title var
-      ctx get
+      $ctx
       "users/index" swap view
     else
       error "message" at text
@@ -2566,10 +2566,10 @@ end
     User new
     "ada@example.com" swap email.set
     "Ada Lovelace" swap name.set
-    users get swap push! drop
-    users get count userCount var
+    $users swap push! drop
+    $users count userCount var
     "Users" title var
-    ctx get
+    $ctx
     "users/index" swap view
   ] "index" Method
 end
@@ -2582,20 +2582,20 @@ fn auth_controller_source() -> &'static str {
   ( ctx ) [
     ctx var
     "Sign in" title var
-    ctx get
+    $ctx
     "auth/login" swap view
   ] "login" Method
 
   ( email session ) [
     session var
     email var
-    email get nil? if
+    $email nil? if
       "Email is required" text 400 status
     else
-      email get blank? if
+      $email blank? if
         "Email is required" text 400 status
       else
-        session get "user_email" email get put! drop
+        $session "user_email" $email put! drop
         "/me" redirect
       end
     end
@@ -2604,19 +2604,19 @@ fn auth_controller_source() -> &'static str {
   ( session ctx ) [
     ctx var
     session var
-    session get "user_email" at nil? if
+    $session "user_email" at nil? if
       "Not signed in" text
     else
-      session get "user_email" at userEmail var
+      $session "user_email" at userEmail var
       "Signed in" title var
-      ctx get
+      $ctx
       "auth/show" swap view
     end
   ] "show" Method
 
   ( session ) [
     session var
-    session get "user_email" remove! drop
+    $session "user_email" remove! drop
     "/login" redirect
   ] "destroy" Method
 end
@@ -2625,18 +2625,18 @@ end
 
 fn users_index_view_source(options: NewProjectOptions) -> &'static str {
     if options.with_sqlite {
-        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n<p>First user: { firstEmail get }</p>\n"
+        "<h1>{ $title }</h1>\n<p>{ $userCount } users ready.</p>\n<p>First user: { $firstEmail }</p>\n"
     } else {
-        "<h1>{ title get }</h1>\n<p>{ userCount get } users ready.</p>\n"
+        "<h1>{ $title }</h1>\n<p>{ $userCount } users ready.</p>\n"
     }
 }
 
 fn auth_login_view_source() -> &'static str {
-    "<h1>{ title get }</h1>\n<form method=\"post\" action=\"/login\">\n  <label>Email <input name=\"email\" type=\"email\" value=\"ada@example.com\"></label>\n  <button type=\"submit\">Sign in</button>\n</form>\n"
+    "<h1>{ $title }</h1>\n<form method=\"post\" action=\"/login\">\n  <label>Email <input name=\"email\" type=\"email\" value=\"ada@example.com\"></label>\n  <button type=\"submit\">Sign in</button>\n</form>\n"
 }
 
 fn auth_show_view_source() -> &'static str {
-    "<h1>{ title get }</h1>\n<p>Signed in as { userEmail get }</p>\n<form method=\"post\" action=\"/logout\">\n  <button type=\"submit\">Sign out</button>\n</form>\n"
+    "<h1>{ $title }</h1>\n<p>Signed in as { $userEmail }</p>\n<form method=\"post\" action=\"/logout\">\n  <button type=\"submit\">Sign out</button>\n</form>\n"
 }
 
 fn initial_sqlite_migration_source() -> &'static str {
@@ -7076,7 +7076,7 @@ end
 
 ( value -> Number ) bump function
   value var
-  value get 1 +
+  $value 1 +
 end
 
 Counter new counter var
@@ -7084,7 +7084,7 @@ Counter new counter var
     );
     for _ in 0..pairs {
         source.push_str("1 bump drop\n");
-        source.push_str("counter get next drop\n");
+        source.push_str("$counter next drop\n");
     }
     source
 }
@@ -7092,9 +7092,9 @@ Counter new counter var
 fn generated_collection_source(items: usize) -> String {
     let mut source = String::from("items array\n");
     for item in 0..items {
-        writeln!(&mut source, "items get {item} push! drop").expect("write to string succeeds");
+        writeln!(&mut source, "$items {item} push! drop").expect("write to string succeeds");
     }
-    source.push_str("items get count\n");
+    source.push_str("$items count\n");
     source
 }
 
@@ -7102,21 +7102,20 @@ fn generated_json_source(items: usize) -> String {
     let mut source = String::from("payload map\nitems array\n");
     for item in 0..items {
         writeln!(&mut source, "item{item} map").expect("write to string succeeds");
-        writeln!(&mut source, "item{item} get \"id\" {item} put! drop")
+        writeln!(&mut source, "$item{item} \"id\" {item} put! drop")
             .expect("write to string succeeds");
         writeln!(
             &mut source,
-            "item{item} get \"name\" \"item-{item}\" put! drop"
+            "$item{item} \"name\" \"item-{item}\" put! drop"
         )
         .expect("write to string succeeds");
-        writeln!(&mut source, "items get item{item} get push! drop")
-            .expect("write to string succeeds");
+        writeln!(&mut source, "$items $item{item} push! drop").expect("write to string succeeds");
     }
     source.push_str(
-        r#"payload get "items" items get put! drop
-payload get json-encode encoded var
-encoded get json-decode value decoded var
-decoded get "items" at count
+        r#"$payload "items" $items put! drop
+$payload json-encode encoded var
+$encoded json-decode value decoded var
+$decoded "items" at count
 "#,
     );
     source
@@ -7125,11 +7124,8 @@ decoded get "items" at count
 fn generated_template(expressions: usize) -> String {
     let mut template = String::new();
     for index in 0..expressions {
-        writeln!(
-            &mut template,
-            "<p>{{ title get }} #{index}: {{ count get }}</p>"
-        )
-        .expect("write to string succeeds");
+        writeln!(&mut template, "<p>{{ $title }} #{index}: {{ $count }}</p>")
+            .expect("write to string succeeds");
     }
     template
 }

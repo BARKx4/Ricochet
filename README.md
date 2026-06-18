@@ -85,12 +85,14 @@ foundation that other developers can scaffold, run, inspect, and extend.
 - Result contracts: stack `Result` values use `ok?`, `value`, and `error`;
   `result_envelope` converts them to `{ ok, data, error, meta }` maps for
   app/API boundaries that need stable structured responses.
+- HTTP streams: retained `http_stream_start`, `http_stream_read`,
+  `http_stream`, `http_streams`, and `http_stream_cancel` jobs support bounded
+  offset reads for SSE or other long-running response bodies.
 - Security posture: sandboxable host capabilities, no-follow HTTP redirects,
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: production credential/password policy and true incremental HTTP
-streaming transport.
+Still planned: production credential/password policy.
 
 ## Quickstart
 
@@ -296,6 +298,19 @@ $request await value response var
 $response "status" at println
 ```
 
+Long-running HTTP responses can be retained and read incrementally by offset:
+
+```forth
+"GET" "https://api.example/v1/events" http_request_new value request var
+$request 60000 http_timeout value request set
+$request http_stream_start value stream var
+
+options map
+$stream "id" at $options http_stream_read value chunk var
+$chunk "body" at println
+$chunk "offset" at nextOffset var
+```
+
 For authenticated provider calls, keep settings as ordinary maps and store
 secret references instead of secret values. `secret_env` creates an env-backed
 reference, `config_get` reads required nested settings, and `secret_resolve`
@@ -307,38 +322,38 @@ allowlist and no-follow redirect policy as the simpler HTTP words:
 ```forth
 settings map
 provider map
-provider get "api_key" "PROVIDER_API_KEY" secret_env put! drop
-settings get "provider" provider get put! drop
+$provider "api_key" "PROVIDER_API_KEY" secret_env put! drop
+$settings "provider" $provider put! drop
 
 path array
-path get "provider" push! drop
-path get "api_key" push! drop
-settings get path get config_get value secret_resolve value token var
+$path "provider" push! drop
+$path "api_key" push! drop
+$settings $path config_get value secret_resolve value token var
 
 payload map
-payload get "probe" true put! drop
+$payload "probe" true put! drop
 "POST" "https://api.example/v1/models" http_request_new value request var
-request get token get http_bearer_auth value request set
-request get payload get http_json_body value request set
-request get 30000 http_timeout value request set
-request get http_request value response var
-response get "status" at println
+$request $token http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 30000 http_timeout value request set
+$request http_request value response var
+$response "status" at println
 ```
 
 Build a webview document for desktop UI hosts:
 
 ```forth
 state map
-state get "count" 1 put! drop
-"Count: " state get "count" at to-string concat webview_text countText var
+$state "count" 1 put! drop
+"Count: " $state "count" at to-string concat webview_text countText var
 "Increment" "increment" webview_button button var
 actions array
-actions get "Increment" "increment" "increment_counter" webview_action push! drop
+$actions "Increment" "increment" "increment_counter" webview_action push! drop
 "<main>" $countText concat
 $countText concat
 $button concat
 "</main>" concat body var
-"Counter" $body state get actions get webview_window_state value document var
+"Counter" $body $state $actions webview_window_state value document var
 ```
 
 Serve an MVC app from its project directory:
@@ -380,9 +395,10 @@ Use `process_env_put` when a child process needs a bounded environment value
 without hand-building the nested `env` options map:
 
 ```forth
+args array
 options map
-options get "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
-"git" args get options get process_spawn value
+$options "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
+"git" $args $options process_spawn value
 ```
 
 Workspace helpers provide structured filesystem access for local apps while
@@ -392,11 +408,11 @@ preserving the same `--fs-root` and `--fs-readonly` bounds as the lower-level
 ```forth
 options map
 writeOptions map
-writeOptions get "create_parent_dirs" true put! drop
-"README.md" options get workspace_read_text value readme var
-"." options get workspace_list value entries var
-"generated/out.txt" "hello" writeOptions get workspace_write_text value written var
-written get "relative_path" at println
+$writeOptions "create_parent_dirs" true put! drop
+"README.md" $options workspace_read_text value readme var
+"." $options workspace_list value entries var
+"generated/out.txt" "hello" $writeOptions workspace_write_text value written var
+$written "relative_path" at println
 runtime_capabilities "workspace" at "root" at println
 ```
 
@@ -409,11 +425,11 @@ falls back to the filesystem root if one is configured:
 
 ```forth
 args array
-args get "status" push! drop
+$args "status" push! drop
 options map
-options get "timeout_ms" 10000 put! drop
-"git" args get options get process_spawn value result var
-result get "success" at println
+$options "timeout_ms" 10000 put! drop
+"git" $args $options process_spawn value result var
+$result "success" at println
 ```
 
 Use `process_start` for long-running jobs. The runtime keeps a retained job
@@ -423,13 +439,13 @@ requests with `process_jobs`, `process_job`, `process_read`, and
 
 ```forth
 args array
-args get "status" push! drop
+$args "status" push! drop
 options map
-options get "stdout_max_bytes" 1048576 put! drop
-"git" args get options get process_start value job var
+$options "stdout_max_bytes" 1048576 put! drop
+"git" $args $options process_start value job var
 readOptions map
-job get "id" at readOptions get process_read value output var
-output get "stdout" at println
+$job "id" at $readOptions process_read value output var
+$output "stdout" at println
 ```
 
 PTY sessions are separate and also opt in. Use `--allow-pty` for trusted
@@ -438,15 +454,15 @@ newlines are host-specific:
 
 ```forth
 args array
-args get "repl" push! drop
+$args "repl" push! drop
 options map
-"rco" args get options get pty_start value session var
-session get "id" at "1 2 +\r\n" pty_write value drop
+"rco" $args $options pty_start value session var
+$session "id" at "1 2 +\r\n" pty_write value drop
 readOptions map
-session get "id" at readOptions get pty_read value screen var
-screen get "output" at println
+$session "id" at $readOptions pty_read value screen var
+$screen "output" at println
 stopOptions map
-session get "id" at stopOptions get pty_stop value drop
+$session "id" at $stopOptions pty_stop value drop
 ```
 
 Approval records are runtime-local and shared across MVC requests. `approval_create`
@@ -455,12 +471,12 @@ once before the caller performs the mutating operation:
 
 ```forth
 operation map
-operation get "capability" "workspace.write" put! drop
-operation get "summary" "Write generated file" put! drop
+$operation "capability" "workspace.write" put! drop
+$operation "summary" "Write generated file" put! drop
 options map
-operation get options get approval_create value approval var
-approval get "id" at approval get "token" at approval_claim value claim var
-claim get "claimed" at println
+$operation $options approval_create value approval var
+$approval "id" at $approval "token" at approval_claim value claim var
+$claim "claimed" at println
 ```
 
 For a zero-service local beta app, `rco new --with-sqlite my_beta_app`
@@ -500,7 +516,7 @@ MVC actions parse `application/x-www-form-urlencoded`, `application/json`, and
 `multipart/form-data` request bodies for `POST`, `PUT`, `PATCH`, and `DELETE`.
 Declared action Args bind route params first, then form fields, JSON object
 fields, upload fields, query params, and finally context values. The same data
-is available through `ctx get "request" at`: `form` holds text fields, `json`
+is available through `$ctx "request" at`: `form` holds text fields, `json`
 and `body` hold parsed JSON values, `uploads` is keyed by multipart file field
 name, and `files` contains every uploaded file. Upload values include
 `name`, `filename`, `content_type`, `size`, `text` when the bytes are UTF-8, and

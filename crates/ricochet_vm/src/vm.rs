@@ -15,6 +15,7 @@ use crate::capability::Capability;
 use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
+use crate::http_stream_runtime::HttpStreamRegistry;
 use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
@@ -123,6 +124,7 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    http_stream_registry: HttpStreamRegistry,
     process_enabled: bool,
     process_root: Option<PathBuf>,
     process_registry: ProcessRegistry,
@@ -173,6 +175,7 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            http_stream_registry: HttpStreamRegistry::default(),
             process_enabled: false,
             process_root: None,
             process_registry: ProcessRegistry::default(),
@@ -219,6 +222,7 @@ struct Task {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    http_stream_registry: HttpStreamRegistry,
     process_enabled: bool,
     process_root: Option<PathBuf>,
     process_registry: ProcessRegistry,
@@ -416,6 +420,7 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         filesystem_writes_enabled: task.filesystem_writes_enabled,
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
+        http_stream_registry: task.http_stream_registry,
         process_enabled: task.process_enabled,
         process_root: task.process_root,
         process_registry: task.process_registry,
@@ -522,6 +527,10 @@ impl Vm {
         self.filesystem_enabled = filesystem_enabled;
         self.filesystem_writes_enabled = filesystem_enabled;
         self.http_enabled = http_enabled;
+    }
+
+    pub fn set_http_stream_registry(&mut self, registry: HttpStreamRegistry) {
+        self.http_stream_registry = registry;
     }
 
     pub fn set_process_enabled(&mut self, enabled: bool) {
@@ -1367,6 +1376,11 @@ impl Vm {
             "http_request_task" => {
                 self.call_capability_method_word(word, Capability::Http, "request-task")
             }
+            "http_stream_start" => self.call_http_stream_start(word),
+            "http_streams" => self.call_http_streams(),
+            "http_stream" => self.call_http_stream(word),
+            "http_stream_read" => self.call_http_stream_read(word),
+            "http_stream_cancel" => self.call_http_stream_cancel(word),
             "process_env_put" => self.call_process_env_put(word),
             "process_spawn" => self.call_process_spawn(word),
             "process_spawn_task" => self.call_process_spawn_task(word),
@@ -1919,6 +1933,7 @@ impl Vm {
             filesystem_writes_enabled: self.filesystem_writes_enabled,
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
+            http_stream_registry: self.http_stream_registry.clone(),
             process_enabled: self.process_enabled,
             process_root: self.process_root.clone(),
             process_registry: self.process_registry.clone(),
@@ -2159,8 +2174,16 @@ impl Vm {
         self.process_enabled
     }
 
+    pub(super) fn http_enabled(&self) -> bool {
+        self.http_enabled
+    }
+
     pub(super) fn process_registry(&self) -> ProcessRegistry {
         self.process_registry.clone()
+    }
+
+    pub(super) fn http_stream_registry(&self) -> HttpStreamRegistry {
+        self.http_stream_registry.clone()
     }
 
     pub(super) fn pty_enabled(&self) -> bool {
@@ -2258,6 +2281,10 @@ impl Vm {
                         BTreeMap::from([
                             ("enabled".to_string(), Value::Bool(self.http_enabled)),
                             ("allowed_hosts".to_string(), http_allowed_hosts),
+                            (
+                                "streams".to_string(),
+                                Value::Number(self.http_stream_registry.len() as i64),
+                            ),
                         ])
                         .into(),
                     ),

@@ -4,14 +4,14 @@ messages array
 
 message map
 
-message get "role" "user" put! drop
+$message "role" "user" put! drop
 
-message get "content" "Say hello from Ricochet." put! drop
+$message "content" "Say hello from Ricochet." put! drop
 
-messages get message get push! drop
+$messages $message push! drop
 
-"https://api.openai.com/v1" "token" "gpt-4.1-mini" messages get ai_openai_chat_request json-encode println
+"https://api.openai.com/v1" "token" "gpt-4.1-mini" $messages ai_openai_chat_request json-encode println
 
-"https://api.openai.com/v1" "token" "gpt-4.1-mini" messages get ai_openai_chat_stream_request json-encode println
+"https://api.openai.com/v1" "token" "gpt-4.1-mini" $messages ai_openai_chat_stream_request json-encode println
 
 "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\" stream\"}}]}\n\ndata: [DONE]\n\n" ai_openai_stream_text println

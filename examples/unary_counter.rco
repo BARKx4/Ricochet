@@ -7,13 +7,13 @@ end
 nil counter var
 0 steps var
 
-counter get Counter new previous.set counter set
-counter get Counter new previous.set counter set
-counter get Counter new previous.set counter set
+$counter Counter new previous.set counter set
+$counter Counter new previous.set counter set
+$counter Counter new previous.set counter set
 
-counter get nil? false = while
-  counter get previous.get counter set
-  steps get 1 + steps set
+$counter nil? false = while
+  $counter previous.get counter set
+  $steps 1 + steps set
 end
 
-steps get println
+$steps println

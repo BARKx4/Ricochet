@@ -3,64 +3,64 @@
 AuthPackageTest TestCase Subclass
   [
     session map
-    session get "user_id" "ada" put! drop
-    session get auth_user_present
+    $session "user_id" "ada" put! drop
+    $session auth_user_present
     true assert-equals
   ] "testUserPresent" Method
   [
     session map
-    session get "user_id" "ada" put! drop
-    session get "/login" auth_route_guard guard var
-    guard get "ok" at
+    $session "user_id" "ada" put! drop
+    $session "/login" auth_route_guard guard var
+    $guard "ok" at
     true assert-equals
-    guard get "reason" at
+    $guard "reason" at
     nil assert-equals
   ] "testRouteGuardAllowsAuthenticatedSession" Method
   [
     session map
-    session get "/login" auth_route_guard guard var
-    guard get "ok" at
+    $session "/login" auth_route_guard guard var
+    $guard "ok" at
     false assert-equals
-    guard get "redirect" at
+    $guard "redirect" at
     "/login" assert-equals
-    guard get "reason" at
+    $guard "reason" at
     "missing_user_session" assert-equals
   ] "testRouteGuardRejectsMissingSession" Method
   [
     session map
-    session get "csrf_token" "abc" put! drop
-    session get "abc" auth_csrf_valid
+    $session "csrf_token" "abc" put! drop
+    $session "abc" auth_csrf_valid
     true assert-equals
   ] "testCsrfValid" Method
   [
     session map
-    session get "" auth_csrf_valid
+    $session "" auth_csrf_valid
     false assert-equals
   ] "testCsrfRejectsMissingStoredToken" Method
   [
     session map
-    session get "csrf_token" "" put! drop
-    session get "" auth_csrf_valid
+    $session "csrf_token" "" put! drop
+    $session "" auth_csrf_valid
     false assert-equals
   ] "testCsrfRejectsBlankTokens" Method
   [
     session map
-    session get "csrf_token" "abc" put! drop
-    session get "wrong" auth_csrf_check "reason" at
+    $session "csrf_token" "abc" put! drop
+    $session "wrong" auth_csrf_check "reason" at
     "invalid_csrf_token" assert-equals
   ] "testCsrfCheckReason" Method
   [
     "ada" "token" auth_session_for_user session var
-    session get "user_id" at
+    $session "user_id" at
     "ada" assert-equals
-    session get "authenticated" at
+    $session "authenticated" at
     true assert-equals
   ] "testSessionForUser" Method
   [
     auth_secure_cookie_options options var
-    options get "http_only" at
+    $options "http_only" at
     true assert-equals
-    options get "same_site" at
+    $options "same_site" at
     "Lax" assert-equals
   ] "testSecureCookieOptions" Method
 end

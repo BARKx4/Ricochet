@@ -3,37 +3,37 @@
   headers var
   value var
   name var
-  headers get name get value get put! drop
-  headers get
+  $headers $name $value put! drop
+  $headers
 end
 
 ( token -> Map ) ai_bearer_headers function
   token var
   headers map
-  "Authorization" "Bearer " token get concat headers get ai_header_put drop
-  "Content-Type" "application/json" headers get ai_header_put
+  "Authorization" "Bearer " $token concat $headers ai_header_put drop
+  "Content-Type" "application/json" $headers ai_header_put
 end
 
 ( envName -> Map ) ai_secret_ref function
   envName var
-  envName get secret_env
+  $envName secret_env
 end
 
 ( model messages -> Map ) ai_openai_chat_body function
   messages var
   model var
   body map
-  body get "model" model get put! drop
-  body get "messages" messages get put! drop
-  body get
+  $body "model" $model put! drop
+  $body "messages" $messages put! drop
+  $body
 end
 
 ( model messages -> Map ) ai_openai_chat_stream_body function
   messages var
   model var
-  model get messages get ai_openai_chat_body body var
-  body get "stream" true put! drop
-  body get
+  $model $messages ai_openai_chat_body body var
+  $body "stream" true put! drop
+  $body
 end
 
 ( baseUrl token model messages -> Map ) ai_openai_chat_request function
@@ -41,12 +41,12 @@ end
   model var
   token var
   baseUrl var
-  model get messages get ai_openai_chat_body body var
-  "POST" baseUrl get "/chat/completions" concat http_request_new value request var
-  request get token get http_bearer_auth value request set
-  request get "Content-Type" "application/json" http_header_put value request set
-  request get body get http_json_body value request set
-  request get
+  $model $messages ai_openai_chat_body body var
+  "POST" $baseUrl "/chat/completions" concat http_request_new value request var
+  $request $token http_bearer_auth value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
 end
 
 ( baseUrl token model messages -> Map ) ai_openai_chat_stream_request function
@@ -54,20 +54,20 @@ end
   model var
   token var
   baseUrl var
-  model get messages get ai_openai_chat_stream_body body var
-  "POST" baseUrl get "/chat/completions" concat http_request_new value request var
-  request get token get http_bearer_auth value request set
-  request get "Content-Type" "application/json" http_header_put value request set
-  request get "Accept" "text/event-stream" http_header_put value request set
-  request get body get http_json_body value request set
-  request get
+  $model $messages ai_openai_chat_stream_body body var
+  "POST" $baseUrl "/chat/completions" concat http_request_new value request var
+  $request $token http_bearer_auth value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request "Accept" "text/event-stream" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
 end
 
 ( line -> String ) ai_sse_data_line function
   line var
-  line get trim line set
-  line get "data:" starts-with? if
-    line get 5 line get length slice trim
+  $line trim line set
+  $line "data:" starts-with? if
+    $line 5 $line length slice trim
   else
     nil
   end
@@ -78,11 +78,11 @@ end
   values array
   [
     ai_sse_data_line value var
-    value get nil? false = if
-      values get value get push! drop
+    $value nil? false = if
+      $values $value push! drop
     end
-  ] body get lines each drop
-  values get
+  ] $body lines each drop
+  $values
 end
 
 ( body -> Array ) ai_sse_json_events function
@@ -90,28 +90,28 @@ end
   events array
   [
     data var
-    data get "[DONE]" = false = if
-      data get json-decode value events get swap push! drop
+    $data "[DONE]" = false = if
+      $data json-decode value $events swap push! drop
     end
-  ] body get ai_sse_data_lines each drop
-  events get
+  ] $body ai_sse_data_lines each drop
+  $events
 end
 
 ( event -> String ) ai_openai_stream_delta function
   event var
-  event get "choices" at choices var
-  choices get nil? if
+  $event "choices" at choices var
+  $choices nil? if
     nil
   else
-    choices get first choice var
-    choice get nil? if
+    $choices first choice var
+    $choice nil? if
       nil
     else
-      choice get "delta" at delta var
-      delta get nil? if
+      $choice "delta" at delta var
+      $delta nil? if
         nil
       else
-        delta get "content" at
+        $delta "content" at
       end
     end
   end
@@ -122,18 +122,18 @@ end
   "" text var
   [
     ai_openai_stream_delta part var
-    part get nil? false = if
-      text get part get concat text set
+    $part nil? false = if
+      $text $part concat text set
     end
-  ] body get ai_sse_json_events each drop
-  text get
+  ] $body ai_sse_json_events each drop
+  $text
 end
 
 ( response -> Map ) ai_response_summary function
   response var
   summary map
-  summary get "status" response get "status" at put! drop
-  summary get "ok" response get "status" at 200 = put! drop
-  summary get "body" response get "body" at put! drop
-  summary get
+  $summary "status" $response "status" at put! drop
+  $summary "ok" $response "status" at 200 = put! drop
+  $summary "body" $response "body" at put! drop
+  $summary
 end

@@ -3,18 +3,18 @@
 0 count var
 0 total var
 
-count get 10 < while
-  count get 1 + count set
+$count 10 < while
+  $count 1 + count set
 
-  count get 3 = if
+  $count 3 = if
     continue
   end
 
-  count get 6 = if
+  $count 6 = if
     break
   end
 
-  total get count get + total set
+  $total $count + total set
 end
 
-total get println
+$total println

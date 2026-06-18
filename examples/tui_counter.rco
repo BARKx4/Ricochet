@@ -12,17 +12,17 @@ true while
   "Ricochet TUI beta" tui_write value drop
   0 2 tui_move_to value drop
   "Count: " tui_write value drop
-  count get to-string tui_write value drop
+  $count to-string tui_write value drop
   0 4 tui_move_to value drop
   "Press + to increment, - to decrement, q or Escape to quit." tui_write value drop
   tui_flush value drop
 
   tui_read_key value key var
   $key "char" at "+" = if
-    count get 1 + count set
+    $count 1 + count set
   end
   $key "char" at "-" = if
-    count get 1 - count set
+    $count 1 - count set
   end
   $key "char" at "q" = if
     break

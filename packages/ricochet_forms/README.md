@@ -27,10 +27,10 @@ form_schema
 schema var
 
 data map
-data get "email" "ada@example.com" put! drop
+$data "email" "ada@example.com" put! drop
 
-data get schema get form_schema_validate result var
-result get "ok" at
+$data $schema form_schema_validate result var
+$result "ok" at
 ```
 
 Supported rule types are `string`, `number`, `bool`, `map`, `array`, and `any`.

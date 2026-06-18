@@ -222,6 +222,23 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Start a structured HTTP request as a Ricochet task.",
     ),
     WordDoc::new(
+        "http_stream_start",
+        "http",
+        "Start a structured HTTP request as a retained stream job.",
+    ),
+    WordDoc::new("http_streams", "http", "List retained HTTP stream jobs."),
+    WordDoc::new("http_stream", "http", "Inspect a retained HTTP stream job."),
+    WordDoc::new(
+        "http_stream_read",
+        "http",
+        "Read retained body text from an HTTP stream job.",
+    ),
+    WordDoc::new(
+        "http_stream_cancel",
+        "http",
+        "Cancel a retained HTTP stream job.",
+    ),
+    WordDoc::new(
         "process_spawn",
         "process",
         "Run a bounded child process through the process capability.",

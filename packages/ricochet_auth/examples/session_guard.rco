@@ -2,10 +2,10 @@
 
 "ada" "csrf-token" auth_session_for_user session var
 
-session get auth_user_present println
+$session auth_user_present println
 
-session get "/login" auth_route_guard json-encode println
+$session "/login" auth_route_guard json-encode println
 
-session get "csrf-token" auth_csrf_check json-encode println
+$session "csrf-token" auth_csrf_check json-encode println
 
 auth_secure_cookie_options json-encode println

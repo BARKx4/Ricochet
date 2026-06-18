@@ -1,29 +1,29 @@
 (( Session and route guard helpers for trusted local Ricochet MVC apps. ))
 ( session -> Bool ) auth_user_present function
   session var
-  session get "user_id" has?
+  $session "user_id" has?
 end
 
 ( session redirectPath -> Map ) auth_route_guard function
   redirectPath var
   session var
   guard map
-  session get auth_user_present ok var
-  guard get "ok" ok get put! drop
-  ok get if
-    guard get "redirect" nil put! drop
-    guard get "reason" nil put! drop
+  $session auth_user_present ok var
+  $guard "ok" $ok put! drop
+  $ok if
+    $guard "redirect" nil put! drop
+    $guard "reason" nil put! drop
   else
-    guard get "redirect" redirectPath get put! drop
-    guard get "reason" "missing_user_session" put! drop
+    $guard "redirect" $redirectPath put! drop
+    $guard "reason" "missing_user_session" put! drop
   end
-  guard get
+  $guard
 end
 
 ( session -> String ) auth_csrf_token function
   session var
-  session get "csrf_token" has? if
-    session get "csrf_token" at
+  $session "csrf_token" has? if
+    $session "csrf_token" at
   else
     ""
   end
@@ -32,14 +32,14 @@ end
 ( session submittedToken -> Bool ) auth_csrf_valid function
   submittedToken var
   session var
-  session get auth_csrf_token storedToken var
-  storedToken get blank? if
+  $session auth_csrf_token storedToken var
+  $storedToken blank? if
     false
   else
-    submittedToken get blank? if
+    $submittedToken blank? if
       false
     else
-      storedToken get submittedToken get =
+      $storedToken $submittedToken =
     end
   end
 end
@@ -48,39 +48,39 @@ end
   submittedToken var
   session var
   check map
-  session get submittedToken get auth_csrf_valid ok var
-  check get "ok" ok get put! drop
-  ok get if
-    check get "reason" nil put! drop
+  $session $submittedToken auth_csrf_valid ok var
+  $check "ok" $ok put! drop
+  $ok if
+    $check "reason" nil put! drop
   else
-    check get "reason" "invalid_csrf_token" put! drop
+    $check "reason" "invalid_csrf_token" put! drop
   end
-  check get
+  $check
 end
 
 ( userId csrfToken -> Map ) auth_session_for_user function
   csrfToken var
   userId var
   session map
-  session get "user_id" userId get put! drop
-  session get "csrf_token" csrfToken get put! drop
-  session get "authenticated" true put! drop
-  session get
+  $session "user_id" $userId put! drop
+  $session "csrf_token" $csrfToken put! drop
+  $session "authenticated" true put! drop
+  $session
 end
 
 ( -> Map ) auth_secure_cookie_options function
   options map
-  options get "http_only" true put! drop
-  options get "same_site" "Lax" put! drop
-  options get "secure" true put! drop
-  options get
+  $options "http_only" true put! drop
+  $options "same_site" "Lax" put! drop
+  $options "secure" true put! drop
+  $options
 end
 
 ( name -> Map ) auth_extension_point function
   name var
   extension map
-  extension get "package" "@ricochet/auth" put! drop
-  extension get "name" name get put! drop
-  extension get "stable" false put! drop
-  extension get
+  $extension "package" "@ricochet/auth" put! drop
+  $extension "name" $name put! drop
+  $extension "stable" false put! drop
+  $extension
 end

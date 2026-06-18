@@ -1,18 +1,18 @@
-(( Set a breakpoint on `worker get await` to inspect the task snapshot. ))
+(( Set a breakpoint on `$worker await` to inspect the task snapshot. ))
 "debugger demo start" println
 
 [ 40 2 + ] spawn worker var
 
 "ada" name var
 
-name get uppercase upperName var
+$name uppercase upperName var
 
-worker get await answer var
+$worker await answer var
 
-answer get 42 assert-equals
+$answer 42 assert-equals
 
-worker get release-task
+$worker release-task
 
-upperName get println
+$upperName println
 
 "debugger demo done" println

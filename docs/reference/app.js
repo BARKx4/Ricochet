@@ -77,7 +77,7 @@ const WORDS = [
     "group": "math",
     "stack": "value ->",
     "body": "Consumes a truthy value or fails the current VM run.",
-    "example": "email get empty? not assert"
+    "example": "$email empty? not assert"
   },
   {
     "word": "assert-true",
@@ -85,7 +85,7 @@ const WORDS = [
     "group": "math",
     "stack": "bool ->",
     "body": "Consumes true or fails the current VM run.",
-    "example": "saved get assert-true"
+    "example": "$saved assert-true"
   },
   {
     "word": "assert-false",
@@ -93,7 +93,7 @@ const WORDS = [
     "group": "math",
     "stack": "bool ->",
     "body": "Consumes false or fails the current VM run.",
-    "example": "deleted get assert-false"
+    "example": "$deleted assert-false"
   },
   {
     "word": "assert-ok",
@@ -181,7 +181,7 @@ const WORDS = [
     "group": "stack",
     "stack": "a b -> b a",
     "body": "Swaps the top two stack values.",
-    "example": "ctx get \"home/index\" swap view"
+    "example": "$ctx \"home/index\" swap view"
   },
   {
     "word": "dup",
@@ -245,7 +245,7 @@ const WORDS = [
     "group": "data",
     "stack": "name?:string -> | -> array",
     "body": "With a name on top, declares a mutable array variable. With no name, pushes a new empty array. Anonymous construction is also available as `Array new`.",
-    "example": "users array\nusers get \"Ada\" push! drop"
+    "example": "users array\n$users \"Ada\" push! drop"
   },
   {
     "word": "map",
@@ -253,7 +253,7 @@ const WORDS = [
     "group": "data",
     "stack": "name?:string -> | -> map",
     "body": "With a name on top, declares a mutable map variable. With no name, pushes a new empty map. Anonymous construction is also available as `Map new`.",
-    "example": "settings map\nsettings get \"theme\" \"dark\" put! drop"
+    "example": "settings map\n$settings \"theme\" \"dark\" put! drop"
   },
   {
     "word": "var",
@@ -268,8 +268,8 @@ const WORDS = [
     "aliases": [],
     "group": "data",
     "stack": "name:string -> value",
-    "body": "Reads a variable by name string. For map/object keyed access, use `container key at`; for generated object accessors, use `field.get` selectors.",
-    "example": "name get\nrequest get \"method\" at\nuser email.get"
+    "body": "Reads a variable by name string. Prefer `$name` for ordinary variable reads in new code; keep `get` for dynamic by-name reads. For map/object keyed access, use `container key at`; for generated object accessors, use `field.get` selectors.",
+    "example": "\"name\" get\n$request \"method\" at\nuser email.get"
   },
   {
     "word": "set",
@@ -373,7 +373,7 @@ const WORDS = [
     "group": "control",
     "stack": "declaration",
     "body": "Declares a top-level function. Optional args metadata can precede the name.",
-    "example": "( left right -> Number ) sum function\n  left get right get +\nend"
+    "example": "( left right -> Number ) sum function\n  $left $right +\nend"
   },
   {
     "word": "return",
@@ -413,7 +413,7 @@ const WORDS = [
     "group": "control",
     "stack": "task -> result",
     "body": "Waits for a spawned task if needed and returns its result. Completed handles can be awaited again from their cached value.",
-    "example": "task get await"
+    "example": "$task await"
   },
   {
     "word": "await-all",
@@ -421,7 +421,7 @@ const WORDS = [
     "group": "control",
     "stack": "array|list -> array",
     "body": "Awaits an array or list of task handles and returns their results in input order. Completed handles reuse their cached values.",
-    "example": "handles get await-all"
+    "example": "$handles await-all"
   },
   {
     "word": "release-task",
@@ -429,7 +429,7 @@ const WORDS = [
     "group": "control",
     "stack": "task -> bool",
     "body": "Releases an awaited completed or failed task handle from the current VM's retained task table. Running tasks must be awaited before release.",
-    "example": "task get await\ntask get release-task"
+    "example": "$task await\n$task release-task"
   },
   {
     "word": "tasks",
@@ -445,7 +445,7 @@ const WORDS = [
     "group": "control",
     "stack": "conditionExpression -> repeated body",
     "body": "Re-executes the condition expression before every iteration and runs the body while it remains truthy.",
-    "example": "count get 10 < while\n  count get 1 + count set\nend"
+    "example": "$count 10 < while\n  $count 1 + count set\nend"
   },
   {
     "word": "break",
@@ -477,7 +477,7 @@ const WORDS = [
     "group": "web",
     "stack": "viewName:string -> action | viewName:string ctx:any -> action",
     "body": "Builds a controller action result map for rendering a view.",
-    "example": "ctx get \"home/index\" swap view"
+    "example": "$ctx \"home/index\" swap view"
   },
   {
     "word": "text",
@@ -493,7 +493,7 @@ const WORDS = [
     "group": "web",
     "stack": "body:any -> action",
     "body": "Builds a JSON controller response from nil, bool, number, string, array, or map values.",
-    "example": "payload map\npayload get \"ok\" true put! drop\npayload get json"
+    "example": "payload map\n$payload \"ok\" true put! drop\n$payload json"
   },
   {
     "word": "redirect",
@@ -509,7 +509,7 @@ const WORDS = [
     "group": "web",
     "stack": "action status:number -> action | task -> string",
     "body": "Sets the HTTP status code on a controller action result map, or returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
-    "example": "\"created\" text 201 status\ntask get status"
+    "example": "\"created\" text 201 status\n$task status"
   },
   {
     "word": "header",
@@ -565,7 +565,7 @@ const WORDS = [
     "group": "web",
     "stack": "id ModelClass -> result(record|nil) | block collection -> value|nil | haystack:string regex -> map|nil",
     "body": "Finds a row by id for a mapped model class, the first collection item whose block result is truthy, or the first regex match as a map with `text`, `start`, and `end`.",
-    "example": "42 User find\n[ 8 = ] numbers get find\n\"abc123\" digits get find"
+    "example": "42 User find\n[ 8 = ] $numbers find\n\"abc123\" $digits find"
   },
   {
     "word": "default-page",
@@ -573,7 +573,7 @@ const WORDS = [
     "group": "web",
     "stack": "ModelClass -> result(array) | modelName:string DatabaseCapability -> result(array)",
     "body": "Loads the v1 beta default list page: up to 50 rows, ordered by `id asc` when the model maps an `id` field, otherwise the first bounded page.",
-    "example": "User default-page\n\"User\" db get default-page"
+    "example": "User default-page\n\"User\" $db default-page"
   },
   {
     "word": "where",
@@ -597,7 +597,7 @@ const WORDS = [
     "group": "web",
     "stack": "ModelClass -> result(number) | string|collection -> number",
     "body": "Counts rows for a mapped model class, characters for strings, or items for collections.",
-    "example": "User count\nusers get count"
+    "example": "User count\n$users count"
   },
   {
     "word": "first",
@@ -605,7 +605,7 @@ const WORDS = [
     "group": "web",
     "stack": "ModelClass -> result(record|nil) | string|array|list|set -> value|nil",
     "body": "Loads the first row for a mapped model class, or returns the first character or collection item.",
-    "example": "User first\nusers get first"
+    "example": "User first\n$users first"
   },
   {
     "word": "exists?",
@@ -621,7 +621,7 @@ const WORDS = [
     "group": "web",
     "stack": "attributes:map ModelClass -> result(record)",
     "body": "Inserts a row using mapped non-id fields and returns the inserted record.",
-    "example": "attributes map\nattributes get \"email\" \"ada@example.com\" put! drop\nattributes get User insert"
+    "example": "attributes map\n$attributes \"email\" \"ada@example.com\" put! drop\n$attributes User insert"
   },
   {
     "word": "update",
@@ -629,7 +629,7 @@ const WORDS = [
     "group": "web",
     "stack": "id attributes:map ModelClass -> result(record)",
     "body": "Updates a row by id using mapped non-id fields and returns the updated record.",
-    "example": "updates map\nupdates get \"email\" \"grace@example.com\" put! drop\n42 updates get User update"
+    "example": "updates map\n$updates \"email\" \"grace@example.com\" put! drop\n42 $updates User update"
   },
   {
     "word": "*",
@@ -773,7 +773,7 @@ const WORDS = [
     "group": "collection",
     "stack": "name?:string -> | -> list",
     "body": "Declares a mutable list variable when given a name, otherwise pushes an empty list.",
-    "example": "queue list\nqueue get 1 push! drop"
+    "example": "queue list\n$queue 1 push! drop"
   },
   {
     "word": "Set",
@@ -781,7 +781,7 @@ const WORDS = [
     "group": "collection",
     "stack": "name?:string -> | -> Class(Set)",
     "body": "With a name on top, declares a mutable set variable. With no name, pushes the Set class for `Set new`.",
-    "example": "tags Set\ntags get \"rco\" push! drop"
+    "example": "tags Set\n$tags \"rco\" push! drop"
   },
   {
     "word": "range",
@@ -797,7 +797,7 @@ const WORDS = [
     "group": "collection",
     "stack": "collection value -> sameCollection",
     "body": "Mutates an array, list, or set in place and returns the same collection for chaining.",
-    "example": "users get \"Ada\" push! \"Grace\" push! drop"
+    "example": "$users \"Ada\" push! \"Grace\" push! drop"
   },
   {
     "word": "put!",
@@ -805,7 +805,7 @@ const WORDS = [
     "group": "collection",
     "stack": "map key:string value:any -> sameMap",
     "body": "Mutates a map in place and returns the same map for chaining.",
-    "example": "settings get \"theme\" \"dark\" put! drop"
+    "example": "$settings \"theme\" \"dark\" put! drop"
   },
   {
     "word": "insert!",
@@ -813,7 +813,7 @@ const WORDS = [
     "group": "collection",
     "stack": "index:number value:any array|list -> sameCollection",
     "body": "Inserts at a zero-based index.",
-    "example": "users get 1 \"Lin\" insert! drop"
+    "example": "$users 1 \"Lin\" insert! drop"
   },
   {
     "word": "remove!",
@@ -821,7 +821,7 @@ const WORDS = [
     "group": "collection",
     "stack": "value:any collection -> sameCollection | key:string map -> sameMap",
     "body": "Removes a matching value from arrays/lists/sets or a key from maps.",
-    "example": "settings get \"theme\" remove! drop"
+    "example": "$settings \"theme\" remove! drop"
   },
   {
     "word": "remove-at!",
@@ -829,7 +829,7 @@ const WORDS = [
     "group": "collection",
     "stack": "index:number array|list -> sameCollection",
     "body": "Removes the value at a zero-based index.",
-    "example": "users get 0 remove-at! drop"
+    "example": "$users 0 remove-at! drop"
   },
   {
     "word": "clear!",
@@ -837,7 +837,7 @@ const WORDS = [
     "group": "collection",
     "stack": "collection -> sameCollection",
     "body": "Clears a mutable collection in place.",
-    "example": "users get clear! drop"
+    "example": "$users clear! drop"
   },
   {
     "word": "at",
@@ -845,7 +845,7 @@ const WORDS = [
     "group": "collection",
     "stack": "index:number string|array|list -> value | key:string map -> value",
     "body": "Reads an indexed value, character, or map entry. Missing values produce nil.",
-    "example": "users get 0 at\nsettings get \"theme\" at"
+    "example": "$users 0 at\n$settings \"theme\" at"
   },
   {
     "word": "last",
@@ -853,7 +853,7 @@ const WORDS = [
     "group": "collection",
     "stack": "string|array|list|set -> value|nil",
     "body": "Returns the last character or item, or nil for an empty receiver.",
-    "example": "users get last"
+    "example": "$users last"
   },
   {
     "word": "take",
@@ -861,7 +861,7 @@ const WORDS = [
     "group": "collection",
     "stack": "count:number string|array|list|set -> sameKind",
     "body": "Returns the first count characters or items.",
-    "example": "users get 2 take"
+    "example": "$users 2 take"
   },
   {
     "word": "skip",
@@ -869,7 +869,7 @@ const WORDS = [
     "group": "collection",
     "stack": "count:number string|array|list|set -> sameKind",
     "body": "Returns characters or items after the first count entries.",
-    "example": "users get 1 skip"
+    "example": "$users 1 skip"
   },
   {
     "word": "reverse",
@@ -877,7 +877,7 @@ const WORDS = [
     "group": "collection",
     "stack": "string|array|list|set -> sameKind",
     "body": "Returns characters or items in reverse order.",
-    "example": "users get reverse"
+    "example": "$users reverse"
   },
   {
     "word": "has?",
@@ -885,7 +885,7 @@ const WORDS = [
     "group": "collection",
     "stack": "value:any collection -> bool | key:string map -> bool",
     "body": "Checks membership or map-key presence.",
-    "example": "settings get \"theme\" has?"
+    "example": "$settings \"theme\" has?"
   },
   {
     "word": "keys",
@@ -893,7 +893,7 @@ const WORDS = [
     "group": "collection",
     "stack": "map -> array",
     "body": "Returns map keys as an array of strings.",
-    "example": "settings get keys"
+    "example": "$settings keys"
   },
   {
     "word": "values",
@@ -901,7 +901,7 @@ const WORDS = [
     "group": "collection",
     "stack": "map -> array",
     "body": "Returns map values as an array.",
-    "example": "settings get values"
+    "example": "$settings values"
   },
   {
     "word": "each",
@@ -909,7 +909,7 @@ const WORDS = [
     "group": "collection",
     "stack": "block collection -> sameCollection",
     "body": "Runs a block for each item. Map blocks receive key then value.",
-    "example": "[ println ] users get each drop"
+    "example": "[ println ] $users each drop"
   },
   {
     "word": "transform",
@@ -917,7 +917,7 @@ const WORDS = [
     "group": "collection",
     "stack": "block collection -> array",
     "body": "Maps each item through a block and returns an array.",
-    "example": "[ 2 * ] numbers get transform"
+    "example": "[ 2 * ] $numbers transform"
   },
   {
     "word": "select",
@@ -925,7 +925,7 @@ const WORDS = [
     "group": "collection",
     "stack": "block collection -> collection",
     "body": "Keeps items whose block result is truthy.",
-    "example": "[ 4 > ] numbers get select"
+    "example": "[ 4 > ] $numbers select"
   },
   {
     "word": "reduce",
@@ -933,7 +933,7 @@ const WORDS = [
     "group": "collection",
     "stack": "initial:any block array|list|set -> value",
     "body": "Reduces a sequence by calling the block with accumulator then item.",
-    "example": "0 [ + ] numbers get reduce"
+    "example": "0 [ + ] $numbers reduce"
   },
   {
     "word": "any?",
@@ -941,7 +941,7 @@ const WORDS = [
     "group": "collection",
     "stack": "block collection -> bool",
     "body": "Returns true if any item matches.",
-    "example": "[ 10 = ] numbers get any?"
+    "example": "[ 10 = ] $numbers any?"
   },
   {
     "word": "all?",
@@ -949,7 +949,7 @@ const WORDS = [
     "group": "collection",
     "stack": "block collection -> bool",
     "body": "Returns true if every item matches.",
-    "example": "[ 0 > ] numbers get all?"
+    "example": "[ 0 > ] $numbers all?"
   },
   {
     "word": "join",
@@ -957,7 +957,7 @@ const WORDS = [
     "group": "collection",
     "stack": "separator:string collection -> string",
     "body": "Joins a collection of displayable values into a string.",
-    "example": "users get \", \" join"
+    "example": "$users \", \" join"
   },
   {
     "word": "trim",
@@ -1053,7 +1053,7 @@ const WORDS = [
     "group": "string",
     "stack": "needle:string replacement:string string -> string | haystack:string replacement:string regex -> string",
     "body": "Replaces all matching substrings, or all regex matches when the receiver is a regex.",
-    "example": "\"telnet era\" \"telnet\" \"web\" replace\n\"abc123\" \"#\" digits get replace"
+    "example": "\"telnet era\" \"telnet\" \"web\" replace\n\"abc123\" \"#\" $digits replace"
   },
   {
     "word": "contains?",
@@ -1125,7 +1125,7 @@ const WORDS = [
     "group": "string",
     "stack": "value -> string",
     "body": "Encodes nil, bool, number, string, array, list, set, map, or result values as JSON.",
-    "example": "settings get json-encode"
+    "example": "$settings json-encode"
   },
   {
     "word": "json-decode",
@@ -1149,7 +1149,7 @@ const WORDS = [
     "group": "string",
     "stack": "haystack:string regex -> bool",
     "body": "Returns true when the regex matches the string.",
-    "example": "\"hello-world\" slugPattern get matches?"
+    "example": "\"hello-world\" $slugPattern matches?"
   },
   {
     "word": "captures",
@@ -1157,7 +1157,7 @@ const WORDS = [
     "group": "string",
     "stack": "haystack:string regex -> map|nil",
     "body": "Returns numbered and named capture groups as a map, or nil.",
-    "example": "\"item-42\" pairPattern get captures"
+    "example": "\"item-42\" $pairPattern captures"
   },
   {
     "word": "ok",
@@ -1181,7 +1181,7 @@ const WORDS = [
     "group": "result",
     "stack": "result -> bool",
     "body": "Returns true for error results.",
-    "example": "result get error?"
+    "example": "$result error?"
   },
   {
     "word": "unwrap-or",
@@ -1189,7 +1189,7 @@ const WORDS = [
     "group": "result",
     "stack": "fallback:any result -> value",
     "body": "Returns the ok value or a fallback.",
-    "example": "maybeName get \"guest\" unwrap-or"
+    "example": "$maybeName \"guest\" unwrap-or"
   },
   {
     "word": "map-result",
@@ -1205,7 +1205,7 @@ const WORDS = [
     "group": "result",
     "stack": "block result -> result",
     "body": "Runs a block that must itself return a result when the receiver is ok.",
-    "example": "value get [ ok ] and-then"
+    "example": "$value [ ok ] and-then"
   },
   {
     "word": "result_envelope",
@@ -1213,7 +1213,7 @@ const WORDS = [
     "group": "result",
     "stack": "result options:map -> map",
     "body": "Converts a Result into a shared `{ ok, data, error, meta }` map for app and API boundaries. The options map becomes `meta`; when it contains a non-empty string `capability`, error envelopes also include `error.capability`. Error `code` currently mirrors the Result kind.",
-    "example": "options map\noptions get \"capability\" \"workspace.read\" put! drop\n\"payload\" ok options get result_envelope"
+    "example": "options map\n$options \"capability\" \"workspace.read\" put! drop\n\"payload\" ok $options result_envelope"
   },
   {
     "word": "print",
@@ -1221,7 +1221,7 @@ const WORDS = [
     "group": "system",
     "stack": "value ->",
     "body": "Writes to captured stdout without adding a newline.",
-    "example": "\"Name: \" print name get print"
+    "example": "\"Name: \" print $name print"
   },
   {
     "word": "eprint",
@@ -1293,7 +1293,7 @@ const WORDS = [
     "group": "system",
     "stack": "config:map key-or-path:string|array -> result(value)",
     "body": "Reads a required config value from a map. A string reads one key; an array/list of strings walks nested maps and returns a `ConfigError` result if the path is missing.",
-    "example": "path array\npath get \"provider\" push! drop\npath get \"token\" push! drop\nconfig get path get config_get value"
+    "example": "path array\n$path \"provider\" push! drop\n$path \"token\" push! drop\n$config $path config_get value"
   },
   {
     "word": "cwd",
@@ -1317,7 +1317,7 @@ const WORDS = [
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
     "body": "Runs a direct child process to completion when the process capability is enabled. Options include `cwd`, `stdin`, `timeout_ms`, `clear_env`, `env`, `stdout_max_bytes`, and `stderr_max_bytes`; `cwd` is bounded by `--process-root` when configured, then by `--fs-root`. The result map includes `success`, `status`, `stdout`, `stderr`, `stdout_truncated`, and `stderr_truncated`.",
-    "example": "args array\noptions map\n\"git\" args get options get process_spawn value"
+    "example": "args array\noptions map\n\"git\" $args $options process_spawn value"
   },
   {
     "word": "process_spawn_task",
@@ -1325,7 +1325,7 @@ const WORDS = [
     "group": "system",
     "stack": "command:string args:array options:map -> task",
     "body": "Starts `process_spawn` on a task worker. Await the task to receive the same result map returned by `process_spawn`.",
-    "example": "args array\noptions map\n\"git\" args get options get process_spawn_task await value"
+    "example": "args array\noptions map\n\"git\" $args $options process_spawn_task await value"
   },
   {
     "word": "process_start",
@@ -1333,7 +1333,7 @@ const WORDS = [
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
     "body": "Starts a direct child process as a long-running job when the process capability is enabled. The returned snapshot includes `id`, `status`, `running`, `success`, output lengths, truncation flags, timeout state, and cancellation state.",
-    "example": "args array\noptions map\n\"git\" args get options get process_start value"
+    "example": "args array\noptions map\n\"git\" $args $options process_start value"
   },
   {
     "word": "process_jobs",
@@ -1349,7 +1349,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number -> result(map)",
     "body": "Returns a snapshot for a retained process job, or a `ProcessNotFound` result when the id is unknown.",
-    "example": "job get \"id\" at process_job value"
+    "example": "$job \"id\" at process_job value"
   },
   {
     "word": "process_cancel",
@@ -1357,7 +1357,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number -> result(map)",
     "body": "Requests cancellation for a running process job and returns the latest snapshot. Completed jobs remain inspectable.",
-    "example": "job get \"id\" at process_cancel value"
+    "example": "$job \"id\" at process_cancel value"
   },
   {
     "word": "process_read",
@@ -1365,7 +1365,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Reads retained stdout/stderr for a process job. Options include `stdout_offset` and `stderr_offset`; the result includes output slices, next offsets, and the same snapshot fields as `process_job`.",
-    "example": "readOptions map\njob get \"id\" at readOptions get process_read value"
+    "example": "readOptions map\n$job \"id\" at $readOptions process_read value"
   },
   {
     "word": "process_env_put",
@@ -1373,7 +1373,7 @@ const WORDS = [
     "group": "system",
     "stack": "options:map name:string value:string -> result(map)",
     "body": "Adds or updates a child-process environment entry inside a process options map. The nested `env` map is created when missing; variable names and values are validated before use.",
-    "example": "options map\noptions get \"GIT_TERMINAL_PROMPT\" \"0\" process_env_put value options set"
+    "example": "options map\n$options \"GIT_TERMINAL_PROMPT\" \"0\" process_env_put value options set"
   },
   {
     "word": "pty_start",
@@ -1381,7 +1381,7 @@ const WORDS = [
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
     "body": "Starts a command in a real pseudo-terminal when the PTY capability is enabled. Options include `cwd`, `clear_env`, `env`, `rows`, `cols`, and `output_max_bytes`.",
-    "example": "args array\nargs get \"repl\" push! drop\noptions map\n\"rco\" args get options get pty_start value"
+    "example": "args array\n$args \"repl\" push! drop\noptions map\n\"rco\" $args $options pty_start value"
   },
   {
     "word": "pty_write",
@@ -1389,7 +1389,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number input:string -> result(map)",
     "body": "Writes input to a running PTY session and returns the latest session snapshot.",
-    "example": "session get \"id\" at \"1 2 +\\r\\n\" pty_write value"
+    "example": "$session \"id\" at \"1 2 +\\r\\n\" pty_write value"
   },
   {
     "word": "pty_read",
@@ -1397,7 +1397,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Reads retained PTY output. Option `offset` supports incremental reads; the result includes `output`, next `offset`, truncation state, size, status, and process metadata.",
-    "example": "readOptions map\nsession get \"id\" at readOptions get pty_read value"
+    "example": "readOptions map\n$session \"id\" at $readOptions pty_read value"
   },
   {
     "word": "pty_resize",
@@ -1405,7 +1405,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number cols:number rows:number -> result(map)",
     "body": "Resizes a PTY session and returns the latest snapshot.",
-    "example": "session get \"id\" at 120 40 pty_resize value"
+    "example": "$session \"id\" at 120 40 pty_resize value"
   },
   {
     "word": "pty_stop",
@@ -1413,7 +1413,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Requests termination of a PTY session and returns the latest snapshot.",
-    "example": "stopOptions map\nsession get \"id\" at stopOptions get pty_stop value"
+    "example": "stopOptions map\n$session \"id\" at $stopOptions pty_stop value"
   },
   {
     "word": "pty_list",
@@ -1429,7 +1429,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number -> result(map)",
     "body": "Returns a snapshot for one retained PTY session, or a `PtyNotFound` result when the id is unknown.",
-    "example": "session get \"id\" at pty_detail value"
+    "example": "$session \"id\" at pty_detail value"
   },
   {
     "word": "approval_create",
@@ -1437,7 +1437,7 @@ const WORDS = [
     "group": "system",
     "stack": "operation:map options:map -> result(map)",
     "body": "Creates a runtime-local approval record and returns a one-time token in the create result. Options include `id`, `token`, `ttl_ms`, `expires_at_ms`, and `metadata`; unknown options fail with `ApprovalRequestError`.",
-    "example": "operation map\noptions map\noperation get options get approval_create value"
+    "example": "operation map\noptions map\n$operation $options approval_create value"
   },
   {
     "word": "approval_claim",
@@ -1445,7 +1445,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:string token:string -> result(map)",
     "body": "Claims a pending approval exactly once. Expired, rejected, completed, already claimed, or token-mismatched approvals return structured result errors.",
-    "example": "approval get \"id\" at approval get \"token\" at approval_claim value"
+    "example": "$approval \"id\" at $approval \"token\" at approval_claim value"
   },
   {
     "word": "approval_complete",
@@ -1453,7 +1453,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:string result:value -> result(map)",
     "body": "Marks a claimed approval completed and stores the caller-provided result value for audit. Pending approvals must be claimed before completion.",
-    "example": "approval get \"id\" at result get approval_complete value"
+    "example": "$approval \"id\" at $result approval_complete value"
   },
   {
     "word": "approval_reject",
@@ -1461,7 +1461,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:string reason:string -> result(map)",
     "body": "Marks a pending or claimed approval rejected with a reason. Final and expired approvals cannot be rejected again.",
-    "example": "approval get \"id\" at \"Rejected by user\" approval_reject value"
+    "example": "$approval \"id\" at \"Rejected by user\" approval_reject value"
   },
   {
     "word": "approval_detail",
@@ -1469,7 +1469,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:string -> result(map)",
     "body": "Returns a retained approval record without re-exposing the one-time token after creation.",
-    "example": "approval get \"id\" at approval_detail value"
+    "example": "$approval \"id\" at approval_detail value"
   },
   {
     "word": "now",
@@ -1549,7 +1549,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string options:map -> result(map)",
     "body": "Resolves a workspace path through the filesystem root and returns a structured map with requested path, resolved path, relative path, root containment, and existence.",
-    "example": "options map\n\".\" options get workspace_resolve value"
+    "example": "options map\n\".\" $options workspace_resolve value"
   },
   {
     "word": "workspace_contains?",
@@ -1573,7 +1573,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string options:map -> result(array)",
     "body": "Lists workspace entries as metadata maps. Options include `recursive`, `include_files`, `include_dirs`, and `max_entries`.",
-    "example": "options map\n\".\" options get workspace_list value"
+    "example": "options map\n\".\" $options workspace_list value"
   },
   {
     "word": "workspace_read_text",
@@ -1581,7 +1581,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string options:map -> result(string)",
     "body": "Reads UTF-8 workspace text with a bounded `max_bytes` option. The default cap is 1 MiB.",
-    "example": "options map\n\"README.md\" options get workspace_read_text value"
+    "example": "options map\n\"README.md\" $options workspace_read_text value"
   },
   {
     "word": "workspace_write_text",
@@ -1589,7 +1589,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string contents:string options:map -> result(map)",
     "body": "Writes UTF-8 text through the workspace bounds when filesystem writes are enabled. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false.",
-    "example": "options map\n\"out.txt\" \"hello\" options get workspace_write_text value"
+    "example": "options map\n\"out.txt\" \"hello\" $options workspace_write_text value"
   },
   {
     "word": "workspace_mkdir",
@@ -1597,7 +1597,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string options:map -> result(map)",
     "body": "Creates a workspace directory when filesystem writes are enabled. Option `recursive` defaults to true.",
-    "example": "options map\n\"tmp/cache\" options get workspace_mkdir value"
+    "example": "options map\n\"tmp/cache\" $options workspace_mkdir value"
   },
   {
     "word": "workspace_copy",
@@ -1605,7 +1605,7 @@ const WORDS = [
     "group": "system",
     "stack": "source:string destination:string options:map -> result(map)",
     "body": "Copies a file inside workspace bounds. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false.",
-    "example": "options map\n\"README.md\" \"tmp/README.md\" options get workspace_copy value"
+    "example": "options map\n\"README.md\" \"tmp/README.md\" $options workspace_copy value"
   },
   {
     "word": "workspace_move",
@@ -1613,7 +1613,7 @@ const WORDS = [
     "group": "system",
     "stack": "source:string destination:string options:map -> result(map)",
     "body": "Renames a file or directory inside workspace bounds. Existing destinations are rejected.",
-    "example": "options map\n\"tmp/a.txt\" \"tmp/b.txt\" options get workspace_move value"
+    "example": "options map\n\"tmp/a.txt\" \"tmp/b.txt\" $options workspace_move value"
   },
   {
     "word": "http_request_new",
@@ -1629,7 +1629,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map name:string value:string -> result(map)",
     "body": "Adds or updates a validated HTTP header inside a request map, creating the nested `headers` map when needed.",
-    "example": "request get \"Accept\" \"application/json\" http_header_put value request set"
+    "example": "$request \"Accept\" \"application/json\" http_header_put value request set"
   },
   {
     "word": "http_bearer_auth",
@@ -1637,7 +1637,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map token:string -> result(map)",
     "body": "Adds an `Authorization: Bearer ...` header to a request map. This is intended to be paired with `secret_resolve` for env-backed API keys.",
-    "example": "request get token get http_bearer_auth value request set"
+    "example": "$request $token http_bearer_auth value request set"
   },
   {
     "word": "http_json_body",
@@ -1645,7 +1645,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map body:any -> result(map)",
     "body": "Stores a Ricochet value as the JSON body for a structured HTTP request and clears any string body already present.",
-    "example": "request get payload get http_json_body value request set"
+    "example": "$request $payload http_json_body value request set"
   },
   {
     "word": "http_timeout",
@@ -1653,7 +1653,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map millis:number -> result(map)",
     "body": "Sets a bounded request timeout in milliseconds on a structured HTTP request map.",
-    "example": "request get 30000 http_timeout value request set"
+    "example": "$request 30000 http_timeout value request set"
   },
   {
     "word": "http_get",
@@ -1677,7 +1677,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map -> result(map)",
     "body": "Runs an HTTP request from a map with `url`, optional `method`, optional `headers`, and optional `json` or string `body`. Request maps may also include `timeout_ms`, `max_response_bytes`, `allowed_hosts`, `allowed_schemes`, and `follow_redirects=false`; redirects remain disabled.",
-    "example": "request get \"timeout_ms\" 30000 put! drop\nrequest get http_request value"
+    "example": "$request \"timeout_ms\" 30000 put! drop\n$request http_request value"
   },
   {
     "word": "http_post_json",
@@ -1685,7 +1685,7 @@ const WORDS = [
     "group": "system",
     "stack": "url:string body:any -> result(map)",
     "body": "Posts a JSON-encoded Ricochet value.",
-    "example": "\"https://api.example\" payload get http_post_json"
+    "example": "\"https://api.example\" $payload http_post_json"
   },
   {
     "word": "http_post_json_task",
@@ -1693,7 +1693,7 @@ const WORDS = [
     "group": "system",
     "stack": "url:string body:any -> task",
     "body": "Starts a JSON HTTP POST on a task worker. Await the task to receive the same result map returned by `http_post_json`.",
-    "example": "\"https://api.example\" payload get http_post_json_task await value"
+    "example": "\"https://api.example\" $payload http_post_json_task await value"
   },
   {
     "word": "http_request_task",
@@ -1701,7 +1701,47 @@ const WORDS = [
     "group": "system",
     "stack": "request:map -> task",
     "body": "Starts a mapped HTTP request on a task worker. Await the task to receive the same result map returned by `http_request`, including request-level timeout, byte-cap, scheme, and host policy checks.",
-    "example": "request get http_request_task await value"
+    "example": "$request http_request_task await value"
+  },
+  {
+    "word": "http_stream_start",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "request:map -> result(map)",
+    "body": "Starts a mapped HTTP request as a retained streaming job. The returned snapshot includes `id`, `status`, `running`, `success`, `status_code`, `headers`, `body_len`, `body_truncated`, and cancellation state. Use `http_stream_read` with offsets to consume retained response bytes while the request is still running.",
+    "example": "$request http_stream_start value stream var"
+  },
+  {
+    "word": "http_streams",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns snapshots for retained HTTP stream jobs in the current VM host.",
+    "example": "http_streams count"
+  },
+  {
+    "word": "http_stream",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns the latest snapshot for a retained HTTP stream job.",
+    "example": "$stream \"id\" at http_stream value"
+  },
+  {
+    "word": "http_stream_read",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "id:number options:map -> result(map)",
+    "body": "Reads retained HTTP stream body text from `offset` and returns the same snapshot fields plus `body` and the next `offset`. Options may include `offset`; omitted offset defaults to 0.",
+    "example": "options map\n$stream \"id\" at $options http_stream_read value"
+  },
+  {
+    "word": "http_stream_cancel",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Requests cancellation for a retained HTTP stream job and returns its latest snapshot.",
+    "example": "$stream \"id\" at http_stream_cancel value"
   },
   {
     "word": "tui_enter",
@@ -1845,7 +1885,7 @@ const WORDS = [
     "group": "system",
     "stack": "title:string bodyHtml:string state:map actions:array -> result(map)",
     "body": "Builds a webview document map with explicit `state` and `actions`; action callbacks receive `(state event -> document)`.",
-    "example": "\"Counter\" $body state get actions get webview_window_state value"
+    "example": "\"Counter\" $body $state $actions webview_window_state value"
   },
   {
     "word": "inspect",
@@ -1853,7 +1893,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "value -> value string",
     "body": "Pushes a debug representation without consuming the original value.",
-    "example": "settings get inspect println"
+    "example": "$settings inspect println"
   },
   {
     "word": "debug",
@@ -1861,7 +1901,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "value -> value",
     "body": "Prints a debug representation without changing the stack.",
-    "example": "payload get debug"
+    "example": "$payload debug"
   },
   {
     "word": "type",
@@ -1901,7 +1941,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> number",
     "body": "Returns a spawned task handle's numeric id.",
-    "example": "task get id"
+    "example": "$task id"
   },
   {
     "word": "info",
@@ -1909,7 +1949,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> map",
     "body": "Returns a task metadata map with `id`, `status`, `pending`, `running`, `completed`, and `failed` fields.",
-    "example": "task get info"
+    "example": "$task info"
   },
   {
     "word": "pending?",
@@ -1917,7 +1957,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> bool",
     "body": "Returns true while a task is still running and not yet completed or failed.",
-    "example": "task get pending?"
+    "example": "$task pending?"
   },
   {
     "word": "running?",
@@ -1925,7 +1965,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> bool",
     "body": "Returns true while a spawned task is actively running.",
-    "example": "task get running?"
+    "example": "$task running?"
   },
   {
     "word": "completed?",
@@ -1933,7 +1973,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> bool",
     "body": "Returns true after a spawned task has completed successfully.",
-    "example": "task get completed?"
+    "example": "$task completed?"
   },
   {
     "word": "failed?",
@@ -1941,7 +1981,7 @@ const WORDS = [
     "group": "inspect",
     "stack": "task -> bool",
     "body": "Returns true after a spawned task has failed.",
-    "example": "task get failed?"
+    "example": "$task failed?"
   },
   {
     "word": "fields",

@@ -5,9 +5,9 @@
   event var
   state var
   actions array
-  actions get "Save" "save-profile" "save_profile" webview_action push! drop
-  "Saved profile for " state get "name" at concat webview_text saved var
-  "Ricochet Desktop UI" saved get state get actions get webview_window_state value
+  $actions "Save" "save-profile" "save_profile" webview_action push! drop
+  "Saved profile for " $state "name" at concat webview_text saved var
+  "Ricochet Desktop UI" $saved $state $actions webview_window_state value
 end
 
 "Ricochet Desktop UI" 1 webview_heading heading var
@@ -18,11 +18,11 @@ end
 
 state map
 
-state get "name" "Ada" put! drop
+$state "name" "Ada" put! drop
 
 actions array
 
-actions get "Save" "save-profile" "save_profile" webview_action push! drop
+$actions "Save" "save-profile" "save_profile" webview_action push! drop
 
 "<main>" $heading concat
 
@@ -32,4 +32,4 @@ $saveButton concat
 
 "</main>" concat body var
 
-"Ricochet Desktop UI" $body state get actions get webview_window_state value document var
+"Ricochet Desktop UI" $body $state $actions webview_window_state value document var

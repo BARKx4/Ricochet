@@ -2,11 +2,11 @@
 
 "email" "ada@example.com" form_field field var
 
-field get "value" at form_required println
+$field "value" at form_required println
 
 form_validation validation var
 
-validation get "email" "Email is required" form_error form_add_error json-encode println
+$validation "email" "Email is required" form_error form_add_error json-encode println
 
 form_schema
   "email" "string" form_required_field
@@ -14,7 +14,7 @@ form_schema
 schema var
 
 data map
-data get "email" "ada@example.com" put! drop
-data get "age" 37 put! drop
+$data "email" "ada@example.com" put! drop
+$data "age" 37 put! drop
 
-data get schema get form_schema_validate json-encode println
+$data $schema form_schema_validate json-encode println

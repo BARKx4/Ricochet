@@ -4,15 +4,15 @@ NotesController Controller Subclass
     20 Note limit
     dup ok? if
       value notes var
-      notes get count noteCount var
-      notes get first firstNote var
-      firstNote get nil? if
+      $notes count noteCount var
+      $notes first firstNote var
+      $firstNote nil? if
         "No notes yet" firstTitle var
       else
-        firstNote get "title" at firstTitle var
+        $firstNote "title" at firstTitle var
       end
       "Ricochet Notes" title var
-      ctx get
+      $ctx
       "notes/index" swap view
     else
       error "message" at text 500 status
@@ -21,17 +21,17 @@ NotesController Controller Subclass
   ( title body -> Response ) [
     body var
     title var
-    title get nil? if
+    $title nil? if
       "Title is required" text 400 status
     else
-      title get blank? if
+      $title blank? if
         "Title is required" text 400 status
       else
         note map
-        note get "title" title get put! drop
-        note get "body" body get put! drop
-        note get "status" "open" put! drop
-        note get Note insert
+        $note "title" $title put! drop
+        $note "body" $body put! drop
+        $note "status" "open" put! drop
+        $note Note insert
         dup ok? if
           drop
           "/" redirect

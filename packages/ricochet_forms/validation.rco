@@ -3,17 +3,17 @@
   value var
   name var
   field map
-  field get "name" name get put! drop
-  field get "value" value get put! drop
-  field get
+  $field "name" $name put! drop
+  $field "value" $value put! drop
+  $field
 end
 
 ( value -> Bool ) form_required function
   value var
-  value get nil? if
+  $value nil? if
     false
   else
-    value get blank? false =
+    $value blank? false =
   end
 end
 
@@ -21,66 +21,66 @@ end
   message var
   field var
   error map
-  error get "field" field get put! drop
-  error get "message" message get put! drop
-  error get
+  $error "field" $field put! drop
+  $error "message" $message put! drop
+  $error
 end
 
 ( -> Map ) form_validation function
   validation map
   errors array
-  validation get "ok" true put! drop
-  validation get "errors" errors get put! drop
-  validation get
+  $validation "ok" true put! drop
+  $validation "errors" $errors put! drop
+  $validation
 end
 
 ( validation error -> Map ) form_add_error function
   error var
   validation var
-  validation get "errors" at error get push! drop
-  validation get "ok" false put! drop
-  validation get
+  $validation "errors" at $error push! drop
+  $validation "ok" false put! drop
+  $validation
 end
 
 ( -> Map ) form_schema function
   schema map
-  schema get
+  $schema
 end
 
 ( type required -> Map ) form_schema_rule function
   required var
   type var
   rule map
-  rule get "type" type get put! drop
-  rule get "required" required get put! drop
-  rule get
+  $rule "type" $type put! drop
+  $rule "required" $required put! drop
+  $rule
 end
 
 ( schema name type -> Map ) form_required_field function
   type var
   name var
   schema var
-  type get true form_schema_rule rule var
-  schema get name get rule get put! drop
-  schema get
+  $type true form_schema_rule rule var
+  $schema $name $rule put! drop
+  $schema
 end
 
 ( schema name type -> Map ) form_optional_field function
   type var
   name var
   schema var
-  type get false form_schema_rule rule var
-  schema get name get rule get put! drop
-  schema get
+  $type false form_schema_rule rule var
+  $schema $name $rule put! drop
+  $schema
 end
 
 ( value expectedType -> Bool ) form_type_matches function
   expectedType var
   value var
-  expectedType get "any" = if
+  $expectedType "any" = if
     true
   else
-    value get type expectedType get =
+    $value type $expectedType =
   end
 end
 
@@ -92,29 +92,29 @@ end
   [
     rule var
     field var
-    rule get "type" at typeName var
-    data get field get at value var
+    $rule "type" at typeName var
+    $data $field at value var
 
-    rule get "required" at true = if
-      value get nil? if
-        validation get field get "is required" form_error form_add_error validation set
+    $rule "required" at true = if
+      $value nil? if
+        $validation $field "is required" form_error form_add_error validation set
       else
-        typeName get "string" = if
-          value get blank? if
-            validation get field get "is required" form_error form_add_error validation set
+        $typeName "string" = if
+          $value blank? if
+            $validation $field "is required" form_error form_add_error validation set
           end
         end
       end
     end
 
-    value get nil? false = if
-      value get typeName get form_type_matches false = if
-        validation get field get "must be " typeName get concat form_error form_add_error validation set
+    $value nil? false = if
+      $value $typeName form_type_matches false = if
+        $validation $field "must be " $typeName concat form_error form_add_error validation set
       end
     end
-  ] schema get each drop
+  ] $schema each drop
 
-  validation get
+  $validation
 end
 
 ( name filename contentType size -> Map ) form_multipart_file function
@@ -123,9 +123,9 @@ end
   filename var
   name var
   file map
-  file get "name" name get put! drop
-  file get "filename" filename get put! drop
-  file get "content_type" contentType get put! drop
-  file get "size" size get put! drop
-  file get
+  $file "name" $name put! drop
+  $file "filename" $filename put! drop
+  $file "content_type" $contentType put! drop
+  $file "size" $size put! drop
+  $file
 end

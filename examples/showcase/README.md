@@ -49,5 +49,5 @@ rco debug --step examples/showcase/debugger_demo.rco
 rco debug-adapter
 ```
 
-Set a source breakpoint on the line that reads `worker get await` to inspect the
+Set a source breakpoint on the line that reads `$worker await` to inspect the
 stack, globals, and task snapshot from the terminal debugger or an IDE.

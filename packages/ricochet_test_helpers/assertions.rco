@@ -2,43 +2,43 @@
 ( expected actual -> Value ) test_assert_equal function
   actual var
   expected var
-  actual get expected get assert-equals
-  actual get
+  $actual $expected assert-equals
+  $actual
 end
 
 ( subject key expected -> Map ) test_assert_map_field function
   expected var
   key var
   subject var
-  subject get key get at expected get assert-equals
-  subject get
+  $subject $key at $expected assert-equals
+  $subject
 end
 
 ( response -> Bool ) test_http_ok function
   response var
-  response get "status" at 200 =
+  $response "status" at 200 =
 end
 
 ( response expected -> Map ) test_http_assert_status function
   expected var
   response var
-  response get "status" at expected get assert-equals
-  response get
+  $response "status" at $expected assert-equals
+  $response
 end
 
 ( value name -> Map ) test_fixture function
   name var
   value var
   fixture map
-  fixture get "name" name get put! drop
-  fixture get "value" value get put! drop
-  fixture get
+  $fixture "name" $name put! drop
+  $fixture "value" $value put! drop
+  $fixture
 end
 
 ( name -> Map ) test_workspace function
   name var
   workspace map
-  workspace get "name" name get put! drop
-  workspace get "root" ".tmp/" name get concat put! drop
-  workspace get
+  $workspace "name" $name put! drop
+  $workspace "root" ".tmp/" $name concat put! drop
+  $workspace
 end

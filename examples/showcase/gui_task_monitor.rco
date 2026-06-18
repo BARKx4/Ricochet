@@ -1,25 +1,25 @@
 ( state event -> Map ) monitor_increment function
   event var
   state var
-  state get "count" at 1 + nextCount var
-  state get "count" nextCount get put! drop
-  "Count: " nextCount get to-string concat webview_text countText var
+  $state "count" at 1 + nextCount var
+  $state "count" $nextCount put! drop
+  "Count: " $nextCount to-string concat webview_text countText var
   "Increment" "increment" webview_button button var
   actions array
-  actions get "Increment" "increment" "monitor_increment" webview_action push! drop
-  "<main><h1>Ricochet GUI Task Monitor</h1><p>" countText get concat "</p><p>Task snapshot retained in state.</p>" concat button get concat "</main>" concat body var
-  "Ricochet GUI Task Monitor" body get state get actions get webview_window_state value
+  $actions "Increment" "increment" "monitor_increment" webview_action push! drop
+  "<main><h1>Ricochet GUI Task Monitor</h1><p>" $countText concat "</p><p>Task snapshot retained in state.</p>" concat $button concat "</main>" concat body var
+  "Ricochet GUI Task Monitor" $body $state $actions webview_window_state value
 end
 
 [ 40 2 + ] spawn worker var
 
 state map
 
-state get "count" 0 put! drop
+$state "count" 0 put! drop
 
-state get "task_count" tasks count put! drop
+$state "task_count" tasks count put! drop
 
-state get "worker_status" worker get status put! drop
+$state "worker_status" $worker status put! drop
 
 "Count: 0" webview_text countText var
 
@@ -27,8 +27,8 @@ state get "worker_status" worker get status put! drop
 
 actions array
 
-actions get "Increment" "increment" "monitor_increment" webview_action push! drop
+$actions "Increment" "increment" "monitor_increment" webview_action push! drop
 
-"<main><h1>Ricochet GUI Task Monitor</h1><p>" countText get concat "</p><p>Worker status: " concat worker get status concat "</p>" concat button get concat "</main>" concat body var
+"<main><h1>Ricochet GUI Task Monitor</h1><p>" $countText concat "</p><p>Worker status: " concat $worker status concat "</p>" concat $button concat "</main>" concat body var
 
-"Ricochet GUI Task Monitor" body get state get actions get webview_window_state value
+"Ricochet GUI Task Monitor" $body $state $actions webview_window_state value

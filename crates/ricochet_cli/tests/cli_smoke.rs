@@ -97,7 +97,7 @@ fn new_creates_mvc_project_skeleton() {
     assert!(routes.contains("GET \"/users\" UserController \"index\" route"));
     assert!(controller.contains("HomeController Controller Subclass"));
     assert!(view.contains("href=\"/assets/app.css\""));
-    assert!(view.contains("{ title get }"));
+    assert!(view.contains("{ $title }"));
     assert!(stylesheet.contains("font-family"));
     assert!(model.contains("User Model Subclass"));
     assert!(model.contains("\"displayName\""));
@@ -105,7 +105,7 @@ fn new_creates_mvc_project_skeleton() {
     assert!(user_controller.contains("users array"));
     assert!(user_controller.contains("push!"));
     assert!(user_controller.contains("userCount var"));
-    assert!(users_view.contains("{ userCount get }"));
+    assert!(users_view.contains("{ $userCount }"));
     assert!(test.contains("ApplicationSmokeTest TestCase Subclass"));
     assert!(test.contains("User new"));
     assert!(test.contains("displayName"));
@@ -220,7 +220,7 @@ fn new_with_sqlite_creates_ready_database_project() {
             .join("AuthController.rco"),
     )
     .expect("auth controller should exist");
-    assert!(auth_controller.contains("session get \"user_email\""));
+    assert!(auth_controller.contains("$session \"user_email\""));
     assert!(auth_controller.contains("remove!"));
     assert!(auth_controller.contains("\"/me\" redirect"));
 
@@ -7054,6 +7054,47 @@ task get completed?
 }
 
 #[test]
+fn run_exposes_http_stream_reads_with_offsets() {
+    let (address, server) = spawn_chunked_http_server(vec![
+        (b"data: first\n\n".to_vec(), Duration::from_millis(0)),
+        (b"data: second\n\n".to_vec(), Duration::from_millis(150)),
+    ]);
+    let output = run_source(&format!(
+        r#"
+request map
+request get "url" "http://{address}/stream" put! drop
+request get "timeout_ms" 10000 put! drop
+request get "max_response_bytes" 1024 put! drop
+request get http_stream_start value stream var
+stream get "id" at id var
+50 sleep
+options map
+id get options get http_stream_read value first var
+first get "body" at
+first get "offset" at offset var
+200 sleep
+nextOptions map
+nextOptions get "offset" offset get put! drop
+id get nextOptions get http_stream_read value second var
+second get "body" at
+id get http_stream value "status" at
+runtime_capabilities "http" at "streams" at
+"#
+    ));
+    server.join().expect("HTTP streaming server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("data: first")
+            && stdout.contains("data: second")
+            && stdout.contains("String(\"completed\")")
+            && stdout.contains("Number(1)"),
+        "stdout should contain first chunk, second chunk, completed status, and stream count, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_http_request_rejects_request_policy_before_connecting() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
     let address = listener.local_addr().expect("listener should have address");
@@ -7764,6 +7805,76 @@ fn spawn_capturing_http_server(
     });
 
     (address, server, request_rx)
+}
+
+fn spawn_chunked_http_server(
+    chunks: Vec<(Vec<u8>, Duration)>,
+) -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+
+    let server = thread::spawn(move || {
+        let mut stream = (0..3_000)
+            .find_map(|_| match listener.accept() {
+                Ok((stream, _)) => Some(stream),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                    None
+                }
+                Err(error) => panic!("HTTP accept failed: {error}"),
+            })
+            .expect("client should connect");
+
+        stream
+            .set_nonblocking(false)
+            .expect("accepted HTTP stream should become blocking");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("accepted HTTP stream should set read timeout");
+
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            match std::io::Read::read(&mut stream, &mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("HTTP request read failed: {error}"),
+            }
+        }
+
+        std::io::Write::write_all(
+            &mut stream,
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+        )
+        .expect("stream headers should write");
+        std::io::Write::flush(&mut stream).expect("stream headers should flush");
+        for (chunk, delay) in chunks {
+            if !delay.is_zero() {
+                thread::sleep(delay);
+            }
+            std::io::Write::write_all(&mut stream, &chunk).expect("stream chunk should write");
+            std::io::Write::flush(&mut stream).expect("stream chunk should flush");
+        }
+        let _ = stream.shutdown(Shutdown::Write);
+    });
+
+    (address, server)
 }
 
 fn escape_ricochet_string(value: &str) -> String {
