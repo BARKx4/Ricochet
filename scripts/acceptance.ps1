@@ -35,6 +35,15 @@ $editorValidator = Join-Path $Root "scripts\validate-editor-assets.ps1"
 Write-Host "==> editor asset validation"
 & $editorValidator
 
+Invoke-Rco "word inventory drift check" @(
+    "words",
+    "--check",
+    "--docs-app",
+    (Join-Path $Root "docs\reference\app.js"),
+    "--grammar",
+    (Join-Path $Root "editors\vscode\syntaxes\ricochet.tmLanguage.json")
+)
+
 $examplesRoot = Join-Path $Root "examples"
 $examples = @(
     "basic-oop.rco",

@@ -531,9 +531,12 @@ VS Code debug sessions also update `Ricochet: Show Debugger Stack` from DAP
 scopes. See `docs/debugger-integrations.md` for the shared trace and DAP
 contracts.
 
-`scripts/validate-editor-assets.ps1` checks the grammar and VS Code wiring
-against the reference word catalog, and release archives include this folder
-under `editors/vscode`.
+`rco words` prints the built-in editor/LSP word inventory; `rco words --json`
+emits it for tooling. Maintainers can run `rco words --check` from the source
+tree to compare `docs/reference/app.js`, the TextMate grammar, and the curated
+LSP inventory. `scripts/validate-editor-assets.ps1` checks the grammar and VS
+Code wiring against the reference word catalog, and release archives include
+this folder under `editors/vscode`.
 
 ## Benchmarks
 
@@ -573,9 +576,9 @@ cargo audit
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 ```
 
-The acceptance suite validates the static reference docs, editor assets,
-examples, scaffolded project checks/tests, and a live `rco serve` smoke request
-against the generated no-database scaffold.
+The acceptance suite validates the static reference docs, editor assets, word
+inventory drift check, examples, scaffolded project checks/tests, and a live
+`rco serve` smoke request against the generated no-database scaffold.
 
 ## Release Packaging
 

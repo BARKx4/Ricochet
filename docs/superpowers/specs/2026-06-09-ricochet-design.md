@@ -767,15 +767,13 @@ REPL state is ephemeral by default. Future versions may support saving bytecode 
 Tests are Ricochet classes/methods integrated with project layout.
 
 ```forth
-UserTest TestCase subclass
-  testDisplayName method
-    user var
-    User new
-    user set
-    "a@example.com" user get .email set
-    user get .displayName
+UserTest TestCase Subclass
+  [
+    User new user var
+    "a@example.com" user email.set
+    user displayName
     "a@example.com" assert-equals
-  end
+  ] "testDisplayName" Method
 end
 ```
 
@@ -786,7 +784,9 @@ end
 Current implementation note: `rco doc [path]` emits Markdown for `.rco` files,
 directories, or projects. It includes class inheritance, table mappings, fields,
 methods, functions, Args metadata, and preceding doc comments. Full package
-metadata and built-in word reference generation remain future work.
+metadata and fully generated built-in reference pages remain future work;
+`rco words [--json] [--check]` now exposes the curated editor/LSP inventory and
+validates the checked-in reference catalog against the TextMate grammar.
 
 ## First Implementation Milestone
 

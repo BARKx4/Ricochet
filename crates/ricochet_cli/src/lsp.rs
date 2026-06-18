@@ -329,10 +329,10 @@ struct LspDocument {
 }
 
 #[derive(Debug, Clone)]
-struct WordDoc {
-    label: &'static str,
-    detail: &'static str,
-    documentation: &'static str,
+pub(crate) struct WordDoc {
+    pub(crate) label: &'static str,
+    pub(crate) detail: &'static str,
+    pub(crate) documentation: &'static str,
 }
 
 impl WordDoc {
@@ -343,6 +343,10 @@ impl WordDoc {
             documentation,
         }
     }
+}
+
+pub(crate) fn word_docs() -> &'static [WordDoc] {
+    WORD_DOCS
 }
 
 #[derive(Debug, Clone)]

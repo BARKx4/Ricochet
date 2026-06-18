@@ -38,3 +38,7 @@ code --extensionDevelopmentPath .
 
 If `rco` is not on `PATH`, set `ricochet.server.path` to the built executable,
 for example `E:\LLM Projects\Ricochet\target\debug\rco.exe`.
+
+From the repository root, run `rco words --check` after adding or renaming
+built-in words. It compares the reference docs, TextMate grammar, and curated
+LSP inventory so editor support does not drift from the language surface.

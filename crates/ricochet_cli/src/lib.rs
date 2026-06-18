@@ -28,7 +28,7 @@ use ricochet_vm::{
 };
 use ricochet_web::{MysqlDatabase, PostgresDatabase};
 use semver::{Version, VersionReq};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tar::{Archive, Builder, EntryType};
@@ -297,6 +297,29 @@ enum Command {
             help = "Print effective manifest capability declarations for MVC apps"
         )]
         capabilities: bool,
+    },
+    Words {
+        #[arg(long, help = "Emit the built-in editor word inventory as JSON")]
+        json: bool,
+        #[arg(
+            long,
+            help = "Check docs/reference/app.js and the TextMate grammar against the built-in inventory"
+        )]
+        check: bool,
+        #[arg(
+            long = "docs-app",
+            value_name = "PATH",
+            default_value = "docs/reference/app.js",
+            help = "Reference docs app.js path used by --check"
+        )]
+        docs_app: PathBuf,
+        #[arg(
+            long = "grammar",
+            value_name = "PATH",
+            default_value = "editors/vscode/syntaxes/ricochet.tmLanguage.json",
+            help = "TextMate grammar path used by --check"
+        )]
+        grammar: PathBuf,
     },
     LspDiagnostics {
         path: String,
@@ -821,6 +844,12 @@ pub async fn run_cli() -> Result<()> {
         Command::Doctor { path, capabilities } => {
             doctor(path.as_deref().unwrap_or("."), capabilities)?
         }
+        Command::Words {
+            json,
+            check,
+            docs_app,
+            grammar,
+        } => words(json, check, &docs_app, &grammar)?,
         Command::LspDiagnostics { path, pretty } => lsp_diagnostics(&path, pretty)?,
         Command::Lsp { trace } => lsp::run_lsp_server(trace)?,
         Command::Doc { path } => doc_path(path.as_deref().unwrap_or("."))?,
@@ -1228,6 +1257,294 @@ where
             None
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ReferenceWord {
+    word: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WordInventoryEntry {
+    word: &'static str,
+    detail: &'static str,
+    documentation: &'static str,
+}
+
+fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Result<()> {
+    let entries = lsp::word_docs()
+        .iter()
+        .map(|entry| WordInventoryEntry {
+            word: entry.label,
+            detail: entry.detail,
+            documentation: entry.documentation,
+        })
+        .collect::<Vec<_>>();
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+    } else if !check {
+        print_word_inventory(&entries);
+    }
+
+    if check {
+        let summary = check_word_inventory(docs_app, grammar)?;
+        let message = format!(
+            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries ({} documented-only words are not in the curated LSP inventory, {} duplicate reference entries)",
+            summary.documented_words,
+            summary.grammar_token_words,
+            summary.lsp_words,
+            summary.documented_only_words,
+            summary.duplicate_reference_entries
+        );
+        if json_output {
+            eprintln!("{message}");
+        } else {
+            println!("{message}");
+        }
+    }
+
+    Ok(())
+}
+
+fn print_word_inventory(entries: &[WordInventoryEntry]) {
+    let mut groups: BTreeMap<&str, Vec<&WordInventoryEntry>> = BTreeMap::new();
+    for entry in entries {
+        groups.entry(entry.detail).or_default().push(entry);
+    }
+
+    println!(
+        "Ricochet built-in word inventory ({} entries)",
+        entries.len()
+    );
+    for (detail, group_entries) in groups {
+        println!();
+        println!("{detail}");
+        for entry in group_entries {
+            println!("  {:<24} {}", entry.word, entry.documentation);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WordInventoryCheckSummary {
+    documented_words: usize,
+    grammar_token_words: usize,
+    lsp_words: usize,
+    documented_only_words: usize,
+    duplicate_reference_entries: usize,
+}
+
+fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventoryCheckSummary> {
+    let docs_source = fs::read_to_string(docs_app)
+        .with_context(|| format!("failed to read docs reference app {}", docs_app.display()))?;
+    let docs_json = extract_reference_words_json(&docs_source)?;
+    let reference_words: Vec<ReferenceWord> = serde_json::from_str(docs_json)
+        .with_context(|| format!("failed to parse WORDS catalog in {}", docs_app.display()))?;
+
+    let grammar_source = fs::read_to_string(grammar)
+        .with_context(|| format!("failed to read TextMate grammar {}", grammar.display()))?;
+    let grammar_json: serde_json::Value = serde_json::from_str(&grammar_source)
+        .with_context(|| format!("failed to parse TextMate grammar {}", grammar.display()))?;
+    let mut grammar_patterns = Vec::new();
+    collect_textmate_patterns(&grammar_json, &mut grammar_patterns);
+    let grammar_regexes = grammar_patterns.join("\n");
+
+    let mut documented_primary = BTreeSet::new();
+    let mut documented_all_names = BTreeSet::new();
+    let mut duplicate_words = Vec::new();
+    let mut token_words = BTreeSet::new();
+
+    for entry in &reference_words {
+        if !documented_primary.insert(entry.word.clone()) {
+            duplicate_words.push(entry.word.clone());
+        }
+        documented_all_names.insert(entry.word.clone());
+        if is_ricochet_token_literal(&entry.word) {
+            token_words.insert(entry.word.clone());
+        }
+        for alias in &entry.aliases {
+            documented_all_names.insert(alias.clone());
+        }
+    }
+
+    let mut missing_from_grammar = Vec::new();
+    for word in &token_words {
+        let escaped = regex_escape_literal(word);
+        if !grammar_regexes.contains(&escaped) {
+            missing_from_grammar.push(word.clone());
+        }
+    }
+
+    let lsp_words = lsp::word_docs()
+        .iter()
+        .map(|entry| entry.label.to_string())
+        .collect::<BTreeSet<_>>();
+    let stale_lsp_words = lsp_words
+        .iter()
+        .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let documented_only_words = token_words
+        .iter()
+        .filter(|word| !lsp_words.contains(*word))
+        .count();
+
+    let mut failures = Vec::new();
+    if !missing_from_grammar.is_empty() {
+        failures.push(format!(
+            "TextMate grammar is missing documented words: {}",
+            missing_from_grammar.join(", ")
+        ));
+    }
+    if !stale_lsp_words.is_empty() {
+        failures.push(format!(
+            "LSP inventory contains words absent from docs/reference/app.js: {}",
+            stale_lsp_words.join(", ")
+        ));
+    }
+    if failures.is_empty() {
+        Ok(WordInventoryCheckSummary {
+            documented_words: documented_primary.len(),
+            grammar_token_words: token_words.len(),
+            lsp_words: lsp_words.len(),
+            documented_only_words,
+            duplicate_reference_entries: duplicate_words.len(),
+        })
+    } else {
+        bail!("word inventory check failed:\n{}", failures.join("\n"));
+    }
+}
+
+fn extract_reference_words_json(source: &str) -> Result<&str> {
+    let marker_start = source
+        .find("const WORDS")
+        .context("could not find const WORDS in docs reference app")?;
+    let after_marker = &source[marker_start..];
+    let array_offset = after_marker
+        .find('[')
+        .context("could not find WORDS array start in docs reference app")?;
+    let array_start = marker_start + array_offset;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in source[array_start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '[' => depth += 1,
+            ']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let end = array_start + offset + ch.len_utf8();
+                    return Ok(&source[array_start..end]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    bail!("could not find WORDS array end in docs reference app")
+}
+
+fn collect_textmate_patterns(node: &serde_json::Value, patterns: &mut Vec<String>) {
+    match node {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_textmate_patterns(item, patterns);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                if matches!(key.as_str(), "match" | "begin" | "end" | "firstLineMatch") {
+                    if let Some(pattern) = value.as_str() {
+                        patterns.push(pattern.to_string());
+                    }
+                } else {
+                    collect_textmate_patterns(value, patterns);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_ricochet_token_literal(word: &str) -> bool {
+    if word.is_empty()
+        || word
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch == '/' || !ch.is_ascii())
+    {
+        return false;
+    }
+
+    if word
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
+    {
+        let allowed = [
+            "Object",
+            "Model",
+            "Controller",
+            "Result",
+            "Array",
+            "List",
+            "Map",
+            "Set",
+            "Subclass",
+            "Field",
+            "Accessor",
+            "Table",
+            "Method",
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+        ];
+        return allowed.contains(&word)
+            && word
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '!' | '?' | '-'));
+    }
+
+    let mut chars = word.chars();
+    let starts_like_word = chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_lowercase() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '!' | '?' | '-'));
+    let is_operator = word
+        .chars()
+        .all(|ch| matches!(ch, '+' | '*' | '%' | '<' | '>' | '=' | '!' | '-'));
+    starts_like_word || is_operator
+}
+
+fn regex_escape_literal(word: &str) -> String {
+    let mut escaped = String::new();
+    for ch in word.chars() {
+        if matches!(
+            ch,
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 fn lsp_diagnostics(path: &str, pretty: bool) -> Result<()> {

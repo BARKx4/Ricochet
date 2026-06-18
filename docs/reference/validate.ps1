@@ -323,6 +323,7 @@ if ($failures.Count -eq 0) {
         "rco verify [path]",
         "rco audit [path] [--json]",
         "rco doctor [--capabilities] [path]",
+        "rco words [--json] [--check] [--docs-app PATH] [--grammar PATH]",
         "rco bench [--iterations N] [--smoke] [--json]",
         "rco lsp-diagnostics [--pretty] &lt;path&gt;",
         "rco migrate status [path]",
