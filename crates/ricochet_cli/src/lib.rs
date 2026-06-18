@@ -326,6 +326,11 @@ enum Command {
         #[arg(long, help = "Pretty-print the JSON response")]
         pretty: bool,
     },
+    Lint {
+        path: Option<String>,
+        #[arg(long, help = "Emit lint diagnostics as JSON")]
+        json: bool,
+    },
     Lsp {
         #[arg(long, help = "Trace JSON-RPC messages to stderr")]
         trace: bool,
@@ -851,6 +856,7 @@ pub async fn run_cli() -> Result<()> {
             grammar,
         } => words(json, check, &docs_app, &grammar)?,
         Command::LspDiagnostics { path, pretty } => lsp_diagnostics(&path, pretty)?,
+        Command::Lint { path, json } => lint_path(path.as_deref().unwrap_or("."), json)?,
         Command::Lsp { trace } => lsp::run_lsp_server(trace)?,
         Command::Doc { path } => doc_path(path.as_deref().unwrap_or("."))?,
         Command::Fmt { check, path } => format_path(path.as_deref().unwrap_or("."), check)?,
@@ -1692,6 +1698,122 @@ pub(crate) fn source_lsp_diagnostics(file: &str, source: &str) -> Vec<serde_json
     match compile_source(file, source) {
         Ok(_) => syntax_lsp_diagnostics(file, source),
         Err(error) => vec![compile_error_lsp_diagnostic(file, source, &error)],
+    }
+}
+
+fn lint_path(path: &str, json_output: bool) -> Result<()> {
+    let path = Path::new(path);
+    let files = lint_files(path)?;
+    let mut entries = Vec::new();
+    let mut diagnostic_count = 0usize;
+
+    for file in &files {
+        let source = fs::read_to_string(file)
+            .with_context(|| format!("failed to read {}", file.display()))?;
+        let file_name = file.to_string_lossy().into_owned();
+        let diagnostics = source_lsp_diagnostics(&file_name, &source);
+        diagnostic_count += diagnostics.len();
+        entries.push((file.clone(), diagnostics));
+    }
+
+    if json_output {
+        let files = entries
+            .iter()
+            .map(|(path, diagnostics)| {
+                json!({
+                    "path": path.to_string_lossy(),
+                    "diagnostics": diagnostics,
+                })
+            })
+            .collect::<Vec<_>>();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "file_count": files.len(),
+                "diagnostic_count": diagnostic_count,
+                "files": files,
+            }))?
+        );
+    } else if diagnostic_count == 0 {
+        println!("linted {} Ricochet file(s); no diagnostics", entries.len());
+    } else {
+        for (path, diagnostics) in &entries {
+            for diagnostic in diagnostics {
+                print_lint_diagnostic(path, diagnostic);
+            }
+        }
+    }
+
+    if diagnostic_count > 0 {
+        bail!("lint found {diagnostic_count} diagnostic(s)");
+    }
+
+    Ok(())
+}
+
+fn lint_files(path: &Path) -> Result<Vec<PathBuf>> {
+    if path.is_file() {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    if !path.is_dir() {
+        bail!("lint path does not exist: {}", path.display());
+    }
+
+    let mut files = Vec::new();
+    collect_rco_files(path, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn print_lint_diagnostic(path: &Path, diagnostic: &serde_json::Value) {
+    let start = diagnostic
+        .get("range")
+        .and_then(|range| range.get("start"))
+        .unwrap_or(&serde_json::Value::Null);
+    let line = start
+        .get("line")
+        .and_then(serde_json::Value::as_u64)
+        .map(|line| line + 1)
+        .unwrap_or(1);
+    let character = start
+        .get("character")
+        .and_then(serde_json::Value::as_u64)
+        .map(|character| character + 1)
+        .unwrap_or(1);
+    let severity = diagnostic
+        .get("severity")
+        .and_then(serde_json::Value::as_i64)
+        .map(lint_severity_label)
+        .unwrap_or("diagnostic");
+    let message = diagnostic
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("diagnostic");
+    let code = diagnostic
+        .get("code")
+        .and_then(serde_json::Value::as_str)
+        .map(|code| format!("[{code}]"))
+        .unwrap_or_default();
+    eprintln!(
+        "{}:{line}:{character}: {severity}{code}: {message}",
+        path.display()
+    );
+    if let Some(help) = diagnostic
+        .get("data")
+        .and_then(|data| data.get("help"))
+        .and_then(serde_json::Value::as_str)
+    {
+        eprintln!("  help: {help}");
+    }
+}
+
+fn lint_severity_label(severity: i64) -> &'static str {
+    match severity {
+        1 => "error",
+        2 => "warning",
+        3 => "information",
+        4 => "hint",
+        _ => "diagnostic",
     }
 }
 

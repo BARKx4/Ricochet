@@ -803,6 +803,104 @@ result get value println
 }
 
 #[test]
+fn lint_passes_for_canonical_source() {
+    let source_path = write_source(
+        r#""Ada" name var
+$name println
+"name" get println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lint")
+        .arg(&source_path)
+        .output()
+        .expect("rco lint should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco lint should pass for canonical source\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("no diagnostics"),
+        "stdout should report a clean lint run, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn lint_reports_legacy_get_warnings_in_tree() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#""Ada" name var
+name get println
+"name" get println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lint")
+        .arg(root)
+        .output()
+        .expect("rco lint should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco lint should fail for style warnings\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("warning[prefer-dollar-reference]")
+            && stderr.contains("prefer $name for variable reads"),
+        "stderr should include legacy variable-read warning, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("lint found 1 diagnostic"),
+        "stderr should summarize diagnostics, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn lint_json_reports_diagnostics() {
+    let source_path = write_source(
+        r#""Ada" name var
+name get println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lint")
+        .arg("--json")
+        .arg(&source_path)
+        .output()
+        .expect("rco lint should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco lint --json should fail when diagnostics exist\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("lint output should be JSON");
+    assert_eq!(payload["file_count"], 1);
+    assert_eq!(payload["diagnostic_count"], 1);
+    assert_eq!(
+        payload["files"][0]["diagnostics"][0]["code"],
+        "prefer-dollar-reference"
+    );
+    assert!(
+        stderr.contains("lint found 1 diagnostic"),
+        "stderr should summarize diagnostics, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn words_json_lists_builtin_editor_inventory() {
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("words")

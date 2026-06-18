@@ -152,10 +152,11 @@ Run a script:
 rco run examples/basic-oop.rco
 ```
 
-Format and package a script:
+Format, lint, and package a script:
 
 ```powershell
 rco fmt examples/basic-oop.rco
+rco lint examples/basic-oop.rco
 rco build examples/basic-oop.rco
 rco run-bytecode build/app.rcob
 rco package examples/basic-oop.rco --output basic-oop.exe
@@ -543,7 +544,9 @@ Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
 `Ricochet: Restart Language Server` for local toolchain rebuilds. The same
 diagnostics warn when old `name get` variable reads should be written as
 `$name`; keep `"name" get` only when the variable name is intentionally data on
-the stack. Terminal
+the stack. Use `rco lint [--json] [path]` to run those same compile and syntax
+diagnostics over a file or directory in CI before `rco fmt` rewrites legacy
+source. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks
