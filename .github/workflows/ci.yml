@@ -6,7 +6,11 @@ on:
 
 jobs:
   verify:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - name: Check out
@@ -16,6 +20,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+
+      - name: Install Linux GUI build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -49,8 +59,9 @@ jobs:
           exit $exitCode
 
       - name: Run cargo-audit
-        run: cargo audit
+        run: cargo audit --deny warnings
 
       - name: Run acceptance suite
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: .\scripts\acceptance.ps1

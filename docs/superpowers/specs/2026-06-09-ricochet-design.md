@@ -1,19 +1,18 @@
 # Ricochet Language Design
 
 Date: 2026-06-09
-Status: Historical draft, superseded for syntax details
+Status: Historical product draft, refreshed for current syntax
 
-> Syntax note, 2026-06-15: Ricochet had a pre-launch postfix syntax reset after
-> this draft. Treat examples in this document that use `name get` for ordinary
-> variable reads, `subclass`, `field`, `table`, leading-dot calls such as
-> `.all`, or bang declarations such as `!method` as historical. Current feature
-> work must follow the canonical
-> postfix rules in the repo-root `AGENTS.md`, `README.md`, and
-> `docs/reference/index.html`: capitalized OOP declarations such as `Subclass`,
-> `Accessor`, `Table`, and `Method`; receiver-before-selector calls such as
-> `user email.get`; container-before-key access such as `request "method" at`;
-> and underscore-separated public words such as `json_encode`, `http_request`,
-> and `fs_read_text`. Hyphen is reserved for subtraction and negative literals.
+> Syntax note, 2026-06-18: Ricochet had a pre-launch postfix syntax reset after
+> the first version of this draft. The examples below have been updated to the
+> canonical surface from the repo-root `AGENTS.md`, `README.md`, and
+> `docs/reference/index.html`: capitalized OOP declaration words such as
+> `Subclass`, `Accessor`, `Table`, and `Method`; receiver-before-selector calls
+> such as `user email.get`; `$name` for ordinary static variable reads;
+> container-before-key access such as `request "method" at`; collection mutation
+> as `collection value push!`; and underscore-separated public words such as
+> `json_encode`, `http_request`, and `fs_read_text`. Hyphen is reserved for
+> subtraction and negative number literals, not word naming.
 
 ## Purpose
 
@@ -27,7 +26,7 @@ The first serious milestone is a Web MVC vertical slice, not a tiny calculator V
 - Use class-based OOP without turning the language into C#/Java with Forth punctuation.
 - Make declaration syntax postfix wherever feasible: declaration name first, declaration operator second.
 - Support both compile-time declarations and runtime dynamic declarations.
-- Make debugging a first-class feature: realtime stack trace, breakpoints, break-on-fault, task visibility, and source-aware bytecode metadata.
+- Make debugging a first-class feature: realtime stack traces, breakpoints, request fault inspection, task visibility, and source-aware bytecode metadata.
 - Provide batteries-included CLI/web tooling: `ricochet` plus short alias `rco`.
 - Keep side effects capability-oriented so apps, tests, plugins, and hosted scripts can receive explicit powers.
 - Prefer readable words over old-school single-character operators, while allowing common math/comparison symbols as aliases.
@@ -48,7 +47,7 @@ Ricochet is dynamically typed and purely postfix. There is no infix parser and n
 
 ```forth
 2 3 +
-count get 10 < if
+$count 10 < if
   "small" println
 end
 ```
@@ -57,7 +56,8 @@ The implementation target is a Rust bytecode VM. Source compiles to bytecode wit
 
 The VM has two distinct stacks:
 
-- Compile-time stack: used by declaration words such as `subclass`, `field`, `method`, `function`, `var`, and `import`.
+- Compile-time stack: used by declaration words such as `Subclass`, `Accessor`,
+  `Table`, `Method`, `function`, `var`, and `import`.
 - Runtime stack: used by ordinary program execution.
 
 This split is explicit in the language model. Declaration words are real compile-time stack operations, not decorative keywords.
@@ -73,20 +73,20 @@ Declaration syntax should follow:
 Examples:
 
 ```forth
-User Model subclass
-name field
+User Model Subclass
+"name" Accessor
 amount var
-displayName method
-  self .name get
-end
+[
+  self name.get
+] "displayName" Method
 ```
 
 Bare declaration names are static compile-time symbols. Strings and variables can be used for dynamic declarations.
 
 ```forth
-User Model subclass        (( static symbol ))
-"User" Model subclass      (( literal string ))
-className get Model subclass
+User Model Subclass         (( static symbol ))
+"User" Model Subclass       (( literal string ))
+$className Model Subclass   (( runtime string ))
 ```
 
 Single-character variable operators are not part of canonical v1. Ricochet uses readable postfix access words:
@@ -94,22 +94,22 @@ Single-character variable operators are not part of canonical v1. Ricochet uses 
 ```forth
 amount var
 100 amount set
-amount get println
+$amount println
 
-user .email get
-"a@example.com" user .email set
+user email.get
+"a@example.com" user email.set
 ```
 
-Collection mutation is marked with receiver-style bang methods. Mutators return
-the same collection reference so they can be chained or dropped explicitly:
+Collection mutation uses postfix mutator words. Mutators return the same
+collection reference so they can be chained or dropped explicitly:
 
 ```forth
-"a@example.com" users get .push! drop
-"theme" "dark" config get .put! drop
+$users "a@example.com" push! drop
+$config "theme" "dark" put! drop
 ```
 
-The older stack words `!push` and `!put` remain compatibility aliases, but
-`.push!` and `.put!` are canonical for new code.
+Leading-dot mutators and bang-prefixed declaration aliases are historical draft
+syntax, not canonical v1 syntax.
 
 Predicate words conventionally end with `?`:
 
@@ -129,40 +129,57 @@ a b =
 a b ===
 ```
 
+Core date/time words use UTC Unix epoch milliseconds as the timestamp boundary.
+`timestamp_parse` accepts RFC3339 strings with offsets and normalizes them to
+UTC, while `timestamp_format` emits RFC3339 UTC output. Calendar-only words use
+date maps with `year`, `month`, and `day` fields. Durations are millisecond
+counts produced by explicit unit words such as `duration_hours`; timestamp and
+date arithmetic return `Result` values for user-data failures rather than
+silently coercing invalid input.
+
+Numeric values split exact integer storage from approximate floating-point
+storage. Plain integer literals produce signed 64-bit `Number` values; decimal
+or exponent literals produce finite f64 `Float` values. Mixed numeric math
+promotes to `Float`, while `to_integer`, `to_tinyint`, `to_unsigned_int`,
+`to_float32`, `to_float64`, and related conversion words make narrower
+database/package boundaries explicit with `Result` failures. Exact decimal and
+money domains remain separate future value types, not compatibility fallbacks.
+
 Comments use `(( ... ))`. A comment immediately preceding a declaration becomes that declaration's docstring.
 
 ```forth
 (( Represents a user account. ))
-User Model subclass
+User Model Subclass
 end
 ```
 
 ## Blocks, Functions, Methods, And Args
 
-`end` closes declaration bodies and control-flow blocks.
+`end` closes declaration bodies and control-flow blocks. Methods are declared
+from a block plus a method name.
 
 ```forth
-displayName method
-  self .name get empty? if
-    self .email get
+[
+  self name.get empty? if
+    self email.get
   else
-    self .name get
+    self name.get
   end
-end
+] "displayName" Method
 ```
 
 Functions and methods may include an optional `Args` object. Parentheses build an `Args` object on the compile-time stack.
 
 ```forth
-( amount target -> Result ) transfer method
+( amount target -> Result ) [
   amount var
   target var
 
   target set
   amount set
 
-  self amount get target get .transferTo
-end
+  $amount $target self transferTo
+] "transfer" Method
 ```
 
 Args follow Forth stack-effect convention: left-to-right is stack bottom-to-top, so the rightmost input is at the top of the stack. Args are metadata only. They do not automatically bind variables; code must explicitly capture stack values into variables.
@@ -170,10 +187,10 @@ Args follow Forth stack-effect convention: left-to-right is stack bottom-to-top,
 Anonymous executable blocks use square brackets and are first-class closures from v1.
 
 ```forth
-"index" [
-  ctx get
+[
+  $ctx
   "home/index" swap view
-] !method
+] "index" Method
 ```
 
 Blocks capture surrounding variables and carry debug metadata.
@@ -185,7 +202,7 @@ Variables are declared with postfix `var`.
 ```forth
 amount var
 100 amount set
-amount get
+$amount
 ```
 
 Ricochet uses canonical `nil` for absence. JSON `null` and SQL `NULL` map to/from Ricochet `nil`.
@@ -197,7 +214,7 @@ user save
 dup ok? if
   value
 else
-  error .message println
+  error "message" at println
 end
 ```
 
@@ -227,8 +244,9 @@ Set new
 `array` and `list` are separate types. v1 does not need collection literal
 syntax.
 
-Variable reads can use the `$name` reference prefix instead of the lower-level
-`name get` spelling. Declaration words still use bare names or strings, so
+Ordinary static variable reads use the `$name` reference prefix. The lower-level
+`get` word is reserved for dynamic by-name reads such as `"name" get` or
+`fieldName get`. Declaration words still use bare names or strings, so
 `users array` declares a static array, `"users" array` declares dynamically from
 a string literal, and `$name array` reads `name` and declares an array using the
 runtime string stored there.
@@ -238,55 +256,56 @@ runtime string stored there.
 Ricochet uses class-based OOP with open classes. Normal classes can be declared at compile time:
 
 ```forth
-User Model subclass
-  users table
-  id field
-  email field
-  name field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 
-  displayName method
-    self .name get empty? if
-      self .email get
+  [
+    self name.get empty? if
+      self email.get
     else
-      self .name get
+      self name.get
     end
-  end
+  ] "displayName" Method
 end
 ```
 
 Dynamic class creation is available from v1 and is central to the language's identity.
 
 ```forth
-className get "Model" subclass
-className get "dynamic_table" table
-className get "name" field
-className get "displayName" [ self .name get ] !method
+$className "Model" Subclass
+$className "dynamic_table" Table
+$className "name" Accessor
 ```
 
-The runtime `subclass` operator consumes a string class name and a superclass
+The runtime `Subclass` operator consumes a string class name and a superclass
 class value or string. It creates or reopens the class without requiring a
-compile-time declaration. Outside a lexical class body, `table` and `field`
+compile-time declaration. Outside a lexical class body, `Table` and `Accessor`
 accept an explicit class target before the declaration name.
 
-Open classes can add or freely replace methods at runtime.
+Open classes can add or freely replace methods by reopening the class in source
+and declaring the method again.
 
 ```forth
-User open-class
-  displayName method
-    self .email get
-  end
+User Model Subclass
+  [
+    self email.get
+  ] "displayName" Method
 end
 ```
 
-The same mutation is available as a pure stack operation without a lexical
-class body. This is the dynamic form that enables names from variables:
+Dynamic class and accessor names are available as pure stack operations without
+a lexical class body. Runtime method mutation remains a design direction until
+it has the same postfix shape and validation as static `Method`.
 
 ```forth
 "User" className var
-"displayName" methodName var
 
-className get methodName get [ self .email get ] !method
-className get new .displayName
+$className "Object" Subclass
+$className "email" Accessor
+$className new email.get
 ```
 
 The target may be a class value such as `User` or a class-name string. Runtime
@@ -346,7 +365,7 @@ Fault policy:
 - CLI main fault: crash process.
 - Spawned background task fault: crash process by default.
 - Ordinary web request fault: fail that request with HTTP 500 and log the fault.
-- `rco serve --debug --break-on-fault`: pause at request fault before returning 500.
+- Planned debugger work: pause at request fault before returning 500.
 
 ## Control Flow And Async
 
@@ -373,9 +392,9 @@ end
 The expression sequence immediately before `while` is the loop condition and is
 re-executed before every iteration. `continue` jumps to that condition and
 `break` exits the nearest enclosing loop. Both are compile errors outside a
-loop. Core numeric words include checked `add`/`+` and `subtract`/`-`, which,
-together with mutable variables and conditionals, provide a counter-machine
-execution model.
+loop. Core numeric words include checked integer `add`/`+` and `subtract`/`-`
+plus finite float promotion, which, together with mutable variables and
+conditionals, provide a counter-machine execution model.
 
 Ricochet supports async from v1. Futures/tasks are real stack values, and `await` is explicit.
 
@@ -399,9 +418,9 @@ order, and completed handles can be awaited again from their cached result.
 
 ```forth
 handles array
-[ sendWelcomeEmail ] spawn handles get .push! drop
-[ updateSearchIndex ] spawn handles get .push! drop
-handles get await_all
+[ sendWelcomeEmail ] spawn $handles push! drop
+[ updateSearchIndex ] spawn $handles push! drop
+$handles await_all
 ```
 
 Current implementation note: `[ ... ] spawn` creates a first-class task value,
@@ -410,10 +429,10 @@ worker. `await` waits for one handle when needed, and `await_all` resolves an
 array/list of handles. Task handles retain completed/failed status, expose
 `id`, `task_status`, `pending?`, `running?`, `completed?`, and `failed?`, and
 completed handles can be awaited again for the cached result. The `tasks` word
-returns active running task metadata for debugger-style inspection. HTTP
-capabilities expose `.get_task` and `.post_json_task`, which start worker tasks
-and resolve through `await` to the same `Result` maps as `.get` and
-`.post_json`. Richer suspended-task debugger views remain future work.
+returns active running task metadata for debugger-style inspection. HTTP task
+helpers should use underscore-separated public words and resolve through `await`
+to the same `Result` maps as their synchronous counterparts. Richer suspended
+task debugger views remain future work.
 
 The debugger can inspect running, suspended, and failed tasks.
 
@@ -433,7 +452,7 @@ Package management is built into the CLI from v1, but dependencies start with Gi
 
 ```bash
 rco add github:owner/package@v0.1.0
-rco add ./packages/local-auth
+rco add ./packages/ricochet_auth --as auth
 rco install
 ```
 
@@ -451,7 +470,7 @@ resolution and dynamic runtime imports remain future work.
 The CLI should include:
 
 ```bash
-rco new web blog
+rco new blog
 rco new --with-sqlite beta_blog
 rco run app.rco
 rco repl
@@ -464,8 +483,8 @@ rco add github:owner/package@v0.1.0
 rco install
 ```
 
-`rco new web` creates a minimal MVC skeleton, not a large opinionated application.
-`rco new --with-sqlite web` creates the same skeleton with a seeded
+`rco new PATH` creates a minimal MVC skeleton, not a large opinionated application.
+`rco new --with-sqlite PATH` creates the same skeleton with a seeded
 `db/development.sqlite3` and a `/users` controller path that exercises Active
 Record for zero-service beta testing. It also adds `/login`, `/me`, and
 `/logout` routes that demonstrate form params plus the session cookie.
@@ -509,9 +528,9 @@ POST "/users" UserController "create" route
 GET "/users/:id" UserController "show" route
 ```
 
-Route params live in `ctx request params`. In the current implementation this is
-available as `ctx get .request get .params get`, with compatibility shortcuts
-such as `ctx get .params get`. If a controller action declares Args, route
+Route params live in the request context. With explicit controller Args, bind the
+request map and use container-before-key access such as
+`$request "params" at "id" at`. If a controller action declares Args, route
 dispatch may also push matching params onto the stack in declared order.
 
 Controller context binding is framework-configurable. The recommended default is both stack and variable binding:
@@ -525,8 +544,8 @@ push_ctx = true
 Views are plain HTML templates by default, with interpolation that runs Ricochet code. Each interpolation must leave exactly one renderable value.
 
 ```html
-<h1>{ title get }</h1>
-<p>{ user get .displayName }</p>
+<h1>{ $title }</h1>
+<p>{ $user displayName }</p>
 <small>{ 20 22 + }</small>
 ```
 
@@ -578,23 +597,27 @@ credible for developers bringing established web stacks or hosted MySQL apps.
 Remote PostgreSQL connections require TLS by default; `sslmode=disable` is
 accepted only for `localhost` or loopback development databases.
 
-Migrations are not v1. v1 maps models to an existing schema.
+SQL migrations are part of the v1 beta. `rco migrate status` and
+`rco migrate apply` read ordered `.sql` files from `db/migrations`, apply them
+to SQLite, PostgreSQL, or MySQL/MariaDB projects, and record applied versions in
+`schema_migrations`. Active Record still maps model declarations to existing
+tables; migration rollback, schema dumps, seed commands, and a Ricochet-native
+migration DSL remain future polish.
 
 ```forth
-User Model subclass
-  users table
-  id field
-  email field
-  name field
+User Model Subclass
+  "users" Table
+  "id" Accessor
+  "email" Accessor
+  "name" Accessor
 end
 ```
 
 Table mapping follows the static/dynamic declaration pattern:
 
 ```forth
-users table
-"users" table
-tableName get table
+"users" Table
+$tableName Table
 ```
 
 Active Record operations are class methods with ordinary postfix arguments:
@@ -655,23 +678,21 @@ and webview disabled unless `--fs-root <path>`, `--http-allow-host <host>`, or
 `--allow-webview` opens specific access. The same commands accept `--no-fs`,
 `--no-http`, and `--no-webview` to deny capabilities explicitly, and
 `--fs-readonly` to allow reads while denying writes and directory creation. V1
-beta keeps `trusted` as the local-development default for compatibility, and
-uses `sandboxed` as the policy for untrusted examples, package review, bug
-repros, and third-party code.
+beta keeps `trusted` as the local-development default and uses `sandboxed` as
+the policy for untrusted examples, package review, bug repros, and third-party
+code.
 
 Desktop UI starts as a webview capability. The current core words build escaped
 HTML fragments and a document map that a desktop webview host can consume:
 
 ```forth
-"Counter" 1 webview .heading heading var
-"Increment" "increment" webview .button button var
-$heading "<main>" .concat
-$button swap .concat
-"</main>" swap .concat body var
-"Counter" $body webview .window value document var
+"Counter" 1 webview_heading heading var
+"Increment" "increment" webview_button button var
+$heading $button concat body var
+"Counter" $body webview_window value document var
 ```
 
-`.window` and its `.document` alias return a `Result` whose ok value contains
+`webview_window` and `webview_window_state` return a `Result` whose ok value contains
 `type = "webview"`, `title`, raw `body`, full `html`, and default `width` and
 `height` fields. `rco gui` can preview these documents in the native desktop
 host, and `rco package --gui` embeds the app into the dedicated `rco-gui`
@@ -695,7 +716,7 @@ api_key = "${OPENAI_API_KEY}"
 ```
 
 Current implementation note: MVC apps can configure `[ai.default]` and receive
-an `ai` controller capability. `ai .chat` posts to an OpenAI-compatible
+an `ai` controller capability. `$ai chat` posts to an OpenAI-compatible
 `/chat/completions` endpoint and returns a `Result` whose ok value is a map with
 `provider`, `model`, and `text`.
 
@@ -703,11 +724,11 @@ Example Ricochet shape:
 
 ```forth
 ai var
-"Extract name, email, and priority" ai get .chat result var
-result get ok? if
-  result get value .text get
+"Extract name, email, and priority" $ai chat result var
+$result ok? if
+  $result value "text" at
 else
-  result get error .message get
+  $result error "message" at
 end
 ```
 
@@ -726,24 +747,27 @@ CLI surfaces:
 rco run app.rco --debug
 rco test --debug
 rco serve --debug
-rco serve --debug --break-on-fault
-rco serve --debug --full-stack
 ```
 
 Debugger features from v1:
 
-- Step, next, continue, abort.
+- Terminal step, next, out, continue, abort, and pause controls.
 - Stack inspection.
 - Frame inspection.
 - `self`, `ctx`, variables, objects, classes, words.
 - Source line, method, and word breakpoints.
-- Break-on-fault.
+- Fault events in debug traces; pausing MVC requests before returning HTTP 500
+  remains future debugger polish.
 - Configurable stack display: concise diff/top-N by default, full stack on request.
 - Basic task inspection for async/spawned work is implemented, including
   running/completed/failed handle status; richer suspended task debugger views
   remain future work.
+- JSON trace files, `rco debug --json`, `rco debug-adapter` over stdio DAP,
+  and VS Code trace/live-stack panels.
 
-The terminal debugger is first, but the debugger should be protocol/event-stream based so a TUI or browser debugger can consume the same VM events later.
+The terminal debugger, JSON event stream, DAP bridge, and VS Code integration
+are implemented. Dedicated TUI or browser debugger UIs can consume the same VM
+events later without replacing the shared protocol surface.
 
 ## Hot Reload And REPL
 
@@ -801,19 +825,23 @@ The first milestone is a thin but complete Web MVC slice in Rust:
 3. Run bytecode in a stack VM with objects, classes, open classes, fields, methods, `Result`, and `nil`.
 4. Provide `rco run`, `rco repl`, `rco build`, `rco serve`, and `rco test` at a usable early level.
 5. Serve one MVC app end-to-end: route, controller, SQLite/PostgreSQL/MySQL Active Record model against existing schema, HTML template interpolation, and HTTP response.
-6. Support `--debug`, breakpoints, stack trace, and break-on-fault for that vertical slice.
+6. Support `--debug`, breakpoints, stack traces, JSON trace/debug streams, DAP,
+   and editor debugger integration for that vertical slice; request-fault
+   pausing before HTTP 500 remains future debugger polish.
 7. Support hot reload with stable request revision snapshots.
 
 ## Deferred Features
 
 - Central package registry.
-- Migrations in SQL and Ricochet DSL.
+- Migration rollback, schema dump/seed workflows, and a Ricochet migration DSL.
 - Template embedded script blocks beyond interpolation.
 - General compile-time macros.
 - Persistent REPL images and source emission.
-- TUI/browser debugger UI.
+- Dedicated TUI/browser debugger UI beyond the terminal, DAP, and VS Code
+  integration.
 - First-party AI package implementation, unless it proves small enough to include after the main MVC slice.
-- Native executable packaging that bundles VM plus `.rcob`.
+- Production-grade app distribution polish on top of `rco package`, such as
+  signing, notarization, app metadata, and platform store/update workflows.
 
 ## References
 

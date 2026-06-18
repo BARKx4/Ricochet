@@ -1,0 +1,16 @@
+[advisories]
+# Accepted while the Linux GUI stack depends on GTK3 via WebKitGTK/Wry.
+ignore = [
+  "RUSTSEC-2024-0411", # gdkwayland-sys: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0412", # gdk: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0413", # atk: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0414", # gdkx11-sys: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0415", # gtk: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0416", # atk-sys: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0417", # gdkx11: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0418", # gdk-sys: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0419", # gtk3-macros: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0420", # gtk-sys: GTK3 bindings unmaintained
+  "RUSTSEC-2024-0370", # proc-macro-error: transitive gtk3-macros dependency
+  "RUSTSEC-2024-0429", # glib: transitive GTK3 stack dependency
+]

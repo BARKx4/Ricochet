@@ -6,14 +6,27 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Default)]
+const MAX_RETAINED_PROCESS_JOBS: usize = 64;
+
+#[cfg(windows)]
+fn configure_process_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_process_window(_command: &mut Command) {}
+
+#[derive(Clone)]
 pub struct ProcessRegistry {
     inner: Arc<Mutex<ProcessRegistryState>>,
 }
 
-#[derive(Default)]
 struct ProcessRegistryState {
     next_id: u64,
+    pending_starts: usize,
+    max_retained: usize,
     jobs: BTreeMap<u64, Arc<ProcessJob>>,
 }
 
@@ -108,7 +121,23 @@ impl ProcessRuntimeError {
 }
 
 impl ProcessRegistry {
+    pub fn new() -> Self {
+        Self::with_max_retained(MAX_RETAINED_PROCESS_JOBS)
+    }
+
+    pub fn with_max_retained(max_retained: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ProcessRegistryState {
+                next_id: 0,
+                pending_starts: 0,
+                max_retained,
+                jobs: BTreeMap::new(),
+            })),
+        }
+    }
+
     pub fn start(&self, request: ProcessRequest) -> Result<ProcessSnapshot, ProcessRuntimeError> {
+        let id = self.reserve_job_slot()?;
         let mut command = Command::new(&request.command);
         command.args(&request.args);
         command.stdout(Stdio::piped());
@@ -128,10 +157,15 @@ impl ProcessRegistry {
         for (name, value) in &request.env {
             command.env(name, value);
         }
+        configure_process_window(&mut command);
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| ProcessRuntimeError::new("ProcessError", error.to_string()))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                self.release_pending_start();
+                return Err(ProcessRuntimeError::new("ProcessError", error.to_string()));
+            }
+        };
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -141,6 +175,7 @@ impl ProcessRegistry {
                 if let Err(error) = stdin.write_all(input.as_bytes()) {
                     let _ = child.kill();
                     let _ = child.wait();
+                    self.release_pending_start();
                     return Err(ProcessRuntimeError::new(
                         "ProcessError",
                         format!("failed to write stdin: {error}"),
@@ -148,16 +183,6 @@ impl ProcessRegistry {
                 }
             }
         }
-
-        let id = {
-            let mut state = self
-                .inner
-                .lock()
-                .expect("process registry lock should not be poisoned");
-            let id = state.next_id;
-            state.next_id += 1;
-            id
-        };
 
         let job = Arc::new(ProcessJob {
             state: Mutex::new(ProcessJobState {
@@ -190,11 +215,7 @@ impl ProcessRegistry {
         spawn_waiter(job.clone(), request.timeout);
 
         let snapshot = job.snapshot();
-        self.inner
-            .lock()
-            .expect("process registry lock should not be poisoned")
-            .jobs
-            .insert(id, job);
+        self.finish_job_start(id, job);
         Ok(snapshot)
     }
 
@@ -223,6 +244,25 @@ impl ProcessRegistry {
         Some(job.snapshot())
     }
 
+    pub fn release(&self, id: u64) -> Result<bool, ProcessRuntimeError> {
+        let Some(job) = self.job_arc(id) else {
+            return Ok(false);
+        };
+        if job.running() {
+            return Err(ProcessRuntimeError::new(
+                "ProcessRunning",
+                format!("process job {id} is still running; cancel or wait before process_release"),
+            ));
+        }
+        Ok(self
+            .inner
+            .lock()
+            .expect("process registry lock should not be poisoned")
+            .jobs
+            .remove(&id)
+            .is_some())
+    }
+
     pub fn len(&self) -> usize {
         self.inner
             .lock()
@@ -246,6 +286,49 @@ impl ProcessRegistry {
             .jobs
             .get(&id)
             .cloned()
+    }
+
+    fn reserve_job_slot(&self) -> Result<u64, ProcessRuntimeError> {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("process registry lock should not be poisoned");
+        if state.jobs.len() + state.pending_starts >= state.max_retained {
+            return Err(ProcessRuntimeError::new(
+                "RegistryFull",
+                format!(
+                    "process registry retained job limit of {} reached; release completed process jobs before starting another process",
+                    state.max_retained
+                ),
+            ));
+        }
+        let id = state.next_id;
+        state.next_id += 1;
+        state.pending_starts += 1;
+        Ok(id)
+    }
+
+    fn release_pending_start(&self) {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("process registry lock should not be poisoned");
+        state.pending_starts = state.pending_starts.saturating_sub(1);
+    }
+
+    fn finish_job_start(&self, id: u64, job: Arc<ProcessJob>) {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("process registry lock should not be poisoned");
+        state.pending_starts = state.pending_starts.saturating_sub(1);
+        state.jobs.insert(id, job);
+    }
+}
+
+impl Default for ProcessRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -288,6 +371,14 @@ impl ProcessJob {
                 state.error = Some(error.to_string());
             }
         }
+    }
+
+    fn running(&self) -> bool {
+        self.state
+            .lock()
+            .expect("process job lock should not be poisoned")
+            .status
+            == ProcessStatus::Running
     }
 }
 
@@ -459,4 +550,110 @@ fn now_millis() -> i64 {
         .as_millis()
         .try_into()
         .unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn retained_job_limit_requires_release() {
+        let registry = ProcessRegistry::with_max_retained(1);
+        let first = registry.start(quick_request()).expect("first job starts");
+        wait_for_process(&registry, first.id);
+
+        let error = registry
+            .start(quick_request())
+            .expect_err("retained job cap should reject another start");
+        assert_eq!(error.kind, "RegistryFull");
+        assert!(error.message.contains("release completed process jobs"));
+
+        assert!(
+            registry.release(first.id).expect("completed job releases"),
+            "release should report a removed job"
+        );
+        assert!(registry.job(first.id).is_none());
+
+        let second = registry
+            .start(quick_request())
+            .expect("cap frees after release");
+        wait_for_process(&registry, second.id);
+        assert!(registry.release(second.id).expect("second job releases"));
+    }
+
+    #[test]
+    fn release_refuses_running_job() {
+        let registry = ProcessRegistry::with_max_retained(1);
+        let running = registry
+            .start(sleeping_request())
+            .expect("sleeping process starts");
+
+        let error = registry
+            .release(running.id)
+            .expect_err("running job should not release");
+        assert_eq!(error.kind, "ProcessRunning");
+
+        registry
+            .cancel(running.id)
+            .expect("running job should be cancellable");
+        wait_for_process(&registry, running.id);
+        assert!(registry
+            .release(running.id)
+            .expect("cancelled job releases"));
+    }
+
+    fn quick_request() -> ProcessRequest {
+        #[cfg(windows)]
+        let (command, args) = (
+            "cmd".to_string(),
+            vec!["/C".to_string(), "exit 0".to_string()],
+        );
+        #[cfg(not(windows))]
+        let (command, args) = ("sh".to_string(), vec!["-c".to_string(), "true".to_string()]);
+        process_request(command, args, Duration::from_secs(5))
+    }
+
+    fn sleeping_request() -> ProcessRequest {
+        #[cfg(windows)]
+        let (command, args) = (
+            "powershell.exe".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "Start-Sleep -Seconds 2".to_string(),
+            ],
+        );
+        #[cfg(not(windows))]
+        let (command, args) = (
+            "sh".to_string(),
+            vec!["-c".to_string(), "sleep 2".to_string()],
+        );
+        process_request(command, args, Duration::from_secs(10))
+    }
+
+    fn process_request(command: String, args: Vec<String>, timeout: Duration) -> ProcessRequest {
+        ProcessRequest {
+            command,
+            args,
+            cwd: None,
+            stdin: None,
+            timeout,
+            clear_env: false,
+            env: BTreeMap::new(),
+            stdout_max_bytes: 1024,
+            stderr_max_bytes: 1024,
+        }
+    }
+
+    fn wait_for_process(registry: &ProcessRegistry, id: u64) -> ProcessSnapshot {
+        for _ in 0..100 {
+            let snapshot = registry.job(id).expect("job should remain retained");
+            if !snapshot.running {
+                return snapshot;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("process job {id} did not finish in time");
+    }
 }

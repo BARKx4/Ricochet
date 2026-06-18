@@ -7,8 +7,9 @@ hardening.
 ## SQLite Notes MVC
 
 ```powershell
-rco migrate apply examples/showcase/sqlite_notes
-rco serve examples/showcase/sqlite_notes --fs-root examples/showcase/sqlite_notes
+Push-Location examples/showcase/sqlite_notes
+rco migrate apply .
+rco serve --fs-root .
 ```
 
 The app maps a `Note` model to SQLite, renders a notes page, and accepts a

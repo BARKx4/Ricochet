@@ -225,11 +225,25 @@ impl Parser {
             TokenKind::Reference(s) => Expr::Reference(s),
             TokenKind::String(s) => Expr::String(s),
             TokenKind::Number(n) => {
-                let value = n.parse().map_err(|_| ParseError::InvalidNumber {
-                    literal: n,
-                    span: token.span,
-                })?;
-                Expr::Number(value)
+                if is_float_literal(&n) {
+                    let value = n.parse::<f64>().map_err(|_| ParseError::InvalidNumber {
+                        literal: n.clone(),
+                        span: token.span,
+                    })?;
+                    if !value.is_finite() {
+                        return Err(ParseError::InvalidNumber {
+                            literal: n,
+                            span: token.span,
+                        });
+                    }
+                    Expr::Float(value)
+                } else {
+                    let value = n.parse().map_err(|_| ParseError::InvalidNumber {
+                        literal: n,
+                        span: token.span,
+                    })?;
+                    Expr::Number(value)
+                }
             }
             TokenKind::LeftParen => {
                 self.pos = self.pos.saturating_sub(1);
@@ -460,6 +474,10 @@ fn push_statement(body: &mut Vec<SpannedExpr>, statement: SpannedExpr) {
     body.push(statement);
 }
 
+fn is_float_literal(literal: &str) -> bool {
+    literal.contains('.') || literal.contains('e') || literal.contains('E')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,6 +663,29 @@ mod tests {
                 assert_eq!(
                     unspan(exprs),
                     vec![Expr::Number(-1), Expr::Number(i64::MIN)]
+                );
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_float_literals() {
+        let module = parse_module("1.5 -0.25 6e2 -7.5e-1").expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                assert_eq!(
+                    unspan(exprs),
+                    vec![
+                        Expr::Float(1.5),
+                        Expr::Float(-0.25),
+                        Expr::Float(600.0),
+                        Expr::Float(-0.75)
+                    ]
                 );
             }
             other => panic!("expected expression sequence, got {other:?}"),

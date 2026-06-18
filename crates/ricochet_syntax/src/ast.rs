@@ -64,6 +64,7 @@ pub enum Expr {
     Reference(String),
     String(String),
     Number(i64),
+    Float(f64),
     Args(ArgsDecl),
     Block(Vec<SpannedExpr>),
     Sequence(Vec<SpannedExpr>),

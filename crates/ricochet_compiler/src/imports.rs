@@ -109,7 +109,7 @@ fn parse_string_prefix(source: &str) -> Result<Option<(String, &str)>> {
                 't' => '\t',
                 '"' => '"',
                 '\\' => '\\',
-                other => other,
+                other => bail!("invalid import string escape \\{other}"),
             };
             value.push(decoded);
             escape = false;

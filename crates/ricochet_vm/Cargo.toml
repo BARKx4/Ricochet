@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
+chrono.workspace = true
 crossterm.workspace = true
 getrandom.workspace = true
 serde.workspace = true

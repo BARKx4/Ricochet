@@ -2,6 +2,8 @@
 
 Open index.html in a browser to read the static reference site.
 
+For a cross-repo agent-facing status map, see `../feature-map.md`.
+
 From the repository root:
 
 ```powershell
@@ -21,6 +23,10 @@ Useful source hygiene commands:
 rco fmt [--check] [path]
 rco lint [--json] [path]
 ```
+
+When adding or renaming public words, follow `../adding-words.md` so the VM,
+reference catalog, LSP inventory, TextMate grammar, validators, and examples
+stay synchronized.
 
 The acceptance script validates this static site, runs the shipped examples, creates a fresh MVC scaffold, lists its routes, then runs `rco check` and `rco test` against it. It leaves the generated scaffold in a temp folder for inspection.
 

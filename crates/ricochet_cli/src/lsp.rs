@@ -248,6 +248,11 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Cancel a retained HTTP stream job.",
     ),
     WordDoc::new(
+        "http_stream_release",
+        "http",
+        "Release a completed retained HTTP stream job.",
+    ),
+    WordDoc::new(
         "process_spawn",
         "process",
         "Run a bounded child process through the process capability.",
@@ -263,10 +268,93 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Add or update a child process environment entry in an options map.",
     ),
     WordDoc::new(
+        "process_release",
+        "process",
+        "Release a completed retained process job.",
+    ),
+    WordDoc::new(
         "pty_start",
         "pty",
         "Start a PTY session through the PTY host capability.",
     ),
+    WordDoc::new(
+        "pty_release",
+        "pty",
+        "Release a completed retained PTY session.",
+    ),
+    WordDoc::new(
+        "timestamp_parse",
+        "time",
+        "Parse an RFC3339 timestamp into UTC epoch milliseconds.",
+    ),
+    WordDoc::new(
+        "timestamp_now",
+        "time",
+        "Push UTC epoch milliseconds like now.",
+    ),
+    WordDoc::new(
+        "timestamp_format",
+        "time",
+        "Format UTC epoch milliseconds as RFC3339.",
+    ),
+    WordDoc::new(
+        "timestamp_format_pattern",
+        "time",
+        "Format UTC epoch milliseconds with a strftime-style pattern.",
+    ),
+    WordDoc::new(
+        "timestamp_parts",
+        "time",
+        "Break UTC epoch milliseconds into timestamp fields.",
+    ),
+    WordDoc::new(
+        "timestamp_from_parts",
+        "time",
+        "Build UTC epoch milliseconds from timestamp fields.",
+    ),
+    WordDoc::new(
+        "timestamp_add",
+        "time",
+        "Add a millisecond duration to a timestamp.",
+    ),
+    WordDoc::new(
+        "timestamp_diff",
+        "time",
+        "Compute the millisecond difference between timestamps.",
+    ),
+    WordDoc::new("date_parse", "date", "Parse an ISO date into a date map."),
+    WordDoc::new(
+        "date_format",
+        "date",
+        "Format a date map with a strftime-style pattern.",
+    ),
+    WordDoc::new("date_add_days", "date", "Add signed days to a date map."),
+    WordDoc::new(
+        "date_diff_days",
+        "date",
+        "Compute whole-day difference between date maps.",
+    ),
+    WordDoc::new(
+        "date_from_timestamp",
+        "date",
+        "Convert a UTC timestamp to a date map.",
+    ),
+    WordDoc::new(
+        "date_to_timestamp",
+        "date",
+        "Convert a date map to a UTC midnight timestamp.",
+    ),
+    WordDoc::new(
+        "duration_parts",
+        "time",
+        "Break a millisecond duration into component fields.",
+    ),
+    WordDoc::new("duration_millis", "time", "Build a millisecond duration."),
+    WordDoc::new("duration_seconds", "time", "Build a seconds duration."),
+    WordDoc::new("duration_minutes", "time", "Build a minutes duration."),
+    WordDoc::new("duration_hours", "time", "Build an hours duration."),
+    WordDoc::new("duration_days", "time", "Build a days duration."),
+    WordDoc::new("duration_weeks", "time", "Build a weeks duration."),
     WordDoc::new(
         "approval_create",
         "approval",
@@ -1329,7 +1417,7 @@ fn rename_edits(source: &str, old_name: &str, new_name: &str) -> Vec<Value> {
 fn is_renameable(name: &str) -> bool {
     !name.is_empty()
         && name.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '?' | '!' | '.')
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '?' | '!' | '.')
         })
         && !word_docs().iter().any(|entry| entry.label.as_ref() == name)
 }
@@ -1710,6 +1798,15 @@ mod tests {
             edits.len() >= 2,
             "rename should update declaration and selector/reference uses"
         );
+    }
+
+    #[test]
+    fn renameable_names_reject_hyphenated_words() {
+        assert!(is_renameable("contact_email"));
+        assert!(is_renameable("contactEmail"));
+        assert!(is_renameable("email.get"));
+        assert!(!is_renameable("contact-email"));
+        assert!(!is_renameable("-email"));
     }
 
     fn messages(values: &[Value]) -> Vec<u8> {

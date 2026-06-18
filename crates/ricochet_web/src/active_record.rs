@@ -1670,6 +1670,7 @@ enum PostgresParameter {
     Null,
     Bool(bool),
     Number(i64),
+    Float(f64),
     String(String),
 }
 
@@ -1701,6 +1702,12 @@ impl PostgresToSql for PostgresParameter {
                     .to_sql(postgres_type, output)
             }
             PostgresParameter::Number(value) if *postgres_type == Type::INT8 => {
+                value.to_sql(postgres_type, output)
+            }
+            PostgresParameter::Float(value) if *postgres_type == Type::FLOAT4 => {
+                (*value as f32).to_sql(postgres_type, output)
+            }
+            PostgresParameter::Float(value) if *postgres_type == Type::FLOAT8 => {
                 value.to_sql(postgres_type, output)
             }
             PostgresParameter::String(value)
@@ -1735,6 +1742,7 @@ impl PostgresParameter {
             PostgresParameter::Null => "nil",
             PostgresParameter::Bool(_) => "bool",
             PostgresParameter::Number(_) => "number",
+            PostgresParameter::Float(_) => "float",
             PostgresParameter::String(_) => "string",
         }
     }
@@ -1748,6 +1756,7 @@ impl TryFrom<&Value> for PostgresParameter {
             Value::Nil => Ok(PostgresParameter::Null),
             Value::Bool(value) => Ok(PostgresParameter::Bool(*value)),
             Value::Number(value) => Ok(PostgresParameter::Number(*value)),
+            Value::Float(value) => Ok(PostgresParameter::Float(*value)),
             Value::String(value) => Ok(PostgresParameter::String(value.clone())),
             value => Err(ActiveRecordError::UnsupportedValue {
                 operation: "PostgreSQL parameter",
@@ -1772,6 +1781,7 @@ enum SqliteParameter {
     Null,
     Bool(bool),
     Number(i64),
+    Float(f64),
     String(String),
 }
 
@@ -1787,6 +1797,7 @@ impl rusqlite::types::ToSql for SqliteParameter {
             SqliteParameter::Null => SqliteSqlValue::Null,
             SqliteParameter::Bool(value) => SqliteSqlValue::Integer(if *value { 1 } else { 0 }),
             SqliteParameter::Number(value) => SqliteSqlValue::Integer(*value),
+            SqliteParameter::Float(value) => SqliteSqlValue::Real(*value),
             SqliteParameter::String(value) => SqliteSqlValue::Text(value.clone()),
         };
 
@@ -1802,6 +1813,7 @@ impl TryFrom<&Value> for SqliteParameter {
             Value::Nil => Ok(SqliteParameter::Null),
             Value::Bool(value) => Ok(SqliteParameter::Bool(*value)),
             Value::Number(value) => Ok(SqliteParameter::Number(*value)),
+            Value::Float(value) => Ok(SqliteParameter::Float(*value)),
             Value::String(value) => Ok(SqliteParameter::String(value.clone())),
             value => Err(ActiveRecordError::UnsupportedValue {
                 operation: "SQLite parameter",
@@ -1816,6 +1828,7 @@ enum MysqlParameter {
     Null,
     Bool(bool),
     Number(i64),
+    Float(f64),
     String(String),
 }
 
@@ -1825,6 +1838,7 @@ impl MysqlParameter {
             MysqlParameter::Null => MysqlSqlValue::NULL,
             MysqlParameter::Bool(value) => MysqlSqlValue::Int(if value { 1 } else { 0 }),
             MysqlParameter::Number(value) => MysqlSqlValue::Int(value),
+            MysqlParameter::Float(value) => MysqlSqlValue::Double(value),
             MysqlParameter::String(value) => MysqlSqlValue::Bytes(value.into_bytes()),
         }
     }
@@ -1838,6 +1852,7 @@ impl TryFrom<&Value> for MysqlParameter {
             Value::Nil => Ok(MysqlParameter::Null),
             Value::Bool(value) => Ok(MysqlParameter::Bool(*value)),
             Value::Number(value) => Ok(MysqlParameter::Number(*value)),
+            Value::Float(value) => Ok(MysqlParameter::Float(*value)),
             Value::String(value) => Ok(MysqlParameter::String(value.clone())),
             value => Err(ActiveRecordError::UnsupportedValue {
                 operation: "MySQL parameter",
@@ -1940,6 +1955,14 @@ fn column_value(
         Type::INT8 => row
             .try_get::<_, Option<i64>>(index)
             .map(|value| value.map(Value::Number).unwrap_or(Value::Nil)),
+        Type::FLOAT4 => row.try_get::<_, Option<f32>>(index).map(|value| {
+            value
+                .map(|value| Value::Float(f64::from(value)))
+                .unwrap_or(Value::Nil)
+        }),
+        Type::FLOAT8 => row
+            .try_get::<_, Option<f64>>(index)
+            .map(|value| value.map(Value::Float).unwrap_or(Value::Nil)),
         Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => row
             .try_get::<_, Option<String>>(index)
             .map(|value| value.map(Value::String).unwrap_or(Value::Nil)),
@@ -1980,10 +2003,7 @@ fn sqlite_column_value(
         ValueRef::Null => Ok(Value::Nil),
         ValueRef::Integer(value) => Ok(Value::Number(value)),
         ValueRef::Text(value) => Ok(Value::String(String::from_utf8_lossy(value).into_owned())),
-        ValueRef::Real(_) => Err(ActiveRecordError::UnsupportedColumnType {
-            field: field.to_string(),
-            database_type: "REAL".to_string(),
-        }),
+        ValueRef::Real(value) => Ok(Value::Float(value)),
         ValueRef::Blob(_) => Err(ActiveRecordError::UnsupportedColumnType {
             field: field.to_string(),
             database_type: "BLOB".to_string(),
@@ -2020,14 +2040,8 @@ fn mysql_column_value(value: &MysqlSqlValue, field: &str) -> Result<Value, Activ
         MysqlSqlValue::Bytes(value) => {
             Ok(Value::String(String::from_utf8_lossy(value).into_owned()))
         }
-        MysqlSqlValue::Float(_) => Err(ActiveRecordError::UnsupportedColumnType {
-            field: field.to_string(),
-            database_type: "FLOAT".to_string(),
-        }),
-        MysqlSqlValue::Double(_) => Err(ActiveRecordError::UnsupportedColumnType {
-            field: field.to_string(),
-            database_type: "DOUBLE".to_string(),
-        }),
+        MysqlSqlValue::Float(value) => Ok(Value::Float(f64::from(*value))),
+        MysqlSqlValue::Double(value) => Ok(Value::Float(*value)),
         MysqlSqlValue::Date(..) => Err(ActiveRecordError::UnsupportedColumnType {
             field: field.to_string(),
             database_type: "DATE/DATETIME".to_string(),
@@ -2072,6 +2086,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Nil => "nil",
         Value::Bool(_) => "bool",
         Value::Number(_) => "number",
+        Value::Float(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::List(_) => "list",

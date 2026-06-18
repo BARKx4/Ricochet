@@ -247,6 +247,7 @@ impl Compiler {
             }
             Expr::String(value) => self.push(Op::PushString(value.clone())),
             Expr::Number(value) => self.push(Op::PushNumber(*value)),
+            Expr::Float(value) => self.push(Op::PushFloat(*value)),
             Expr::Block(body) => {
                 let block = self.compile_block_chunk(body, self.default_span)?;
                 let block = self.chunk.push_block(block);
@@ -529,6 +530,20 @@ mod tests {
             chunk.ops().cloned().collect::<Vec<_>>(),
             vec![
                 Op::PushNumber(-1),
+                Op::PushNumber(2),
+                Op::CallWord("+".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn compiles_float_literals() {
+        let chunk = compile_source("test.rco", "1.5 2 +").expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushFloat(1.5),
                 Op::PushNumber(2),
                 Op::CallWord("+".to_string())
             ]

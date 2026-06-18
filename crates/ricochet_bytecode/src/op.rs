@@ -11,6 +11,7 @@ pub enum Op {
     PushNil,
     PushBool(bool),
     PushNumber(i64),
+    PushFloat(f64),
     PushString(String),
     PushBlock(usize),
     CallWord(String),

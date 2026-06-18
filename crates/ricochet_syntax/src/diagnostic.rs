@@ -158,6 +158,12 @@ fn lex_error_diagnostic(file: String, error: &LexError) -> SourceDiagnostic {
         LexError::EmptyReference(position) => {
             SourceDiagnostic::new(file, point_span(*position), "empty reference")
         }
+        LexError::InvalidWord { word, position } => SourceDiagnostic::new(
+            file,
+            word_span(*position, word),
+            format!("invalid word {word:?}"),
+        )
+        .with_help("use _ for word separators; - is reserved for subtraction and negative numbers"),
     }
 }
 
@@ -206,6 +212,15 @@ fn point_span(position: usize) -> Span {
     Span {
         start: position,
         end: position.saturating_add(1),
+    }
+}
+
+fn word_span(position: usize, word: &str) -> Span {
+    Span {
+        start: position,
+        end: position
+            .saturating_add(word.len())
+            .max(position.saturating_add(1)),
     }
 }
 

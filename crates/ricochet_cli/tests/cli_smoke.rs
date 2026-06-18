@@ -720,6 +720,65 @@ fn doctor_reports_package_manifest_without_web_as_package_project() {
 }
 
 #[test]
+fn run_supports_float_literals_arithmetic_comparison_and_json() {
+    let source_path = write_source(
+        r#"
+          1.5 2 + println
+          4 2.0 / println
+          1 1.0 = println
+          "{\"value\":1.25}" json_decode value "value" at println
+        "#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "float program should run\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "3.5\n2.0\ntrue\n1.25\n[]");
+}
+
+#[test]
+fn run_supports_checked_numeric_conversion_words() {
+    let source_path = write_source(
+        r#"
+          "127" to_tinyint value println
+          "128" to_tinyint error "kind" at println
+          255 to_unsigned_tinyint value println
+          256 to_unsigned_tinyint error "kind" at println
+          12.0 to_integer value println
+          12.5 to_integer error "kind" at println
+          "1.25" to_float value println
+          1.23456789 to_float32 value println
+        "#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "conversion program should run\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "127\nRangeError\n255\nRangeError\n12\nRangeError\n1.25\n1.2345678806304932\n[]"
+    );
+}
+
+#[test]
 fn lsp_diagnostics_reports_compile_error_json() {
     let source_path = write_source("9223372036854775808\n");
 
@@ -1682,7 +1741,7 @@ end
 }
 
 #[test]
-fn fmt_rewrites_legacy_leading_dot_syntax() {
+fn fmt_preserves_unsupported_leading_dot_syntax() {
     let source_path = write_source(
         r#"
 self .email get println
@@ -1704,7 +1763,10 @@ http .request value
     );
 
     let formatted = fs::read_to_string(&source_path).expect("formatted source should be readable");
-    assert_eq!(formatted, "self email.get println\n\nhttp_request value\n");
+    assert_eq!(
+        formatted,
+        "self .email get println\n\nhttp .request value\n"
+    );
 }
 
 #[test]
@@ -1725,6 +1787,29 @@ fn run_loads_static_string_imports_before_main_source() {
     assert!(
         stdout.contains("Number(21)"),
         "stdout should show imported function result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_rejects_static_imports_with_invalid_string_escapes() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "\"lib/ma\\qth\" import\n7\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject invalid static import escapes"
+    );
+    assert!(
+        stderr.contains("invalid import string escape \\q"),
+        "stderr should explain invalid import escape, got:\n{stderr}"
     );
 }
 
@@ -2383,6 +2468,151 @@ fn add_installs_static_registry_url_dependency_with_local_alias() {
     assert!(
         stdout.contains("String(\"hello from static registry\")"),
         "stdout should show imported static registry package result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn static_registry_install_rejects_same_version_lock_replacement() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let replacement_package_dir = base.join("replacement_greeter_pkg");
+    let registry = base.join("registry");
+    let replacement_registry = base.join("replacement_registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"locked static registry version\"\nend\n",
+    );
+    let first_publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for(
+        "rco publish",
+        "first static registry package",
+        &first_publish,
+    );
+    let first_rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for(
+        "rco registry rebuild",
+        "first static registry",
+        &first_rebuild,
+    );
+
+    let app = base.join("app");
+    let registry_url = file_url_for_test(&registry.join("index.toml"));
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+            escape_toml_string(&registry_url)
+        ),
+    );
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let first_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for(
+        "rco install",
+        "first static registry install",
+        &first_install,
+    );
+    let first_lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(first_lock.contains("version = \"0.2.3\""));
+    assert!(first_lock.contains("integrity = \"sha256:"));
+
+    write_source_at(
+        &replacement_package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &replacement_package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"replacement static registry version\"\nend\n",
+    );
+    let replacement_publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&replacement_package_dir)
+        .arg("--registry")
+        .arg(&replacement_registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for(
+        "rco publish",
+        "replacement static registry package",
+        &replacement_publish,
+    );
+    let replacement_rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&replacement_registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for(
+        "rco registry rebuild",
+        "replacement static registry",
+        &replacement_rebuild,
+    );
+
+    fs::copy(
+        replacement_registry.join("packages").join("greeter.toml"),
+        registry.join("packages").join("greeter.toml"),
+    )
+    .expect("replacement static metadata should overwrite original metadata");
+    let artifact_relative = Path::new("artifacts")
+        .join("greeter")
+        .join("0.2.3")
+        .join("greeter-0.2.3.tar.gz");
+    fs::copy(
+        replacement_registry.join(&artifact_relative),
+        registry.join(&artifact_relative),
+    )
+    .expect("replacement static artifact should overwrite original artifact");
+    fs::remove_dir_all(app.join(".ricochet").join("packages").join("greeter"))
+        .expect("generated package cache should be removable for reinstall");
+
+    let second_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+    assert!(
+        !second_install.status.success(),
+        "ordinary install should reject same-version static registry replacement"
+    );
+    let stderr = String::from_utf8_lossy(&second_install.stderr);
+    assert!(
+        stderr.contains("static registry package greeter 0.2.3 integrity changed"),
+        "stderr should explain the locked package mismatch, got:\n{stderr}"
+    );
+    let second_lock =
+        fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should still exist");
+    assert_eq!(
+        first_lock, second_lock,
+        "failed static registry reinstall must leave the lockfile unchanged"
     );
 }
 
@@ -5079,6 +5309,78 @@ runtime_capabilities "tasks" at "known" at
 }
 
 #[test]
+fn run_formats_parses_and_manipulates_timestamps_and_dates() {
+    let output = run_source(
+        r#"
+"2026-06-18T13:14:15.250Z" timestamp_parse value ts var
+ts get timestamp_format value
+ts get "%Y-%m-%d %H:%M:%S" timestamp_format_pattern value
+ts get timestamp_parts value parts var
+parts get "year" at
+parts get "month" at
+parts get "day" at
+parts get "hour" at
+parts get "minute" at
+parts get "second" at
+parts get "millisecond" at
+parts get timestamp_from_parts value ts get =
+ts get 2 duration_hours value timestamp_add value later var
+ts get later get timestamp_diff value
+later get timestamp_format value
+"2026-02-28" date_parse value date var
+date get "%Y/%m/%d" date_format value
+date get date_to_timestamp value timestamp_format value
+date get 1 date_add_days value nextDate var
+nextDate get "%Y-%m-%d" date_format value
+date get nextDate get date_diff_days value
+1 duration_weeks value
+93784005 duration_parts value duration var
+duration get "days" at
+duration get "hours" at
+duration get "minutes" at
+duration get "seconds" at
+duration get "milliseconds" at
+"not-a-date" timestamp_parse error "kind" at
+"2026-02-30" date_parse error "kind" at
+"#,
+    );
+    assert_run_success_for("rco run", "date/time library", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "String(\"2026-06-18T13:14:15.250Z\")",
+        "String(\"2026-06-18 13:14:15\")",
+        "Number(2026)",
+        "Number(6)",
+        "Number(18)",
+        "Number(13)",
+        "Number(14)",
+        "Number(15)",
+        "Number(250)",
+        "Bool(true)",
+        "Number(7200000)",
+        "String(\"2026-06-18T15:14:15.250Z\")",
+        "String(\"2026/02/28\")",
+        "String(\"2026-02-28T00:00:00.000Z\")",
+        "String(\"2026-03-01\")",
+        "Number(1)",
+        "Number(604800000)",
+        "Number(1)",
+        "Number(2)",
+        "Number(3)",
+        "Number(4)",
+        "Number(5)",
+        "String(\"DateTimeParseError\")",
+        "String(\"DateParseError\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn run_awaits_multiple_tasks_with_await_all() {
     let output = run_source(
         r#"
@@ -6473,6 +6775,53 @@ runtime_capabilities "process" at "jobs" at
 }
 
 #[test]
+fn run_process_release_drops_completed_job_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let checked_source = root.join("checked-release.rco");
+    fs::write(&checked_source, "42\n").expect("checked source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let checked = escape_ricochet_string(&checked_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "check" push! drop
+args get "{checked}" push! drop
+options map
+options get "timeout_ms" 10000 put! drop
+"{rco}" args get options get process_start value job var
+1500 sleep
+job get "id" at process_release value
+process_jobs count
+runtime_capabilities "process" at "jobs" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Bool(true)"),
+        "stdout should show process_release succeeded, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 2,
+        "stdout should show no retained process jobs after release, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_process_cancel_marks_job_cancelled_when_allowed() {
     let source_path = temp_source_path();
     let root = source_path.parent().expect("source path has parent");
@@ -6645,6 +6994,60 @@ runtime_capabilities "pty" at "sessions" at
     assert!(
         stdout.matches("Number(1)").count() >= 2,
         "stdout should show one retained PTY session in list and capability snapshots, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_pty_release_drops_exited_session_when_allowed() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+
+    #[cfg(windows)]
+    let (command, args): (&str, &[&str]) = ("cmd", &["/C", "echo", "ricochet-pty"]);
+    #[cfg(not(windows))]
+    let (command, args): (&str, &[&str]) = ("printf", &["ricochet-pty"]);
+
+    let mut arg_lines = String::new();
+    for arg in args {
+        arg_lines.push_str(&format!(
+            "args get \"{}\" push! drop\n",
+            escape_ricochet_string(arg)
+        ));
+    }
+    let command = escape_ricochet_string(command);
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+{arg_lines}options map
+"{command}" args get options get pty_start value session var
+500 sleep
+session get "id" at pty_release value
+pty_list count
+runtime_capabilities "pty" at "sessions" at
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-pty")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Bool(true)"),
+        "stdout should show pty_release succeeded, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 2,
+        "stdout should show no retained PTY sessions after release, got:\n{stdout}"
     );
 }
 
@@ -7339,6 +7742,39 @@ runtime_capabilities "http" at "streams" at
             && stdout.contains("String(\"completed\")")
             && stdout.contains("Number(1)"),
         "stdout should contain first chunk, second chunk, completed status, and stream count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_http_stream_release_drops_completed_stream() {
+    let (address, server) =
+        spawn_chunked_http_server(vec![(b"data: done\n\n".to_vec(), Duration::from_millis(0))]);
+    let output = run_source(&format!(
+        r#"
+request map
+request get "url" "http://{address}/stream" put! drop
+request get "timeout_ms" 10000 put! drop
+request get "max_response_bytes" 1024 put! drop
+request get http_stream_start value stream var
+stream get "id" at id var
+200 sleep
+id get http_stream value "status" at
+id get http_stream_release value
+http_streams count
+runtime_capabilities "http" at "streams" at
+"#
+    ));
+    server.join().expect("HTTP streaming server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"completed\")") && stdout.contains("Bool(true)"),
+        "stdout should show completed stream and successful release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 2,
+        "stdout should show no retained HTTP streams after release, got:\n{stdout}"
     );
 }
 

@@ -135,8 +135,18 @@ fn render_value(value: &Value) -> Result<String> {
         Value::Nil => Ok(String::new()),
         Value::Bool(value) => Ok(value.to_string()),
         Value::Number(value) => Ok(value.to_string()),
+        Value::Float(value) => Ok(format_float(*value)),
         Value::String(value) => Ok(value.clone()),
         value => bail!("template expression returned non-renderable value {value:?}"),
+    }
+}
+
+fn format_float(value: f64) -> String {
+    let formatted = value.to_string();
+    if formatted.contains('.') || formatted.contains('e') || formatted.contains('E') {
+        formatted
+    } else {
+        format!("{formatted}.0")
     }
 }
 

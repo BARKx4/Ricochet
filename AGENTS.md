@@ -5,6 +5,14 @@
 - Always ask the user before deleting anything.
 - If a problem has no logical explanation from the evidence available, fail loudly and ask for diagnostic help.
 
+## Feature Map
+
+- Before making roadmap claims or planning a broad feature, read
+  `docs/feature-map.md`.
+- Treat the feature map as the agent-facing orientation layer. If it conflicts
+  with live code, tests, or `docs/reference`, verify the live source and update
+  the map.
+
 ## Syntax Guardrail
 
 All future language and platform features must pass the RPN/postfix vibe check before implementation.

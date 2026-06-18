@@ -58,12 +58,19 @@ jobs:
             exit 1
           fi
 
+          if [[ "$is_nightly" != "true" && "$version" != "$workspace_version" ]]; then
+            echo "Resolved package version '$version' does not match workspace Cargo version '$workspace_version'." >&2
+            echo "Use the Cargo.toml version for tagged/manual releases; only scheduled nightlies append a suffix." >&2
+            exit 1
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "is_nightly=$is_nightly" >> "$GITHUB_OUTPUT"
           {
             echo "### Ricochet package version"
             echo
             echo "- Version: \`$version\`"
+            echo "- Workspace version: \`$workspace_version\`"
             echo "- Nightly: \`$is_nightly\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -110,6 +117,52 @@ jobs:
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
           .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -NsisPath $env:NSIS_PATH
+
+      - name: Smoke-test package executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ needs.resolve-version.outputs.version }}'
+          $tmp = Join-Path $env:RUNNER_TEMP ("ricochet-windows-smoke-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+
+          $zip = Get-ChildItem -LiteralPath dist -Filter 'ricochet-v*-windows-x64.zip' | Select-Object -First 1
+          if (-not $zip) {
+            throw "Windows portable ZIP was not found in dist."
+          }
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $tmp
+          $packageDir = Get-ChildItem -LiteralPath $tmp -Directory | Select-Object -First 1
+          if (-not $packageDir) {
+            throw "Expanded Windows package directory was not found."
+          }
+          $rco = Join-Path $packageDir.FullName 'rco.exe'
+
+          $basic = Join-Path $tmp 'basic-oop.exe'
+          & $rco package examples\basic-oop.rco --output $basic --package-name basic-oop --package-version $version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged rco failed to package basic-oop."
+          }
+          $basicOutput = & $basic
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged basic-oop executable failed."
+          }
+          if (($basicOutput -join "`n") -notmatch 'ada@example.com') {
+            throw "Packaged basic-oop executable output did not contain ada@example.com."
+          }
+
+          $webview = Join-Path $tmp 'webview-ui.exe'
+          & $rco package examples\webview_ui.rco --gui --output $webview --package-name webview-ui --package-version $version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged rco failed to package webview-ui."
+          }
+          $env:RICOCHET_GUI_EXPORT_HTML = Join-Path $tmp 'webview-ui.html'
+          & $webview
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged webview-ui executable failed."
+          }
+          if (-not (Select-String -LiteralPath $env:RICOCHET_GUI_EXPORT_HTML -Pattern '<title>Ricochet Desktop UI</title>' -Quiet)) {
+            throw "Packaged webview-ui HTML export did not contain the expected title."
+          }
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7

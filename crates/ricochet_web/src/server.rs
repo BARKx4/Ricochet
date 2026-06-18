@@ -1768,7 +1768,7 @@ fn json_to_session_value(value: JsonValue) -> Option<Value> {
     match value {
         JsonValue::Null => Some(Value::Nil),
         JsonValue::Bool(value) => Some(Value::Bool(value)),
-        JsonValue::Number(value) => value.as_i64().map(Value::Number),
+        JsonValue::Number(value) => json_number_to_value(value),
         JsonValue::String(value) => Some(Value::String(value)),
         JsonValue::Array(values) => values
             .into_iter()
@@ -1780,6 +1780,16 @@ fn json_to_session_value(value: JsonValue) -> Option<Value> {
             .map(|(key, value)| json_to_session_value(value).map(|value| (key, value)))
             .collect::<Option<BTreeMap<_, _>>>()
             .map(|values| Value::Map(values.into())),
+    }
+}
+
+fn json_number_to_value(value: serde_json::Number) -> Option<Value> {
+    if let Some(value) = value.as_i64() {
+        Some(Value::Number(value))
+    } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
+        Some(Value::Number(value))
+    } else {
+        value.as_f64().map(Value::Float)
     }
 }
 
@@ -1914,6 +1924,9 @@ fn session_value_to_json(value: &Value) -> Result<JsonValue> {
         Value::Nil => Ok(JsonValue::Null),
         Value::Bool(value) => Ok(JsonValue::Bool(*value)),
         Value::Number(value) => Ok(JsonValue::Number((*value).into())),
+        Value::Float(value) => serde_json::Number::from_f64(*value)
+            .map(JsonValue::Number)
+            .ok_or_else(|| anyhow!("cannot encode non-finite float in session")),
         Value::String(value) => Ok(JsonValue::String(value.clone())),
         Value::Array(values) => values
             .snapshot()
@@ -2032,11 +2045,7 @@ fn json_to_request_value(value: JsonValue) -> Value {
     match value {
         JsonValue::Null => Value::Nil,
         JsonValue::Bool(value) => Value::Bool(value),
-        JsonValue::Number(value) => Value::Number(
-            value
-                .as_i64()
-                .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
-        ),
+        JsonValue::Number(value) => json_number_to_value(value).unwrap_or(Value::Nil),
         JsonValue::String(value) => Value::String(value),
         JsonValue::Array(values) => Value::Array(
             values

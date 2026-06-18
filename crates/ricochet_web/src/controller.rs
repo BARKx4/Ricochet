@@ -375,6 +375,7 @@ fn logger_value_kind(value: &Value) -> &'static str {
         Value::Nil => "nil",
         Value::Bool(_) => "bool",
         Value::Number(_) => "number",
+        Value::Float(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::List(_) => "list",
@@ -504,6 +505,9 @@ fn json_value_from_value(value: Value) -> Result<JsonValue> {
         Value::Nil => Ok(JsonValue::Null),
         Value::Bool(value) => Ok(JsonValue::Bool(value)),
         Value::Number(value) => Ok(JsonValue::Number(value.into())),
+        Value::Float(value) => serde_json::Number::from_f64(value)
+            .map(JsonValue::Number)
+            .ok_or_else(|| anyhow::anyhow!("cannot encode non-finite float as JSON")),
         Value::String(value) => Ok(JsonValue::String(value)),
         Value::Array(values) => values
             .snapshot()

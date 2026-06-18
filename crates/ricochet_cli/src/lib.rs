@@ -2054,6 +2054,7 @@ fn collect_expr_lints(expr: &Expr, lints: &mut Vec<SyntaxLint>) {
         | Expr::Reference(_)
         | Expr::String(_)
         | Expr::Number(_)
+        | Expr::Float(_)
         | Expr::Args(_) => {}
     }
 }
@@ -3958,13 +3959,17 @@ fn static_registry_version<'a>(
 ) -> Result<&'a StaticRegistryVersion> {
     if let Some(locked_version) = locked.and_then(|lock| lock.package_version.as_deref()) {
         if package_version_satisfies(spec.version_req.as_deref(), locked_version)? {
-            if let Some(version) = metadata
+            let version = metadata
                 .versions
                 .iter()
                 .find(|version| version.version == locked_version)
-            {
-                return Ok(version);
-            }
+                .with_context(|| {
+                    format!(
+                        "static registry package {} locked version {} is not present in the current registry metadata",
+                        metadata.name, locked_version
+                    )
+                })?;
+            return Ok(version);
         }
     }
     latest_static_registry_version(&metadata.versions, spec.version_req.as_deref()).with_context(
@@ -3976,6 +3981,87 @@ fn static_registry_version<'a>(
             )
         },
     )
+}
+
+fn validate_locked_static_registry_version(
+    metadata: &StaticRegistryPackageMetadata,
+    spec: &DependencySpec,
+    locked: Option<&LockedPackage>,
+    version: &StaticRegistryVersion,
+) -> Result<()> {
+    let Some(locked) = locked else {
+        return Ok(());
+    };
+    if locked.package_version.as_deref() != Some(version.version.as_str()) {
+        return Ok(());
+    }
+
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "source",
+        Some(locked.source.as_str()),
+        Some(spec.source.as_str()),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "registry",
+        locked.registry.as_deref(),
+        spec.registry.as_deref(),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "package",
+        locked.package.as_deref(),
+        spec.package.as_deref(),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "integrity",
+        locked.integrity.as_deref(),
+        Some(version.package_integrity.as_str()),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "provenance",
+        locked.provenance.as_deref(),
+        version.provenance.as_deref(),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "signature",
+        locked.signature.as_deref(),
+        version.signature.as_deref(),
+    )?;
+    ensure_locked_static_registry_field(
+        &metadata.name,
+        &version.version,
+        "signature_kind",
+        locked.signature_kind.as_deref(),
+        version.signature_kind.as_deref(),
+    )
+}
+
+fn ensure_locked_static_registry_field(
+    package_name: &str,
+    version: &str,
+    field: &str,
+    locked: Option<&str>,
+    current: Option<&str>,
+) -> Result<()> {
+    if locked == current {
+        return Ok(());
+    }
+    let locked = locked.unwrap_or("<missing>");
+    let current = current.unwrap_or("<missing>");
+    bail!(
+        "static registry package {package_name} {version} {field} changed: lockfile has {locked}, registry has {current}; refusing ordinary install"
+    );
 }
 
 fn validate_static_registry_relative_path(path: &str, label: &str) -> Result<()> {
@@ -5421,6 +5507,7 @@ fn install_static_registry_dependency(
         .with_context(|| format!("static registry does not contain package {package_name}"))?;
     let metadata = load_static_registry_package(&index.source, package_name, metadata_path)?;
     let version = static_registry_version(&metadata, spec, locked)?;
+    validate_locked_static_registry_version(&metadata, spec, locked, version)?;
     let package_cache =
         project_dependency_path(project_root, &spec.path, "static registry package cache")?;
 
@@ -6632,11 +6719,17 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
     match value {
         serde_json::Value::Null => Value::Nil,
         serde_json::Value::Bool(value) => Value::Bool(value),
-        serde_json::Value::Number(value) => Value::Number(
-            value
-                .as_i64()
-                .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
-        ),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Value::Number(value)
+            } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
+                Value::Number(value)
+            } else if let Some(value) = value.as_f64() {
+                Value::Float(value)
+            } else {
+                Value::Nil
+            }
+        }
         serde_json::Value::String(value) => Value::String(value),
         serde_json::Value::Array(values) => Value::Array(
             values

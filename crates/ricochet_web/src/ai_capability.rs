@@ -123,6 +123,7 @@ fn ai_value_kind(value: &Value) -> &'static str {
         Value::Nil => "nil",
         Value::Bool(_) => "bool",
         Value::Number(_) => "number",
+        Value::Float(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::List(_) => "list",

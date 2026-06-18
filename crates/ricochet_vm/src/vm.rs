@@ -1190,6 +1190,7 @@ impl Vm {
             Op::PushNil => self.stack.push(Value::Nil),
             Op::PushBool(value) => self.stack.push(Value::Bool(*value)),
             Op::PushNumber(value) => self.stack.push(Value::Number(*value)),
+            Op::PushFloat(value) => self.stack.push(Value::Float(*value)),
             Op::PushString(value) => self.stack.push(Value::String(value.clone())),
             Op::PushBlock(block) => {
                 let block = chunk
@@ -1387,6 +1388,7 @@ impl Vm {
             "http_stream" => self.call_http_stream(word),
             "http_stream_read" => self.call_http_stream_read(word),
             "http_stream_cancel" => self.call_http_stream_cancel(word),
+            "http_stream_release" => self.call_http_stream_release(word),
             "process_env_put" => self.call_process_env_put(word),
             "process_spawn" => self.call_process_spawn(word),
             "process_spawn_task" => self.call_process_spawn_task(word),
@@ -1394,12 +1396,14 @@ impl Vm {
             "process_jobs" => self.call_process_jobs(),
             "process_job" => self.call_process_job(word),
             "process_cancel" => self.call_process_cancel(word),
+            "process_release" => self.call_process_release(word),
             "process_read" => self.call_process_read(word),
             "pty_start" => self.call_pty_start(word),
             "pty_write" => self.call_pty_write(word),
             "pty_read" => self.call_pty_read(word),
             "pty_resize" => self.call_pty_resize(word),
             "pty_stop" => self.call_pty_stop(word),
+            "pty_release" => self.call_pty_release(word),
             "pty_list" => self.call_pty_list(),
             "pty_detail" => self.call_pty_detail(word),
             "approval_create" => self.call_approval_create(word),
@@ -1455,6 +1459,27 @@ impl Vm {
             "cwd" => self.call_cwd(),
             "runtime_capabilities" => self.call_runtime_capabilities(),
             "now" => self.call_now(word),
+            "timestamp_now" => self.call_timestamp_now(word),
+            "timestamp_parse" => self.call_timestamp_parse(word),
+            "timestamp_format" => self.call_timestamp_format(word),
+            "timestamp_format_pattern" => self.call_timestamp_format_pattern(word),
+            "timestamp_parts" => self.call_timestamp_parts(word),
+            "timestamp_from_parts" => self.call_timestamp_from_parts(word),
+            "timestamp_add" => self.call_timestamp_add(word),
+            "timestamp_diff" => self.call_timestamp_diff(word),
+            "date_from_timestamp" => self.call_date_from_timestamp(word),
+            "date_to_timestamp" => self.call_date_to_timestamp(word),
+            "date_parse" => self.call_date_parse(word),
+            "date_format" => self.call_date_format(word),
+            "date_add_days" => self.call_date_add_days(word),
+            "date_diff_days" => self.call_date_diff_days(word),
+            "duration_millis" => self.call_duration_unit(word, 1),
+            "duration_seconds" => self.call_duration_unit(word, 1_000),
+            "duration_minutes" => self.call_duration_unit(word, 60_000),
+            "duration_hours" => self.call_duration_unit(word, 3_600_000),
+            "duration_days" => self.call_duration_unit(word, 86_400_000),
+            "duration_weeks" => self.call_duration_unit(word, 604_800_000),
+            "duration_parts" => self.call_duration_parts(word),
             "sleep" => self.call_sleep(word),
             "random" => self.call_random(word),
             "exit" => self.call_exit(word),
@@ -1520,6 +1545,24 @@ impl Vm {
             "range" => self.call_range(word),
             "regex" => self.call_regex(word),
             "to_string" => self.call_to_string(word),
+            "to_number"
+            | "to_integer"
+            | "to_bigint"
+            | "to_int"
+            | "to_mediumint"
+            | "to_smallint"
+            | "to_tinyint"
+            | "to_bit"
+            | "to_unsigned_int"
+            | "to_unsigned_mediumint"
+            | "to_unsigned_smallint"
+            | "to_unsigned_tinyint"
+            | "to_unsigned_bigint"
+            | "to_float"
+            | "to_float32"
+            | "to_float64"
+            | "to_double"
+            | "to_real" => self.call_numeric_conversion(word),
             "json_encode" => self.call_json_encode(word),
             "json_decode" => self.call_json_decode(word),
             "type" => self.call_type(word),
@@ -3215,32 +3258,15 @@ impl Vm {
     fn call_add(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
-        let right = match self.pop_number(word) {
-            Ok(value) => value,
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_add(word, left, right) {
+            Ok(value) => self.stack.push(value),
             Err(error) => {
                 self.stack = stack_before;
                 return Err(error);
             }
-        };
-        let left = match self.pop_number(word) {
-            Ok(value) => value,
-            Err(error) => {
-                self.stack = stack_before;
-                return Err(error);
-            }
-        };
-
-        let value = match left.checked_add(right) {
-            Some(value) => value,
-            None => {
-                self.stack = stack_before;
-                return Err(VmError::ArithmeticOverflow {
-                    word: word.to_string(),
-                });
-            }
-        };
-
-        self.stack.push(Value::Number(value));
+        }
 
         Ok(())
     }
@@ -3248,32 +3274,15 @@ impl Vm {
     fn call_subtract(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
-        let right = match self.pop_number(word) {
-            Ok(value) => value,
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_subtract(word, left, right) {
+            Ok(value) => self.stack.push(value),
             Err(error) => {
                 self.stack = stack_before;
                 return Err(error);
             }
-        };
-        let left = match self.pop_number(word) {
-            Ok(value) => value,
-            Err(error) => {
-                self.stack = stack_before;
-                return Err(error);
-            }
-        };
-
-        let value = match left.checked_sub(right) {
-            Some(value) => value,
-            None => {
-                self.stack = stack_before;
-                return Err(VmError::ArithmeticOverflow {
-                    word: word.to_string(),
-                });
-            }
-        };
-
-        self.stack.push(Value::Number(value));
+        }
         Ok(())
     }
 
@@ -3281,7 +3290,8 @@ impl Vm {
         self.ensure_stack(word, 2)?;
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
-        self.stack.push(Value::Bool(left == right));
+        let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
+        self.stack.push(Value::Bool(equal));
 
         Ok(())
     }
@@ -3290,7 +3300,8 @@ impl Vm {
         self.ensure_stack(word, 2)?;
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
-        self.stack.push(Value::Bool(left != right));
+        let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
+        self.stack.push(Value::Bool(!equal));
 
         Ok(())
     }
@@ -3301,7 +3312,7 @@ impl Vm {
         let expected = self.pop_unchecked();
         let actual = self.pop_unchecked();
 
-        if actual == expected {
+        if numeric_values_equal(&actual, &expected).unwrap_or(actual == expected) {
             return Ok(());
         }
 
@@ -3315,26 +3326,15 @@ impl Vm {
     fn call_number_comparison(
         &mut self,
         word: &str,
-        compare: impl FnOnce(i64, i64) -> bool,
+        compare: impl FnOnce(f64, f64) -> bool,
     ) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
-        let right = match self.pop_number(word) {
-            Ok(value) => value,
-            Err(error) => {
-                self.stack = stack_before;
-                return Err(error);
-            }
-        };
-        let left = match self.pop_number(word) {
-            Ok(value) => value,
-            Err(error) => {
-                self.stack = stack_before;
-                return Err(error);
-            }
-        };
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
 
-        self.stack.push(Value::Bool(compare(left, right)));
+        self.stack
+            .push(Value::Bool(compare(left.as_f64(), right.as_f64())));
 
         Ok(())
     }
@@ -3462,6 +3462,32 @@ impl Vm {
         }
     }
 
+    pub(super) fn pop_numeric_or_restore(
+        &mut self,
+        word: &str,
+        stack_before: &[Value],
+    ) -> Result<NumericValue, VmError> {
+        match self.pop_numeric(word) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.stack = stack_before.to_vec();
+                Err(error)
+            }
+        }
+    }
+
+    pub(super) fn pop_numeric(&mut self, word: &str) -> Result<NumericValue, VmError> {
+        match self.pop(word)? {
+            Value::Number(value) => Ok(NumericValue::Integer(value)),
+            Value::Float(value) => Ok(NumericValue::Float(value)),
+            value => Err(VmError::TypeError {
+                word: word.to_string(),
+                expected: "number".to_string(),
+                actual: value_kind(&value).to_string(),
+            }),
+        }
+    }
+
     pub(super) fn pop_unchecked(&mut self) -> Value {
         self.stack.pop().expect("stack length checked before pop")
     }
@@ -3540,11 +3566,90 @@ impl Vm {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum NumericValue {
+    Integer(i64),
+    Float(f64),
+}
+
+impl NumericValue {
+    pub(super) fn as_f64(self) -> f64 {
+        match self {
+            NumericValue::Integer(value) => value as f64,
+            NumericValue::Float(value) => value,
+        }
+    }
+}
+
+pub(super) fn numeric_value(value: &Value) -> Option<NumericValue> {
+    match value {
+        Value::Number(value) => Some(NumericValue::Integer(*value)),
+        Value::Float(value) => Some(NumericValue::Float(*value)),
+        _ => None,
+    }
+}
+
+pub(super) fn numeric_values_equal(left: &Value, right: &Value) -> Option<bool> {
+    Some(numeric_value(left)?.as_f64() == numeric_value(right)?.as_f64())
+}
+
+pub(super) fn numeric_add(
+    word: &str,
+    left: NumericValue,
+    right: NumericValue,
+) -> Result<Value, VmError> {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => left
+            .checked_add(right)
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        _ => finite_float_result(word, left.as_f64() + right.as_f64()),
+    }
+}
+
+pub(super) fn numeric_subtract(
+    word: &str,
+    left: NumericValue,
+    right: NumericValue,
+) -> Result<Value, VmError> {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => left
+            .checked_sub(right)
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        _ => finite_float_result(word, left.as_f64() - right.as_f64()),
+    }
+}
+
+pub(super) fn finite_float_result(word: &str, value: f64) -> Result<Value, VmError> {
+    if value.is_finite() {
+        Ok(Value::Float(value))
+    } else {
+        Err(arithmetic_overflow(word))
+    }
+}
+
+pub(super) fn arithmetic_overflow(word: &str) -> VmError {
+    VmError::ArithmeticOverflow {
+        word: word.to_string(),
+    }
+}
+
+pub(super) fn display_float(value: f64) -> String {
+    let formatted = value.to_string();
+    if formatted.contains('.') || formatted.contains('e') || formatted.contains('E') {
+        formatted
+    } else {
+        format!("{formatted}.0")
+    }
+}
+
 pub(super) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::Nil => "nil",
         Value::Bool(_) => "bool",
         Value::Number(_) => "number",
+        Value::Float(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::List(_) => "list",
@@ -3685,6 +3790,7 @@ fn output_string(value: &Value) -> String {
         Value::Nil => "nil".to_string(),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
+        Value::Float(value) => display_float(*value),
         Value::String(value) => value.clone(),
         value => format!("{value:?}"),
     }
@@ -3743,6 +3849,31 @@ mod tests {
         vm.run_chunk(&chunk).expect("vm succeeds");
 
         assert_eq!(vm.stack(), &[Value::Number(5)]);
+    }
+
+    #[test]
+    fn numeric_words_support_float_promotion_and_type() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushFloat(1.5), span());
+        chunk.push(Op::PushNumber(2), span());
+        chunk.push(Op::CallWord("+".to_string()), span());
+        chunk.push(Op::PushNumber(1), span());
+        chunk.push(Op::PushFloat(1.0), span());
+        chunk.push(Op::CallWord("=".to_string()), span());
+        chunk.push(Op::PushFloat(2.0), span());
+        chunk.push(Op::CallWord("type".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("float words run");
+
+        assert_eq!(
+            vm.stack(),
+            &[
+                Value::Float(3.5),
+                Value::Bool(true),
+                Value::String("float".to_string())
+            ]
+        );
     }
 
     #[test]

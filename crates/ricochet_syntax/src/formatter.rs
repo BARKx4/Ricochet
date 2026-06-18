@@ -217,6 +217,7 @@ fn is_inline_expr(expr: &Expr) -> bool {
             | Expr::Reference(_)
             | Expr::String(_)
             | Expr::Number(_)
+            | Expr::Float(_)
             | Expr::Args(_)
     )
 }
@@ -273,10 +274,11 @@ fn split_if_sequence(
 fn format_expr_inline(expr: &Expr) -> String {
     match expr {
         Expr::Symbol(word) | Expr::BangWord(word) => word.clone(),
-        Expr::DotWord(word) => word.strip_prefix('.').unwrap_or(word).to_string(),
+        Expr::DotWord(word) => word.clone(),
         Expr::Reference(name) => format!("${name}"),
         Expr::String(value) => format!("\"{}\"", escape_string(value)),
         Expr::Number(value) => value.to_string(),
+        Expr::Float(value) => format_float_literal(*value),
         Expr::Args(args) => format_args(args),
         Expr::Block(body) => {
             let parts = format_exprs_inline(body);
@@ -292,76 +294,10 @@ fn format_exprs_inline(exprs: &[SpannedExpr]) -> Vec<String> {
     let mut parts = Vec::new();
     let mut index = 0;
     while index < exprs.len() {
-        if let Some(word) = exprs
-            .get(index + 1)
-            .and_then(|next| host_namespace_word(&exprs[index], next))
-        {
-            parts.push(word);
-            index += 2;
-        } else if let Some(selector) = exprs
-            .get(index + 1)
-            .and_then(|next| legacy_leading_dot_get(&exprs[index], next))
-        {
-            parts.push(format!("{selector}.get"));
-            index += 2;
-        } else if let Some(name) = exprs
-            .get(index + 1)
-            .and_then(|next| legacy_variable_read_name(&exprs[index], next))
-        {
-            parts.push(format!("${name}"));
-            index += 2;
-        } else {
-            parts.push(format_expr_inline(&exprs[index].expr));
-            index += 1;
-        }
+        parts.push(format_expr_inline(&exprs[index].expr));
+        index += 1;
     }
     parts
-}
-
-fn host_namespace_word(namespace: &SpannedExpr, selector: &SpannedExpr) -> Option<String> {
-    match (&namespace.expr, &selector.expr) {
-        (Expr::Symbol(namespace), Expr::DotWord(selector)) if is_host_namespace(namespace) => {
-            let selector = selector.strip_prefix('.')?;
-            let selector = selector.trim_end_matches('!').replace('-', "_");
-            Some(format!("{namespace}_{selector}"))
-        }
-        _ => None,
-    }
-}
-
-fn legacy_leading_dot_get<'a>(selector: &'a SpannedExpr, get: &SpannedExpr) -> Option<&'a str> {
-    match (&selector.expr, &get.expr) {
-        (Expr::DotWord(selector), Expr::Symbol(word)) if word == "get" => {
-            selector.strip_prefix('.')
-        }
-        _ => None,
-    }
-}
-
-fn legacy_variable_read_name<'a>(name: &'a SpannedExpr, get: &SpannedExpr) -> Option<&'a str> {
-    match (&name.expr, &get.expr) {
-        (Expr::Symbol(name), Expr::Symbol(word))
-            if word == "get" && is_plain_reference_name(name) =>
-        {
-            Some(name)
-        }
-        _ => None,
-    }
-}
-
-fn is_plain_reference_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
-
-fn is_host_namespace(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "fs" | "workspace" | "http" | "process" | "pty" | "tui" | "webview"
-    )
 }
 
 fn format_args(args: &ArgsDecl) -> String {
@@ -372,6 +308,15 @@ fn format_args(args: &ArgsDecl) -> String {
         parts.extend(args.outputs.iter().cloned());
     }
     format!("( {} )", parts.join(" "))
+}
+
+fn format_float_literal(value: f64) -> String {
+    let formatted = value.to_string();
+    if formatted.contains('.') || formatted.contains('e') || formatted.contains('E') {
+        formatted
+    } else {
+        format!("{formatted}.0")
+    }
 }
 
 fn escape_string(value: &str) -> String {
@@ -426,7 +371,7 @@ end
     }
 
     #[test]
-    fn canonicalizes_legacy_get_variable_reads() {
+    fn preserves_explicit_get_reads() {
         let formatted = format_source(
             r#""Ada" name var
 name get println
@@ -440,12 +385,12 @@ end
 
         assert_eq!(
             formatted,
-            "\"Ada\" name var\n\n$name println\n\n$count 10 < while\n  $count 1 + count set\nend\n\n\"name\" get println\n"
+            "\"Ada\" name var\n\nname get println\n\ncount get 10 < while\n  count get 1 + count set\nend\n\n\"name\" get println\n"
         );
     }
 
     #[test]
-    fn canonicalizes_leading_dot_syntax() {
+    fn preserves_unsupported_leading_dot_syntax() {
         let formatted = format_source(
             r#"self .email get println
 http .request value
@@ -457,7 +402,7 @@ fs .read_text! value
 
         assert_eq!(
             formatted,
-            "self email.get println\n\nhttp_request value\n\nfs_read_text value\n\nstandalone\n"
+            "self .email get println\n\nhttp .request value\n\nfs .read_text! value\n\n.standalone\n"
         );
     }
 

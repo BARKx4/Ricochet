@@ -11,6 +11,8 @@ pub enum LexError {
     InvalidStringEscape { escape: char, position: usize },
     #[error("empty reference at byte {0}")]
     EmptyReference(usize),
+    #[error("invalid word {word:?} at byte {position}")]
+    InvalidWord { word: String, position: usize },
 }
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
@@ -104,20 +106,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 .get(i + 1)
                 .is_some_and(|byte| (*byte as char).is_ascii_digit()) =>
             {
-                i += 2;
-                while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
-                    i += 1;
-                }
+                i = scan_number_literal(bytes, i);
                 tokens.push(Token {
                     kind: TokenKind::Number(source[start..i].to_string()),
                     span: Span { start, end: i },
                 });
             }
             c if c.is_ascii_digit() => {
-                i += 1;
-                while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
-                    i += 1;
-                }
+                i = scan_number_literal(bytes, i);
                 tokens.push(Token {
                     kind: TokenKind::Number(source[start..i].to_string()),
                     span: Span { start, end: i },
@@ -137,6 +133,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     i += 1;
                 }
                 let word = source[start..i].to_string();
+                if word.starts_with('-') && word != "-" {
+                    return Err(LexError::InvalidWord {
+                        word,
+                        position: start,
+                    });
+                }
                 let kind = if word.starts_with('!') {
                     TokenKind::BangWord(word)
                 } else if word.starts_with('.') {
@@ -165,6 +167,48 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
         },
     });
     Ok(tokens)
+}
+
+fn scan_number_literal(bytes: &[u8], mut i: usize) -> usize {
+    if bytes.get(i) == Some(&b'-') {
+        i += 1;
+    }
+
+    while i < bytes.len() && is_ascii_digit(bytes[i]) {
+        i += 1;
+    }
+
+    if bytes.get(i) == Some(&b'.') && bytes.get(i + 1).is_some_and(|byte| is_ascii_digit(*byte)) {
+        i += 2;
+        while i < bytes.len() && is_ascii_digit(bytes[i]) {
+            i += 1;
+        }
+    }
+
+    if bytes
+        .get(i)
+        .is_some_and(|byte| matches!(*byte, b'e' | b'E'))
+    {
+        let mut exponent = i + 1;
+        if matches!(bytes.get(exponent), Some(b'+' | b'-')) {
+            exponent += 1;
+        }
+        if bytes
+            .get(exponent)
+            .is_some_and(|byte| is_ascii_digit(*byte))
+        {
+            i = exponent + 1;
+            while i < bytes.len() && is_ascii_digit(bytes[i]) {
+                i += 1;
+            }
+        }
+    }
+
+    i
+}
+
+fn is_ascii_digit(byte: u8) -> bool {
+    (byte as char).is_ascii_digit()
 }
 
 fn decode_string(value: &str, offset: usize) -> Result<String, LexError> {
@@ -250,12 +294,30 @@ mod tests {
 
     #[test]
     fn lexes_negative_numbers_without_stealing_subtraction() {
-        let tokens = lex("-1 - -name").expect("lexing succeeds");
+        let tokens = lex("-1 - -2").expect("lexing succeeds");
         let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
 
         assert_eq!(kinds[0], TokenKind::Number("-1".to_string()));
         assert_eq!(kinds[1], TokenKind::Symbol("-".to_string()));
-        assert_eq!(kinds[2], TokenKind::Symbol("-name".to_string()));
+        assert_eq!(kinds[2], TokenKind::Number("-2".to_string()));
+    }
+
+    #[test]
+    fn lexes_float_literals_without_stealing_dot_selectors() {
+        let tokens = lex("1.5 -0.25 6e2 -7.5e-1 user email.get").expect("lexing succeeds");
+        let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
+
+        assert_eq!(kinds[0], TokenKind::Number("1.5".to_string()));
+        assert_eq!(kinds[1], TokenKind::Number("-0.25".to_string()));
+        assert_eq!(kinds[2], TokenKind::Number("6e2".to_string()));
+        assert_eq!(kinds[3], TokenKind::Number("-7.5e-1".to_string()));
+        assert_eq!(kinds[4], TokenKind::Symbol("user".to_string()));
+        assert_eq!(kinds[5], TokenKind::Symbol("email.get".to_string()));
+    }
+
+    #[test]
+    fn rejects_dash_prefixed_words() {
+        assert!(lex("-name").is_err());
     }
 
     #[test]

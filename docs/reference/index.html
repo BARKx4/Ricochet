@@ -82,7 +82,7 @@
             <path d="M472 226 L528 150" class="connector"></path>
             <path d="M472 226 L528 238" class="connector"></path>
             <path d="M472 226 L528 326" class="connector"></path>
-            <text x="78" y="404" class="caption">name get "home/index" swap view</text>
+            <text x="78" y="404" class="caption">$name "home/index" swap view</text>
             <text x="78" y="438" class="caption">[ ... ] "methodName" Method</text>
           </svg>
         </div>
@@ -137,7 +137,7 @@ tags Set</code></pre>
 $name array
 $users "Ada" push! drop
 $users count println</code></pre>
-            <p>`$name` reads an existing binding and is equivalent to `name get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string. Function and method locals refresh within the active call frame, while top-level declarations stay shared.</p>
+            <p>`$name` reads an existing binding for ordinary static variable access. Keep `get` for dynamic by-name reads such as `"name" get` or `fieldName get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string. Function and method locals refresh within the active call frame, while top-level declarations stay shared.</p>
           </article>
           <article>
             <h3>Argument Lists</h3>
@@ -178,8 +178,9 @@ end</code></pre>
             <pre><code>"lib/math" import
 7 triple
 
-"greeter/greeting" import
-packageHello</code></pre>
+"forms/validation" import
+"email" "ada@example.com" form_field
+"value" at</code></pre>
             <p>Static string imports load relative `.rco` files before the importing file. If the relative file is missing, imports shaped like `package/module` resolve through `[dependencies.package]` in `ricochet.toml`. Dynamic imports remain a future package/runtime-loader feature.</p>
           </article>
           <article>
@@ -336,9 +337,10 @@ http_allow_hosts = ["127.0.0.1"]
 signing_secret_env = "RICOCHET_SESSION_SECRET"
 encryption_secret_env = "RICOCHET_SESSION_ENCRYPTION_SECRET"
 
-[dependencies.greeter]
-path = "./packages/greeter"
-version = "^0.2.0"</code></pre>
+[dependencies.forms]
+path = "./packages/ricochet_forms"
+package = "@ricochet/forms"
+version = "^0.1.0"</code></pre>
           </article>
 
           <article class="example-panel">
@@ -697,14 +699,36 @@ now println
 100 random println</code></pre>
           </article>
           <article class="example-panel">
+            <h3>Numeric Conversions</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy numeric conversion example" title="Copy">copy</button><code>1.5 2 + println
+12.0 to_integer value println
+12.5 to_integer error "kind" at println
+255 to_unsigned_tinyint value println
+"1.23456789" to_float32 value println</code></pre>
+          </article>
+          <article class="example-panel">
+            <h3>Date And Time</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy date time example" title="Copy">copy</button><code>"2026-06-18T13:14:15.250Z" timestamp_parse value startedAt var
+startedAt get timestamp_format value println
+startedAt get "%Y-%m-%d %H:%M:%S" timestamp_format_pattern value println
+startedAt get timestamp_parts value parts var
+parts get "year" at println
+startedAt get 2 duration_hours value timestamp_add value later var
+startedAt get later get timestamp_diff value println
+"2026-02-28" date_parse value date var
+date get 1 date_add_days value nextDate var
+nextDate get "%Y-%m-%d" date_format value println
+date get nextDate get date_diff_days value println</code></pre>
+          </article>
+          <article class="example-panel">
             <h3>Packages</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy package commands" title="Copy">copy</button><code>rco publish ./packages/greeter --registry ../ricochet-registry
-rco publish ./packages/greeter --registry ../ricochet-registry --provenance-file provenance.json --signature-file greeter.sig --signature-kind minisign
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy package commands" title="Copy">copy</button><code>rco publish ./packages/ricochet_forms --registry ../ricochet-registry
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry --provenance-file provenance.json --signature-file forms.sig --signature-kind minisign
 rco registry rebuild ../ricochet-registry
 rco registry check ../ricochet-registry
-rco search greeter --registry-url file:///E:/path/to/ricochet-registry/index.toml
-rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
-rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms
+rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
+rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version "^0.1.0"
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version "^0.1.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -769,6 +793,7 @@ processOptions get "stdout_max_bytes" 1048576 put! drop
 processReadOptions map
 processJob get "id" at processReadOptions get process_read value processOutput var
 processOutput get "stdout" at println
+processJob get "id" at process_release value drop
 runtime_capabilities "process" at "enabled" at println
 approvalOperation map
 approvalOperation get "capability" "workspace.write" put! drop
@@ -811,8 +836,8 @@ rco debug --step examples/showcase/debugger_demo.rco</code></pre>
         </div>
         <ul class="limit-list">
           <li>Ricochet v1 is a developer beta target for building and testing usable local MVC web apps. It is not a production deployment promise.</li>
-          <li>Integer values are `i64`; decimal number literals support both positive and negative integers.</li>
-          <li>HTTP, filesystem, environment, process, and PTY access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH`, `--http-allow-host HOST`, and `--env-allow NAME` can open bounded access. Direct child process execution is always opt-in with `--allow-process`; `--process-root PATH` narrows process and PTY cwd values independently from the filesystem root. `process_spawn` captures a bounded blocking result, while `process_start`, `process_jobs`, `process_job`, `process_read`, and `process_cancel` provide retained long-running jobs. PTY sessions are separately opt-in with `--allow-pty` and expose `pty_start`, `pty_write`, `pty_read`, `pty_resize`, `pty_stop`, `pty_list`, and `pty_detail`. Runtime approval records are available to local apps through `approval_create`, `approval_claim`, `approval_complete`, `approval_reject`, and `approval_detail`; MVC request VMs share the same approval registry so one-time claims work across requests. `rco serve` also keeps process environment access disabled unless `--allow-env` or `--env-allow` is passed for a trusted local MVC app. `--no-fs`, `--fs-readonly`, `--no-http`, and `--no-env` further narrow host powers. Simple HTTP calls use a 10 second timeout and a 1 MiB response body cap; `http_request` and `http_request_task` can set bounded `timeout_ms`, `max_response_bytes`, `allowed_hosts`, and `allowed_schemes` per request. Header names and values are validated before connecting.</li>
+          <li>`Number` values are signed `i64` integers. Decimal or exponent literals produce finite `Float` values backed by `f64`; mixed numeric math promotes to `Float`. `to_int`, `to_tinyint`, `to_unsigned_int`, `to_float32`, `to_float64`, and related conversion words provide checked range/precision boundaries. Exact decimal and money values remain future work.</li>
+          <li>HTTP, filesystem, environment, process, and PTY access are host capabilities. The v1 beta policy keeps `--capability-profile trusted` as the local-development default and uses `--capability-profile sandboxed` for untrusted examples, package review, bug repros, and third-party code. Sandboxed starts with filesystem and HTTP disabled, then `--fs-root PATH`, `--http-allow-host HOST`, and `--env-allow NAME` can open bounded access. Direct child process execution is always opt-in with `--allow-process`; `--process-root PATH` narrows process and PTY cwd values independently from the filesystem root. `process_spawn` captures a bounded blocking result, while `process_start`, `process_jobs`, `process_job`, `process_read`, `process_cancel`, and `process_release` provide capped retained long-running jobs. PTY sessions are separately opt-in with `--allow-pty` and expose `pty_start`, `pty_write`, `pty_read`, `pty_resize`, `pty_stop`, `pty_release`, `pty_list`, and `pty_detail`. Runtime approval records are available to local apps through `approval_create`, `approval_claim`, `approval_complete`, `approval_reject`, and `approval_detail`; MVC request VMs share the same approval registry so one-time claims work across requests. `rco serve` also keeps process environment access disabled unless `--allow-env` or `--env-allow` is passed for a trusted local MVC app. `--no-fs`, `--fs-readonly`, `--no-http`, and `--no-env` further narrow host powers. Simple HTTP calls use a 10 second timeout and a 1 MiB response body cap; retained HTTP streams are capped and can be released with `http_stream_release`; `http_request` and `http_request_task` can set bounded `timeout_ms`, `max_response_bytes`, `allowed_hosts`, and `allowed_schemes` per request. Header names and values are validated before connecting.</li>
           <li>MVC request body parsing is in-memory with a 16 MiB beta limit. Multipart uploads expose UTF-8 `text` when possible and `data_base64` for arbitrary bytes; streaming upload APIs remain planned work.</li>
           <li>Web controller execution and template expressions have instruction budgets so runaway server code returns a fault instead of hanging a request.</li>
           <li>The built-in session map uses a cookie named `ricochet_session`; configure `[web.session] signing_secret_env` to HMAC-sign it, or `[web.session] encryption_secret_env` to emit authenticated encrypted v2 cookies. `rco new --with-sqlite` includes a local beta form/session login loop; `@ricochet/auth` provides beta guard/token helpers, while production credential policy remains app/package work.</li>
@@ -823,7 +848,7 @@ rco debug --step examples/showcase/debugger_demo.rco</code></pre>
           <li>Result values cannot be used directly as conditions. Use `ok?`, then `value` or `error`; use `result_envelope` when an app/API boundary needs a `{ ok, data, error, meta }` map.</li>
           <li>Top-level method declarations are rejected; methods belong inside classes and use `[ body ] "name" Method`.</li>
           <li>Active Record targets existing SQLite, PostgreSQL, and MySQL/MariaDB schemas in v1. SQL migrations can be applied from `db/migrations` for those adapters.</li>
-          <li>Template expressions must leave exactly one scalar renderable value: nil, bool, number, or string.</li>
+          <li>Template expressions must leave exactly one scalar renderable value: nil, bool, number, float, or string.</li>
         </ul>
       </section>
     </main>

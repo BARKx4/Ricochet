@@ -7,14 +7,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-#[derive(Clone, Default)]
+const MAX_RETAINED_PTY_SESSIONS: usize = 32;
+
+#[derive(Clone)]
 pub struct PtyRegistry {
     inner: Arc<Mutex<PtyRegistryState>>,
 }
 
-#[derive(Default)]
 struct PtyRegistryState {
     next_id: u64,
+    pending_starts: usize,
+    max_retained: usize,
     sessions: BTreeMap<u64, Arc<PtySession>>,
 }
 
@@ -106,7 +109,23 @@ impl PtyRuntimeError {
 }
 
 impl PtyRegistry {
+    pub fn new() -> Self {
+        Self::with_max_retained(MAX_RETAINED_PTY_SESSIONS)
+    }
+
+    pub fn with_max_retained(max_retained: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(PtyRegistryState {
+                next_id: 0,
+                pending_starts: 0,
+                max_retained,
+                sessions: BTreeMap::new(),
+            })),
+        }
+    }
+
     pub fn start(&self, request: PtyRequest) -> Result<PtySnapshot, PtyRuntimeError> {
+        let id = self.reserve_session_slot()?;
         let size = PtySize {
             rows: request.rows,
             cols: request.cols,
@@ -114,9 +133,13 @@ impl PtyRegistry {
             pixel_height: 0,
         };
         let pty_system = native_pty_system();
-        let pair = pty_system
-            .openpty(size)
-            .map_err(|error| PtyRuntimeError::new("PtyError", error.to_string()))?;
+        let pair = match pty_system.openpty(size) {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.release_pending_start();
+                return Err(PtyRuntimeError::new("PtyError", error.to_string()));
+            }
+        };
         let mut command = CommandBuilder::new(&request.command);
         command.args(&request.args);
         if let Some(cwd) = &request.cwd {
@@ -129,28 +152,29 @@ impl PtyRegistry {
             command.env(name, value);
         }
 
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|error| PtyRuntimeError::new("PtyError", error.to_string()))?;
+        let mut child = match pair.slave.spawn_command(command) {
+            Ok(child) => child,
+            Err(error) => {
+                self.release_pending_start();
+                return Err(PtyRuntimeError::new("PtyError", error.to_string()));
+            }
+        };
         let process_id = child.process_id();
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|error| PtyRuntimeError::new("PtyError", error.to_string()))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|error| PtyRuntimeError::new("PtyError", error.to_string()))?;
-
-        let id = {
-            let mut state = self
-                .inner
-                .lock()
-                .expect("pty registry lock should not be poisoned");
-            let id = state.next_id;
-            state.next_id += 1;
-            id
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                self.release_pending_start();
+                return Err(PtyRuntimeError::new("PtyError", error.to_string()));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = child.kill();
+                self.release_pending_start();
+                return Err(PtyRuntimeError::new("PtyError", error.to_string()));
+            }
         };
 
         let session = Arc::new(PtySession {
@@ -180,11 +204,7 @@ impl PtyRegistry {
         spawn_waiter(session.clone());
 
         let snapshot = session.snapshot();
-        self.inner
-            .lock()
-            .expect("pty registry lock should not be poisoned")
-            .sessions
-            .insert(id, session);
+        self.finish_session_start(id, session);
         Ok(snapshot)
     }
 
@@ -227,6 +247,25 @@ impl PtyRegistry {
         Some(session.stop())
     }
 
+    pub fn release(&self, id: u64) -> Result<bool, PtyRuntimeError> {
+        let Some(session) = self.session_arc(id) else {
+            return Ok(false);
+        };
+        if session.running() {
+            return Err(PtyRuntimeError::new(
+                "PtyRunning",
+                format!("PTY session {id} is still running; stop or wait before pty_release"),
+            ));
+        }
+        Ok(self
+            .inner
+            .lock()
+            .expect("pty registry lock should not be poisoned")
+            .sessions
+            .remove(&id)
+            .is_some())
+    }
+
     pub fn len(&self) -> usize {
         self.inner
             .lock()
@@ -250,6 +289,49 @@ impl PtyRegistry {
             .sessions
             .get(&id)
             .cloned()
+    }
+
+    fn reserve_session_slot(&self) -> Result<u64, PtyRuntimeError> {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("pty registry lock should not be poisoned");
+        if state.sessions.len() + state.pending_starts >= state.max_retained {
+            return Err(PtyRuntimeError::new(
+                "RegistryFull",
+                format!(
+                    "PTY registry retained session limit of {} reached; release completed PTY sessions before starting another PTY",
+                    state.max_retained
+                ),
+            ));
+        }
+        let id = state.next_id;
+        state.next_id += 1;
+        state.pending_starts += 1;
+        Ok(id)
+    }
+
+    fn release_pending_start(&self) {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("pty registry lock should not be poisoned");
+        state.pending_starts = state.pending_starts.saturating_sub(1);
+    }
+
+    fn finish_session_start(&self, id: u64, session: Arc<PtySession>) {
+        let mut state = self
+            .inner
+            .lock()
+            .expect("pty registry lock should not be poisoned");
+        state.pending_starts = state.pending_starts.saturating_sub(1);
+        state.sessions.insert(id, session);
+    }
+}
+
+impl Default for PtyRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -332,6 +414,14 @@ impl PtySession {
                 .map_err(|error| PtyRuntimeError::new("PtyError", error.to_string()))?;
         }
         Ok(state.snapshot())
+    }
+
+    fn running(&self) -> bool {
+        self.state
+            .lock()
+            .expect("pty session lock should not be poisoned")
+            .status
+            == PtyStatus::Running
     }
 }
 
@@ -471,4 +561,68 @@ fn now_millis() -> i64 {
         .as_millis()
         .try_into()
         .unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn retained_session_limit_requires_release() {
+        let registry = PtyRegistry::with_max_retained(1);
+        let first = registry.start(quick_request()).expect("first PTY starts");
+        wait_for_session(&registry, first.id);
+
+        let error = registry
+            .start(quick_request())
+            .expect_err("retained PTY cap should reject another start");
+        assert_eq!(error.kind, "RegistryFull");
+        assert!(error.message.contains("release completed PTY sessions"));
+
+        assert!(
+            registry.release(first.id).expect("completed PTY releases"),
+            "release should report a removed session"
+        );
+        assert!(registry.session(first.id).is_none());
+
+        let second = registry
+            .start(quick_request())
+            .expect("cap frees after release");
+        wait_for_session(&registry, second.id);
+        assert!(registry.release(second.id).expect("second PTY releases"));
+    }
+
+    fn quick_request() -> PtyRequest {
+        #[cfg(windows)]
+        let (command, args) = (
+            "cmd".to_string(),
+            vec!["/C".to_string(), "echo".to_string(), "ricochet".to_string()],
+        );
+        #[cfg(not(windows))]
+        let (command, args) = ("printf".to_string(), vec!["ricochet".to_string()]);
+        PtyRequest {
+            command,
+            args,
+            cwd: None,
+            clear_env: false,
+            env: BTreeMap::new(),
+            rows: 24,
+            cols: 80,
+            output_max_bytes: 1024,
+        }
+    }
+
+    fn wait_for_session(registry: &PtyRegistry, id: u64) -> PtySnapshot {
+        for _ in 0..100 {
+            let snapshot = registry
+                .session(id)
+                .expect("session should remain retained");
+            if !snapshot.running {
+                return snapshot;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("PTY session {id} did not finish in time");
+    }
 }

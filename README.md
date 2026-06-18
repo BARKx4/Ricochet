@@ -86,13 +86,17 @@ foundation that other developers can scaffold, run, inspect, and extend.
   `result_envelope` converts them to `{ ok, data, error, meta }` maps for
   app/API boundaries that need stable structured responses.
 - HTTP streams: retained `http_stream_start`, `http_stream_read`,
-  `http_stream`, `http_streams`, and `http_stream_cancel` jobs support bounded
-  offset reads for SSE or other long-running response bodies.
+  `http_stream`, `http_streams`, `http_stream_cancel`, and
+  `http_stream_release` jobs support bounded offset reads for SSE or other
+  long-running response bodies.
 - Security posture: sandboxable host capabilities, no-follow HTTP redirects,
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
 Still planned: production credential/password policy.
+
+For an agent-facing status map of implemented features, remaining polish, and
+stale assumptions to avoid, see `docs/feature-map.md`.
 
 ## Quickstart
 
@@ -215,16 +219,16 @@ rco package examples/basic-oop.rco \
 Add a package dependency from a Ricochet project:
 
 ```powershell
-rco add ./packages/greeter
-rco add ./packages/greeter --version "^0.2.0"
-rco publish ./packages/greeter --registry ../ricochet-registry
-rco publish ./packages/greeter --registry ../ricochet-registry `
-  --provenance-file provenance.json --signature-file greeter.sig --signature-kind minisign
+rco add ./packages/ricochet_forms --as forms
+rco add ./packages/ricochet_forms --as forms --version "^0.1.0"
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry `
+  --provenance-file provenance.json --signature-file forms.sig --signature-kind minisign
 rco registry rebuild ../ricochet-registry
 rco registry check ../ricochet-registry
-rco search greeter --registry-url file:///E:/path/to/ricochet-registry/index.toml
-rco add registry:greeter --registry ../ricochet-registry --version "^0.2.0"
-rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms
+rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
+rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version "^0.1.0"
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version "^0.1.0"
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -247,7 +251,9 @@ HTTP/file registry index with required `sha256:` archive verification. `rco
 install` and `rco verify` reject packages whose `[package] version` does not
 satisfy the manifest requirement, and `rco verify` recomputes the package tree hash while
 ignoring VCS metadata, so it catches local path changes, registry cache drift,
-or cached Git package drift without fetching or rewriting anything.
+or cached Git package drift without fetching or rewriting anything. Locked
+static-registry installs also reject same-version registry metadata changes
+instead of accepting replacement archives during ordinary `rco install`.
 Use `rco search QUERY --registry-url URL` to discover static registry packages,
 and use `rco audit` or `rco audit --json` for dependency reports in CI and
 release tooling.
@@ -255,8 +261,9 @@ release tooling.
 Local package dependencies can be imported by package name:
 
 ```forth
-"greeter/greeting" import
-packageHello
+"forms/validation" import
+"email" "ada@example.com" form_field
+"value" at
 ```
 
 Read an existing binding with `$name`. Declaration words still keep the
@@ -274,6 +281,20 @@ Top-level declarations are shared across the VM. Function and method calls get
 fresh local declaration scopes, so helper locals declared with `var`, `array`,
 `map`, `list`, or `Set` refresh within the active call and do not leak into
 later calls.
+
+Ricochet has two numeric runtime values: `Number` is signed 64-bit integer
+storage, and `Float` is finite 64-bit floating-point storage. Plain integer
+literals stay exact `Number` values; decimal or exponent literals become
+`Float`. Mixed numeric math promotes to `Float`, and conversion words provide
+checked boundaries for database- or package-facing intent:
+
+```forth
+1.5 2 + println
+12.0 to_integer value println
+12.5 to_integer error "kind" at println
+255 to_unsigned_tinyint value println
+"1.23456789" to_float32 value println
+```
 
 Spawn a task and await its result:
 
@@ -310,6 +331,26 @@ options map
 $stream "id" at $options http_stream_read value chunk var
 $chunk "body" at println
 $chunk "offset" at nextOffset var
+```
+
+Date, timestamp, and duration words use UTC Unix epoch milliseconds as their
+timestamp boundary. RFC3339 parsing accepts offsets and normalizes to UTC;
+format patterns use Chrono/strftime syntax:
+
+```forth
+"2026-06-18T13:14:15.250Z" timestamp_parse value startedAt var
+$startedAt timestamp_format value println
+$startedAt "%Y-%m-%d %H:%M:%S" timestamp_format_pattern value println
+$startedAt timestamp_parts value parts var
+$parts "year" at println
+
+$startedAt 2 duration_hours value timestamp_add value later var
+$startedAt $later timestamp_diff value println
+
+"2026-02-28" date_parse value date var
+$date 1 date_add_days value nextDate var
+$nextDate "%Y-%m-%d" date_format value println
+$date $nextDate date_diff_days value println
 ```
 
 For authenticated provider calls, keep settings as ordinary maps and store
@@ -441,7 +482,7 @@ $result "success" at println
 Use `process_start` for long-running jobs. The runtime keeps a retained job
 registry with bounded captured output, and it can be inspected across MVC
 requests with `process_jobs`, `process_job`, `process_read`, and
-`process_cancel`:
+`process_cancel`. Release completed jobs with `process_release`:
 
 ```forth
 args array
@@ -452,6 +493,7 @@ $options "stdout_max_bytes" 1048576 put! drop
 readOptions map
 $job "id" at $readOptions process_read value output var
 $output "stdout" at println
+$job "id" at process_release value drop
 ```
 
 PTY sessions are separate and also opt in. Use `--allow-pty` for trusted
@@ -469,6 +511,7 @@ $session "id" at $readOptions pty_read value screen var
 $screen "output" at println
 stopOptions map
 $session "id" at $stopOptions pty_stop value drop
+$session "id" at pty_release value drop
 ```
 
 Approval records are runtime-local and shared across MVC requests. `approval_create`
@@ -515,8 +558,9 @@ adapter = "mysql"
 url = "${MYSQL_URL}"
 ```
 
-Active Record maps model declarations to existing tables; schema migrations are
-still planned work.
+Active Record maps model declarations to existing tables, and `rco migrate`
+applies ordered SQL migrations from `db/migrations` while recording applied
+versions in `schema_migrations`.
 
 MVC actions parse `application/x-www-form-urlencoded`, `application/json`, and
 `multipart/form-data` request bodies for `POST`, `PUT`, `PATCH`, and `DELETE`.
@@ -546,8 +590,8 @@ diagnostics warn when old `name get` variable reads should be written as
 `$name`, flag leading-dot legacy syntax such as `self .email get`, and offer
 quick fixes for both; keep `"name" get` only when the variable name is
 intentionally data on the stack. Use `rco lint [--json] [path]` to run those
-same compile and syntax diagnostics over a file or directory in CI before
-`rco fmt` rewrites legacy variable reads and leading-dot syntax. Terminal
+same compile and syntax diagnostics over a file or directory in CI. `rco fmt`
+formats current syntax without hiding unsupported legacy forms. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks
@@ -565,7 +609,9 @@ emits it for tooling. Maintainers can run `rco words --check` from the source
 tree to compare `docs/reference/app.js`, the TextMate grammar, and the embedded
 LSP inventory. `scripts/validate-editor-assets.ps1` checks the grammar and VS
 Code wiring against the reference word catalog, and release archives include
-this folder under `editors/vscode`.
+this folder under `editors/vscode`. When adding or renaming a public word, use
+`docs/adding-words.md` to keep VM dispatch, tests, docs, LSP completions, and
+editor grammar in sync.
 
 ## Benchmarks
 
@@ -601,7 +647,7 @@ Then run:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo audit
+cargo audit --deny warnings
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 ```
 
@@ -611,7 +657,7 @@ inventory drift check, examples, scaffolded project checks/tests, and a live
 
 ## Release Packaging
 
-See `docs/releases/v0.1.13-beta.md` for the current beta release notes,
+See `docs/releases/v0.1.15-beta.md` for the current beta release notes,
 hardening checklist, and artifact smoke-test expectations.
 
 Windows release packages are built from this repository with:
@@ -667,7 +713,8 @@ public GitHub releases.
 
 The documentation website is static and lives at
 `docs/reference/index.html`. Open it directly in a browser; there is no build
-step.
+step. For a maintainer/agent orientation map across language, VM, web, package,
+debugger, release, and tooling surfaces, see `docs/feature-map.md`.
 
 ## Safety Notes
 
@@ -684,10 +731,11 @@ webview document building. `--no-fs`, `--no-http`, `--no-tui`, and
 `--no-webview` still deny those host powers explicitly in either profile.
 `--allow-process` enables direct child process execution with captured
 stdout/stderr, bounded output, blocking `process_spawn`, and long-running
-`process_start` jobs. `--process-root <path>` can make process and PTY cwd
+`process_start` jobs retained up to a per-host cap; use `process_release` to
+drop completed jobs. `--process-root <path>` can make process and PTY cwd
 resolution narrower than the filesystem workspace. `--allow-pty` enables
 retained pseudo-terminal sessions through `pty_start`, `pty_write`, `pty_read`,
-`pty_resize`, `pty_stop`, `pty_list`, and `pty_detail`.
+`pty_resize`, `pty_stop`, `pty_release`, `pty_list`, and `pty_detail`.
 `--env-allow <name>` enables or narrows environment variable reads and writes
 to named variables, `--no-env` denies environment/current-directory access, and
 `--no-sleep` denies script sleeps. Embedded hosts can leave capabilities

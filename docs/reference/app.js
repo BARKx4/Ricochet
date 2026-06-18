@@ -4,7 +4,7 @@ const WORDS = [
     "aliases": ["add"],
     "group": "math",
     "stack": "left:number right:number -> sum:number",
-    "body": "Adds two numbers. The VM checks integer overflow and leaves the stack untouched on failure.",
+    "body": "Adds two numeric values. Integer-only addition checks overflow; any float operand promotes the result to Float.",
     "example": "20 22 +"
   },
   {
@@ -20,7 +20,7 @@ const WORDS = [
     "aliases": ["subtract"],
     "group": "math",
     "stack": "left:number right:number -> difference:number",
-    "body": "Subtracts the right number from the left number. The VM checks integer overflow and preserves operands on failure.",
+    "body": "Subtracts the right numeric value from the left. Integer-only subtraction checks overflow; any float operand promotes the result to Float.",
     "example": "10 3 -"
   },
   {
@@ -500,7 +500,7 @@ const WORDS = [
     "aliases": [],
     "group": "web",
     "stack": "body:any -> action",
-    "body": "Builds a JSON controller response from nil, bool, number, string, array, or map values.",
+    "body": "Builds a JSON controller response from nil, bool, number, float, string, array, or map values.",
     "example": "payload map\n$payload \"ok\" true put! drop\n$payload json"
   },
   {
@@ -644,7 +644,7 @@ const WORDS = [
     "aliases": ["multiply"],
     "group": "math",
     "stack": "left:number right:number -> product:number",
-    "body": "Multiplies two numbers with overflow checks.",
+    "body": "Multiplies two numeric values. Integer-only multiplication checks overflow; any float operand promotes the result to Float.",
     "example": "6 7 *"
   },
   {
@@ -652,7 +652,7 @@ const WORDS = [
     "aliases": ["divide"],
     "group": "math",
     "stack": "left:number right:number -> quotient:number",
-    "body": "Integer division. Division by zero fails loudly and preserves operands.",
+    "body": "Divides two numeric values. Integer-only division stays integer; any float operand promotes the result to Float. Division by zero fails loudly and preserves operands.",
     "example": "22 5 /"
   },
   {
@@ -668,7 +668,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "number -> number",
-    "body": "Negates a number with overflow checks.",
+    "body": "Negates a numeric value with integer overflow checks.",
     "example": "5 negate"
   },
   {
@@ -676,7 +676,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "number -> number",
-    "body": "Absolute value with overflow checks.",
+    "body": "Absolute value with integer overflow checks.",
     "example": "0 5 - abs"
   },
   {
@@ -684,7 +684,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "a:number b:number -> number",
-    "body": "Returns the smaller number.",
+    "body": "Returns the smaller numeric value, promoting to Float when either operand is Float.",
     "example": "3 7 min"
   },
   {
@@ -692,7 +692,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "a:number b:number -> number",
-    "body": "Returns the larger number.",
+    "body": "Returns the larger numeric value, promoting to Float when either operand is Float.",
     "example": "3 7 max"
   },
   {
@@ -700,7 +700,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "value:number min:number max:number -> number",
-    "body": "Clamps a number into an inclusive range.",
+    "body": "Clamps a numeric value into an inclusive range, promoting to Float when any operand is Float.",
     "example": "15 0 10 clamp"
   },
   {
@@ -1138,10 +1138,146 @@ const WORDS = [
   {
     "word": "to_number",
     "aliases": [],
-    "group": "string",
-    "stack": "string -> result(number)",
-    "body": "Parses an integer and returns a stack result.",
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked alias for `to_integer`. Converts an integer string, integer Number, or integral Float to a signed 64-bit Number.",
     "example": "\"42\" to_number value"
+  },
+  {
+    "word": "to_integer",
+    "aliases": ["to_number", "to_bigint"],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Converts an integer string, integer Number, or integral Float to Ricochet's signed 64-bit Number. Non-integral floats and out-of-range values return Result errors.",
+    "example": "12.0 to_integer value"
+  },
+  {
+    "word": "to_bigint",
+    "aliases": ["to_integer", "to_number"],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked signed 64-bit integer conversion. Ricochet's Number storage is already i64-sized.",
+    "example": "\"9223372036854775807\" to_bigint value"
+  },
+  {
+    "word": "to_int",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked signed 32-bit integer conversion (-2147483648..2147483647).",
+    "example": "2147483647 to_int value"
+  },
+  {
+    "word": "to_mediumint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked signed 24-bit integer conversion (-8388608..8388607).",
+    "example": "8388607 to_mediumint value"
+  },
+  {
+    "word": "to_smallint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked signed 16-bit integer conversion (-32768..32767).",
+    "example": "32767 to_smallint value"
+  },
+  {
+    "word": "to_tinyint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked signed 8-bit integer conversion (-128..127).",
+    "example": "127 to_tinyint value"
+  },
+  {
+    "word": "to_bit",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Converts bools or exact integers in the 0..1 range to a bit Number.",
+    "example": "true to_bit value"
+  },
+  {
+    "word": "to_unsigned_int",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked unsigned 32-bit integer conversion (0..4294967295).",
+    "example": "4294967295 to_unsigned_int value"
+  },
+  {
+    "word": "to_unsigned_mediumint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked unsigned 24-bit integer conversion (0..16777215).",
+    "example": "16777215 to_unsigned_mediumint value"
+  },
+  {
+    "word": "to_unsigned_smallint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked unsigned 16-bit integer conversion (0..65535).",
+    "example": "65535 to_unsigned_smallint value"
+  },
+  {
+    "word": "to_unsigned_tinyint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked unsigned 8-bit integer conversion (0..255).",
+    "example": "255 to_unsigned_tinyint value"
+  },
+  {
+    "word": "to_unsigned_bigint",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(number)",
+    "body": "Checked non-negative Number conversion using Ricochet's signed i64 storage (0..9223372036854775807). Full u64 storage is future work.",
+    "example": "42 to_unsigned_bigint value"
+  },
+  {
+    "word": "to_float",
+    "aliases": ["to_float64", "to_double", "to_real"],
+    "group": "math",
+    "stack": "value -> result(float)",
+    "body": "Converts a numeric string, Number, or Float to a finite 64-bit Float.",
+    "example": "\"1.25\" to_float value"
+  },
+  {
+    "word": "to_float32",
+    "aliases": [],
+    "group": "math",
+    "stack": "value -> result(float)",
+    "body": "Converts to single-precision float semantics, then stores the rounded finite value as Ricochet Float.",
+    "example": "1.23456789 to_float32 value"
+  },
+  {
+    "word": "to_float64",
+    "aliases": ["to_float", "to_double", "to_real"],
+    "group": "math",
+    "stack": "value -> result(float)",
+    "body": "Checked alias for `to_float`; Ricochet Float storage is f64.",
+    "example": "1 to_float64 value"
+  },
+  {
+    "word": "to_double",
+    "aliases": ["to_float", "to_float64", "to_real"],
+    "group": "math",
+    "stack": "value -> result(float)",
+    "body": "Checked alias for `to_float`; double/real values use Ricochet's f64 Float storage.",
+    "example": "\"2.5\" to_double value"
+  },
+  {
+    "word": "to_real",
+    "aliases": ["to_float", "to_float64", "to_double"],
+    "group": "math",
+    "stack": "value -> result(float)",
+    "body": "Checked alias for `to_float`; real values use Ricochet's f64 Float storage.",
+    "example": "\"2.5\" to_real value"
   },
   {
     "word": "to_string",
@@ -1156,7 +1292,7 @@ const WORDS = [
     "aliases": [],
     "group": "string",
     "stack": "value -> string",
-    "body": "Encodes nil, bool, number, string, array, list, set, map, or result values as JSON.",
+    "body": "Encodes nil, bool, number, float, string, array, list, set, map, or result values as JSON.",
     "example": "$settings json_encode"
   },
   {
@@ -1380,7 +1516,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
-    "body": "Starts a direct child process as a long-running job when the process capability is enabled. The returned snapshot includes `id`, `status`, `running`, `success`, output lengths, truncation flags, timeout state, and cancellation state.",
+    "body": "Starts a direct child process as a long-running job when the process capability is enabled. The returned snapshot includes `id`, `status`, `running`, `success`, output lengths, truncation flags, timeout state, and cancellation state. Retained jobs are capped; release completed jobs with `process_release`.",
     "example": "args array\noptions map\n\"git\" $args $options process_start value"
   },
   {
@@ -1406,6 +1542,14 @@ const WORDS = [
     "stack": "id:number -> result(map)",
     "body": "Requests cancellation for a running process job and returns the latest snapshot. Completed jobs remain inspectable.",
     "example": "$job \"id\" at process_cancel value"
+  },
+  {
+    "word": "process_release",
+    "aliases": [],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a completed retained process job from the host registry. Running jobs return `ProcessRunning`; cancel or wait for completion first.",
+    "example": "$job \"id\" at process_release value"
   },
   {
     "word": "process_read",
@@ -1462,6 +1606,14 @@ const WORDS = [
     "stack": "id:number options:map -> result(map)",
     "body": "Requests termination of a PTY session and returns the latest snapshot.",
     "example": "stopOptions map\n$session \"id\" at $stopOptions pty_stop value"
+  },
+  {
+    "word": "pty_release",
+    "aliases": [],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a completed retained PTY session from the host registry. Running sessions return `PtyRunning`; stop or wait for completion first.",
+    "example": "$session \"id\" at pty_release value"
   },
   {
     "word": "pty_list",
@@ -1526,6 +1678,174 @@ const WORDS = [
     "stack": "-> number",
     "body": "Pushes Unix epoch milliseconds.",
     "example": "now"
+  },
+  {
+    "word": "timestamp_now",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "-> number",
+    "body": "Alias-shaped timestamp word that pushes Unix epoch milliseconds, matching `now`.",
+    "example": "timestamp_now"
+  },
+  {
+    "word": "timestamp_parse",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "rfc3339:string -> result(number)",
+    "body": "Parses an RFC3339 timestamp with an offset and returns UTC Unix epoch milliseconds.",
+    "example": "\"2026-06-18T13:14:15.250Z\" timestamp_parse value"
+  },
+  {
+    "word": "timestamp_format",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "timestampMs:number -> result(string)",
+    "body": "Formats UTC Unix epoch milliseconds as RFC3339 with millisecond precision.",
+    "example": "$timestamp timestamp_format value"
+  },
+  {
+    "word": "timestamp_format_pattern",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "timestampMs:number pattern:string -> result(string)",
+    "body": "Formats UTC Unix epoch milliseconds with a Chrono/strftime-style pattern such as `%Y-%m-%d`.",
+    "example": "$timestamp \"%Y-%m-%d %H:%M:%S\" timestamp_format_pattern value"
+  },
+  {
+    "word": "timestamp_parts",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "timestampMs:number -> result(map)",
+    "body": "Breaks UTC Unix epoch milliseconds into `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday`, and ordinal fields.",
+    "example": "$timestamp timestamp_parts value"
+  },
+  {
+    "word": "timestamp_from_parts",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "parts:map -> result(number)",
+    "body": "Builds UTC Unix epoch milliseconds from a parts map. `year`, `month`, and `day` are required; time fields default to zero.",
+    "example": "$parts timestamp_from_parts value"
+  },
+  {
+    "word": "timestamp_add",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "timestampMs:number durationMs:number -> result(number)",
+    "body": "Adds a duration in milliseconds to UTC Unix epoch milliseconds, checking overflow and supported timestamp range.",
+    "example": "$timestamp 2 duration_hours value timestamp_add value"
+  },
+  {
+    "word": "timestamp_diff",
+    "aliases": ["time", "date"],
+    "group": "system",
+    "stack": "startMs:number endMs:number -> result(number)",
+    "body": "Returns `endMs - startMs` in milliseconds.",
+    "example": "$start $end timestamp_diff value"
+  },
+  {
+    "word": "date_from_timestamp",
+    "aliases": ["date", "time"],
+    "group": "system",
+    "stack": "timestampMs:number -> result(map)",
+    "body": "Converts UTC Unix epoch milliseconds into a date map with `year`, `month`, `day`, `weekday`, and ordinal fields.",
+    "example": "$timestamp date_from_timestamp value"
+  },
+  {
+    "word": "date_to_timestamp",
+    "aliases": ["date", "time"],
+    "group": "system",
+    "stack": "date:map -> result(number)",
+    "body": "Converts a date map into UTC Unix epoch milliseconds at midnight.",
+    "example": "$date date_to_timestamp value"
+  },
+  {
+    "word": "date_parse",
+    "aliases": ["date"],
+    "group": "system",
+    "stack": "date:string -> result(map)",
+    "body": "Parses an ISO `YYYY-MM-DD` date string into a date map.",
+    "example": "\"2026-02-28\" date_parse value"
+  },
+  {
+    "word": "date_format",
+    "aliases": ["date"],
+    "group": "system",
+    "stack": "date:map pattern:string -> result(string)",
+    "body": "Formats a date map with a Chrono/strftime-style pattern such as `%Y/%m/%d`.",
+    "example": "$date \"%Y/%m/%d\" date_format value"
+  },
+  {
+    "word": "date_add_days",
+    "aliases": ["date"],
+    "group": "system",
+    "stack": "date:map days:number -> result(map)",
+    "body": "Adds signed days to a date map.",
+    "example": "$date 1 date_add_days value"
+  },
+  {
+    "word": "date_diff_days",
+    "aliases": ["date"],
+    "group": "system",
+    "stack": "start:map end:map -> result(number)",
+    "body": "Returns `end - start` in whole calendar days.",
+    "example": "$startDate $endDate date_diff_days value"
+  },
+  {
+    "word": "duration_millis",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "millis:number -> result(number)",
+    "body": "Builds a duration in milliseconds.",
+    "example": "250 duration_millis value"
+  },
+  {
+    "word": "duration_seconds",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "seconds:number -> result(number)",
+    "body": "Builds a duration in milliseconds from seconds.",
+    "example": "30 duration_seconds value"
+  },
+  {
+    "word": "duration_minutes",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "minutes:number -> result(number)",
+    "body": "Builds a duration in milliseconds from minutes.",
+    "example": "15 duration_minutes value"
+  },
+  {
+    "word": "duration_hours",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "hours:number -> result(number)",
+    "body": "Builds a duration in milliseconds from hours.",
+    "example": "2 duration_hours value"
+  },
+  {
+    "word": "duration_days",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "days:number -> result(number)",
+    "body": "Builds a duration in milliseconds from days.",
+    "example": "7 duration_days value"
+  },
+  {
+    "word": "duration_weeks",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "weeks:number -> result(number)",
+    "body": "Builds a duration in milliseconds from weeks.",
+    "example": "1 duration_weeks value"
+  },
+  {
+    "word": "duration_parts",
+    "aliases": ["time"],
+    "group": "system",
+    "stack": "durationMs:number -> result(map)",
+    "body": "Breaks a duration into `days`, `hours`, `minutes`, `seconds`, `milliseconds`, `total_ms`, and `negative` fields.",
+    "example": "$duration duration_parts value"
   },
   {
     "word": "sleep",
@@ -1772,7 +2092,7 @@ const WORDS = [
     "aliases": ["HTTP", "stream"],
     "group": "system",
     "stack": "request:map -> result(map)",
-    "body": "Starts a mapped HTTP request as a retained streaming job. The returned snapshot includes `id`, `status`, `running`, `success`, `status_code`, `headers`, `body_len`, `body_truncated`, and cancellation state. Use `http_stream_read` with offsets to consume retained response bytes while the request is still running.",
+    "body": "Starts a mapped HTTP request as a retained streaming job. The returned snapshot includes `id`, `status`, `running`, `success`, `status_code`, `headers`, `body_len`, `body_truncated`, and cancellation state. Use `http_stream_read` with offsets to consume retained response bytes while the request is still running. Retained streams are capped; release completed streams with `http_stream_release`.",
     "example": "$request http_stream_start value stream var"
   },
   {
@@ -1806,6 +2126,14 @@ const WORDS = [
     "stack": "id:number -> result(map)",
     "body": "Requests cancellation for a retained HTTP stream job and returns its latest snapshot.",
     "example": "$stream \"id\" at http_stream_cancel value"
+  },
+  {
+    "word": "http_stream_release",
+    "aliases": ["HTTP", "stream"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a completed retained HTTP stream job from the host registry. Running streams return `HttpStreamRunning`; cancel or wait for completion first.",
+    "example": "$stream \"id\" at http_stream_release value"
   },
   {
     "word": "tui_enter",

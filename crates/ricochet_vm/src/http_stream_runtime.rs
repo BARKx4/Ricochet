@@ -7,15 +7,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value as JsonValue;
 
 const HTTP_STREAM_CHUNK_BYTES: usize = 8192;
+const MAX_RETAINED_HTTP_STREAMS: usize = 64;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct HttpStreamRegistry {
     inner: Arc<Mutex<HttpStreamRegistryState>>,
 }
 
-#[derive(Default)]
 struct HttpStreamRegistryState {
     next_id: u64,
+    max_retained: usize,
     streams: BTreeMap<u64, Arc<HttpStreamJob>>,
 }
 
@@ -98,42 +99,60 @@ impl HttpStreamRuntimeError {
 }
 
 impl HttpStreamRegistry {
+    pub fn new() -> Self {
+        Self::with_max_retained(MAX_RETAINED_HTTP_STREAMS)
+    }
+
+    pub fn with_max_retained(max_retained: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HttpStreamRegistryState {
+                next_id: 0,
+                max_retained,
+                streams: BTreeMap::new(),
+            })),
+        }
+    }
+
     pub fn start(
         &self,
         request: HttpStreamRequest,
     ) -> Result<HttpStreamSnapshot, HttpStreamRuntimeError> {
-        let id = {
+        let (job, snapshot) = {
             let mut state = self
                 .inner
                 .lock()
                 .expect("HTTP stream registry lock should not be poisoned");
+            if state.streams.len() >= state.max_retained {
+                return Err(HttpStreamRuntimeError::new(
+                    "RegistryFull",
+                    format!(
+                        "HTTP stream registry retained stream limit of {} reached; release completed HTTP streams before starting another stream",
+                        state.max_retained
+                    ),
+                ));
+            }
             let id = state.next_id;
             state.next_id += 1;
-            id
+            let job = Arc::new(HttpStreamJob {
+                state: Mutex::new(HttpStreamJobState {
+                    id,
+                    method: request.method.as_str().to_string(),
+                    url: request.url.clone(),
+                    started_at_ms: now_millis(),
+                    status: HttpStreamStatus::Connecting,
+                    status_code: None,
+                    headers: BTreeMap::new(),
+                    error: None,
+                    body: Vec::new(),
+                    body_max_bytes: request.max_response_bytes,
+                    body_truncated: false,
+                    cancel_requested: false,
+                }),
+            });
+            let snapshot = job.snapshot();
+            state.streams.insert(id, job.clone());
+            (job, snapshot)
         };
-        let job = Arc::new(HttpStreamJob {
-            state: Mutex::new(HttpStreamJobState {
-                id,
-                method: request.method.as_str().to_string(),
-                url: request.url.clone(),
-                started_at_ms: now_millis(),
-                status: HttpStreamStatus::Connecting,
-                status_code: None,
-                headers: BTreeMap::new(),
-                error: None,
-                body: Vec::new(),
-                body_max_bytes: request.max_response_bytes,
-                body_truncated: false,
-                cancel_requested: false,
-            }),
-        });
-
-        let snapshot = job.snapshot();
-        self.inner
-            .lock()
-            .expect("HTTP stream registry lock should not be poisoned")
-            .streams
-            .insert(id, job.clone());
         spawn_http_stream_worker(job, request);
         Ok(snapshot)
     }
@@ -163,6 +182,27 @@ impl HttpStreamRegistry {
         Some(job.snapshot())
     }
 
+    pub fn release(&self, id: u64) -> Result<bool, HttpStreamRuntimeError> {
+        let Some(job) = self.stream_arc(id) else {
+            return Ok(false);
+        };
+        if job.running() {
+            return Err(HttpStreamRuntimeError::new(
+                "HttpStreamRunning",
+                format!(
+                    "HTTP stream {id} is still running; cancel or wait before http_stream_release"
+                ),
+            ));
+        }
+        Ok(self
+            .inner
+            .lock()
+            .expect("HTTP stream registry lock should not be poisoned")
+            .streams
+            .remove(&id)
+            .is_some())
+    }
+
     pub fn len(&self) -> usize {
         self.inner
             .lock()
@@ -182,6 +222,12 @@ impl HttpStreamRegistry {
             .streams
             .get(&id)
             .cloned()
+    }
+}
+
+impl Default for HttpStreamRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -237,6 +283,16 @@ impl HttpStreamJob {
         ) {
             state.status = HttpStreamStatus::Cancelled;
         }
+    }
+
+    fn running(&self) -> bool {
+        matches!(
+            self.state
+                .lock()
+                .expect("HTTP stream job lock should not be poisoned")
+                .status,
+            HttpStreamStatus::Connecting | HttpStreamStatus::Running
+        )
     }
 
     fn cancelled(&self) -> bool {
@@ -386,4 +442,63 @@ fn now_millis() -> i64 {
         .ok()
         .and_then(|duration| duration.as_millis().try_into().ok())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::HeaderMap;
+    use std::thread;
+
+    #[test]
+    fn retained_stream_limit_requires_release() {
+        let registry = HttpStreamRegistry::with_max_retained(1);
+        let first = registry
+            .start(unreachable_request())
+            .expect("first stream starts");
+        wait_for_stream(&registry, first.id);
+
+        let error = registry
+            .start(unreachable_request())
+            .expect_err("retained stream cap should reject another start");
+        assert_eq!(error.kind, "RegistryFull");
+        assert!(error.message.contains("release completed HTTP streams"));
+
+        assert!(
+            registry
+                .release(first.id)
+                .expect("completed stream releases"),
+            "release should report a removed stream"
+        );
+        assert!(registry.stream(first.id).is_none());
+
+        let second = registry
+            .start(unreachable_request())
+            .expect("cap frees after release");
+        wait_for_stream(&registry, second.id);
+        assert!(registry.release(second.id).expect("second stream releases"));
+    }
+
+    fn unreachable_request() -> HttpStreamRequest {
+        HttpStreamRequest {
+            method: reqwest::Method::GET,
+            url: "http://127.0.0.1:9/ricochet-test".to_string(),
+            headers: HeaderMap::new(),
+            json: None,
+            body: None,
+            timeout: Duration::from_millis(250),
+            max_response_bytes: 1024,
+        }
+    }
+
+    fn wait_for_stream(registry: &HttpStreamRegistry, id: u64) -> HttpStreamSnapshot {
+        for _ in 0..100 {
+            let snapshot = registry.stream(id).expect("stream should remain retained");
+            if !snapshot.running {
+                return snapshot;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("HTTP stream {id} did not finish in time");
+    }
 }

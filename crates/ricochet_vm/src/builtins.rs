@@ -8,6 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{
+    DateTime, Datelike, Duration as ChronoDuration, FixedOffset, NaiveDate, SecondsFormat,
+    TimeZone, Timelike, Utc,
+};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -30,7 +34,9 @@ use crate::process_runtime::{ProcessRead, ProcessRequest, ProcessRuntimeError, P
 use crate::pty_runtime::{PtyRead, PtyRequest, PtyRuntimeError, PtySnapshot};
 use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
-use crate::vm::value_kind;
+use crate::vm::{
+    arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
+};
 
 const HTTP_DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const HTTP_MAX_TIMEOUT_MS: u64 = 300_000;
@@ -50,6 +56,16 @@ const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
 const WORKSPACE_MAX_LIST_ENTRIES: usize = 10_000;
 const APPROVAL_DEFAULT_TTL_MS: i64 = 10 * 60 * 1000;
 const APPROVAL_MAX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
+
+#[cfg(windows)]
+fn configure_process_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_process_window(_command: &mut Command) {}
 
 impl Vm {
     pub(super) fn builtin_method_exists(&self, receiver: &Value, method: &str) -> bool {
@@ -1026,27 +1042,32 @@ impl Vm {
     }
 
     pub(super) fn call_multiply(&mut self, word: &str) -> Result<(), VmError> {
-        self.binary_checked_number(word, i64::checked_mul)
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_multiply(word, left, right) {
+            Ok(value) => self.stack.push(value),
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn call_divide(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
-        let right = self.pop_number_or_restore(word, &stack_before)?;
-        let left = self.pop_number_or_restore(word, &stack_before)?;
-        if right == 0 {
-            self.stack = stack_before;
-            return Err(VmError::DivisionByZero {
-                word: word.to_string(),
-            });
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_divide(word, left, right) {
+            Ok(value) => self.stack.push(value),
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
         }
-        let Some(value) = left.checked_div(right) else {
-            self.stack = stack_before;
-            return Err(VmError::ArithmeticOverflow {
-                word: word.to_string(),
-            });
-        };
-        self.stack.push(Value::Number(value));
         Ok(())
     }
 
@@ -1072,36 +1093,64 @@ impl Vm {
     }
 
     pub(super) fn call_negate(&mut self, word: &str) -> Result<(), VmError> {
-        self.unary_checked_number(word, i64::checked_neg)
+        self.ensure_stack(word, 1)?;
+        let stack_before = self.stack.clone();
+        let value = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_negate(word, value) {
+            Ok(value) => self.stack.push(value),
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn call_abs(&mut self, word: &str) -> Result<(), VmError> {
-        self.unary_checked_number(word, i64::checked_abs)
+        self.ensure_stack(word, 1)?;
+        let stack_before = self.stack.clone();
+        let value = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_abs(word, value) {
+            Ok(value) => self.stack.push(value),
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn call_min(&mut self, word: &str) -> Result<(), VmError> {
-        self.binary_number(word, i64::min)
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        self.stack.push(numeric_min(left, right));
+        Ok(())
     }
 
     pub(super) fn call_max(&mut self, word: &str) -> Result<(), VmError> {
-        self.binary_number(word, i64::max)
+        self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
+        let right = self.pop_numeric_or_restore(word, &stack_before)?;
+        let left = self.pop_numeric_or_restore(word, &stack_before)?;
+        self.stack.push(numeric_max(left, right));
+        Ok(())
     }
 
     pub(super) fn call_clamp(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 3)?;
         let stack_before = self.stack.clone();
-        let maximum = self.pop_number_or_restore(word, &stack_before)?;
-        let minimum = self.pop_number_or_restore(word, &stack_before)?;
-        let value = self.pop_number_or_restore(word, &stack_before)?;
-        if minimum > maximum {
-            self.stack = stack_before;
-            return Err(VmError::InvalidArgument {
-                word: word.to_string(),
-                message: "minimum cannot exceed maximum".to_string(),
-            });
+        let maximum = self.pop_numeric_or_restore(word, &stack_before)?;
+        let minimum = self.pop_numeric_or_restore(word, &stack_before)?;
+        let value = self.pop_numeric_or_restore(word, &stack_before)?;
+        match numeric_clamp(word, value, minimum, maximum) {
+            Ok(value) => self.stack.push(value),
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
         }
-        self.stack
-            .push(Value::Number(value.clamp(minimum, maximum)));
         Ok(())
     }
 
@@ -1167,6 +1216,12 @@ impl Vm {
     pub(super) fn call_to_string(&mut self, word: &str) -> Result<(), VmError> {
         let value = self.pop(word)?;
         self.stack.push(Value::String(display_value(&value)));
+        Ok(())
+    }
+
+    pub(super) fn call_numeric_conversion(&mut self, word: &str) -> Result<(), VmError> {
+        let value = self.pop(word)?;
+        self.stack.push(convert_numeric(word, value));
         Ok(())
     }
 
@@ -1440,6 +1495,7 @@ impl Vm {
             Value::Nil => "Nil".to_string(),
             Value::Bool(_) => "Bool".to_string(),
             Value::Number(_) => "Number".to_string(),
+            Value::Float(_) => "Float".to_string(),
             Value::String(_) => "String".to_string(),
             Value::Array(_) => "Array".to_string(),
             Value::List(_) => "List".to_string(),
@@ -2051,6 +2107,23 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_http_stream_release(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.http_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "HTTP capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_http_stream_id(word)?;
+        let result = match self.http_stream_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_http_stream_value(id),
+            Err(error) => http_stream_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_http_stream_read(&mut self, word: &str) -> Result<(), VmError> {
         if !self.http_enabled() {
             return Err(VmError::HostError {
@@ -2142,6 +2215,261 @@ impl Vm {
             word: word.to_string(),
         })?;
         self.stack.push(Value::Number(millis));
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_now(&mut self, word: &str) -> Result<(), VmError> {
+        self.call_now(word)
+    }
+
+    pub(super) fn call_timestamp_parse(&mut self, word: &str) -> Result<(), VmError> {
+        let input = self.pop_string(word, "RFC3339 timestamp string")?;
+        let result = match DateTime::<FixedOffset>::parse_from_rfc3339(&input) {
+            Ok(value) => {
+                Value::result_ok(Value::Number(value.with_timezone(&Utc).timestamp_millis()))
+            }
+            Err(error) => Value::result_err("DateTimeParseError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_format(&mut self, word: &str) -> Result<(), VmError> {
+        let timestamp_ms = self.pop_number(word)?;
+        self.stack.push(match utc_datetime_value(timestamp_ms) {
+            Ok(value) => Value::result_ok(Value::String(format_rfc3339_millis(value))),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_format_pattern(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let pattern = match self.pop_string(word, "timestamp format pattern string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let timestamp_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack.push(match utc_datetime_value(timestamp_ms) {
+            Ok(value) => Value::result_ok(Value::String(value.format(&pattern).to_string())),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_parts(&mut self, word: &str) -> Result<(), VmError> {
+        let timestamp_ms = self.pop_number(word)?;
+        self.stack.push(match utc_datetime_value(timestamp_ms) {
+            Ok(value) => Value::result_ok(timestamp_parts_value(value)),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_from_parts(&mut self, word: &str) -> Result<(), VmError> {
+        let parts = self.pop_map(word, "timestamp parts map")?;
+        self.stack.push(match timestamp_from_parts_value(&parts) {
+            Ok(value) => Value::result_ok(Value::Number(value)),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_add(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let duration_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let timestamp_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = timestamp_ms
+            .checked_add(duration_ms)
+            .ok_or_else(|| Value::result_err("DateTimeRangeError", "timestamp addition overflow"))
+            .and_then(|value| {
+                utc_datetime_value(value).map(|_| Value::result_ok(Value::Number(value)))
+            })
+            .unwrap_or_else(|error| error);
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_timestamp_diff(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let end_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let start_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = end_ms
+            .checked_sub(start_ms)
+            .map(|value| Value::result_ok(Value::Number(value)))
+            .unwrap_or_else(|| Value::result_err("DurationError", "timestamp difference overflow"));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_date_from_timestamp(&mut self, word: &str) -> Result<(), VmError> {
+        let timestamp_ms = self.pop_number(word)?;
+        self.stack.push(match utc_datetime_value(timestamp_ms) {
+            Ok(value) => Value::result_ok(date_value(value.date_naive())),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_date_to_timestamp(&mut self, word: &str) -> Result<(), VmError> {
+        let date = self.pop_map(word, "date map")?;
+        self.stack.push(match date_from_value(&date) {
+            Ok(value) => {
+                let Some(value) = value.and_hms_milli_opt(0, 0, 0, 0) else {
+                    self.stack.push(Value::result_err(
+                        "DateTimeRangeError",
+                        "date cannot be represented as a UTC timestamp",
+                    ));
+                    return Ok(());
+                };
+                Value::result_ok(Value::Number(
+                    DateTime::<Utc>::from_naive_utc_and_offset(value, Utc).timestamp_millis(),
+                ))
+            }
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_date_parse(&mut self, word: &str) -> Result<(), VmError> {
+        let input = self.pop_string(word, "date string")?;
+        let result = match NaiveDate::parse_from_str(&input, "%Y-%m-%d") {
+            Ok(value) => Value::result_ok(date_value(value)),
+            Err(error) => Value::result_err("DateParseError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_date_format(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let pattern = match self.pop_string(word, "date format pattern string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let date = match self.pop_map(word, "date map") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack.push(match date_from_value(&date) {
+            Ok(value) => Value::result_ok(Value::String(value.format(&pattern).to_string())),
+            Err(error) => error,
+        });
+        Ok(())
+    }
+
+    pub(super) fn call_date_add_days(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let days = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let date = match self.pop_map(word, "date map") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack.push(
+            match date_from_value(&date).and_then(|value| {
+                value
+                    .checked_add_signed(ChronoDuration::days(days))
+                    .map(date_value)
+                    .map(Value::result_ok)
+                    .ok_or_else(|| Value::result_err("DateRangeError", "date addition overflow"))
+            }) {
+                Ok(value) => value,
+                Err(error) => error,
+            },
+        );
+        Ok(())
+    }
+
+    pub(super) fn call_date_diff_days(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let end = match self.pop_map(word, "end date map") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let start = match self.pop_map(word, "start date map") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = date_from_value(&start).and_then(|start| {
+            date_from_value(&end)
+                .map(|end| Value::result_ok(Value::Number((end - start).num_days())))
+        });
+        self.stack.push(result.unwrap_or_else(|error| error));
+        Ok(())
+    }
+
+    pub(super) fn call_duration_unit(
+        &mut self,
+        word: &str,
+        multiplier: i64,
+    ) -> Result<(), VmError> {
+        let value = self.pop_number(word)?;
+        let result = value
+            .checked_mul(multiplier)
+            .map(|value| Value::result_ok(Value::Number(value)))
+            .unwrap_or_else(|| Value::result_err("DurationError", "duration overflow"));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_duration_parts(&mut self, word: &str) -> Result<(), VmError> {
+        let duration_ms = self.pop_number(word)?;
+        self.stack
+            .push(Value::result_ok(duration_parts_value(duration_ms)));
         Ok(())
     }
 
@@ -2322,6 +2650,23 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_process_release(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_process_id(word)?;
+        let result = match self.process_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_process_job_value(id),
+            Err(error) => process_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_process_read(&mut self, word: &str) -> Result<(), VmError> {
         if !self.process_enabled() {
             return Err(VmError::HostError {
@@ -2479,6 +2824,23 @@ impl Vm {
                 Err(error) => pty_runtime_error_value(error),
             })
             .unwrap_or_else(|| unknown_pty_session_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_pty_release(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.pty_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "PTY capability is not enabled".to_string(),
+            });
+        }
+        let id = self.pop_pty_id(word)?;
+        let result = match self.pty_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_pty_session_value(id),
+            Err(error) => pty_runtime_error_value(error),
+        };
         self.stack.push(result);
         Ok(())
     }
@@ -3560,51 +3922,6 @@ impl Vm {
             value => Err(method_type_error(word, "block", &value)),
         }
     }
-
-    fn binary_checked_number(
-        &mut self,
-        word: &str,
-        operation: fn(i64, i64) -> Option<i64>,
-    ) -> Result<(), VmError> {
-        self.ensure_stack(word, 2)?;
-        let stack_before = self.stack.clone();
-        let right = self.pop_number_or_restore(word, &stack_before)?;
-        let left = self.pop_number_or_restore(word, &stack_before)?;
-        let Some(value) = operation(left, right) else {
-            self.stack = stack_before;
-            return Err(VmError::ArithmeticOverflow {
-                word: word.to_string(),
-            });
-        };
-        self.stack.push(Value::Number(value));
-        Ok(())
-    }
-
-    fn unary_checked_number(
-        &mut self,
-        word: &str,
-        operation: fn(i64) -> Option<i64>,
-    ) -> Result<(), VmError> {
-        let stack_before = self.stack.clone();
-        let input = self.pop_number_or_restore(word, &stack_before)?;
-        let Some(value) = operation(input) else {
-            self.stack = stack_before;
-            return Err(VmError::ArithmeticOverflow {
-                word: word.to_string(),
-            });
-        };
-        self.stack.push(Value::Number(value));
-        Ok(())
-    }
-
-    fn binary_number(&mut self, word: &str, operation: fn(i64, i64) -> i64) -> Result<(), VmError> {
-        self.ensure_stack(word, 2)?;
-        let stack_before = self.stack.clone();
-        let right = self.pop_number_or_restore(word, &stack_before)?;
-        let left = self.pop_number_or_restore(word, &stack_before)?;
-        self.stack.push(Value::Number(operation(left, right)));
-        Ok(())
-    }
 }
 
 fn collection_arguments(receiver: &Value, method: &str) -> Result<Vec<Vec<Value>>, VmError> {
@@ -3765,10 +4082,241 @@ fn display_value(value: &Value) -> String {
         Value::Nil => "nil".to_string(),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
+        Value::Float(value) => display_float(*value),
         Value::String(value) => value.clone(),
         Value::Class(value) => value.clone(),
         Value::Regex(value) => format!("/{}/", value.pattern()),
         value => format!("{value:?}"),
+    }
+}
+
+fn convert_numeric(word: &str, value: Value) -> Value {
+    match word {
+        "to_float" | "to_float64" | "to_double" | "to_real" => {
+            conversion_float_result(input_to_float(value))
+        }
+        "to_float32" => conversion_float_result(input_to_float(value).and_then(|value| {
+            let narrowed = value as f32;
+            if narrowed.is_finite() {
+                Ok(f64::from(narrowed))
+            } else {
+                Err(("RangeError", format!("{value} is outside float32 range")))
+            }
+        })),
+        "to_number" | "to_integer" | "to_bigint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, i64::MIN, i64::MAX, word)),
+        ),
+        "to_int" => conversion_integer_result(input_to_integer(value).and_then(|value| {
+            checked_integer_range(value, i64::from(i32::MIN), i64::from(i32::MAX), word)
+        })),
+        "to_mediumint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, -8_388_608, 8_388_607, word)),
+        ),
+        "to_smallint" => conversion_integer_result(input_to_integer(value).and_then(|value| {
+            checked_integer_range(value, i64::from(i16::MIN), i64::from(i16::MAX), word)
+        })),
+        "to_tinyint" => conversion_integer_result(input_to_integer(value).and_then(|value| {
+            checked_integer_range(value, i64::from(i8::MIN), i64::from(i8::MAX), word)
+        })),
+        "to_bit" => conversion_integer_result(input_to_bit(value)),
+        "to_unsigned_int" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, 0, u32::MAX.into(), word)),
+        ),
+        "to_unsigned_mediumint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, 0, 16_777_215, word)),
+        ),
+        "to_unsigned_smallint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, 0, u16::MAX.into(), word)),
+        ),
+        "to_unsigned_tinyint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, 0, u8::MAX.into(), word)),
+        ),
+        "to_unsigned_bigint" => conversion_integer_result(
+            input_to_integer(value)
+                .and_then(|value| checked_integer_range(value, 0, i64::MAX, word)),
+        ),
+        _ => unreachable!("numeric conversion caller restricts words"),
+    }
+}
+
+fn conversion_integer_result(result: Result<i64, (&'static str, String)>) -> Value {
+    match result {
+        Ok(value) => Value::result_ok(Value::Number(value)),
+        Err((kind, message)) => Value::result_err(kind, message),
+    }
+}
+
+fn conversion_float_result(result: Result<f64, (&'static str, String)>) -> Value {
+    match result {
+        Ok(value) => Value::result_ok(Value::Float(value)),
+        Err((kind, message)) => Value::result_err(kind, message),
+    }
+}
+
+fn input_to_integer(value: Value) -> Result<i64, (&'static str, String)> {
+    match value {
+        Value::Number(value) => Ok(value),
+        Value::Float(value) if value.is_finite() && value.fract() == 0.0 => {
+            if value < i64::MIN as f64 || value > i64::MAX as f64 {
+                Err(("RangeError", format!("{value} is outside integer range")))
+            } else {
+                Ok(value as i64)
+            }
+        }
+        Value::Float(value) if value.is_finite() => {
+            Err(("RangeError", format!("{value} is not an integer")))
+        }
+        Value::Float(value) => Err(("RangeError", format!("{value} is not finite"))),
+        Value::String(value) => value
+            .parse::<i64>()
+            .map_err(|error| ("ParseError", error.to_string())),
+        value => Err((
+            "TypeError",
+            format!("cannot convert {} to integer", value_kind(&value)),
+        )),
+    }
+}
+
+fn input_to_bit(value: Value) -> Result<i64, (&'static str, String)> {
+    match value {
+        Value::Bool(value) => Ok(if value { 1 } else { 0 }),
+        value => {
+            let value = input_to_integer(value)?;
+            checked_integer_range(value, 0, 1, "to_bit")
+        }
+    }
+}
+
+fn input_to_float(value: Value) -> Result<f64, (&'static str, String)> {
+    match value {
+        Value::Number(value) => Ok(value as f64),
+        Value::Float(value) if value.is_finite() => Ok(value),
+        Value::Float(value) => Err(("RangeError", format!("{value} is not finite"))),
+        Value::String(value) => value
+            .parse::<f64>()
+            .map_err(|error| ("ParseError", error.to_string()))
+            .and_then(|value| {
+                if value.is_finite() {
+                    Ok(value)
+                } else {
+                    Err(("RangeError", format!("{value} is not finite")))
+                }
+            }),
+        value => Err((
+            "TypeError",
+            format!("cannot convert {} to float", value_kind(&value)),
+        )),
+    }
+}
+
+fn checked_integer_range(
+    value: i64,
+    minimum: i64,
+    maximum: i64,
+    word: &str,
+) -> Result<i64, (&'static str, String)> {
+    if (minimum..=maximum).contains(&value) {
+        Ok(value)
+    } else {
+        Err((
+            "RangeError",
+            format!("{value} is outside {word} range {minimum}..{maximum}"),
+        ))
+    }
+}
+
+fn numeric_multiply(word: &str, left: NumericValue, right: NumericValue) -> Result<Value, VmError> {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => left
+            .checked_mul(right)
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        _ => finite_float_result(word, left.as_f64() * right.as_f64()),
+    }
+}
+
+fn numeric_divide(word: &str, left: NumericValue, right: NumericValue) -> Result<Value, VmError> {
+    match (left, right) {
+        (_, NumericValue::Integer(0)) | (_, NumericValue::Float(0.0)) => {
+            Err(VmError::DivisionByZero {
+                word: word.to_string(),
+            })
+        }
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => left
+            .checked_div(right)
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        _ => finite_float_result(word, left.as_f64() / right.as_f64()),
+    }
+}
+
+fn numeric_negate(word: &str, value: NumericValue) -> Result<Value, VmError> {
+    match value {
+        NumericValue::Integer(value) => value
+            .checked_neg()
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        NumericValue::Float(value) => finite_float_result(word, -value),
+    }
+}
+
+fn numeric_abs(word: &str, value: NumericValue) -> Result<Value, VmError> {
+    match value {
+        NumericValue::Integer(value) => value
+            .checked_abs()
+            .map(Value::Number)
+            .ok_or_else(|| arithmetic_overflow(word)),
+        NumericValue::Float(value) => finite_float_result(word, value.abs()),
+    }
+}
+
+fn numeric_min(left: NumericValue, right: NumericValue) -> Value {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => {
+            Value::Number(left.min(right))
+        }
+        _ => Value::Float(left.as_f64().min(right.as_f64())),
+    }
+}
+
+fn numeric_max(left: NumericValue, right: NumericValue) -> Value {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => {
+            Value::Number(left.max(right))
+        }
+        _ => Value::Float(left.as_f64().max(right.as_f64())),
+    }
+}
+
+fn numeric_clamp(
+    word: &str,
+    value: NumericValue,
+    minimum: NumericValue,
+    maximum: NumericValue,
+) -> Result<Value, VmError> {
+    if minimum.as_f64() > maximum.as_f64() {
+        return Err(VmError::InvalidArgument {
+            word: word.to_string(),
+            message: "minimum cannot exceed maximum".to_string(),
+        });
+    }
+
+    match (value, minimum, maximum) {
+        (
+            NumericValue::Integer(value),
+            NumericValue::Integer(minimum),
+            NumericValue::Integer(maximum),
+        ) => Ok(Value::Number(value.clamp(minimum, maximum))),
+        _ => finite_float_result(
+            word,
+            value.as_f64().clamp(minimum.as_f64(), maximum.as_f64()),
+        ),
     }
 }
 
@@ -3795,6 +4343,9 @@ fn value_to_json_inner(
         Value::Nil => Ok(JsonValue::Null),
         Value::Bool(value) => Ok(JsonValue::Bool(*value)),
         Value::Number(value) => Ok(JsonValue::Number((*value).into())),
+        Value::Float(value) => serde_json::Number::from_f64(*value)
+            .map(JsonValue::Number)
+            .ok_or_else(|| "cannot encode non-finite float as JSON".to_string()),
         Value::String(value) => Ok(JsonValue::String(value.clone())),
         Value::Array(value) => {
             enter_json_collection(visits, JsonVisit::Array(value.identity()), path)?;
@@ -3871,11 +4422,17 @@ fn json_to_value(value: JsonValue) -> Value {
     match value {
         JsonValue::Null => Value::Nil,
         JsonValue::Bool(value) => Value::Bool(value),
-        JsonValue::Number(value) => Value::Number(
-            value
-                .as_i64()
-                .unwrap_or_else(|| value.as_u64().unwrap_or(i64::MAX as u64) as i64),
-        ),
+        JsonValue::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Value::Number(value)
+            } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
+                Value::Number(value)
+            } else if let Some(value) = value.as_f64() {
+                Value::Float(value)
+            } else {
+                Value::Nil
+            }
+        }
         JsonValue::String(value) => Value::String(value),
         JsonValue::Array(values) => Value::Array(
             values
@@ -4032,6 +4589,7 @@ fn builtin_class_name(value: &Value) -> Option<&'static str> {
         Value::Nil => Some("Nil"),
         Value::Bool(_) => Some("Bool"),
         Value::Number(_) => Some("Number"),
+        Value::Float(_) => Some("Float"),
         Value::String(_) => Some("String"),
         Value::Array(_) => Some("Array"),
         Value::List(_) => Some("List"),
@@ -5500,6 +6058,183 @@ fn workspace_metadata_value(
     Value::Map(fields.into())
 }
 
+fn utc_datetime_value(timestamp_ms: i64) -> Result<DateTime<Utc>, Value> {
+    Utc.timestamp_millis_opt(timestamp_ms)
+        .single()
+        .ok_or_else(|| {
+            Value::result_err(
+                "DateTimeRangeError",
+                format!("timestamp {timestamp_ms} is outside the supported UTC range"),
+            )
+        })
+}
+
+fn format_rfc3339_millis(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+fn timestamp_parts_value(value: DateTime<Utc>) -> Value {
+    let weekday = value.weekday();
+    Value::Map(
+        BTreeMap::from([
+            (
+                "timestamp_ms".to_string(),
+                Value::Number(value.timestamp_millis()),
+            ),
+            ("timezone".to_string(), Value::String("UTC".to_string())),
+            ("year".to_string(), Value::Number(value.year().into())),
+            ("month".to_string(), Value::Number(value.month().into())),
+            ("day".to_string(), Value::Number(value.day().into())),
+            ("hour".to_string(), Value::Number(value.hour().into())),
+            ("minute".to_string(), Value::Number(value.minute().into())),
+            ("second".to_string(), Value::Number(value.second().into())),
+            (
+                "millisecond".to_string(),
+                Value::Number(value.timestamp_subsec_millis().into()),
+            ),
+            ("ordinal".to_string(), Value::Number(value.ordinal().into())),
+            ("weekday".to_string(), Value::String(weekday.to_string())),
+            (
+                "weekday_number".to_string(),
+                Value::Number(weekday.number_from_monday().into()),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn date_value(value: NaiveDate) -> Value {
+    let weekday = value.weekday();
+    Value::Map(
+        BTreeMap::from([
+            ("year".to_string(), Value::Number(value.year().into())),
+            ("month".to_string(), Value::Number(value.month().into())),
+            ("day".to_string(), Value::Number(value.day().into())),
+            ("ordinal".to_string(), Value::Number(value.ordinal().into())),
+            ("weekday".to_string(), Value::String(weekday.to_string())),
+            (
+                "weekday_number".to_string(),
+                Value::Number(weekday.number_from_monday().into()),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn timestamp_from_parts_value(parts: &MapValue) -> Result<i64, Value> {
+    let date = date_from_value(parts)?;
+    let hour = date_part_u32(parts, "hour", 0)?;
+    let minute = date_part_u32(parts, "minute", 0)?;
+    let second = date_part_u32(parts, "second", 0)?;
+    let millisecond = date_part_u32(parts, "millisecond", 0)?;
+    let Some(value) = date.and_hms_milli_opt(hour, minute, second, millisecond) else {
+        return Err(Value::result_err(
+            "DateTimeValueError",
+            "timestamp parts do not form a valid UTC time",
+        ));
+    };
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(value, Utc).timestamp_millis())
+}
+
+fn date_from_value(value: &MapValue) -> Result<NaiveDate, Value> {
+    let year = date_part_i32(value, "year")?;
+    let month = date_part_u32(value, "month", 0)?;
+    let day = date_part_u32(value, "day", 0)?;
+    NaiveDate::from_ymd_opt(year, month, day).ok_or_else(|| {
+        Value::result_err(
+            "DateValueError",
+            format!("date parts do not form a valid date: {year:04}-{month:02}-{day:02}"),
+        )
+    })
+}
+
+fn date_part_i32(value: &MapValue, name: &str) -> Result<i32, Value> {
+    let raw = required_date_part(value, name)?;
+    i32::try_from(raw).map_err(|_| {
+        Value::result_err(
+            "DateValueError",
+            format!("date field {name} is outside the supported range"),
+        )
+    })
+}
+
+fn date_part_u32(value: &MapValue, name: &str, default: i64) -> Result<u32, Value> {
+    let raw = match value.get(name) {
+        Some(Value::Nil) | None => default,
+        Some(Value::Number(value)) => value,
+        Some(value) => {
+            return Err(Value::result_err(
+                "DateValueError",
+                format!(
+                    "date field {name} must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if raw < 0 {
+        return Err(Value::result_err(
+            "DateValueError",
+            format!("date field {name} must not be negative"),
+        ));
+    }
+    u32::try_from(raw).map_err(|_| {
+        Value::result_err(
+            "DateValueError",
+            format!("date field {name} is outside the supported range"),
+        )
+    })
+}
+
+fn required_date_part(value: &MapValue, name: &str) -> Result<i64, Value> {
+    match value.get(name) {
+        Some(Value::Number(value)) => Ok(value),
+        Some(value) => Err(Value::result_err(
+            "DateValueError",
+            format!(
+                "date field {name} must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+        None => Err(Value::result_err(
+            "DateValueError",
+            format!("date field {name} is required"),
+        )),
+    }
+}
+
+fn duration_parts_value(duration_ms: i64) -> Value {
+    let negative = duration_ms < 0;
+    let mut remaining = if negative {
+        -(duration_ms as i128)
+    } else {
+        duration_ms as i128
+    };
+    let days = remaining / 86_400_000;
+    remaining %= 86_400_000;
+    let hours = remaining / 3_600_000;
+    remaining %= 3_600_000;
+    let minutes = remaining / 60_000;
+    remaining %= 60_000;
+    let seconds = remaining / 1_000;
+    let milliseconds = remaining % 1_000;
+    Value::Map(
+        BTreeMap::from([
+            ("total_ms".to_string(), Value::Number(duration_ms)),
+            ("negative".to_string(), Value::Bool(negative)),
+            ("days".to_string(), Value::Number(days as i64)),
+            ("hours".to_string(), Value::Number(hours as i64)),
+            ("minutes".to_string(), Value::Number(minutes as i64)),
+            ("seconds".to_string(), Value::Number(seconds as i64)),
+            (
+                "milliseconds".to_string(),
+                Value::Number(milliseconds as i64),
+            ),
+        ])
+        .into(),
+    )
+}
+
 fn workspace_entry_kind(metadata: &fs::Metadata) -> &'static str {
     let file_type = metadata.file_type();
     if file_type.is_symlink() {
@@ -6088,6 +6823,7 @@ fn perform_process_spawn(request: ProcessRequest) -> Value {
     for (name, value) in &request.env {
         command.env(name, value);
     }
+    configure_process_window(&mut command);
 
     let mut child = match command.spawn() {
         Ok(child) => child,
