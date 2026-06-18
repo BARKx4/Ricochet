@@ -299,11 +299,11 @@ child class as their receiver. Inheritance cycles are VM faults.
 
 Method replacement is allowed without warnings, but the VM records replacement metadata for debugging and hot reload traces.
 
-Method calls use an explicit dot form to avoid ambiguity with global words:
+Method calls keep the receiver first and use ordinary selector words:
 
 ```forth
-user .save
-user .displayName
+user save
+user displayName
 user "displayName" send
 ```
 
@@ -311,8 +311,8 @@ Loaded class names are also runtime values. This gives class-level APIs the same
 postfix dispatch shape as instance APIs:
 
 ```forth
-User .all
-42 User .find
+User all
+42 User find-record
 ```
 
 Global functions take precedence when a function and class share a name.
@@ -330,11 +330,11 @@ Object field storage is hybrid:
 Expected application failures use a single `Result` object on the stack.
 
 ```forth
-42 User .find
+42 User find-record
 dup ok? if
   value
 else
-  error .message println
+  error "message" at println
 end
 ```
 
@@ -407,7 +407,7 @@ Current implementation note: `[ ... ] spawn` creates a first-class task value,
 captures the spawn-time VM environment, and starts the task on a background
 worker. `await` waits for one handle when needed, and `await-all` resolves an
 array/list of handles. Task handles retain completed/failed status, expose
-`.id`, `.status`, `.pending?`, `.running?`, `.completed?`, and `.failed?`, and
+`id`, `task-status`, `pending?`, `running?`, `completed?`, and `failed?`, and
 completed handles can be awaited again for the cached result. The `tasks` word
 returns active running task metadata for debugger-style inspection. HTTP
 capabilities expose `.get-task` and `.post-json-task`, which start worker tasks
@@ -599,29 +599,29 @@ tableName get table
 Active Record operations are class methods with ordinary postfix arguments:
 
 ```forth
-User .all
-User .default-page
-42 User .find
-"email" "ada@example.com" User .where
-10 User .limit
-10 20 User .page
-"email" "asc" 10 20 User .order-page
-"email" "ada@example.com" 10 User .where-limit
-"email" "ada@example.com" 10 20 User .where-page
-"email" "ada@example.com" "id" "desc" 10 20 User .where-order-page
+User all
+User default-page
+42 User find-record
+"email" "ada@example.com" User where
+10 User limit
+10 20 User page
+"email" "asc" 10 20 User order-page
+"email" "ada@example.com" 10 User where-limit
+"email" "ada@example.com" 10 20 User where-page
+"email" "ada@example.com" "id" "desc" 10 20 User where-order-page
 attributes map
-"email" "ada@example.com" attributes get .put! drop
-attributes get User .insert
+$attributes "email" "ada@example.com" put! drop
+$attributes User insert
 updates map
-"email" "grace@example.com" updates get .put! drop
-42 updates get User .update
+$updates "email" "grace@example.com" put! drop
+42 $updates User update
 ```
 
-Active Record v1 supports connection configuration, basic table mapping, `find`,
+Active Record v1 supports connection configuration, basic table mapping, `find-record`,
 `all`, `where`, a first-page list default with `default-page`, bounded reads
 with `limit`/`page`/`where-limit`/`where-page`, deterministic ordered reads
-with `order-page`/`where-order-page`, `count`, `first`, `exists?`, `insert`, and
-`update`. `default-page` returns up to 50 rows and orders by `id asc` when the
+with `order-page`/`where-order-page`, `count-records`, `first-record`,
+`exists?`, `insert`, and `update`. `default-page` returns up to 50 rows and orders by `id asc` when the
 model maps an `id` field; models without a mapped `id` field use the first
 bounded page. Every operation returns one
 `Result` object so expected database failures stay in the normal stack flow.

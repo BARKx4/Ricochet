@@ -7,8 +7,8 @@
 
 "regex:" println
 "\\d+" regex value digits var
-"abc123def456" $digits find "text" at println
-$digits "abc123def456" "#" replace println
+"abc123def456" $digits regex-find "text" at println
+$digits "abc123def456" "#" regex-replace println
 
 "collections:" println
 names array

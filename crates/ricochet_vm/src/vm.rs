@@ -1330,7 +1330,9 @@ impl Vm {
             | "last-index-of" | "starts-with?" | "ends-with?" | "remove!" | "remove-at!" => {
                 self.call_receiver_argument_method(word, word)
             }
-            "slice" | "replace" | "insert!" => self.call_receiver_two_argument_method(word, word),
+            "slice" | "replace" | "regex-replace" | "insert!" => {
+                self.call_receiver_two_argument_method(word, word)
+            }
             "push!" => self.call_push(word),
             "put!" => self.call_put(word),
             "fs_read_text" => {
@@ -1505,7 +1507,9 @@ impl Vm {
             "json" => self.call_json(word),
             "redirect" => self.call_redirect(word),
             "info" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
-            "status" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
+            "task-status" if self.receiver_method_exists(word)? => {
+                self.call_top_receiver_method(word)
+            }
             "status" => self.call_status(word),
             "header" => self.call_header(word),
             "value" => self.call_result_value(word),

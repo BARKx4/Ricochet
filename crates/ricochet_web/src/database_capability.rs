@@ -452,8 +452,13 @@ pub fn install_database_capability(
 
     let count_backend = backend.clone();
     let count_mappings = mappings.clone();
-    vm.add_native_method_with_arity("count", 1, move |arguments| {
-        let model_name = string_argument(&arguments, 0, "DatabaseCapability.count", "model name")?;
+    vm.add_native_method_with_arity("count-records", 1, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.count-records",
+            "model name",
+        )?;
         let mapping = model_mapping(&count_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| count_backend.count(mapping)) {
@@ -465,8 +470,13 @@ pub fn install_database_capability(
 
     let first_backend = backend.clone();
     let first_mappings = mappings.clone();
-    vm.add_native_method_with_arity("first", 1, move |arguments| {
-        let model_name = string_argument(&arguments, 0, "DatabaseCapability.first", "model name")?;
+    vm.add_native_method_with_arity("first-record", 1, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.first-record",
+            "model name",
+        )?;
         let mapping = model_mapping(&first_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| first_backend.first(mapping)) {
@@ -557,10 +567,15 @@ pub fn install_database_capability(
 
     let find_backend = backend.clone();
     let find_mappings = mappings.clone();
-    vm.add_native_method_with_arity("find", 2, move |arguments| {
-        let model_name = string_argument(&arguments, 0, "DatabaseCapability.find", "model name")?;
+    vm.add_native_method_with_arity("find-record", 2, move |arguments| {
+        let model_name = string_argument(
+            &arguments,
+            0,
+            "DatabaseCapability.find-record",
+            "model name",
+        )?;
         let id = arguments.get(1).ok_or_else(|| {
-            missing_native_argument("DatabaseCapability.find", 2, arguments.len())
+            missing_native_argument("DatabaseCapability.find-record", 2, arguments.len())
         })?;
         let mapping = model_mapping(&find_mappings, model_name);
         Ok(
@@ -761,7 +776,7 @@ fn install_model_active_record_methods(
 
             let count_backend = backend.clone();
             let count_mapping = mapping.clone();
-            vm.add_native_method_with_arity("count", 0, move |_| {
+            vm.add_native_method_with_arity("count-records", 0, move |_| {
                 Ok(match count_backend.count(&count_mapping) {
                     Ok(value) => Value::result_ok(Value::Number(value)),
                     Err(error) => database_result_error(error),
@@ -770,7 +785,7 @@ fn install_model_active_record_methods(
 
             let first_backend = backend.clone();
             let first_mapping = mapping.clone();
-            vm.add_native_method_with_arity("first", 0, move |_| {
+            vm.add_native_method_with_arity("first-record", 0, move |_| {
                 Ok(match first_backend.first(&first_mapping) {
                     Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
                     Err(error) => database_result_error(error),
@@ -840,8 +855,8 @@ fn install_model_active_record_methods(
 
             let find_backend = backend.clone();
             let find_mapping = mapping.clone();
-            let find_method = format!("{}.find", mapping.class_name);
-            vm.add_native_method_with_arity("find", 1, move |arguments| {
+            let find_method = format!("{}.find-record", mapping.class_name);
+            vm.add_native_method_with_arity("find-record", 1, move |arguments| {
                 let id = arguments
                     .first()
                     .ok_or_else(|| missing_native_argument(&find_method, 1, arguments.len()))?;
@@ -1582,8 +1597,8 @@ mod tests {
     #[test]
     fn active_record_count_returns_a_number_result() {
         let mut vm = vm_with_active_record();
-        let chunk =
-            ricochet_compiler::compile_source("test.rco", "User count").expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "User count-records")
+            .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1598,8 +1613,8 @@ mod tests {
     #[test]
     fn active_record_first_returns_first_row_or_nil() {
         let mut vm = vm_with_active_record();
-        let chunk =
-            ricochet_compiler::compile_source("test.rco", "User first").expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "User first-record")
+            .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 
@@ -1733,7 +1748,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" db get count value\n\"User\" db get first value \"email\" at\n\"User\" 1 db get exists? value",
+            "\"User\" db get count-records value\n\"User\" db get first-record value \"email\" at\n\"User\" 1 db get exists? value",
         )
         .expect("source compiles");
 
@@ -1751,10 +1766,10 @@ mod tests {
     }
 
     #[test]
-    fn active_record_find_accepts_an_id_before_the_model_class() {
+    fn active_record_find_record_accepts_an_id_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk =
-            ricochet_compiler::compile_source("test.rco", "42 User find").expect("source compiles");
+        let chunk = ricochet_compiler::compile_source("test.rco", "42 User find-record")
+            .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
 

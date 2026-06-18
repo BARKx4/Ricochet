@@ -69,9 +69,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   beta key or a manifest-provided secret, can use authenticated encrypted v2
   cookies, and emit secure cookie attributes for non-local requests.
 - Active Record: map models to existing SQLite, PostgreSQL, and MySQL/MariaDB
-  tables with `find`, `all`, `where`, `count`, `first`, `exists?`, `insert`,
-  `update`, `default-page`, `limit`, `page`, `order-page`, `where-limit`,
-  `where-page`, and `where-order-page`.
+  tables with `find-record`, `all`, `where`, `count-records`, `first-record`,
+  `exists?`, `insert`, `update`, `default-page`, `limit`, `page`,
+  `order-page`, `where-limit`, `where-page`, and `where-order-page`.
 - Database migrations: apply ordered SQL migrations from `db/migrations` to
   SQLite, PostgreSQL, or MySQL/MariaDB projects and track them in
   `schema_migrations`.
@@ -279,12 +279,12 @@ Spawn a task and await its result:
 
 ```forth
 [ 40 2 + ] spawn answer var
-$answer status
+$answer task-status
 $answer running?
 tasks count
 $answer await
 $answer release-task
-$answer status
+$answer task-status
 handles array
 $handles [ 20 2 + ] spawn push! drop
 $handles [ 30 4 + ] spawn push! drop

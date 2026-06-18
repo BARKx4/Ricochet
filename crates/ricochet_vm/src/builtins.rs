@@ -152,7 +152,12 @@ impl Vm {
             Value::Task(_) => {
                 matches!(
                     method,
-                    "id" | "info" | "status" | "pending?" | "running?" | "completed?" | "failed?"
+                    "id" | "info"
+                        | "task-status"
+                        | "pending?"
+                        | "running?"
+                        | "completed?"
+                        | "failed?"
                 )
             }
             Value::Capability(Capability::FileSystem) => {
@@ -195,7 +200,10 @@ impl Vm {
                     | "window"
                     | "document"
             ),
-            Value::Regex(_) => matches!(method, "matches?" | "find" | "captures" | "replace"),
+            Value::Regex(_) => matches!(
+                method,
+                "matches?" | "regex-find" | "captures" | "regex-replace"
+            ),
             _ => false,
         }
     }
@@ -242,10 +250,8 @@ impl Vm {
             "transform" => self.method_transform(receiver, method),
             "select" => self.method_select(receiver, method),
             "reduce" => self.method_reduce(receiver, method),
-            "find" => match receiver {
-                Value::Regex(_) => self.method_regex_find(receiver, method),
-                receiver => self.method_find(receiver, method),
-            },
+            "find" => self.method_find(receiver, method),
+            "regex-find" => self.method_regex_find(receiver, method),
             "any?" => self.method_any(receiver, method),
             "all?" => self.method_all(receiver, method),
             "blank?" => self.method_blank(receiver, method),
@@ -270,10 +276,8 @@ impl Vm {
             }
             "split" => self.method_split(receiver, method),
             "join" => self.method_join(receiver, method),
-            "replace" => match receiver {
-                Value::Regex(_) => self.method_regex_replace(receiver, method),
-                receiver => self.method_replace(receiver, method),
-            },
+            "replace" => self.method_replace(receiver, method),
+            "regex-replace" => self.method_regex_replace(receiver, method),
             "concat" => self.method_concat(receiver, method),
             "to-number" => self.method_to_number(receiver, method),
             "error?" => self.method_result_error(receiver, method),
@@ -282,7 +286,7 @@ impl Vm {
             "and-then" => self.method_and_then(receiver, method),
             "id" => self.method_task_id(receiver, method),
             "info" => self.method_task_info(receiver, method),
-            "status" => self.method_task_status(receiver, method),
+            "task-status" => self.method_task_status(receiver, method),
             "pending?" => self.method_task_pending(receiver, method),
             "running?" => self.method_task_running(receiver, method),
             "completed?" => self.method_task_completed(receiver, method),

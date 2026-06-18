@@ -440,6 +440,14 @@ const WORDS = [
     "example": "tasks count"
   },
   {
+    "word": "task-status",
+    "aliases": ["tasks"],
+    "group": "inspect",
+    "stack": "task -> string",
+    "body": "Returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
+    "example": "$task task-status"
+  },
+  {
     "word": "while",
     "aliases": ["end"],
     "group": "control",
@@ -505,11 +513,11 @@ const WORDS = [
   },
   {
     "word": "status",
-    "aliases": ["task status"],
+    "aliases": [],
     "group": "web",
-    "stack": "action status:number -> action | task -> string",
-    "body": "Sets the HTTP status code on a controller action result map, or returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
-    "example": "\"created\" text 201 status\n$task status"
+    "stack": "action status:number -> action",
+    "body": "Sets the HTTP status code on a controller action result map.",
+    "example": "\"created\" text 201 status"
   },
   {
     "word": "header",
@@ -560,12 +568,12 @@ const WORDS = [
     "example": "User all"
   },
   {
-    "word": "find",
-    "aliases": ["Active Record", "collection", "regex"],
+    "word": "find-record",
+    "aliases": ["Active Record"],
     "group": "web",
-    "stack": "id ModelClass -> result(record|nil) | block collection -> value|nil | haystack:string regex -> map|nil",
-    "body": "Finds a row by id for a mapped model class, the first collection item whose block result is truthy, or the first regex match as a map with `text`, `start`, and `end`.",
-    "example": "42 User find\n[ 8 = ] $numbers find\n\"abc123\" $digits find"
+    "stack": "id ModelClass -> result(record|nil) | modelName:string id:any DatabaseCapability -> result(record|nil)",
+    "body": "Finds a mapped database row by id.",
+    "example": "42 User find-record\n\"User\" 42 $db find-record"
   },
   {
     "word": "default-page",
@@ -592,20 +600,20 @@ const WORDS = [
     "example": "10 User limit"
   },
   {
-    "word": "count",
-    "aliases": ["Active Record", "length"],
+    "word": "count-records",
+    "aliases": ["Active Record"],
     "group": "web",
-    "stack": "ModelClass -> result(number) | string|collection -> number",
-    "body": "Counts rows for a mapped model class, characters for strings, or items for collections.",
-    "example": "User count\n$users count"
+    "stack": "ModelClass -> result(number) | modelName:string DatabaseCapability -> result(number)",
+    "body": "Counts rows for a mapped model class.",
+    "example": "User count-records\n\"User\" $db count-records"
   },
   {
-    "word": "first",
-    "aliases": ["Active Record", "collection"],
+    "word": "first-record",
+    "aliases": ["Active Record"],
     "group": "web",
-    "stack": "ModelClass -> result(record|nil) | string|array|list|set -> value|nil",
-    "body": "Loads the first row for a mapped model class, or returns the first character or collection item.",
-    "example": "User first\n$users first"
+    "stack": "ModelClass -> result(record|nil) | modelName:string DatabaseCapability -> result(record|nil)",
+    "body": "Loads the first row for a mapped model class.",
+    "example": "User first-record\n\"User\" $db first-record"
   },
   {
     "word": "exists?",
@@ -848,6 +856,22 @@ const WORDS = [
     "example": "$users 0 at\n$settings \"theme\" at"
   },
   {
+    "word": "count",
+    "aliases": ["length"],
+    "group": "collection",
+    "stack": "string|collection -> number",
+    "body": "Counts characters for strings or items for collections.",
+    "example": "$users count"
+  },
+  {
+    "word": "first",
+    "aliases": [],
+    "group": "collection",
+    "stack": "string|array|list|set -> value|nil",
+    "body": "Returns the first character or item, or nil for an empty receiver.",
+    "example": "$users first"
+  },
+  {
     "word": "last",
     "aliases": [],
     "group": "collection",
@@ -934,6 +958,14 @@ const WORDS = [
     "stack": "initial:any block array|list|set -> value",
     "body": "Reduces a sequence by calling the block with accumulator then item.",
     "example": "0 [ + ] $numbers reduce"
+  },
+  {
+    "word": "find",
+    "aliases": [],
+    "group": "collection",
+    "stack": "block collection -> value|nil",
+    "body": "Returns the first collection item whose block result is truthy.",
+    "example": "[ 8 = ] $numbers find"
   },
   {
     "word": "any?",
@@ -1049,11 +1081,11 @@ const WORDS = [
   },
   {
     "word": "replace",
-    "aliases": ["regex"],
+    "aliases": [],
     "group": "string",
-    "stack": "needle:string replacement:string string -> string | haystack:string replacement:string regex -> string",
-    "body": "Replaces all matching substrings, or all regex matches when the receiver is a regex.",
-    "example": "\"telnet era\" \"telnet\" \"web\" replace\n\"abc123\" \"#\" $digits replace"
+    "stack": "needle:string replacement:string string -> string",
+    "body": "Replaces all matching substrings in a string.",
+    "example": "\"telnet era\" \"telnet\" \"web\" replace"
   },
   {
     "word": "contains?",
@@ -1150,6 +1182,22 @@ const WORDS = [
     "stack": "haystack:string regex -> bool",
     "body": "Returns true when the regex matches the string.",
     "example": "\"hello-world\" $slugPattern matches?"
+  },
+  {
+    "word": "regex-find",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string regex -> map|nil",
+    "body": "Returns the first regex match as a map with `text`, `start`, and `end`.",
+    "example": "\"abc123\" $digits regex-find"
+  },
+  {
+    "word": "regex-replace",
+    "aliases": ["regex"],
+    "group": "string",
+    "stack": "haystack:string replacement:string regex -> string",
+    "body": "Replaces all regex matches in a string.",
+    "example": "$digits \"abc123\" \"#\" regex-replace"
   },
   {
     "word": "captures",

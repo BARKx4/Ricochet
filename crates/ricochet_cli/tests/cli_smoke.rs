@@ -4953,7 +4953,7 @@ fn run_inspects_spawned_task_status() {
         r#"
 [ 100 sleep 20 2 + ] spawn task var
 task get id
-task get status
+task get task-status
 task get pending?
 task get running?
 task get completed?
@@ -4965,7 +4965,7 @@ runtime_capabilities "tasks" at "running" at
 runtime_capabilities "tasks" at "max_running" at
 tasks count
 task get await
-task get status
+task get task-status
 task get completed?
 task get failed?
 task get pending?
@@ -5024,7 +5024,7 @@ events array
 ] spawn task var
 150 sleep
 events get count
-task get status
+task get task-status
 task get completed?
 task get await
 "#,
@@ -5053,7 +5053,7 @@ fn run_releases_completed_task_handles() {
 [ 40 2 + ] spawn task var
 task get await
 task get release-task
-task get status
+task get task-status
 runtime_capabilities "tasks" at "known" at
 "#,
     );
@@ -5574,13 +5574,13 @@ fn run_supports_regex_words() {
 "hello-world_42" slug get matches?
 "bad slug!" slug get matches?
 "\\d+" regex value digits var
-"abc123def" digits get find "text" at
-"abc123def" digits get find "start" at
-"abc123def" digits get find "end" at
+"abc123def" digits get regex-find "text" at
+"abc123def" digits get regex-find "start" at
+"abc123def" digits get regex-find "end" at
 "([a-z]+)-(\\d+)" regex value pair var
 "item-42" pair get captures "1" at
 "item-42" pair get captures "2" at
-digits get "abc123def456" "#" replace
+digits get "abc123def456" "#" regex-replace
 "[" regex error?
 "##,
     );
@@ -7167,7 +7167,7 @@ task get id
 task get await value response var
 response get "status" at
 response get "body" at
-task get status
+task get task-status
 "#
     ));
     server.join().expect("HTTP server should finish");
