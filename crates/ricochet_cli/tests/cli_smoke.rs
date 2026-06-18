@@ -803,6 +803,37 @@ result get value println
 }
 
 #[test]
+fn lsp_diagnostics_reports_leading_dot_replacements() {
+    let source_path = write_source("http .request\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lsp-diagnostics")
+        .arg(&source_path)
+        .output()
+        .expect("rco lsp-diagnostics should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco lsp-diagnostics should succeed for leading-dot diagnostic output\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("diagnostics output should be JSON");
+    let diagnostics = payload["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    assert_eq!(diagnostics.len(), 1, "stdout:\n{stdout}");
+    assert_eq!(diagnostics[0]["code"], "leading-dot-syntax");
+    assert_eq!(diagnostics[0]["data"]["replacement"], "http_request");
+    assert_eq!(diagnostics[0]["range"]["start"]["line"], 0);
+    assert_eq!(diagnostics[0]["range"]["start"]["character"], 0);
+    assert_eq!(diagnostics[0]["range"]["end"]["character"], 13);
+}
+
+#[test]
 fn lint_passes_for_canonical_source() {
     let source_path = write_source(
         r#""Ada" name var
@@ -6384,7 +6415,7 @@ args get "{checked}" push! drop
 options map
 options get "timeout_ms" 10000 put! drop
 "{rco}" args get options get process_start value job var
-200 sleep
+1500 sleep
 readOptions map
 job get "id" at readOptions get process_read value read var
 read get "stdout" at "checked" contains?
@@ -6479,7 +6510,7 @@ options map
 options get "timeout_ms" 10000 put! drop
 options get "stdout_max_bytes" 3 put! drop
 "{rco}" args get options get process_start value job var
-200 sleep
+1500 sleep
 readOptions map
 job get "id" at readOptions get process_read value read var
 read get "stdout" at "abc" =

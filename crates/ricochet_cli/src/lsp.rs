@@ -840,7 +840,7 @@ impl LspServer {
         };
         let actions = diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic["code"] == "prefer-dollar-reference")
+            .filter(diagnostic_has_replacement)
             .filter(|diagnostic| {
                 request_range.is_none_or(|request_range| {
                     diagnostic
@@ -851,7 +851,7 @@ impl LspServer {
                         })
                 })
             })
-            .filter_map(|diagnostic| prefer_reference_code_action(document, diagnostic))
+            .filter_map(|diagnostic| replacement_code_action(document, diagnostic))
             .collect::<Vec<_>>();
         json!(actions)
     }
@@ -1334,12 +1334,27 @@ fn is_renameable(name: &str) -> bool {
         && !word_docs().iter().any(|entry| entry.label.as_ref() == name)
 }
 
-fn prefer_reference_code_action(document: &LspDocument, diagnostic: Value) -> Option<Value> {
+fn diagnostic_has_replacement(diagnostic: &Value) -> bool {
+    diagnostic
+        .get("data")
+        .and_then(|data| data.get("replacement"))
+        .and_then(Value::as_str)
+        .is_some()
+}
+
+fn replacement_code_action(document: &LspDocument, diagnostic: Value) -> Option<Value> {
     let replacement = diagnostic
         .get("data")
         .and_then(|data| data.get("replacement"))
         .and_then(Value::as_str)?;
     let range = diagnostic.get("range")?.clone();
+    let title = match diagnostic.get("code").and_then(Value::as_str) {
+        Some("prefer-dollar-reference") => {
+            format!("Replace legacy variable read with {replacement}")
+        }
+        Some("leading-dot-syntax") => format!("Replace leading-dot syntax with {replacement}"),
+        _ => format!("Replace with {replacement}"),
+    };
     let mut changes = serde_json::Map::new();
     changes.insert(
         document.uri.clone(),
@@ -1349,7 +1364,7 @@ fn prefer_reference_code_action(document: &LspDocument, diagnostic: Value) -> Op
         })]),
     );
     Some(json!({
-        "title": format!("Replace legacy variable read with {replacement}"),
+        "title": title,
         "kind": "quickfix",
         "diagnostics": [diagnostic],
         "isPreferred": true,
@@ -1585,6 +1600,58 @@ mod tests {
         assert_eq!(
             actions[0]["edit"]["changes"][uri][0]["range"]["end"]["character"],
             8
+        );
+    }
+
+    #[test]
+    fn lsp_server_returns_quick_fix_for_leading_dot_accessors() {
+        let uri = "file:///workspace/User.rco";
+        let source =
+            "User Model Subclass\n\"email\" Accessor\n[ self .email get ] \"label\" Method\nend\n";
+        let input = messages(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"ricochet","version":1,"text":source}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"textDocument/codeAction","params":{"textDocument":{"uri":uri},"range":{"start":{"line":2,"character":7},"end":{"line":2,"character":17}},"context":{"diagnostics":[]}}}),
+            json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ]);
+        let mut output = Vec::new();
+
+        run_lsp(Cursor::new(input), &mut output, false).expect("LSP server should run");
+
+        let messages = parse_messages(&output);
+        let diagnostics = messages
+            .iter()
+            .find(|message| message["method"] == "textDocument/publishDiagnostics")
+            .expect("publish diagnostics should exist")["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert_eq!(diagnostics[0]["code"], "leading-dot-syntax");
+        assert_eq!(diagnostics[0]["data"]["replacement"], "email.get");
+
+        let actions = messages
+            .iter()
+            .find(|message| message["id"] == 2)
+            .expect("code action response should exist")["result"]
+            .as_array()
+            .expect("code actions should be an array");
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0]["title"],
+            "Replace leading-dot syntax with email.get"
+        );
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["newText"],
+            "email.get"
+        );
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["range"]["start"]["character"],
+            7
+        );
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["range"]["end"]["character"],
+            17
         );
     }
 

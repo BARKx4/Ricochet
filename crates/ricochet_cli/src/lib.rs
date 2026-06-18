@@ -19,7 +19,7 @@ use flate2::Compression;
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
 use ricochet_syntax::{
-    format_source, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
+    format_source, lex, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
     LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr, TokenKind,
 };
 use ricochet_vm::{
@@ -1822,23 +1822,40 @@ fn compile_error_lsp_diagnostic(
     source: &str,
     error: &CompileError,
 ) -> serde_json::Value {
-    let (span, message, help) = match error {
+    let (span, message, help, code, fix) = match error {
         CompileError::Parse(error) => {
             let diagnostic = ricochet_syntax::parse_error_diagnostic(file, source, error);
-            (diagnostic.span, diagnostic.message, diagnostic.help)
+            (
+                diagnostic.span,
+                diagnostic.message,
+                diagnostic.help,
+                None,
+                None,
+            )
         }
         CompileError::Unsupported {
             feature,
             span,
             help,
-        } => (
-            *span,
-            format!("unsupported compiler feature: {feature}"),
-            help.clone(),
-        ),
+        } => {
+            let fix = if feature.starts_with("leading-dot method syntax ") {
+                leading_dot_fix(source, *span)
+            } else {
+                None
+            };
+            (
+                fix.as_ref().map(|fix| fix.span).unwrap_or(*span),
+                format!("unsupported compiler feature: {feature}"),
+                help.clone(),
+                fix.as_ref().map(|_| "leading-dot-syntax"),
+                fix,
+            )
+        }
         CompileError::LoopControlOutsideLoop { word, span } => (
             *span,
             format!("{word} can only be used inside a loop"),
+            None,
+            None,
             None,
         ),
     };
@@ -1858,11 +1875,98 @@ fn compile_error_lsp_diagnostic(
         "source": "ricochet",
         "message": message,
     });
+    if let Some(code) = code {
+        diagnostic["code"] = json!(code);
+    }
     if let Some(help) = help {
         diagnostic["codeDescription"] = json!({ "href": "https://github.com/BARKx4/Ricochet" });
         diagnostic["data"] = json!({ "help": help });
     }
+    if let Some(fix) = fix {
+        diagnostic["codeDescription"] = json!({ "href": "https://github.com/BARKx4/Ricochet" });
+        if diagnostic.get("data").is_none() {
+            diagnostic["data"] = json!({});
+        }
+        diagnostic["data"]["replacement"] = json!(fix.replacement);
+    }
     diagnostic
+}
+
+struct DiagnosticFix {
+    span: Span,
+    replacement: String,
+}
+
+fn leading_dot_fix(source: &str, span: Span) -> Option<DiagnosticFix> {
+    let tokens = lex(source).ok()?;
+    let index = tokens.iter().position(|token| token.span == span)?;
+    let TokenKind::DotWord(word) = &tokens[index].kind else {
+        return None;
+    };
+    let selector = word.strip_prefix('.')?;
+
+    if let Some(next) = next_non_newline_token(&tokens, index) {
+        if matches!(&next.kind, TokenKind::Symbol(next_word) if next_word == "get") {
+            return Some(DiagnosticFix {
+                span: Span {
+                    start: span.start,
+                    end: next.span.end,
+                },
+                replacement: format!("{selector}.get"),
+            });
+        }
+    }
+
+    if let Some(previous) = previous_non_newline_token(&tokens, index) {
+        if let TokenKind::Symbol(namespace) = &previous.kind {
+            if is_host_namespace(namespace) {
+                return Some(DiagnosticFix {
+                    span: Span {
+                        start: previous.span.start,
+                        end: span.end,
+                    },
+                    replacement: host_namespace_word(namespace, selector),
+                });
+            }
+        }
+    }
+
+    Some(DiagnosticFix {
+        span,
+        replacement: selector.to_string(),
+    })
+}
+
+fn previous_non_newline_token(
+    tokens: &[ricochet_syntax::Token],
+    index: usize,
+) -> Option<&ricochet_syntax::Token> {
+    tokens[..index]
+        .iter()
+        .rev()
+        .find(|token| !matches!(token.kind, TokenKind::Newline | TokenKind::Eof))
+}
+
+fn next_non_newline_token(
+    tokens: &[ricochet_syntax::Token],
+    index: usize,
+) -> Option<&ricochet_syntax::Token> {
+    tokens
+        .get(index + 1..)?
+        .iter()
+        .find(|token| !matches!(token.kind, TokenKind::Newline | TokenKind::Eof))
+}
+
+fn is_host_namespace(namespace: &str) -> bool {
+    matches!(
+        namespace,
+        "fs" | "workspace" | "http" | "process" | "pty" | "tui" | "webview"
+    )
+}
+
+fn host_namespace_word(namespace: &str, selector: &str) -> String {
+    let selector = selector.trim_end_matches('!').replace('-', "_");
+    format!("{namespace}_{selector}")
 }
 
 struct SyntaxLint {

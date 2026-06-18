@@ -19,7 +19,8 @@ The grammar registers the `source.ricochet` scope and highlights:
 The language server adds live diagnostics, completion, hover, go-to-definition,
 document symbols, semantic tokens, document formatting, quick fixes,
 prepare-rename, and single-document rename support. The current quick fix
-rewrites legacy `name get` variable reads to `$name`.
+rewrites legacy `name get` variable reads to `$name` and leading-dot syntax
+such as `self .email get` to postfix selectors such as `self email.get`.
 
 The extension also includes `Ricochet: Run With Stack Visualizer`, which runs
 the active `.rco` file with `rco run --trace-file` and opens a separate IDE

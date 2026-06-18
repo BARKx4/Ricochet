@@ -543,10 +543,11 @@ document formatting, quick fixes, prepare-rename, and single-document rename
 support. The VS Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
 `Ricochet: Restart Language Server` for local toolchain rebuilds. The same
 diagnostics warn when old `name get` variable reads should be written as
-`$name` and offer a quick fix; keep `"name" get` only when the variable name is
+`$name`, flag leading-dot legacy syntax such as `self .email get`, and offer
+quick fixes for both; keep `"name" get` only when the variable name is
 intentionally data on the stack. Use `rco lint [--json] [path]` to run those
 same compile and syntax diagnostics over a file or directory in CI before
-`rco fmt` rewrites legacy source. Terminal
+`rco fmt` rewrites legacy variable reads. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks
