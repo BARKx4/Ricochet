@@ -28,6 +28,14 @@ end
   body get
 end
 
+( model messages -> Map ) ai_openai_chat_stream_body function
+  messages var
+  model var
+  model get messages get ai_openai_chat_body body var
+  body get "stream" true put! drop
+  body get
+end
+
 ( baseUrl token model messages -> Map ) ai_openai_chat_request function
   messages var
   model var
@@ -39,6 +47,86 @@ end
   request get "Content-Type" "application/json" http_header_put value request set
   request get body get http_json_body value request set
   request get
+end
+
+( baseUrl token model messages -> Map ) ai_openai_chat_stream_request function
+  messages var
+  model var
+  token var
+  baseUrl var
+  model get messages get ai_openai_chat_stream_body body var
+  "POST" baseUrl get "/chat/completions" concat http_request_new value request var
+  request get token get http_bearer_auth value request set
+  request get "Content-Type" "application/json" http_header_put value request set
+  request get "Accept" "text/event-stream" http_header_put value request set
+  request get body get http_json_body value request set
+  request get
+end
+
+( line -> String ) ai_sse_data_line function
+  line var
+  line get trim line set
+  line get "data:" starts-with? if
+    line get 5 line get length slice trim
+  else
+    nil
+  end
+end
+
+( body -> Array ) ai_sse_data_lines function
+  body var
+  values array
+  [
+    ai_sse_data_line value var
+    value get nil? false = if
+      values get value get push! drop
+    end
+  ] body get lines each drop
+  values get
+end
+
+( body -> Array ) ai_sse_json_events function
+  body var
+  events array
+  [
+    data var
+    data get "[DONE]" = false = if
+      data get json-decode value events get swap push! drop
+    end
+  ] body get ai_sse_data_lines each drop
+  events get
+end
+
+( event -> String ) ai_openai_stream_delta function
+  event var
+  event get "choices" at choices var
+  choices get nil? if
+    nil
+  else
+    choices get first choice var
+    choice get nil? if
+      nil
+    else
+      choice get "delta" at delta var
+      delta get nil? if
+        nil
+      else
+        delta get "content" at
+      end
+    end
+  end
+end
+
+( body -> String ) ai_openai_stream_text function
+  body var
+  "" text var
+  [
+    ai_openai_stream_delta part var
+    part get nil? false = if
+      text get part get concat text set
+    end
+  ] body get ai_sse_json_events each drop
+  text get
 end
 
 ( response -> Map ) ai_response_summary function

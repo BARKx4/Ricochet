@@ -709,8 +709,10 @@ else
 end
 ```
 
-AI calls return `Result` objects today. Structured JSON/schema validation,
-streaming, and richer provider packages remain future AI package work.
+AI calls return `Result` objects today. The first-party AI package includes
+OpenAI-compatible request builders and bounded SSE response-body parsing; true
+incremental HTTP streaming transport and richer provider packages remain future
+work.
 
 ## Debugger
 

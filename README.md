@@ -55,8 +55,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   `--registry-url`, and import package sources by local alias.
 - First-party beta packages: repo-local `@ricochet/auth`, `@ricochet/ai`,
   `@ricochet/forms`, and `@ricochet/test_helpers` packages provide session
-  guards, provider HTTP request builders, form/validation helpers, and package
-  test utilities without moving app-specific workflows into language core.
+  guards, provider HTTP request builders, SSE response-body parsing,
+  form/validation helpers, and package test utilities without moving
+  app-specific workflows into language core.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
   and render templates with controller-provided view data.
@@ -88,7 +89,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: production auth hardening and streaming AI helpers.
+Still planned: production auth hardening and true incremental HTTP streaming
+transport.
 
 ## Quickstart
 
