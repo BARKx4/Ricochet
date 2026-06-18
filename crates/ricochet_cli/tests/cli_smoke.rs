@@ -3166,7 +3166,7 @@ end
             .join("CapabilityController.rco"),
         r#"CapabilityController Controller Subclass
   [
-    "RICOCHET_MVC_PACKAGE_ENV_TEST" env value envValue var
+"RICOCHET_MVC_PACKAGE_ENV_TEST" env_get value envValue var
     runtime_capabilities caps var
     map data var
     data get "env" envValue get put! data set
@@ -5276,7 +5276,7 @@ fn run_exposes_process_environment_time_and_random_words() {
     let source_path = write_source(
         r#"
 args count
-"RICOCHET_QOL_TEST" env value
+"RICOCHET_QOL_TEST" env_get value
 cwd value empty?
 now 0 >
 10 random 10 <
@@ -5309,10 +5309,38 @@ now 0 >
 }
 
 #[test]
-fn run_env_allowlist_bounds_process_environment_reads() {
+fn run_supports_env_get_and_env_set_words() {
+    let source_path = write_source(
+        r#"
+"RICOCHET_ENV_WORD_TEST" "from-script" env_set value drop
+"RICOCHET_ENV_WORD_TEST" env_get value
+"" "bad" env_set error "message" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"from-script\")"),
+        "stdout should include environment value set by env_set, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"environment variable name must not be empty\")"),
+        "stdout should expose invalid env_set assignment as a Result error, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_env_allowlist_bounds_process_environment_access() {
     let allowed_source_path = write_source(
         r#"
-"RICOCHET_ALLOWED_ENV_TEST" env value
+"RICOCHET_ALLOWED_ENV_TEST" env_get value
 runtime_capabilities "environment" at "enabled" at
 runtime_capabilities "environment" at "allowlist" at count
 "#,
@@ -5340,7 +5368,7 @@ runtime_capabilities "environment" at "allowlist" at count
         "stdout should show enabled environment capability and one allowlisted name, got:\n{stdout}"
     );
 
-    let denied_source_path = write_source(r#""RICOCHET_DENIED_ENV_TEST" env drop"#);
+    let denied_source_path = write_source(r#""RICOCHET_DENIED_ENV_TEST" env_get drop"#);
     let denied = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
         .arg("--capability-profile")
@@ -5360,6 +5388,73 @@ runtime_capabilities "environment" at "allowlist" at count
     assert!(
         stderr.contains("environment variable is not allowed: RICOCHET_DENIED_ENV_TEST"),
         "stderr should explain env allowlist denial, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_env_allowlist_bounds_process_environment_writes() {
+    let allowed_source_path = write_source(
+        r#"
+"RICOCHET_ALLOWED_ENV_SET_TEST" "visible" env_set value drop
+"RICOCHET_ALLOWED_ENV_SET_TEST" env_get value
+"#,
+    );
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--env-allow")
+        .arg("RICOCHET_ALLOWED_ENV_SET_TEST")
+        .arg(&allowed_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&allowed);
+    let stdout = String::from_utf8_lossy(&allowed.stdout);
+    assert!(
+        stdout.contains("String(\"visible\")"),
+        "stdout should include allowlisted environment value set by env_set, got:\n{stdout}"
+    );
+
+    let denied_source_path =
+        write_source(r#""RICOCHET_DENIED_ENV_SET_TEST" "hidden" env_set drop"#);
+    let denied = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--env-allow")
+        .arg("RICOCHET_ALLOWED_ENV_SET_TEST")
+        .arg(&denied_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !denied.status.success(),
+        "rco run should fail when env_set target is outside allowlist"
+    );
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        stderr.contains("environment variable is not allowed: RICOCHET_DENIED_ENV_SET_TEST"),
+        "stderr should explain env_set allowlist denial, got:\n{stderr}"
+    );
+
+    let disabled_source_path = write_source(r#""RICOCHET_DISABLED_ENV_SET_TEST" "x" env_set drop"#);
+    let disabled = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-env")
+        .arg(&disabled_source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !disabled.status.success(),
+        "rco run should fail when env_set is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&disabled.stderr);
+    assert!(
+        stderr.contains("environment capability is not enabled"),
+        "stderr should explain disabled env_set capability, got:\n{stderr}"
     );
 }
 

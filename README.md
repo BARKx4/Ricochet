@@ -368,7 +368,7 @@ manifest/lock consistency, local path containment, git package cache commit
 matches, and locked package-content integrity without fetching or rewriting
 anything.
 
-`rco serve` keeps MVC process environment reads disabled unless you pass
+`rco serve` keeps MVC process environment access disabled unless you pass
 `--allow-env` or one or more `--env-allow NAME` entries. Prefer
 `--env-allow` for trusted local beta apps that store secret references as
 environment variable names. `--no-env` keeps the default disabled behavior
@@ -646,14 +646,14 @@ stdout/stderr, bounded output, blocking `process_spawn`, and long-running
 resolution narrower than the filesystem workspace. `--allow-pty` enables
 retained pseudo-terminal sessions through `pty_start`, `pty_write`, `pty_read`,
 `pty_resize`, `pty_stop`, `pty_list`, and `pty_detail`.
-`--env-allow <name>` enables or narrows environment variable reads to named
-variables, `--no-env` denies environment/current-directory reads, and
+`--env-allow <name>` enables or narrows environment variable reads and writes
+to named variables, `--no-env` denies environment/current-directory access, and
 `--no-sleep` denies script sleeps. Embedded hosts can leave capabilities
 disabled. HTTP calls do not follow redirects, use a timeout and response body
 cap, and filesystem access remains powerful CLI behavior unless you deny or
 bound it with these flags.
 For MVC servers, `rco serve` enables filesystem and HTTP only through
-`--fs-root` and `--http-allow-host`, and enables process environment reads only
+`--fs-root` and `--http-allow-host`, and enables process environment access only
 through `--allow-env` or `--env-allow`. MVC process execution requires
 `--allow-process`, MVC PTY sessions require `--allow-pty`, and
 `--process-root` can narrow execution cwd values. Watched MVC runtimes use the

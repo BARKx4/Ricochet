@@ -1608,6 +1608,49 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_env_set(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.environment_enabled {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "environment capability is not enabled".to_string(),
+            });
+        }
+        let stack_before = self.stack.clone();
+        let value = match self.pop_string(word, "environment variable value string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let name = match self.pop_string(word, "environment variable name string") {
+            Ok(name) => name,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if self
+            .environment_allowed_names
+            .as_ref()
+            .is_some_and(|names| !names.contains(&name))
+        {
+            self.stack = stack_before;
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("environment variable is not allowed: {name}"),
+            });
+        }
+        if let Some(message) = validate_environment_assignment(&name, &value) {
+            self.stack
+                .push(Value::result_err("EnvironmentError", message));
+            return Ok(());
+        }
+        std::env::set_var(&name, &value);
+        self.stack.push(Value::result_ok(Value::Nil));
+        Ok(())
+    }
+
     pub(super) fn call_cwd(&mut self) -> Result<(), VmError> {
         if !self.environment_enabled {
             return Err(VmError::HostError {
@@ -4264,6 +4307,22 @@ fn process_env_from_map(
             )),
         })
         .collect()
+}
+
+fn validate_environment_assignment(name: &str, value: &str) -> Option<String> {
+    if name.is_empty() {
+        return Some("environment variable name must not be empty".to_string());
+    }
+    if name.contains('=') {
+        return Some("environment variable name must not contain =".to_string());
+    }
+    if name.contains('\0') {
+        return Some("environment variable name must not contain NUL".to_string());
+    }
+    if value.contains('\0') {
+        return Some("environment variable value must not contain NUL".to_string());
+    }
+    None
 }
 
 fn process_read_offsets(options: Value) -> Result<(usize, usize), Value> {

@@ -1,6 +1,6 @@
 "ai/openai" import
 
-"OPENAI_API_KEY" env token var
+"OPENAI_API_KEY" env_get token var
 
 message map
 

@@ -15,7 +15,7 @@ now println
 "Cargo.toml bytes=" print
 "Cargo.toml" fs_read_text value count println
 
-"PATH" env dup ok? if
+"PATH" env_get dup ok? if
   "path-present" println
   value drop
 else

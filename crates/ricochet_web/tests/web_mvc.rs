@@ -2283,7 +2283,7 @@ escape = "html"
         r#"
 EnvController Controller Subclass
   [
-    "RICOCHET_MVC_ENV_TEST" env value text
+    "RICOCHET_MVC_ENV_TEST" env_get value text
   ] "show" Method
 end
 "#,
@@ -2352,11 +2352,11 @@ GET "/caps" EnvController "caps" route
         r#"
 EnvController Controller Subclass
   [
-    "RICOCHET_MVC_ALLOWED_ENV_TEST" env value text
+    "RICOCHET_MVC_ALLOWED_ENV_TEST" env_get value text
   ] "allowed" Method
 
   [
-    "RICOCHET_MVC_DENIED_ENV_TEST" env value text
+    "RICOCHET_MVC_DENIED_ENV_TEST" env_get value text
   ] "denied" Method
 
   [
@@ -2476,7 +2476,7 @@ http_allow_hosts = ["127.0.0.1"]
         r#"
 CapabilityController Controller Subclass
   [
-    "RICOCHET_MVC_MANIFEST_ENV_TEST" env value envValue var
+    "RICOCHET_MVC_MANIFEST_ENV_TEST" env_get value envValue var
     runtime_capabilities caps var
     map data var
     data get "env" envValue get put! drop
@@ -2561,10 +2561,10 @@ http_allow_hosts = ["127.0.0.1"]
         r#"
 CapabilityController Controller Subclass
   [
-    "RICOCHET_MVC_WATCH_ENV_TEST" env value envValue var
+    "RICOCHET_MVC_WATCH_ENV_TEST" env_get value envValue var
     runtime_capabilities caps var
     map data var
-    "RICOCHET_MVC_WATCH_ENV_EXTRA" env value extraEnvValue var
+    "RICOCHET_MVC_WATCH_ENV_EXTRA" env_get value extraEnvValue var
     data get "env" envValue get put! drop
     data get "extra_env" extraEnvValue get put! drop
     data get "fs_enabled" caps get "filesystem" at "enabled" at put! drop
@@ -2691,7 +2691,7 @@ escape = "html"
         r#"
 EnvController Controller Subclass
   [
-    "RICOCHET_MVC_ENV_DENIED_TEST" env value text
+    "RICOCHET_MVC_ENV_DENIED_TEST" env_get value text
   ] "show" Method
 end
 "#,

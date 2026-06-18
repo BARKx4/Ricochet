@@ -326,18 +326,18 @@ enum Command {
         watch: bool,
         #[arg(
             long = "allow-env",
-            help = "Enable MVC process environment reads for trusted local apps"
+            help = "Enable MVC process environment access for trusted local apps"
         )]
         allow_env: bool,
         #[arg(
             long = "no-env",
-            help = "Keep MVC process environment reads disabled; conflicts with --allow-env"
+            help = "Keep MVC process environment access disabled; conflicts with --allow-env"
         )]
         no_env: bool,
         #[arg(
             long = "env-allow",
             value_name = "NAME",
-            help = "Allow MVC controllers to read only NAME from the process environment; repeat for multiple variables"
+            help = "Allow MVC controllers to read or write only NAME in the process environment; repeat for multiple variables"
         )]
         env_allow: Vec<String>,
         #[arg(
@@ -516,7 +516,7 @@ struct CapabilityOptions {
     #[arg(
         long = "env-allow",
         value_name = "NAME",
-        help = "Allow reading only NAME from the process environment; repeat for multiple variables"
+        help = "Allow reading or writing only NAME in the process environment; repeat for multiple variables"
     )]
     env_allow: Vec<String>,
     #[arg(long, help = "Disable blocking sleep for this run")]

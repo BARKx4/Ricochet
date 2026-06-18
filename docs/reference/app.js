@@ -1312,12 +1312,20 @@ const WORDS = [
     "example": "args count"
   },
   {
-    "word": "env",
-    "aliases": [],
+    "word": "env_get",
+    "aliases": ["env"],
     "group": "system",
     "stack": "name:string -> result(string)",
-    "body": "Reads an environment variable as a result when environment access is enabled. `--env-allow NAME` can narrow reads to specific variable names.",
-    "example": "\"DATABASE_URL\" env"
+    "body": "Reads an environment variable as a result when environment access is enabled. `env` remains a compatibility alias, but new code should use `env_get`. `--env-allow NAME` can narrow access to specific variable names.",
+    "example": "\"DATABASE_URL\" env_get"
+  },
+  {
+    "word": "env_set",
+    "aliases": [],
+    "group": "system",
+    "stack": "name:string value:string -> result(nil)",
+    "body": "Sets an environment variable in the current Ricochet process when environment access is enabled. This does not mutate the parent shell. `--env-allow NAME` can narrow writes to specific variable names.",
+    "example": "\"RICOCHET_MODE\" \"dev\" env_set value drop"
   },
   {
     "word": "cwd",
