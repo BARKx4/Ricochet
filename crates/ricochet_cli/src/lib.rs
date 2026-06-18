@@ -1264,6 +1264,14 @@ struct ReferenceWord {
     word: String,
     #[serde(default)]
     aliases: Vec<String>,
+    #[serde(default)]
+    group: String,
+    #[serde(default)]
+    stack: String,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    example: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1337,6 +1345,20 @@ struct WordInventoryCheckSummary {
     duplicate_reference_entries: usize,
 }
 
+const REFERENCE_WORD_GROUPS: &[&str] = &[
+    "stack",
+    "math",
+    "data",
+    "collection",
+    "string",
+    "oop",
+    "control",
+    "web",
+    "result",
+    "system",
+    "inspect",
+];
+
 fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventoryCheckSummary> {
     let docs_source = fs::read_to_string(docs_app)
         .with_context(|| format!("failed to read docs reference app {}", docs_app.display()))?;
@@ -1355,9 +1377,11 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
     let mut documented_primary = BTreeSet::new();
     let mut documented_all_names = BTreeSet::new();
     let mut duplicate_words = Vec::new();
+    let mut invalid_reference_entries = Vec::new();
     let mut token_words = BTreeSet::new();
 
     for entry in &reference_words {
+        validate_reference_word_entry(entry, &mut invalid_reference_entries);
         if !documented_primary.insert(entry.word.clone()) {
             duplicate_words.push(entry.word.clone());
         }
@@ -1399,6 +1423,12 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
             duplicate_words.join(", ")
         ));
     }
+    if !invalid_reference_entries.is_empty() {
+        failures.push(format!(
+            "docs reference contains malformed entries:\n{}",
+            invalid_reference_entries.join("\n")
+        ));
+    }
     if !missing_from_grammar.is_empty() {
         failures.push(format!(
             "TextMate grammar is missing documented words: {}",
@@ -1421,6 +1451,32 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         })
     } else {
         bail!("word inventory check failed:\n{}", failures.join("\n"));
+    }
+}
+
+fn validate_reference_word_entry(entry: &ReferenceWord, failures: &mut Vec<String>) {
+    let label = if entry.word.trim().is_empty() {
+        "<blank>"
+    } else {
+        entry.word.trim()
+    };
+
+    if entry.word.trim().is_empty() {
+        failures.push("entry has blank word".to_string());
+    }
+    if entry.group.trim().is_empty() {
+        failures.push(format!("{label}: missing group"));
+    } else if !REFERENCE_WORD_GROUPS.contains(&entry.group.as_str()) {
+        failures.push(format!("{label}: unknown group '{}'", entry.group));
+    }
+    if entry.stack.trim().is_empty() {
+        failures.push(format!("{label}: missing stack"));
+    }
+    if entry.body.trim().is_empty() {
+        failures.push(format!("{label}: missing body"));
+    }
+    if entry.example.trim().is_empty() {
+        failures.push(format!("{label}: missing example"));
     }
 }
 
