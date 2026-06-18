@@ -65,24 +65,24 @@ impl Vm {
                     | "skip"
                     | "reverse"
                     | "contains?"
-                    | "starts-with?"
-                    | "ends-with?"
+                    | "starts_with?"
+                    | "ends_with?"
                     | "blank?"
                     | "trim"
-                    | "trim-start"
-                    | "trim-end"
+                    | "trim_start"
+                    | "trim_end"
                     | "uppercase"
                     | "lowercase"
                     | "slice"
-                    | "index-of"
-                    | "last-index-of"
+                    | "index_of"
+                    | "last_index_of"
                     | "repeat"
                     | "lines"
                     | "chars"
                     | "split"
                     | "replace"
                     | "concat"
-                    | "to-number"
+                    | "to_number"
             ),
             Value::Array(_) | Value::List(_) => matches!(
                 method,
@@ -97,7 +97,7 @@ impl Vm {
                     | "push!"
                     | "insert!"
                     | "remove!"
-                    | "remove-at!"
+                    | "remove_at!"
                     | "clear!"
                     | "each"
                     | "transform"
@@ -147,13 +147,13 @@ impl Vm {
                     | "all?"
             ),
             Value::Result(_) => {
-                matches!(method, "error?" | "unwrap-or" | "map-result" | "and-then")
+                matches!(method, "error?" | "unwrap_or" | "map_result" | "and_then")
             }
             Value::Task(_) => {
                 matches!(
                     method,
                     "id" | "info"
-                        | "task-status"
+                        | "task_status"
                         | "pending?"
                         | "running?"
                         | "completed?"
@@ -163,18 +163,18 @@ impl Vm {
             Value::Capability(Capability::FileSystem) => {
                 matches!(
                     method,
-                    "read-text" | "write-text!" | "exists?" | "list" | "create-dir!" | "delete!"
+                    "read_text" | "write_text!" | "exists?" | "list" | "create_dir!" | "delete!"
                 )
             }
             Value::Capability(Capability::Http) => {
                 matches!(
                     method,
                     "get"
-                        | "post-json"
+                        | "post_json"
                         | "request"
-                        | "get-task"
-                        | "post-json-task"
-                        | "request-task"
+                        | "get_task"
+                        | "post_json_task"
+                        | "request_task"
                 )
             }
             Value::Capability(Capability::Terminal) => matches!(
@@ -182,12 +182,12 @@ impl Vm {
                 "enter!"
                     | "leave!"
                     | "clear!"
-                    | "move-to!"
+                    | "move_to!"
                     | "write!"
                     | "flush!"
                     | "size"
-                    | "poll-key"
-                    | "read-key"
+                    | "poll_key"
+                    | "read_key"
             ),
             Value::Capability(Capability::Webview) => matches!(
                 method,
@@ -202,7 +202,7 @@ impl Vm {
             ),
             Value::Regex(_) => matches!(
                 method,
-                "matches?" | "regex-find" | "captures" | "regex-replace"
+                "matches?" | "regex_find" | "captures" | "regex_replace"
             ),
             _ => false,
         }
@@ -241,7 +241,7 @@ impl Vm {
             "put!" => self.method_put(receiver, method),
             "insert!" => self.method_insert(receiver, method),
             "remove!" => self.method_remove(receiver, method),
-            "remove-at!" => self.method_remove_at(receiver, method),
+            "remove_at!" => self.method_remove_at(receiver, method),
             "clear!" => match receiver {
                 Value::Capability(Capability::Terminal) => self.method_tui_clear(receiver, method),
                 receiver => self.method_clear(receiver, method),
@@ -251,66 +251,66 @@ impl Vm {
             "select" => self.method_select(receiver, method),
             "reduce" => self.method_reduce(receiver, method),
             "find" => self.method_find(receiver, method),
-            "regex-find" => self.method_regex_find(receiver, method),
+            "regex_find" => self.method_regex_find(receiver, method),
             "any?" => self.method_any(receiver, method),
             "all?" => self.method_all(receiver, method),
             "blank?" => self.method_blank(receiver, method),
             "trim" => self.string_unary(receiver, method, |value| value.trim().to_string()),
-            "trim-start" => {
+            "trim_start" => {
                 self.string_unary(receiver, method, |value| value.trim_start().to_string())
             }
-            "trim-end" => self.string_unary(receiver, method, |value| value.trim_end().to_string()),
+            "trim_end" => self.string_unary(receiver, method, |value| value.trim_end().to_string()),
             "uppercase" => self.string_unary(receiver, method, |value| value.to_uppercase()),
             "lowercase" => self.string_unary(receiver, method, |value| value.to_lowercase()),
             "slice" => self.method_slice(receiver, method),
-            "index-of" => self.method_index_of(receiver, method),
-            "last-index-of" => self.method_last_index_of(receiver, method),
+            "index_of" => self.method_index_of(receiver, method),
+            "last_index_of" => self.method_last_index_of(receiver, method),
             "repeat" => self.method_repeat(receiver, method),
             "lines" => self.method_lines(receiver, method),
             "chars" => self.method_chars(receiver, method),
-            "starts-with?" => {
+            "starts_with?" => {
                 self.string_predicate(receiver, method, |value, needle| value.starts_with(needle))
             }
-            "ends-with?" => {
+            "ends_with?" => {
                 self.string_predicate(receiver, method, |value, needle| value.ends_with(needle))
             }
             "split" => self.method_split(receiver, method),
             "join" => self.method_join(receiver, method),
             "replace" => self.method_replace(receiver, method),
-            "regex-replace" => self.method_regex_replace(receiver, method),
+            "regex_replace" => self.method_regex_replace(receiver, method),
             "concat" => self.method_concat(receiver, method),
-            "to-number" => self.method_to_number(receiver, method),
+            "to_number" => self.method_to_number(receiver, method),
             "error?" => self.method_result_error(receiver, method),
-            "unwrap-or" => self.method_unwrap_or(receiver, method),
-            "map-result" => self.method_map_result(receiver, method),
-            "and-then" => self.method_and_then(receiver, method),
+            "unwrap_or" => self.method_unwrap_or(receiver, method),
+            "map_result" => self.method_map_result(receiver, method),
+            "and_then" => self.method_and_then(receiver, method),
             "id" => self.method_task_id(receiver, method),
             "info" => self.method_task_info(receiver, method),
-            "task-status" => self.method_task_status(receiver, method),
+            "task_status" => self.method_task_status(receiver, method),
             "pending?" => self.method_task_pending(receiver, method),
             "running?" => self.method_task_running(receiver, method),
             "completed?" => self.method_task_completed(receiver, method),
             "failed?" => self.method_task_failed(receiver, method),
-            "read-text" => self.method_fs_read_text(receiver, method),
-            "write-text!" => self.method_fs_write_text(receiver, method),
+            "read_text" => self.method_fs_read_text(receiver, method),
+            "write_text!" => self.method_fs_write_text(receiver, method),
             "exists?" => self.method_fs_exists(receiver, method),
             "list" => self.method_fs_list(receiver, method),
-            "create-dir!" => self.method_fs_create_dir(receiver, method),
+            "create_dir!" => self.method_fs_create_dir(receiver, method),
             "delete!" => self.method_fs_delete(receiver, method),
             "get" => self.method_http_get(receiver, method),
-            "post-json" => self.method_http_post_json(receiver, method),
+            "post_json" => self.method_http_post_json(receiver, method),
             "request" => self.method_http_request(receiver, method),
-            "get-task" => self.method_http_get_task(receiver, method),
-            "post-json-task" => self.method_http_post_json_task(receiver, method),
-            "request-task" => self.method_http_request_task(receiver, method),
+            "get_task" => self.method_http_get_task(receiver, method),
+            "post_json_task" => self.method_http_post_json_task(receiver, method),
+            "request_task" => self.method_http_request_task(receiver, method),
             "enter!" => self.method_tui_enter(receiver, method),
             "leave!" => self.method_tui_leave(receiver, method),
-            "move-to!" => self.method_tui_move_to(receiver, method),
+            "move_to!" => self.method_tui_move_to(receiver, method),
             "write!" => self.method_tui_write(receiver, method),
             "flush!" => self.method_tui_flush(receiver, method),
             "size" => self.method_tui_size(receiver, method),
-            "poll-key" => self.method_tui_poll_key(receiver, method),
-            "read-key" => self.method_tui_read_key(receiver, method),
+            "poll_key" => self.method_tui_poll_key(receiver, method),
+            "read_key" => self.method_tui_read_key(receiver, method),
             "text" => self.method_webview_text(receiver, method),
             "heading" => self.method_webview_heading(receiver, method),
             "button" => self.method_webview_button(receiver, method),
@@ -318,7 +318,7 @@ impl Vm {
             "input" => self.method_webview_input(receiver, method),
             "link" => self.method_webview_link(receiver, method),
             "container" => self.method_webview_container(receiver, method),
-            "window-state" => self.method_webview_window_state(receiver, method),
+            "window_state" => self.method_webview_window_state(receiver, method),
             "window" | "document" => self.method_webview_window(receiver, method),
             "matches?" => self.method_regex_matches(receiver, method),
             "captures" => self.method_regex_captures(receiver, method),

@@ -19,8 +19,8 @@ foundation that other developers can scaffold, run, inspect, and extend.
 
 - Language runtime: Rust bytecode VM, dynamic OOP, stack/debug tracing, regular
   expressions, collections, and postfix control flow.
-- Task model: first-class task values with `spawn`, `await`, `await-all`,
-  retained completed/failed status, explicit `release-task` cleanup, eager
+- Task model: first-class task values with `spawn`, `await`, `await_all`,
+  retained completed/failed status, explicit `release_task` cleanup, eager
   background execution, task inspection, and task-returning HTTP helpers.
 - Approval model: local apps can create approval records, claim a generated
   token exactly once, and complete or reject the record with retained audit
@@ -69,9 +69,9 @@ foundation that other developers can scaffold, run, inspect, and extend.
   beta key or a manifest-provided secret, can use authenticated encrypted v2
   cookies, and emit secure cookie attributes for non-local requests.
 - Active Record: map models to existing SQLite, PostgreSQL, and MySQL/MariaDB
-  tables with `find-record`, `all`, `where`, `count-records`, `first-record`,
-  `exists?`, `insert`, `update`, `default-page`, `limit`, `page`,
-  `order-page`, `where-limit`, `where-page`, and `where-order-page`.
+  tables with `find_record`, `all`, `where`, `count_records`, `first_record`,
+  `exists?`, `insert`, `update`, `default_page`, `limit`, `page`,
+  `order_page`, `where_limit`, `where_page`, and `where_order_page`.
 - Database migrations: apply ordered SQL migrations from `db/migrations` to
   SQLite, PostgreSQL, or MySQL/MariaDB projects and track them in
   `schema_migrations`.
@@ -279,16 +279,16 @@ Spawn a task and await its result:
 
 ```forth
 [ 40 2 + ] spawn answer var
-$answer task-status
+$answer task_status
 $answer running?
 tasks count
 $answer await
-$answer release-task
-$answer task-status
+$answer release_task
+$answer task_status
 handles array
 $handles [ 20 2 + ] spawn push! drop
 $handles [ 30 4 + ] spawn push! drop
-$handles await-all
+$handles await_all
 ```
 
 HTTP capability calls can also be launched as tasks:
@@ -346,7 +346,7 @@ Build a webview document for desktop UI hosts:
 ```forth
 state map
 $state "count" 1 put! drop
-"Count: " $state "count" at to-string concat webview_text countText var
+"Count: " $state "count" at to_string concat webview_text countText var
 "Increment" "increment" webview_button button var
 actions array
 $actions "Increment" "increment" "increment_counter" webview_action push! drop

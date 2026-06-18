@@ -2,13 +2,13 @@
 
 "text:" println
 "ricochet" 2 4 slice println
-"  Ada" trim-start println
+"  Ada" trim_start println
 "cat" chars "," join println
 
 "regex:" println
 "\\d+" regex value digits var
-"abc123def456" $digits regex-find "text" at println
-$digits "abc123def456" "#" regex-replace println
+"abc123def456" $digits regex_find "text" at println
+$digits "abc123def456" "#" regex_replace println
 
 "collections:" println
 names array

@@ -6,7 +6,7 @@ $field "value" at form_required println
 
 form_validation validation var
 
-$validation "email" "Email is required" form_error form_add_error json-encode println
+$validation "email" "Email is required" form_error form_add_error json_encode println
 
 form_schema
   "email" "string" form_required_field
@@ -17,4 +17,4 @@ data map
 $data "email" "ada@example.com" put! drop
 $data "age" 37 put! drop
 
-$data $schema form_schema_validate json-encode println
+$data $schema form_schema_validate json_encode println

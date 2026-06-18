@@ -203,7 +203,7 @@ fn new_with_sqlite_creates_ready_database_project() {
             .join("UserController.rco"),
     )
     .expect("user controller should exist");
-    assert!(controller.contains("User default-page"));
+    assert!(controller.contains("User default_page"));
     assert!(controller.contains("firstEmail var"));
 
     let routes =
@@ -533,7 +533,7 @@ fn check_reports_invalid_source_file() {
 
 #[test]
 fn run_reports_runtime_error_source_context() {
-    let source_path = write_source("\"Ada\" 3 less-than?\n");
+    let source_path = write_source("\"Ada\" 3 less_than?\n");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
@@ -549,7 +549,7 @@ fn run_reports_runtime_error_source_context() {
         "rco run should fail\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
-        stderr.contains("type error in less-than?"),
+        stderr.contains("type error in less_than?"),
         "stderr should include runtime error, got:\n{stderr}"
     );
     assert!(
@@ -557,11 +557,11 @@ fn run_reports_runtime_error_source_context() {
         "stderr should include runtime source location, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("| \"Ada\" 3 less-than?"),
+        stderr.contains("| \"Ada\" 3 less_than?"),
         "stderr should include runtime source line, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("help: while executing CallWord(\"less-than?\") in <main>"),
+        stderr.contains("help: while executing CallWord(\"less_than?\") in <main>"),
         "stderr should include opcode/frame help, got:\n{stderr}"
     );
 }
@@ -1442,7 +1442,7 @@ fn run_refreshes_method_locals_between_calls_and_loop_iterations() {
 LookupProbe Object Subclass
   ( id ) [
     target var
-    target get to-string println
+    target get to_string println
   ] "echo" Method
 
   ( id ) [
@@ -1465,7 +1465,7 @@ LookupProbe Object Subclass
       end
       index get 1 + index set
     end
-    found get to-string println
+    found get to_string println
   ] "find" Method
 end
 
@@ -3502,7 +3502,7 @@ fn gui_exports_state_actions_and_dispatches_action_callbacks() {
         r#"
 ( state -> Map ) render_counter function
   state var
-  "Count: " state get "count" at to-string concat webview_text body var
+  "Count: " state get "count" at to_string concat webview_text body var
   actions array
   actions get "Increment" "increment" "increment_counter" webview_action push! drop
   "Counter" body get state get actions get webview_window_state value
@@ -4319,7 +4319,7 @@ fn debug_adapter_serves_breakpoint_stack_scopes_and_variables() {
         r#"
 "Ada" name var
 name get
-"Ada" assert-equals
+"Ada" assert_equals
 "done"
 "#,
     );
@@ -4402,7 +4402,7 @@ fn test_runs_testcase_methods() {
 UserTest TestCase Subclass
   [
     "ada@example.com"
-    "ada@example.com" assert-equals
+    "ada@example.com" assert_equals
   ] "testDisplayName" Method
 end
 "#,
@@ -4443,12 +4443,12 @@ fn test_filter_runs_only_matching_testcase_methods() {
 UserTest TestCase Subclass
   [
     "ada@example.com"
-    "ada@example.com" assert-equals
+    "ada@example.com" assert_equals
   ] "testFastPass" Method
 
   [
     "ada@example.com"
-    "grace@example.com" assert-equals
+    "grace@example.com" assert_equals
   ] "testSlowFail" Method
 end
 "#,
@@ -4500,7 +4500,7 @@ fn test_filter_skips_nonmatching_test_files_before_top_level_effects() {
         r#"
 MatchingTest TestCase Subclass
   [
-    1 1 assert-equals
+    1 1 assert_equals
   ] "testOnlyThisRuns" Method
 end
 "#,
@@ -4514,7 +4514,7 @@ end
 
 IgnoredTest TestCase Subclass
   [
-    1 1 assert-equals
+    1 1 assert_equals
   ] "testIgnored" Method
 end
 "#
@@ -4559,7 +4559,7 @@ fn test_reports_assertion_failures() {
 UserTest TestCase Subclass
   [
     "ada@example.com"
-    "grace@example.com" assert-equals
+    "grace@example.com" assert_equals
   ] "testDisplayName" Method
 end
 "#,
@@ -4953,7 +4953,7 @@ fn run_inspects_spawned_task_status() {
         r#"
 [ 100 sleep 20 2 + ] spawn task var
 task get id
-task get task-status
+task get task_status
 task get pending?
 task get running?
 task get completed?
@@ -4965,7 +4965,7 @@ runtime_capabilities "tasks" at "running" at
 runtime_capabilities "tasks" at "max_running" at
 tasks count
 task get await
-task get task-status
+task get task_status
 task get completed?
 task get failed?
 task get pending?
@@ -5024,7 +5024,7 @@ events array
 ] spawn task var
 150 sleep
 events get count
-task get task-status
+task get task_status
 task get completed?
 task get await
 "#,
@@ -5052,8 +5052,8 @@ fn run_releases_completed_task_handles() {
         r#"
 [ 40 2 + ] spawn task var
 task get await
-task get release-task
-task get task-status
+task get release_task
+task get task_status
 runtime_capabilities "tasks" at "known" at
 "#,
     );
@@ -5066,7 +5066,7 @@ runtime_capabilities "tasks" at "known" at
     );
     assert!(
         stdout.contains("Bool(true)"),
-        "stdout should show release-task succeeded, got:\n{stdout}"
+        "stdout should show release_task succeeded, got:\n{stdout}"
     );
     assert!(
         stdout.contains("String(\"consumed\")"),
@@ -5085,21 +5085,21 @@ fn run_awaits_multiple_tasks_with_await_all() {
 handles array
 [ 20 2 + ] spawn handles get swap push! drop
 [ 30 4 + ] spawn handles get swap push! drop
-handles get await-all
-handles get await-all
+handles get await_all
+handles get await_all
 tasks count
 "#,
     );
-    assert_run_success_for("rco run", "await-all", &output);
+    assert_run_success_for("rco run", "await_all", &output);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.matches(r#"Array([Number(22), Number(34)])"#).count() >= 2,
-        "stdout should show await-all resolving and reusing task results, got:\n{stdout}"
+        "stdout should show await_all resolving and reusing task results, got:\n{stdout}"
     );
     assert!(
         stdout.contains("Number(0)"),
-        "stdout should show no pending tasks after await-all, got:\n{stdout}"
+        "stdout should show no pending tasks after await_all, got:\n{stdout}"
     );
 }
 
@@ -5189,7 +5189,7 @@ array users var
 users get "Ada" push! drop
 users get "Grace" push! drop
 users get 1 "Lin" insert! drop
-users get 1 remove-at! drop
+users get 1 remove_at! drop
 
 map settings var
 settings get "theme" "dark" put! drop
@@ -5410,19 +5410,19 @@ fn run_supports_string_conversion_and_json_words() {
 "  Ada  " trim
 "ada" uppercase
 "ADA" lowercase
-"ricochet" "ric" starts-with?
-"ricochet" "chet" ends-with?
+"ricochet" "ric" starts_with?
+"ricochet" "chet" ends_with?
 "ricochet" "coc" contains?
 "ada,grace" "," split count
 "ada,grace" "," split "-" join
 "Ada" "Grace" concat
 "Ada" length
-42 to-string
-"42" to-number value
+42 to_string
+"42" to_number value
 map payload var
 payload get "name" "Ada" put! drop
-payload get json-encode
-"{\"name\":\"Ada\"}" json-decode value "name" at
+payload get json_encode
+"{\"name\":\"Ada\"}" json_decode value "name" at
 "#,
     );
 
@@ -5453,16 +5453,16 @@ fn run_supports_additional_string_quality_of_life_words() {
     let output = run_source(
         r#"
 "ricochet" 2 4 slice
-"ricochet" "co" index-of
-"ricochet" "c" last-index-of
+"ricochet" "co" index_of
+"ricochet" "c" last_index_of
 "ha" 3 repeat
 "alpha\nbeta\n" lines count
 "cat" chars "," join
 " \n" blank?
-"  Ada" trim-start
-"Ada  " trim-end
-"ricochet" "zzz" index-of nil?
-"ricochet" "zzz" last-index-of nil?
+"  Ada" trim_start
+"Ada  " trim_end
+"ricochet" "zzz" index_of nil?
+"ricochet" "zzz" last_index_of nil?
 "#,
     );
 
@@ -5538,10 +5538,10 @@ fn run_supports_assertion_and_inspection_quality_of_life_words() {
     let output = run_source(
         r#"
 true assert
-true assert-true
-false assert-false
-42 ok assert-ok
-"ValidationError" "bad input" fail assert-error
+true assert_true
+false assert_false
+42 ok assert_ok
+"ValidationError" "bad input" fail assert_error
 bag map
 bag get "name" "Ada" put! drop
 bag get inspect println
@@ -5574,13 +5574,13 @@ fn run_supports_regex_words() {
 "hello-world_42" slug get matches?
 "bad slug!" slug get matches?
 "\\d+" regex value digits var
-"abc123def" digits get regex-find "text" at
-"abc123def" digits get regex-find "start" at
-"abc123def" digits get regex-find "end" at
+"abc123def" digits get regex_find "text" at
+"abc123def" digits get regex_find "start" at
+"abc123def" digits get regex_find "end" at
 "([a-z]+)-(\\d+)" regex value pair var
 "item-42" pair get captures "1" at
 "item-42" pair get captures "2" at
-digits get "abc123def456" "#" regex-replace
+digits get "abc123def456" "#" regex_replace
 "[" regex error?
 "##,
     );
@@ -5610,9 +5610,9 @@ fn run_supports_result_construction_and_composition() {
         r#"
 42 ok ok?
 "ValidationError" "bad input" fail error?
-99 "ValidationError" "bad input" fail unwrap-or
-[ 2 * ] 21 ok map-result value
-[ 1 + ok ] 41 ok and-then value
+99 "ValidationError" "bad input" fail unwrap_or
+[ 2 * ] 21 ok map_result value
+[ 1 + ok ] 41 ok and_then value
 "#,
     );
 
@@ -5706,9 +5706,9 @@ Widget Object Subclass
 end
 
 array type
-Widget new class-of
-Widget new Widget instance-of?
-"label" Widget new responds-to?
+Widget new class_of
+Widget new Widget instance_of?
+"label" Widget new responds_to?
 Widget fields count
 Widget methods "label" has?
 [ 42 ] callable?
@@ -6073,7 +6073,7 @@ fn run_supports_print_eprint_and_read_line() {
     let source_path = write_source(
         r#"
 "Name: " print
-read-line trim println
+read_line trim println
 "warning" eprint
 "#,
     );
@@ -7167,7 +7167,7 @@ task get id
 task get await value response var
 response get "status" at
 response get "body" at
-task get task-status
+task get task_status
 "#
     ));
     server.join().expect("HTTP server should finish");

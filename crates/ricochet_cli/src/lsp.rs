@@ -134,9 +134,9 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
     WordDoc::new("error", "result", "Extract the error side of a result."),
     WordDoc::new("spawn", "async", "Start a block as a Ricochet task."),
     WordDoc::new("await", "async", "Wait for a task and push its result."),
-    WordDoc::new("await-all", "async", "Wait for all tasks in an array."),
+    WordDoc::new("await_all", "async", "Wait for all tasks in an array."),
     WordDoc::new(
-        "release-task",
+        "release_task",
         "async",
         "Release retained completed task state after awaiting it.",
     ),
@@ -298,12 +298,12 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Create a webview document with explicit state and actions.",
     ),
     WordDoc::new(
-        "json-decode",
+        "json_decode",
         "json",
         "Decode JSON text into Ricochet values.",
     ),
     WordDoc::new(
-        "json-encode",
+        "json_encode",
         "json",
         "Encode a Ricochet value as JSON text.",
     ),

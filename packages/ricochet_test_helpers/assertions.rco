@@ -2,7 +2,7 @@
 ( expected actual -> Value ) test_assert_equal function
   actual var
   expected var
-  $actual $expected assert-equals
+  $actual $expected assert_equals
   $actual
 end
 
@@ -10,7 +10,7 @@ end
   expected var
   key var
   subject var
-  $subject $key at $expected assert-equals
+  $subject $key at $expected assert_equals
   $subject
 end
 
@@ -22,7 +22,7 @@ end
 ( response expected -> Map ) test_http_assert_status function
   expected var
   response var
-  $response "status" at $expected assert-equals
+  $response "status" at $expected assert_equals
   $response
 end
 

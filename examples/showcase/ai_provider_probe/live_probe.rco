@@ -30,4 +30,4 @@ $request 30000 http_timeout value request set
 
 $request "max_response_bytes" 1048576 put! drop
 
-$request http_request value ai_response_summary json-encode println
+$request http_request value ai_response_summary json_encode println

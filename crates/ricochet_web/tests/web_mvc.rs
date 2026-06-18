@@ -389,7 +389,7 @@ end
         r#"
 UserController Controller Subclass
   [
-    "id" "asc" 10 0 User order-page
+    "id" "asc" 10 0 User order_page
     dup ok? if
       value json
     else
@@ -2152,7 +2152,7 @@ escape = "html"
 ForkController Controller Subclass
   ( fs ) [
     fs var
-    "sessions.json" fs_read_text value json-decode value state var
+    "sessions.json" fs_read_text value json_decode value state var
     state get "sessions" at sessions var
     sessions get 0 at source var
     source get "events" at sourceEvents var
@@ -2171,7 +2171,7 @@ ForkController Controller Subclass
 
     sessions get fork get push! drop
     state get "sessions" sessions get put! drop
-    "sessions.json" state get json-encode fs_write_text value drop
+    "sessions.json" state get json_encode fs_write_text value drop
 
     map
     "ok" true put!

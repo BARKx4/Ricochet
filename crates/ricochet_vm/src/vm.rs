@@ -83,7 +83,7 @@ pub enum VmError {
     },
     #[error("invalid jump target {target}: chunk has {available} instructions")]
     InvalidJump { target: usize, available: usize },
-    #[error("assert-equals failed: expected {expected}, got {actual}")]
+    #[error("assert_equals failed: expected {expected}, got {actual}")]
     AssertionFailed { expected: String, actual: String },
     #[error("execution aborted in {frame} at {location}")]
     ExecutionAborted { frame: String, location: String },
@@ -1275,19 +1275,19 @@ impl Vm {
             "and" => self.call_boolean_binary(word, |left, right| left && right),
             "or" => self.call_boolean_binary(word, |left, right| left || right),
             "equals" | "=" => self.call_equals(word),
-            "not-equals?" | "!=" => self.call_not_equals(word),
+            "not_equals?" | "!=" => self.call_not_equals(word),
             "assert" => self.call_assert(word),
-            "assert-true" => self.call_assert_true(word),
-            "assert-false" => self.call_assert_false(word),
-            "assert-ok" => self.call_assert_ok(word),
-            "assert-error" => self.call_assert_error(word),
-            "assert-equals" => self.call_assert_equals(word),
-            "less-than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
-            "greater-than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
-            "less-or-equals?" | "<=" => {
+            "assert_true" => self.call_assert_true(word),
+            "assert_false" => self.call_assert_false(word),
+            "assert_ok" => self.call_assert_ok(word),
+            "assert_error" => self.call_assert_error(word),
+            "assert_equals" => self.call_assert_equals(word),
+            "less_than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
+            "greater_than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
+            "less_or_equals?" | "<=" => {
                 self.call_number_comparison(word, |left, right| left <= right)
             }
-            "greater-or-equals?" | ">=" => {
+            "greater_or_equals?" | ">=" => {
                 self.call_number_comparison(word, |left, right| left >= right)
             }
             "self" => self.call_self(word),
@@ -1320,33 +1320,33 @@ impl Vm {
             "call" => self.call_block(word),
             "spawn" => self.call_spawn(word),
             "await" => self.call_await(word),
-            "await-all" => self.call_await_all(word),
-            "release-task" => self.call_release_task(word),
+            "await_all" => self.call_await_all(word),
+            "release_task" => self.call_release_task(word),
             "tasks" => self.call_tasks(word),
             "send" => self.call_send(word),
             "at" => self.call_receiver_argument_method(word, "at"),
             "has?" | "contains?" => self.call_receiver_argument_method(word, word),
-            "take" | "skip" | "repeat" | "split" | "join" | "concat" | "index-of"
-            | "last-index-of" | "starts-with?" | "ends-with?" | "remove!" | "remove-at!" => {
+            "take" | "skip" | "repeat" | "split" | "join" | "concat" | "index_of"
+            | "last_index_of" | "starts_with?" | "ends_with?" | "remove!" | "remove_at!" => {
                 self.call_receiver_argument_method(word, word)
             }
-            "slice" | "replace" | "regex-replace" | "insert!" => {
+            "slice" | "replace" | "regex_replace" | "insert!" => {
                 self.call_receiver_two_argument_method(word, word)
             }
             "push!" => self.call_push(word),
             "put!" => self.call_put(word),
             "fs_read_text" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "read-text")
+                self.call_capability_method_word(word, Capability::FileSystem, "read_text")
             }
             "fs_write_text" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "write-text!")
+                self.call_capability_method_word(word, Capability::FileSystem, "write_text!")
             }
             "fs_exists?" => {
                 self.call_capability_method_word(word, Capability::FileSystem, "exists?")
             }
             "fs_list" => self.call_capability_method_word(word, Capability::FileSystem, "list"),
             "fs_create_dir" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "create-dir!")
+                self.call_capability_method_word(word, Capability::FileSystem, "create_dir!")
             }
             "fs_delete" => {
                 self.call_capability_method_word(word, Capability::FileSystem, "delete!")
@@ -1372,15 +1372,15 @@ impl Vm {
             "http_timeout" => self.call_http_timeout(word),
             "http_get" => self.call_capability_method_word(word, Capability::Http, "get"),
             "http_post_json" => {
-                self.call_capability_method_word(word, Capability::Http, "post-json")
+                self.call_capability_method_word(word, Capability::Http, "post_json")
             }
             "http_request" => self.call_capability_method_word(word, Capability::Http, "request"),
-            "http_get_task" => self.call_capability_method_word(word, Capability::Http, "get-task"),
+            "http_get_task" => self.call_capability_method_word(word, Capability::Http, "get_task"),
             "http_post_json_task" => {
-                self.call_capability_method_word(word, Capability::Http, "post-json-task")
+                self.call_capability_method_word(word, Capability::Http, "post_json_task")
             }
             "http_request_task" => {
-                self.call_capability_method_word(word, Capability::Http, "request-task")
+                self.call_capability_method_word(word, Capability::Http, "request_task")
             }
             "http_stream_start" => self.call_http_stream_start(word),
             "http_streams" => self.call_http_streams(),
@@ -1411,16 +1411,16 @@ impl Vm {
             "tui_leave" => self.call_capability_method_word(word, Capability::Terminal, "leave!"),
             "tui_clear" => self.call_capability_method_word(word, Capability::Terminal, "clear!"),
             "tui_move_to" => {
-                self.call_capability_method_word(word, Capability::Terminal, "move-to!")
+                self.call_capability_method_word(word, Capability::Terminal, "move_to!")
             }
             "tui_write" => self.call_capability_method_word(word, Capability::Terminal, "write!"),
             "tui_flush" => self.call_capability_method_word(word, Capability::Terminal, "flush!"),
             "tui_size" => self.call_capability_method_word(word, Capability::Terminal, "size"),
             "tui_poll_key" => {
-                self.call_capability_method_word(word, Capability::Terminal, "poll-key")
+                self.call_capability_method_word(word, Capability::Terminal, "poll_key")
             }
             "tui_read_key" => {
-                self.call_capability_method_word(word, Capability::Terminal, "read-key")
+                self.call_capability_method_word(word, Capability::Terminal, "read_key")
             }
             "webview_text" => self.call_capability_method_word(word, Capability::Webview, "text"),
             "webview_heading" => {
@@ -1438,7 +1438,7 @@ impl Vm {
                 self.call_capability_method_word(word, Capability::Webview, "container")
             }
             "webview_window_state" => {
-                self.call_capability_method_word(word, Capability::Webview, "window-state")
+                self.call_capability_method_word(word, Capability::Webview, "window_state")
             }
             "webview_window" | "webview_document" => {
                 self.call_capability_method_word(word, Capability::Webview, "window")
@@ -1448,7 +1448,7 @@ impl Vm {
             "debug" => self.call_debug(word),
             "print" => self.call_print(word),
             "eprint" => self.call_eprint(word),
-            "read-line" => self.call_read_line(word),
+            "read_line" => self.call_read_line(word),
             "args" => self.call_args(),
             "env" | "env_get" => self.call_env(word),
             "env_set" => self.call_env_set(word),
@@ -1507,7 +1507,7 @@ impl Vm {
             "json" => self.call_json(word),
             "redirect" => self.call_redirect(word),
             "info" if self.receiver_method_exists(word)? => self.call_top_receiver_method(word),
-            "task-status" if self.receiver_method_exists(word)? => {
+            "task_status" if self.receiver_method_exists(word)? => {
                 self.call_top_receiver_method(word)
             }
             "status" => self.call_status(word),
@@ -1519,13 +1519,13 @@ impl Vm {
             "result_envelope" => self.call_result_envelope(word),
             "range" => self.call_range(word),
             "regex" => self.call_regex(word),
-            "to-string" => self.call_to_string(word),
-            "json-encode" => self.call_json_encode(word),
-            "json-decode" => self.call_json_decode(word),
+            "to_string" => self.call_to_string(word),
+            "json_encode" => self.call_json_encode(word),
+            "json_decode" => self.call_json_decode(word),
             "type" => self.call_type(word),
-            "class-of" => self.call_class_of(word),
-            "instance-of?" => self.call_instance_of(word),
-            "responds-to?" => self.call_responds_to(word),
+            "class_of" => self.call_class_of(word),
+            "instance_of?" => self.call_instance_of(word),
+            "responds_to?" => self.call_responds_to(word),
             "fields" => self.call_fields(word),
             "methods" => self.call_methods(word),
             "callable?" => self.call_callable(word),
@@ -2080,7 +2080,7 @@ impl Vm {
                 self.stack = stack_before;
                 return Err(VmError::HostError {
                     word: word.to_string(),
-                    message: "task must be awaited before release-task".to_string(),
+                    message: "task must be awaited before release_task".to_string(),
                 });
             }
             None => false,
@@ -4252,9 +4252,9 @@ mod tests {
         vm.stack.push(result.clone());
 
         assert_eq!(
-            vm.call_method_value(Value::String("needle".to_string()), "index-of"),
+            vm.call_method_value(Value::String("needle".to_string()), "index_of"),
             Err(VmError::TypeError {
-                word: "index-of".to_string(),
+                word: "index_of".to_string(),
                 expected: "needle string below receiver".to_string(),
                 actual: "result".to_string(),
             })
@@ -4270,9 +4270,9 @@ mod tests {
         vm.stack.push(Value::String("needle".to_string()));
 
         assert_eq!(
-            vm.call_word("index-of"),
+            vm.call_word("index_of"),
             Err(VmError::TypeError {
-                word: "index-of".to_string(),
+                word: "index_of".to_string(),
                 expected: "receiver string".to_string(),
                 actual: "result".to_string(),
             })
@@ -4288,13 +4288,13 @@ mod tests {
         vm.stack.push(Value::Map(map));
 
         let error = vm
-            .call_word("json-encode")
+            .call_word("json_encode")
             .expect_err("cyclic map should fail loudly");
 
         assert_eq!(
             error,
             VmError::InvalidArgument {
-                word: "json-encode".to_string(),
+                word: "json_encode".to_string(),
                 message: "cannot encode cyclic collection as JSON at $.self".to_string(),
             }
         );
@@ -4356,7 +4356,7 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Ada".to_string()), span());
         chunk.push(Op::PushString("Ada".to_string()), span());
-        chunk.push(Op::CallWord("assert-equals".to_string()), span());
+        chunk.push(Op::CallWord("assert_equals".to_string()), span());
 
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("matching assertion succeeds");
@@ -4371,7 +4371,7 @@ mod tests {
         vm.stack.push(Value::String("Grace".to_string()));
 
         assert_eq!(
-            vm.call_word("assert-equals"),
+            vm.call_word("assert_equals"),
             Err(VmError::AssertionFailed {
                 expected: "String(\"Grace\")".to_string(),
                 actual: "String(\"Ada\")".to_string(),
@@ -4389,15 +4389,15 @@ mod tests {
     #[test]
     fn executes_comparison_words() {
         let cases = [
-            (2, 3, "less-than?", true),
+            (2, 3, "less_than?", true),
             (2, 3, "<", true),
-            (3, 2, "greater-than?", true),
+            (3, 2, "greater_than?", true),
             (3, 2, ">", true),
-            (3, 3, "less-or-equals?", true),
+            (3, 3, "less_or_equals?", true),
             (3, 3, "<=", true),
-            (3, 3, "greater-or-equals?", true),
+            (3, 3, "greater_or_equals?", true),
             (3, 3, ">=", true),
-            (3, 3, "not-equals?", false),
+            (3, 3, "not_equals?", false),
             (3, 4, "!=", true),
         ];
 
@@ -4425,9 +4425,9 @@ mod tests {
         vm.stack.push(Value::Number(3));
 
         assert_eq!(
-            vm.call_word("less-than?"),
+            vm.call_word("less_than?"),
             Err(VmError::TypeError {
-                word: "less-than?".to_string(),
+                word: "less_than?".to_string(),
                 expected: "number".to_string(),
                 actual: "string".to_string(),
             })
@@ -4444,7 +4444,7 @@ mod tests {
         chunk.push(Op::PushString("Ada".to_string()), span());
         chunk.push(Op::PushNumber(3), span());
         chunk.push(
-            Op::CallWord("less-than?".to_string()),
+            Op::CallWord("less_than?".to_string()),
             SourceSpan {
                 start: 8,
                 end: 18,
@@ -4460,7 +4460,7 @@ mod tests {
         assert_eq!(
             error,
             VmError::TypeError {
-                word: "less-than?".to_string(),
+                word: "less_than?".to_string(),
                 expected: "number".to_string(),
                 actual: "string".to_string(),
             }
@@ -4476,7 +4476,7 @@ mod tests {
                     line: 1,
                     column: 9,
                 },
-                opcode: "CallWord(\"less-than?\")".to_string(),
+                opcode: "CallWord(\"less_than?\")".to_string(),
             })
         );
     }
@@ -5807,7 +5807,7 @@ mod tests {
         vm.stack.clear();
         vm.stack
             .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
-        vm.call_word("await-all").expect("await-all resolves tasks");
+        vm.call_word("await_all").expect("await_all resolves tasks");
 
         assert_eq!(
             vm.stack(),
@@ -5822,8 +5822,8 @@ mod tests {
         vm.stack.clear();
         vm.stack
             .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
-        vm.call_word("await-all")
-            .expect("await-all reuses completed task results");
+        vm.call_word("await_all")
+            .expect("await_all reuses completed task results");
         assert_eq!(
             vm.stack(),
             &[Value::Array(
@@ -5857,7 +5857,7 @@ mod tests {
             .push(Value::Array(vec![Value::Task(0), Value::Task(1)].into()));
 
         assert_eq!(
-            vm.call_word("await-all"),
+            vm.call_word("await_all"),
             Err(VmError::InstructionLimitExceeded { limit: 16 })
         );
         assert_eq!(

@@ -109,7 +109,7 @@ impl DatabaseBackend for PostgresDatabase {
         order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres(
-            "order-page",
+            "order_page",
             PostgresDatabase::order_page(self, mapping, order),
         )
     }
@@ -138,7 +138,7 @@ impl DatabaseBackend for PostgresDatabase {
         limit: i64,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres(
-            "where-limit",
+            "where_limit",
             PostgresDatabase::where_eq_limit(self, mapping, field, value, limit),
         )
     }
@@ -152,7 +152,7 @@ impl DatabaseBackend for PostgresDatabase {
         offset: i64,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres(
-            "where-page",
+            "where_page",
             PostgresDatabase::where_eq_page(self, mapping, field, value, limit, offset),
         )
     }
@@ -165,7 +165,7 @@ impl DatabaseBackend for PostgresDatabase {
         order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_postgres(
-            "where-order-page",
+            "where_order_page",
             PostgresDatabase::where_eq_order_page(self, mapping, where_field, value, order),
         )
     }
@@ -230,7 +230,7 @@ impl DatabaseBackend for MysqlDatabase {
         order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_database_async(
-            "order-page",
+            "order_page",
             MysqlDatabase::order_page(self, mapping, order),
         )
     }
@@ -259,7 +259,7 @@ impl DatabaseBackend for MysqlDatabase {
         limit: i64,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_database_async(
-            "where-limit",
+            "where_limit",
             MysqlDatabase::where_eq_limit(self, mapping, field, value, limit),
         )
     }
@@ -273,7 +273,7 @@ impl DatabaseBackend for MysqlDatabase {
         offset: i64,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_database_async(
-            "where-page",
+            "where_page",
             MysqlDatabase::where_eq_page(self, mapping, field, value, limit, offset),
         )
     }
@@ -286,7 +286,7 @@ impl DatabaseBackend for MysqlDatabase {
         order: OrderPage<'_>,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         block_on_database_async(
-            "where-order-page",
+            "where_order_page",
             MysqlDatabase::where_eq_order_page(self, mapping, where_field, value, order),
         )
     }
@@ -434,11 +434,11 @@ pub fn install_database_capability(
 
     let default_page_backend = backend.clone();
     let default_page_mappings = mappings.clone();
-    vm.add_native_method_with_arity("default-page", 1, move |arguments| {
+    vm.add_native_method_with_arity("default_page", 1, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.default-page",
+            "DatabaseCapability.default_page",
             "model name",
         )?;
         let mapping = model_mapping(&default_page_mappings, model_name);
@@ -452,11 +452,11 @@ pub fn install_database_capability(
 
     let count_backend = backend.clone();
     let count_mappings = mappings.clone();
-    vm.add_native_method_with_arity("count-records", 1, move |arguments| {
+    vm.add_native_method_with_arity("count_records", 1, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.count-records",
+            "DatabaseCapability.count_records",
             "model name",
         )?;
         let mapping = model_mapping(&count_mappings, model_name);
@@ -470,11 +470,11 @@ pub fn install_database_capability(
 
     let first_backend = backend.clone();
     let first_mappings = mappings.clone();
-    vm.add_native_method_with_arity("first-record", 1, move |arguments| {
+    vm.add_native_method_with_arity("first_record", 1, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.first-record",
+            "DatabaseCapability.first_record",
             "model name",
         )?;
         let mapping = model_mapping(&first_mappings, model_name);
@@ -517,18 +517,18 @@ pub fn install_database_capability(
 
     let order_page_backend = backend.clone();
     let order_page_mappings = mappings.clone();
-    vm.add_native_method_with_arity("order-page", 5, move |arguments| {
+    vm.add_native_method_with_arity("order_page", 5, move |arguments| {
         let model_name =
-            string_argument(&arguments, 0, "DatabaseCapability.order-page", "model name")?;
-        let field = string_argument(&arguments, 1, "DatabaseCapability.order-page", "field name")?;
+            string_argument(&arguments, 0, "DatabaseCapability.order_page", "model name")?;
+        let field = string_argument(&arguments, 1, "DatabaseCapability.order_page", "field name")?;
         let direction = string_argument(
             &arguments,
             2,
-            "DatabaseCapability.order-page",
+            "DatabaseCapability.order_page",
             "order direction",
         )?;
-        let limit = limit_argument(&arguments, 3, "DatabaseCapability.order-page")?;
-        let offset = offset_argument(&arguments, 4, "DatabaseCapability.order-page")?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.order_page")?;
+        let offset = offset_argument(&arguments, 4, "DatabaseCapability.order_page")?;
         let mapping = model_mapping(&order_page_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| {
@@ -567,15 +567,15 @@ pub fn install_database_capability(
 
     let find_backend = backend.clone();
     let find_mappings = mappings.clone();
-    vm.add_native_method_with_arity("find-record", 2, move |arguments| {
+    vm.add_native_method_with_arity("find_record", 2, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.find-record",
+            "DatabaseCapability.find_record",
             "model name",
         )?;
         let id = arguments.get(1).ok_or_else(|| {
-            missing_native_argument("DatabaseCapability.find-record", 2, arguments.len())
+            missing_native_argument("DatabaseCapability.find_record", 2, arguments.len())
         })?;
         let mapping = model_mapping(&find_mappings, model_name);
         Ok(
@@ -605,23 +605,23 @@ pub fn install_database_capability(
 
     let where_limit_backend = backend.clone();
     let where_limit_mappings = mappings.clone();
-    vm.add_native_method_with_arity("where-limit", 4, move |arguments| {
+    vm.add_native_method_with_arity("where_limit", 4, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.where-limit",
+            "DatabaseCapability.where_limit",
             "model name",
         )?;
         let field = string_argument(
             &arguments,
             1,
-            "DatabaseCapability.where-limit",
+            "DatabaseCapability.where_limit",
             "field name",
         )?;
         let value = arguments.get(2).ok_or_else(|| {
-            missing_native_argument("DatabaseCapability.where-limit", 4, arguments.len())
+            missing_native_argument("DatabaseCapability.where_limit", 4, arguments.len())
         })?;
-        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where-limit")?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where_limit")?;
         let mapping = model_mapping(&where_limit_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| {
@@ -635,15 +635,15 @@ pub fn install_database_capability(
 
     let where_page_backend = backend.clone();
     let where_page_mappings = mappings.clone();
-    vm.add_native_method_with_arity("where-page", 5, move |arguments| {
+    vm.add_native_method_with_arity("where_page", 5, move |arguments| {
         let model_name =
-            string_argument(&arguments, 0, "DatabaseCapability.where-page", "model name")?;
-        let field = string_argument(&arguments, 1, "DatabaseCapability.where-page", "field name")?;
+            string_argument(&arguments, 0, "DatabaseCapability.where_page", "model name")?;
+        let field = string_argument(&arguments, 1, "DatabaseCapability.where_page", "field name")?;
         let value = arguments.get(2).ok_or_else(|| {
-            missing_native_argument("DatabaseCapability.where-page", 5, arguments.len())
+            missing_native_argument("DatabaseCapability.where_page", 5, arguments.len())
         })?;
-        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where-page")?;
-        let offset = offset_argument(&arguments, 4, "DatabaseCapability.where-page")?;
+        let limit = limit_argument(&arguments, 3, "DatabaseCapability.where_page")?;
+        let offset = offset_argument(&arguments, 4, "DatabaseCapability.where_page")?;
         let mapping = model_mapping(&where_page_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| {
@@ -657,36 +657,36 @@ pub fn install_database_capability(
 
     let where_order_page_backend = backend.clone();
     let where_order_page_mappings = mappings.clone();
-    vm.add_native_method_with_arity("where-order-page", 7, move |arguments| {
+    vm.add_native_method_with_arity("where_order_page", 7, move |arguments| {
         let model_name = string_argument(
             &arguments,
             0,
-            "DatabaseCapability.where-order-page",
+            "DatabaseCapability.where_order_page",
             "model name",
         )?;
         let where_field = string_argument(
             &arguments,
             1,
-            "DatabaseCapability.where-order-page",
+            "DatabaseCapability.where_order_page",
             "field name",
         )?;
         let value = arguments.get(2).ok_or_else(|| {
-            missing_native_argument("DatabaseCapability.where-order-page", 7, arguments.len())
+            missing_native_argument("DatabaseCapability.where_order_page", 7, arguments.len())
         })?;
         let order_field = string_argument(
             &arguments,
             3,
-            "DatabaseCapability.where-order-page",
+            "DatabaseCapability.where_order_page",
             "order field name",
         )?;
         let direction = string_argument(
             &arguments,
             4,
-            "DatabaseCapability.where-order-page",
+            "DatabaseCapability.where_order_page",
             "order direction",
         )?;
-        let limit = limit_argument(&arguments, 5, "DatabaseCapability.where-order-page")?;
-        let offset = offset_argument(&arguments, 6, "DatabaseCapability.where-order-page")?;
+        let limit = limit_argument(&arguments, 5, "DatabaseCapability.where_order_page")?;
+        let offset = offset_argument(&arguments, 6, "DatabaseCapability.where_order_page")?;
         let mapping = model_mapping(&where_order_page_mappings, model_name);
         Ok(
             match mapping.and_then(|mapping| {
@@ -765,7 +765,7 @@ fn install_model_active_record_methods(
 
             let default_page_backend = backend.clone();
             let default_page_mapping = mapping.clone();
-            vm.add_native_method_with_arity("default-page", 0, move |_| {
+            vm.add_native_method_with_arity("default_page", 0, move |_| {
                 Ok(
                     match default_page(default_page_backend.as_ref(), &default_page_mapping) {
                         Ok(values) => Value::result_ok(Value::Array(values.into())),
@@ -776,7 +776,7 @@ fn install_model_active_record_methods(
 
             let count_backend = backend.clone();
             let count_mapping = mapping.clone();
-            vm.add_native_method_with_arity("count-records", 0, move |_| {
+            vm.add_native_method_with_arity("count_records", 0, move |_| {
                 Ok(match count_backend.count(&count_mapping) {
                     Ok(value) => Value::result_ok(Value::Number(value)),
                     Err(error) => database_result_error(error),
@@ -785,7 +785,7 @@ fn install_model_active_record_methods(
 
             let first_backend = backend.clone();
             let first_mapping = mapping.clone();
-            vm.add_native_method_with_arity("first-record", 0, move |_| {
+            vm.add_native_method_with_arity("first_record", 0, move |_| {
                 Ok(match first_backend.first(&first_mapping) {
                     Ok(value) => Value::result_ok(value.unwrap_or(Value::Nil)),
                     Err(error) => database_result_error(error),
@@ -817,8 +817,8 @@ fn install_model_active_record_methods(
 
             let order_page_backend = backend.clone();
             let order_page_mapping = mapping.clone();
-            let order_page_method = format!("{}.order-page", mapping.class_name);
-            vm.add_native_method_with_arity("order-page", 4, move |arguments| {
+            let order_page_method = format!("{}.order_page", mapping.class_name);
+            vm.add_native_method_with_arity("order_page", 4, move |arguments| {
                 let field = string_argument(&arguments, 0, &order_page_method, "field name")?;
                 let direction =
                     string_argument(&arguments, 1, &order_page_method, "order direction")?;
@@ -855,8 +855,8 @@ fn install_model_active_record_methods(
 
             let find_backend = backend.clone();
             let find_mapping = mapping.clone();
-            let find_method = format!("{}.find-record", mapping.class_name);
-            vm.add_native_method_with_arity("find-record", 1, move |arguments| {
+            let find_method = format!("{}.find_record", mapping.class_name);
+            vm.add_native_method_with_arity("find_record", 1, move |arguments| {
                 let id = arguments
                     .first()
                     .ok_or_else(|| missing_native_argument(&find_method, 1, arguments.len()))?;
@@ -882,8 +882,8 @@ fn install_model_active_record_methods(
 
             let where_limit_backend = backend.clone();
             let where_limit_mapping = mapping.clone();
-            let where_limit_method = format!("{}.where-limit", mapping.class_name);
-            vm.add_native_method_with_arity("where-limit", 3, move |arguments| {
+            let where_limit_method = format!("{}.where_limit", mapping.class_name);
+            vm.add_native_method_with_arity("where_limit", 3, move |arguments| {
                 let field = string_argument(&arguments, 0, &where_limit_method, "field name")?;
                 let value = arguments.get(1).ok_or_else(|| {
                     missing_native_argument(&where_limit_method, 3, arguments.len())
@@ -904,8 +904,8 @@ fn install_model_active_record_methods(
 
             let where_page_backend = backend.clone();
             let where_page_mapping = mapping.clone();
-            let where_page_method = format!("{}.where-page", mapping.class_name);
-            vm.add_native_method_with_arity("where-page", 4, move |arguments| {
+            let where_page_method = format!("{}.where_page", mapping.class_name);
+            vm.add_native_method_with_arity("where_page", 4, move |arguments| {
                 let field = string_argument(&arguments, 0, &where_page_method, "field name")?;
                 let value = arguments.get(1).ok_or_else(|| {
                     missing_native_argument(&where_page_method, 4, arguments.len())
@@ -928,8 +928,8 @@ fn install_model_active_record_methods(
 
             let where_order_page_backend = backend.clone();
             let where_order_page_mapping = mapping.clone();
-            let where_order_page_method = format!("{}.where-order-page", mapping.class_name);
-            vm.add_native_method_with_arity("where-order-page", 6, move |arguments| {
+            let where_order_page_method = format!("{}.where_order_page", mapping.class_name);
+            vm.add_native_method_with_arity("where_order_page", 6, move |arguments| {
                 let where_field =
                     string_argument(&arguments, 0, &where_order_page_method, "field name")?;
                 let value = arguments.get(1).ok_or_else(|| {
@@ -1374,7 +1374,7 @@ mod tests {
             _mapping: &ModelMapping,
             order: OrderPage<'_>,
         ) -> Result<Vec<Value>, ActiveRecordError> {
-            self.record("order-page");
+            self.record("order_page");
             assert_eq!(order.field, DEFAULT_PAGE_ORDER_FIELD);
             assert_eq!(order.direction, DEFAULT_PAGE_ORDER_DIRECTION);
             assert_eq!(order.limit, DEFAULT_PAGE_LIMIT);
@@ -1451,7 +1451,7 @@ mod tests {
     fn unused_default_page_method(operation: &'static str) -> ActiveRecordError {
         ActiveRecordError::Database {
             operation,
-            message: "default-page routing test called an unused database method".to_string(),
+            message: "default_page routing test called an unused database method".to_string(),
         }
     }
 
@@ -1516,7 +1516,7 @@ mod tests {
     #[test]
     fn active_record_default_page_uses_beta_pagination_policy() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "User default-page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "User default_page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1534,7 +1534,7 @@ mod tests {
 
         default_page(&database, &user_mapping()).expect("default page succeeds");
 
-        assert_eq!(database.calls(), vec!["order-page"]);
+        assert_eq!(database.calls(), vec!["order_page"]);
     }
 
     #[test]
@@ -1582,7 +1582,7 @@ mod tests {
     fn active_record_order_page_accepts_field_direction_limit_and_offset_before_the_model_class() {
         let mut vm = vm_with_active_record();
         let chunk =
-            ricochet_compiler::compile_source("test.rco", "\"email\" \"asc\" 1 0 User order-page")
+            ricochet_compiler::compile_source("test.rco", "\"email\" \"asc\" 1 0 User order_page")
                 .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1597,7 +1597,7 @@ mod tests {
     #[test]
     fn active_record_count_returns_a_number_result() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "User count-records")
+        let chunk = ricochet_compiler::compile_source("test.rco", "User count_records")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1613,7 +1613,7 @@ mod tests {
     #[test]
     fn active_record_first_returns_first_row_or_nil() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "User first-record")
+        let chunk = ricochet_compiler::compile_source("test.rco", "User first_record")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1674,11 +1674,11 @@ mod tests {
         )
         .expect("capability installs");
         vm.set_variable("db", capability);
-        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get default-page")
+        let chunk = ricochet_compiler::compile_source("test.rco", "\"User\" db get default_page")
             .expect("source compiles");
 
         vm.run_chunk(&chunk)
-            .expect("database capability default-page method runs");
+            .expect("database capability default_page method runs");
 
         assert!(matches!(
             vm.stack(),
@@ -1722,12 +1722,12 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"asc\" 1 0 db get order-page",
+            "\"User\" \"email\" \"asc\" 1 0 db get order_page",
         )
         .expect("source compiles");
 
         vm.run_chunk(&chunk)
-            .expect("database capability order-page method runs");
+            .expect("database capability order_page method runs");
 
         assert!(matches!(
             vm.stack(),
@@ -1748,7 +1748,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" db get count-records value\n\"User\" db get first-record value \"email\" at\n\"User\" 1 db get exists? value",
+            "\"User\" db get count_records value\n\"User\" db get first_record value \"email\" at\n\"User\" 1 db get exists? value",
         )
         .expect("source compiles");
 
@@ -1768,7 +1768,7 @@ mod tests {
     #[test]
     fn active_record_find_record_accepts_an_id_before_the_model_class() {
         let mut vm = vm_with_active_record();
-        let chunk = ricochet_compiler::compile_source("test.rco", "42 User find-record")
+        let chunk = ricochet_compiler::compile_source("test.rco", "42 User find_record")
             .expect("source compiles");
 
         vm.run_chunk(&chunk).expect("active record method runs");
@@ -1813,7 +1813,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" 1 User where-limit",
+            "\"email\" \"ada@example.com\" 1 User where_limit",
         )
         .expect("source compiles");
 
@@ -1831,7 +1831,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" 1 1 User where-page",
+            "\"email\" \"ada@example.com\" 1 1 User where_page",
         )
         .expect("source compiles");
 
@@ -1849,7 +1849,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 User where-order-page",
+            "\"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 User where_order_page",
         )
         .expect("source compiles");
 
@@ -1874,7 +1874,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"ada@example.com\" 1 db get where-limit\n\"User\" \"email\" \"ada@example.com\" 1 1 db get where-page",
+            "\"User\" \"email\" \"ada@example.com\" 1 db get where_limit\n\"User\" \"email\" \"ada@example.com\" 1 1 db get where_page",
         )
         .expect("source compiles");
 
@@ -1901,7 +1901,7 @@ mod tests {
         vm.set_variable("db", capability);
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "\"User\" \"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 db get where-order-page",
+            "\"User\" \"email\" \"ada@example.com\" \"id\" \"desc\" 1 0 db get where_order_page",
         )
         .expect("source compiles");
 

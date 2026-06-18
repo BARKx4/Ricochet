@@ -4,8 +4,8 @@
 
 $session auth_user_present println
 
-$session "/login" auth_route_guard json-encode println
+$session "/login" auth_route_guard json_encode println
 
-$session "csrf-token" auth_csrf_check json-encode println
+$session "csrf-token" auth_csrf_check json_encode println
 
-auth_secure_cookie_options json-encode println
+auth_secure_cookie_options json_encode println

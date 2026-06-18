@@ -5,62 +5,62 @@ AuthPackageTest TestCase Subclass
     session map
     $session "user_id" "ada" put! drop
     $session auth_user_present
-    true assert-equals
+    true assert_equals
   ] "testUserPresent" Method
   [
     session map
     $session "user_id" "ada" put! drop
     $session "/login" auth_route_guard guard var
     $guard "ok" at
-    true assert-equals
+    true assert_equals
     $guard "reason" at
-    nil assert-equals
+    nil assert_equals
   ] "testRouteGuardAllowsAuthenticatedSession" Method
   [
     session map
     $session "/login" auth_route_guard guard var
     $guard "ok" at
-    false assert-equals
+    false assert_equals
     $guard "redirect" at
-    "/login" assert-equals
+    "/login" assert_equals
     $guard "reason" at
-    "missing_user_session" assert-equals
+    "missing_user_session" assert_equals
   ] "testRouteGuardRejectsMissingSession" Method
   [
     session map
     $session "csrf_token" "abc" put! drop
     $session "abc" auth_csrf_valid
-    true assert-equals
+    true assert_equals
   ] "testCsrfValid" Method
   [
     session map
     $session "" auth_csrf_valid
-    false assert-equals
+    false assert_equals
   ] "testCsrfRejectsMissingStoredToken" Method
   [
     session map
     $session "csrf_token" "" put! drop
     $session "" auth_csrf_valid
-    false assert-equals
+    false assert_equals
   ] "testCsrfRejectsBlankTokens" Method
   [
     session map
     $session "csrf_token" "abc" put! drop
     $session "wrong" auth_csrf_check "reason" at
-    "invalid_csrf_token" assert-equals
+    "invalid_csrf_token" assert_equals
   ] "testCsrfCheckReason" Method
   [
     "ada" "token" auth_session_for_user session var
     $session "user_id" at
-    "ada" assert-equals
+    "ada" assert_equals
     $session "authenticated" at
-    true assert-equals
+    true assert_equals
   ] "testSessionForUser" Method
   [
     auth_secure_cookie_options options var
     $options "http_only" at
-    true assert-equals
+    true assert_equals
     $options "same_site" at
-    "Lax" assert-equals
+    "Lax" assert_equals
   ] "testSecureCookieOptions" Method
 end

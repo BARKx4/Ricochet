@@ -48,28 +48,28 @@ const WORDS = [
     "example": "42 42 ="
   },
   {
-    "word": "not-equals?",
+    "word": "not_equals?",
     "aliases": ["!="],
     "group": "math",
     "stack": "left:any right:any -> bool",
     "body": "Returns true when two values are not equal.",
-    "example": "\"Ada\" \"Grace\" not-equals?"
+    "example": "\"Ada\" \"Grace\" not_equals?"
   },
   {
     "word": "!=",
-    "aliases": ["not-equals?"],
+    "aliases": ["not_equals?"],
     "group": "math",
     "stack": "left:any right:any -> bool",
-    "body": "Symbol alias for `not-equals?`.",
+    "body": "Symbol alias for `not_equals?`.",
     "example": "1 2 !="
   },
   {
-    "word": "assert-equals",
+    "word": "assert_equals",
     "aliases": [],
     "group": "math",
     "stack": "actual:any expected:any ->",
     "body": "Fails the current VM run when actual and expected differ. Used by `rco test`.",
-    "example": "\"Ada\" \"Ada\" assert-equals"
+    "example": "\"Ada\" \"Ada\" assert_equals"
   },
   {
     "word": "assert",
@@ -80,99 +80,99 @@ const WORDS = [
     "example": "$email empty? not assert"
   },
   {
-    "word": "assert-true",
+    "word": "assert_true",
     "aliases": [],
     "group": "math",
     "stack": "bool ->",
     "body": "Consumes true or fails the current VM run.",
-    "example": "$saved assert-true"
+    "example": "$saved assert_true"
   },
   {
-    "word": "assert-false",
+    "word": "assert_false",
     "aliases": [],
     "group": "math",
     "stack": "bool ->",
     "body": "Consumes false or fails the current VM run.",
-    "example": "$deleted assert-false"
+    "example": "$deleted assert_false"
   },
   {
-    "word": "assert-ok",
+    "word": "assert_ok",
     "aliases": [],
     "group": "result",
     "stack": "result ->",
     "body": "Consumes an ok result or fails the current VM run.",
-    "example": "User all assert-ok"
+    "example": "User all assert_ok"
   },
   {
-    "word": "assert-error",
+    "word": "assert_error",
     "aliases": [],
     "group": "result",
     "stack": "result ->",
     "body": "Consumes an error result or fails the current VM run.",
-    "example": "\"Validation\" \"bad\" fail assert-error"
+    "example": "\"Validation\" \"bad\" fail assert_error"
   },
   {
-    "word": "less-than?",
+    "word": "less_than?",
     "aliases": ["<"],
     "group": "math",
     "stack": "left:number right:number -> bool",
     "body": "Numeric less-than comparison.",
-    "example": "3 5 less-than?"
+    "example": "3 5 less_than?"
   },
   {
     "word": "<",
-    "aliases": ["less-than?"],
+    "aliases": ["less_than?"],
     "group": "math",
     "stack": "left:number right:number -> bool",
-    "body": "Symbol alias for `less-than?`.",
+    "body": "Symbol alias for `less_than?`.",
     "example": "3 5 <"
   },
   {
-    "word": "greater-than?",
+    "word": "greater_than?",
     "aliases": [">"],
     "group": "math",
     "stack": "left:number right:number -> bool",
     "body": "Numeric greater-than comparison.",
-    "example": "8 4 greater-than?"
+    "example": "8 4 greater_than?"
   },
   {
     "word": ">",
-    "aliases": ["greater-than?"],
+    "aliases": ["greater_than?"],
     "group": "math",
     "stack": "left:number right:number -> bool",
-    "body": "Symbol alias for `greater-than?`.",
+    "body": "Symbol alias for `greater_than?`.",
     "example": "8 4 >"
   },
   {
-    "word": "less-or-equals?",
+    "word": "less_or_equals?",
     "aliases": ["<="],
     "group": "math",
     "stack": "left:number right:number -> bool",
     "body": "Numeric less-than-or-equal comparison.",
-    "example": "5 5 less-or-equals?"
+    "example": "5 5 less_or_equals?"
   },
   {
     "word": "<=",
-    "aliases": ["less-or-equals?"],
+    "aliases": ["less_or_equals?"],
     "group": "math",
     "stack": "left:number right:number -> bool",
-    "body": "Symbol alias for `less-or-equals?`.",
+    "body": "Symbol alias for `less_or_equals?`.",
     "example": "5 5 <="
   },
   {
-    "word": "greater-or-equals?",
+    "word": "greater_or_equals?",
     "aliases": [">="],
     "group": "math",
     "stack": "left:number right:number -> bool",
     "body": "Numeric greater-than-or-equal comparison.",
-    "example": "5 5 greater-or-equals?"
+    "example": "5 5 greater_or_equals?"
   },
   {
     "word": ">=",
-    "aliases": ["greater-or-equals?"],
+    "aliases": ["greater_or_equals?"],
     "group": "math",
     "stack": "left:number right:number -> bool",
-    "body": "Symbol alias for `greater-or-equals?`.",
+    "body": "Symbol alias for `greater_or_equals?`.",
     "example": "5 5 >="
   },
   {
@@ -416,20 +416,20 @@ const WORDS = [
     "example": "$task await"
   },
   {
-    "word": "await-all",
+    "word": "await_all",
     "aliases": [],
     "group": "control",
     "stack": "array|list -> array",
     "body": "Awaits an array or list of task handles and returns their results in input order. Completed handles reuse their cached values.",
-    "example": "$handles await-all"
+    "example": "$handles await_all"
   },
   {
-    "word": "release-task",
+    "word": "release_task",
     "aliases": [],
     "group": "control",
     "stack": "task -> bool",
     "body": "Releases an awaited completed or failed task handle from the current VM's retained task table. Running tasks must be awaited before release.",
-    "example": "$task await\n$task release-task"
+    "example": "$task await\n$task release_task"
   },
   {
     "word": "tasks",
@@ -440,12 +440,12 @@ const WORDS = [
     "example": "tasks count"
   },
   {
-    "word": "task-status",
+    "word": "task_status",
     "aliases": ["tasks"],
     "group": "inspect",
     "stack": "task -> string",
     "body": "Returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
-    "example": "$task task-status"
+    "example": "$task task_status"
   },
   {
     "word": "while",
@@ -568,20 +568,20 @@ const WORDS = [
     "example": "User all"
   },
   {
-    "word": "find-record",
+    "word": "find_record",
     "aliases": ["Active Record"],
     "group": "web",
     "stack": "id ModelClass -> result(record|nil) | modelName:string id:any DatabaseCapability -> result(record|nil)",
     "body": "Finds a mapped database row by id.",
-    "example": "42 User find-record\n\"User\" 42 $db find-record"
+    "example": "42 User find_record\n\"User\" 42 $db find_record"
   },
   {
-    "word": "default-page",
+    "word": "default_page",
     "aliases": ["Active Record"],
     "group": "web",
     "stack": "ModelClass -> result(array) | modelName:string DatabaseCapability -> result(array)",
     "body": "Loads the v1 beta default list page: up to 50 rows, ordered by `id asc` when the model maps an `id` field, otherwise the first bounded page.",
-    "example": "User default-page\n\"User\" $db default-page"
+    "example": "User default_page\n\"User\" $db default_page"
   },
   {
     "word": "where",
@@ -600,20 +600,20 @@ const WORDS = [
     "example": "10 User limit"
   },
   {
-    "word": "count-records",
+    "word": "count_records",
     "aliases": ["Active Record"],
     "group": "web",
     "stack": "ModelClass -> result(number) | modelName:string DatabaseCapability -> result(number)",
     "body": "Counts rows for a mapped model class.",
-    "example": "User count-records\n\"User\" $db count-records"
+    "example": "User count_records\n\"User\" $db count_records"
   },
   {
-    "word": "first-record",
+    "word": "first_record",
     "aliases": ["Active Record"],
     "group": "web",
     "stack": "ModelClass -> result(record|nil) | modelName:string DatabaseCapability -> result(record|nil)",
     "body": "Loads the first row for a mapped model class.",
-    "example": "User first-record\n\"User\" $db first-record"
+    "example": "User first_record\n\"User\" $db first_record"
   },
   {
     "word": "exists?",
@@ -832,12 +832,12 @@ const WORDS = [
     "example": "$settings \"theme\" remove! drop"
   },
   {
-    "word": "remove-at!",
+    "word": "remove_at!",
     "aliases": [],
     "group": "collection",
     "stack": "index:number array|list -> sameCollection",
     "body": "Removes the value at a zero-based index.",
-    "example": "$users 0 remove-at! drop"
+    "example": "$users 0 remove_at! drop"
   },
   {
     "word": "clear!",
@@ -1000,20 +1000,20 @@ const WORDS = [
     "example": "\" Ada \" trim"
   },
   {
-    "word": "trim-start",
+    "word": "trim_start",
     "aliases": [],
     "group": "string",
     "stack": "string -> string",
     "body": "Trims leading whitespace.",
-    "example": "\"  Ada\" trim-start"
+    "example": "\"  Ada\" trim_start"
   },
   {
-    "word": "trim-end",
+    "word": "trim_end",
     "aliases": [],
     "group": "string",
     "stack": "string -> string",
     "body": "Trims trailing whitespace.",
-    "example": "\"Ada  \" trim-end"
+    "example": "\"Ada  \" trim_end"
   },
   {
     "word": "blank?",
@@ -1032,20 +1032,20 @@ const WORDS = [
     "example": "\"ricochet\" 2 4 slice"
   },
   {
-    "word": "index-of",
+    "word": "index_of",
     "aliases": [],
     "group": "string",
     "stack": "needle:string string -> number|nil",
     "body": "Returns the first character index for a substring, or nil.",
-    "example": "\"ricochet\" \"co\" index-of"
+    "example": "\"ricochet\" \"co\" index_of"
   },
   {
-    "word": "last-index-of",
+    "word": "last_index_of",
     "aliases": [],
     "group": "string",
     "stack": "needle:string string -> number|nil",
     "body": "Returns the last character index for a substring, or nil.",
-    "example": "\"ricochet\" \"c\" last-index-of"
+    "example": "\"ricochet\" \"c\" last_index_of"
   },
   {
     "word": "repeat",
@@ -1096,20 +1096,20 @@ const WORDS = [
     "example": "\"Ricochet\" \"co\" contains?"
   },
   {
-    "word": "starts-with?",
+    "word": "starts_with?",
     "aliases": [],
     "group": "string",
     "stack": "prefix:string string -> bool",
     "body": "Checks a string prefix.",
-    "example": "\"Ricochet\" \"Rico\" starts-with?"
+    "example": "\"Ricochet\" \"Rico\" starts_with?"
   },
   {
-    "word": "ends-with?",
+    "word": "ends_with?",
     "aliases": [],
     "group": "string",
     "stack": "suffix:string string -> bool",
     "body": "Checks a string suffix.",
-    "example": "\"Ricochet\" \"chet\" ends-with?"
+    "example": "\"Ricochet\" \"chet\" ends_with?"
   },
   {
     "word": "uppercase",
@@ -1136,36 +1136,36 @@ const WORDS = [
     "example": "\"Rico\" \"chet\" concat"
   },
   {
-    "word": "to-number",
+    "word": "to_number",
     "aliases": [],
     "group": "string",
     "stack": "string -> result(number)",
     "body": "Parses an integer and returns a stack result.",
-    "example": "\"42\" to-number value"
+    "example": "\"42\" to_number value"
   },
   {
-    "word": "to-string",
+    "word": "to_string",
     "aliases": [],
     "group": "string",
     "stack": "value -> string",
     "body": "Converts any value to its display string.",
-    "example": "42 to-string"
+    "example": "42 to_string"
   },
   {
-    "word": "json-encode",
+    "word": "json_encode",
     "aliases": [],
     "group": "string",
     "stack": "value -> string",
     "body": "Encodes nil, bool, number, string, array, list, set, map, or result values as JSON.",
-    "example": "$settings json-encode"
+    "example": "$settings json_encode"
   },
   {
-    "word": "json-decode",
+    "word": "json_decode",
     "aliases": [],
     "group": "string",
     "stack": "string -> result(value)",
     "body": "Decodes JSON into Ricochet values.",
-    "example": "\"{\\\"ok\\\":true}\" json-decode value"
+    "example": "\"{\\\"ok\\\":true}\" json_decode value"
   },
   {
     "word": "regex",
@@ -1184,20 +1184,20 @@ const WORDS = [
     "example": "\"hello-world\" $slugPattern matches?"
   },
   {
-    "word": "regex-find",
+    "word": "regex_find",
     "aliases": ["regex"],
     "group": "string",
     "stack": "haystack:string regex -> map|nil",
     "body": "Returns the first regex match as a map with `text`, `start`, and `end`.",
-    "example": "\"abc123\" $digits regex-find"
+    "example": "\"abc123\" $digits regex_find"
   },
   {
-    "word": "regex-replace",
+    "word": "regex_replace",
     "aliases": ["regex"],
     "group": "string",
     "stack": "haystack:string replacement:string regex -> string",
     "body": "Replaces all regex matches in a string.",
-    "example": "$digits \"abc123\" \"#\" regex-replace"
+    "example": "$digits \"abc123\" \"#\" regex_replace"
   },
   {
     "word": "captures",
@@ -1232,28 +1232,28 @@ const WORDS = [
     "example": "$result error?"
   },
   {
-    "word": "unwrap-or",
+    "word": "unwrap_or",
     "aliases": [],
     "group": "result",
     "stack": "fallback:any result -> value",
     "body": "Returns the ok value or a fallback.",
-    "example": "$maybeName \"guest\" unwrap-or"
+    "example": "$maybeName \"guest\" unwrap_or"
   },
   {
-    "word": "map-result",
+    "word": "map_result",
     "aliases": [],
     "group": "result",
     "stack": "block result -> result",
     "body": "Transforms an ok value and passes error results through unchanged.",
-    "example": "21 ok [ 2 * ] map-result value"
+    "example": "21 ok [ 2 * ] map_result value"
   },
   {
-    "word": "and-then",
+    "word": "and_then",
     "aliases": [],
     "group": "result",
     "stack": "block result -> result",
     "body": "Runs a block that must itself return a result when the receiver is ok.",
-    "example": "$value [ ok ] and-then"
+    "example": "$value [ ok ] and_then"
   },
   {
     "word": "result_envelope",
@@ -1280,12 +1280,12 @@ const WORDS = [
     "example": "\"warning\" eprint"
   },
   {
-    "word": "read-line",
+    "word": "read_line",
     "aliases": [],
     "group": "system",
     "stack": "-> string|nil",
     "body": "Reads one line from the installed input reader.",
-    "example": "read-line name var"
+    "example": "read_line name var"
   },
   {
     "word": "args",
@@ -1976,28 +1976,28 @@ const WORDS = [
     "example": "array type"
   },
   {
-    "word": "class-of",
+    "word": "class_of",
     "aliases": [],
     "group": "inspect",
     "stack": "value -> class",
     "body": "Pushes the built-in or instance class.",
-    "example": "user class-of"
+    "example": "user class_of"
   },
   {
-    "word": "instance-of?",
+    "word": "instance_of?",
     "aliases": [],
     "group": "inspect",
     "stack": "value class|string -> bool",
     "body": "Checks built-in class equality or OOP inheritance.",
-    "example": "user User instance-of?"
+    "example": "user User instance_of?"
   },
   {
-    "word": "responds-to?",
+    "word": "responds_to?",
     "aliases": [],
     "group": "inspect",
     "stack": "method:string receiver -> bool",
     "body": "Checks whether a receiver has a built-in, native, or bytecode method.",
-    "example": "\"displayName\" user responds-to?"
+    "example": "\"displayName\" user responds_to?"
   },
   {
     "word": "id",

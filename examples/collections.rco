@@ -4,7 +4,7 @@ users array
 $users "Ada" push! drop
 $users "Grace" push! drop
 $users 1 "Lin" insert! drop
-$users 1 remove-at! drop
+$users 1 remove_at! drop
 
 settings map
 $settings "theme" "dark" put! drop

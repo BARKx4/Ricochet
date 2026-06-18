@@ -449,7 +449,7 @@ end
         let formatted = format_source(
             r#"self .email get println
 http .request value
-fs .read-text! value
+fs .read_text! value
 .standalone
 "#,
         )

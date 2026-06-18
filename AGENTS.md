@@ -14,7 +14,8 @@ All future language and platform features must pass the RPN/postfix vibe check b
 - Keep containers before keys for global access/mutation: `request "method" at`, `settings "theme" "dark" put!`.
 - Keep collection mutation as `collection value push!`.
 - Do not introduce leading-dot source syntax, fake namespace-dot host APIs, or receiver-first pseudo-object calls like `http .request`.
-- Host/platform APIs should be snake_case global words such as `fs_read_text`, `http_request`, `webview_window`, and `tui_write`.
+- Public multiword Ricochet words use `_` as their separator, such as `json_encode`, `find_record`, `fs_read_text`, `http_request`, `webview_window`, and `tui_write`.
+- Reserve `-` for the subtraction word and negative number literals, not word naming.
 - OOP declarations use capitalized meta words in class bodies:
 
 ```ricochet

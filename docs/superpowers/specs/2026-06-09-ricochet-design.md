@@ -12,7 +12,8 @@ Status: Historical draft, superseded for syntax details
 > `docs/reference/index.html`: capitalized OOP declarations such as `Subclass`,
 > `Accessor`, `Table`, and `Method`; receiver-before-selector calls such as
 > `user email.get`; container-before-key access such as `request "method" at`;
-> and snake_case host APIs such as `http_request` and `fs_read_text`.
+> and underscore-separated public words such as `json_encode`, `http_request`,
+> and `fs_read_text`. Hyphen is reserved for subtraction and negative literals.
 
 ## Purpose
 
@@ -312,7 +313,7 @@ postfix dispatch shape as instance APIs:
 
 ```forth
 User all
-42 User find-record
+42 User find_record
 ```
 
 Global functions take precedence when a function and class share a name.
@@ -330,7 +331,7 @@ Object field storage is hybrid:
 Expected application failures use a single `Result` object on the stack.
 
 ```forth
-42 User find-record
+42 User find_record
 dup ok? if
   value
 else
@@ -400,19 +401,19 @@ order, and completed handles can be awaited again from their cached result.
 handles array
 [ sendWelcomeEmail ] spawn handles get .push! drop
 [ updateSearchIndex ] spawn handles get .push! drop
-handles get await-all
+handles get await_all
 ```
 
 Current implementation note: `[ ... ] spawn` creates a first-class task value,
 captures the spawn-time VM environment, and starts the task on a background
-worker. `await` waits for one handle when needed, and `await-all` resolves an
+worker. `await` waits for one handle when needed, and `await_all` resolves an
 array/list of handles. Task handles retain completed/failed status, expose
-`id`, `task-status`, `pending?`, `running?`, `completed?`, and `failed?`, and
+`id`, `task_status`, `pending?`, `running?`, `completed?`, and `failed?`, and
 completed handles can be awaited again for the cached result. The `tasks` word
 returns active running task metadata for debugger-style inspection. HTTP
-capabilities expose `.get-task` and `.post-json-task`, which start worker tasks
+capabilities expose `.get_task` and `.post_json_task`, which start worker tasks
 and resolve through `await` to the same `Result` maps as `.get` and
-`.post-json`. Richer suspended-task debugger views remain future work.
+`.post_json`. Richer suspended-task debugger views remain future work.
 
 The debugger can inspect running, suspended, and failed tasks.
 
@@ -600,15 +601,15 @@ Active Record operations are class methods with ordinary postfix arguments:
 
 ```forth
 User all
-User default-page
-42 User find-record
+User default_page
+42 User find_record
 "email" "ada@example.com" User where
 10 User limit
 10 20 User page
-"email" "asc" 10 20 User order-page
-"email" "ada@example.com" 10 User where-limit
-"email" "ada@example.com" 10 20 User where-page
-"email" "ada@example.com" "id" "desc" 10 20 User where-order-page
+"email" "asc" 10 20 User order_page
+"email" "ada@example.com" 10 User where_limit
+"email" "ada@example.com" 10 20 User where_page
+"email" "ada@example.com" "id" "desc" 10 20 User where_order_page
 attributes map
 $attributes "email" "ada@example.com" put! drop
 $attributes User insert
@@ -617,11 +618,11 @@ $updates "email" "grace@example.com" put! drop
 42 $updates User update
 ```
 
-Active Record v1 supports connection configuration, basic table mapping, `find-record`,
-`all`, `where`, a first-page list default with `default-page`, bounded reads
-with `limit`/`page`/`where-limit`/`where-page`, deterministic ordered reads
-with `order-page`/`where-order-page`, `count-records`, `first-record`,
-`exists?`, `insert`, and `update`. `default-page` returns up to 50 rows and orders by `id asc` when the
+Active Record v1 supports connection configuration, basic table mapping, `find_record`,
+`all`, `where`, a first-page list default with `default_page`, bounded reads
+with `limit`/`page`/`where_limit`/`where_page`, deterministic ordered reads
+with `order_page`/`where_order_page`, `count_records`, `first_record`,
+`exists?`, `insert`, and `update`. `default_page` returns up to 50 rows and orders by `id asc` when the
 model maps an `id` field; models without a mapped `id` field use the first
 bounded page. Every operation returns one
 `Result` object so expected database failures stay in the normal stack flow.
@@ -775,7 +776,7 @@ UserTest TestCase Subclass
     User new user var
     "a@example.com" user email.set
     user displayName
-    "a@example.com" assert-equals
+    "a@example.com" assert_equals
   ] "testDisplayName" Method
 end
 ```

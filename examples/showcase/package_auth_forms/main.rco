@@ -4,20 +4,20 @@
 
 "ada" "token-123" auth_session_for_user session var
 
-$session auth_user_present true assert-equals
+$session auth_user_present true assert_equals
 
-$session "token-123" auth_csrf_valid true assert-equals
+$session "token-123" auth_csrf_valid true assert_equals
 
 "email" "ada@example.com" form_field emailField var
 
-$emailField "value" at form_required true assert-equals
+$emailField "value" at form_required true assert_equals
 
 form_validation validation var
 
-$validation "ok" at true assert-equals
+$validation "ok" at true assert_equals
 
 $session "/login" auth_route_guard guard var
 
-$guard "ok" at true assert-equals
+$guard "ok" at true assert_equals
 
 "package auth/forms showcase ready" println

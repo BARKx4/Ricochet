@@ -705,7 +705,7 @@ create table if not exists schema_migrations (
             .client
             .query(sql.as_str(), &[limit.as_sql(), offset.as_sql()])
             .await
-            .map_err(|error| database_error("order-page", error))?;
+            .map_err(|error| database_error("order_page", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -757,7 +757,7 @@ create table if not exists schema_migrations (
             .client
             .query(sql.as_str(), &[value.as_sql(), limit.as_sql()])
             .await
-            .map_err(|error| database_error("where-limit", error))?;
+            .map_err(|error| database_error("where_limit", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -783,7 +783,7 @@ create table if not exists schema_migrations (
                 &[value.as_sql(), limit.as_sql(), offset.as_sql()],
             )
             .await
-            .map_err(|error| database_error("where-page", error))?;
+            .map_err(|error| database_error("where_page", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -809,7 +809,7 @@ create table if not exists schema_migrations (
                 &[value.as_sql(), limit.as_sql(), offset.as_sql()],
             )
             .await
-            .map_err(|error| database_error("where-order-page", error))?;
+            .map_err(|error| database_error("where_order_page", error))?;
 
         rows.iter().map(|row| row_to_value(row, mapping)).collect()
     }
@@ -998,7 +998,7 @@ impl SqliteDatabase {
             mapping.select_order_page_sql_for(order.field, order.direction, SqlDialect::Sqlite)?;
         self.query_many(
             mapping,
-            "order-page",
+            "order_page",
             sql,
             vec![Value::Number(order.limit), Value::Number(order.offset)],
         )
@@ -1043,7 +1043,7 @@ impl SqliteDatabase {
         let sql = mapping.select_where_eq_limit_sql_for(field, SqlDialect::Sqlite)?;
         self.query_many(
             mapping,
-            "where-limit",
+            "where_limit",
             sql,
             vec![value.clone(), Value::Number(limit)],
         )
@@ -1060,7 +1060,7 @@ impl SqliteDatabase {
         let sql = mapping.select_where_eq_page_sql_for(field, SqlDialect::Sqlite)?;
         self.query_many(
             mapping,
-            "where-page",
+            "where_page",
             sql,
             vec![value.clone(), Value::Number(limit), Value::Number(offset)],
         )
@@ -1081,7 +1081,7 @@ impl SqliteDatabase {
         )?;
         self.query_many(
             mapping,
-            "where-order-page",
+            "where_order_page",
             sql,
             vec![
                 value.clone(),
@@ -1412,7 +1412,7 @@ create table if not exists schema_migrations (
             mapping.select_order_page_sql_for(order.field, order.direction, SqlDialect::Mysql)?;
         self.query_many(
             mapping,
-            "order-page",
+            "order_page",
             sql,
             vec![Value::Number(order.limit), Value::Number(order.offset)],
         )
@@ -1477,7 +1477,7 @@ create table if not exists schema_migrations (
         let sql = mapping.select_where_eq_limit_sql_for(field, SqlDialect::Mysql)?;
         self.query_many(
             mapping,
-            "where-limit",
+            "where_limit",
             sql,
             vec![value.clone(), Value::Number(limit)],
         )
@@ -1495,7 +1495,7 @@ create table if not exists schema_migrations (
         let sql = mapping.select_where_eq_page_sql_for(field, SqlDialect::Mysql)?;
         self.query_many(
             mapping,
-            "where-page",
+            "where_page",
             sql,
             vec![value.clone(), Value::Number(limit), Value::Number(offset)],
         )
@@ -1517,7 +1517,7 @@ create table if not exists schema_migrations (
         )?;
         self.query_many(
             mapping,
-            "where-order-page",
+            "where_order_page",
             sql,
             vec![
                 value.clone(),

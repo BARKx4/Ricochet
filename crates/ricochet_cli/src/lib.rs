@@ -2808,7 +2808,7 @@ end
     User new
     "ada@example.com" swap email.set
     displayName
-    "ada@example.com" assert-equals
+    "ada@example.com" assert_equals
   ] "testUserDisplayNameFallsBackToEmail" Method
 
   [
@@ -2817,7 +2817,7 @@ end
     "grace@example.com" swap email.set
     $users swap push! drop
     $users count
-    1 assert-equals
+    1 assert_equals
   ] "testCollectionsCanHoldModels" Method
 end
 "#,
@@ -2905,7 +2905,7 @@ fn user_controller_source(options: NewProjectOptions) -> &'static str {
     ctx var
     session var
     $session "last_page" "users" put! drop
-    User default-page
+    User default_page
     dup ok? if
       value users var
       $users count userCount var
@@ -7474,8 +7474,8 @@ fn generated_json_source(items: usize) -> String {
     }
     source.push_str(
         r#"$payload "items" $items put! drop
-$payload json-encode encoded var
-$encoded json-decode value decoded var
+$payload json_encode encoded var
+$encoded json_decode value decoded var
 $decoded "items" at count
 "#,
     );

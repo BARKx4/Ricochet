@@ -32,8 +32,8 @@ $request "max_response_bytes" 1048576 put! drop
 
 $request "api_key_ref" $apiKeyRef put! drop
 
-$request "method" at "POST" assert-equals
+$request "method" at "POST" assert_equals
 
-$request "api_key_ref" at "name" at "OPENAI_API_KEY" assert-equals
+$request "api_key_ref" at "name" at "OPENAI_API_KEY" assert_equals
 
-$request json-encode println
+$request json_encode println

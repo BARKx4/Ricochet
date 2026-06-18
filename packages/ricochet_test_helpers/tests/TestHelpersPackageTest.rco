@@ -3,16 +3,16 @@
 TestHelpersPackageTest TestCase Subclass
   [
     "Ada" "Ada" test_assert_equal
-    "Ada" assert-equals
+    "Ada" assert_equals
   ] "testAssertEqualReturnsActual" Method
   [
     response map
     $response "status" 200 put! drop
     $response test_http_ok
-    true assert-equals
+    true assert_equals
   ] "testHttpOk" Method
   [
     "Ada" "user" test_fixture "value" at
-    "Ada" assert-equals
+    "Ada" assert_equals
   ] "testFixture" Method
 end

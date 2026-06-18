@@ -3,7 +3,7 @@
   state var
   $state "count" at 1 + nextCount var
   $state "count" $nextCount put! drop
-  "Count: " $nextCount to-string concat webview_text countText var
+  "Count: " $nextCount to_string concat webview_text countText var
   "Increment" "increment" webview_button button var
   actions array
   $actions "Increment" "increment" "monitor_increment" webview_action push! drop
@@ -19,7 +19,7 @@ $state "count" 0 put! drop
 
 $state "task_count" tasks count put! drop
 
-$state "worker_status" $worker task-status put! drop
+$state "worker_status" $worker task_status put! drop
 
 "Count: 0" webview_text countText var
 
@@ -29,6 +29,6 @@ actions array
 
 $actions "Increment" "increment" "monitor_increment" webview_action push! drop
 
-"<main><h1>Ricochet GUI Task Monitor</h1><p>" $countText concat "</p><p>Worker status: " concat $worker task-status concat "</p>" concat $button concat "</main>" concat body var
+"<main><h1>Ricochet GUI Task Monitor</h1><p>" $countText concat "</p><p>Worker status: " concat $worker task_status concat "</p>" concat $button concat "</main>" concat body var
 
 "Ricochet GUI Task Monitor" $body $state $actions webview_window_state value

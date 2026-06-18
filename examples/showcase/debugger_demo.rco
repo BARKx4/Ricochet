@@ -9,9 +9,9 @@ $name uppercase upperName var
 
 $worker await answer var
 
-$answer 42 assert-equals
+$answer 42 assert_equals
 
-$worker release-task
+$worker release_task
 
 $upperName println
 
