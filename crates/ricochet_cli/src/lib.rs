@@ -7,6 +7,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -3061,6 +3062,7 @@ fn load_static_registry_package(
         .and_then(Item::as_array_of_tables)
         .context("static registry package metadata must include [[versions]]")?;
     let mut versions = Vec::new();
+    let mut seen_versions = BTreeSet::new();
     for table in versions_array {
         let version = table
             .get("version")
@@ -3068,6 +3070,9 @@ fn load_static_registry_package(
             .context("static registry version must include version")?
             .to_string();
         validate_package_version(&version)?;
+        if !seen_versions.insert(version.clone()) {
+            bail!("static registry package {package} lists duplicate version {version}");
+        }
         let archive = table
             .get("archive")
             .and_then(Item::as_str)
@@ -3233,20 +3238,33 @@ fn read_static_registry_bytes(source: &str, limit: usize) -> Result<Vec<u8>> {
         return fs::read(&path).with_context(|| format!("failed to read {}", path.display()));
     }
 
-    let response = reqwest::blocking::get(source)
-        .with_context(|| format!("failed to fetch static registry resource {source}"))?
-        .error_for_status()
-        .with_context(|| format!("static registry resource {source} returned an error"))?;
-    let bytes = response
-        .bytes()
-        .with_context(|| format!("failed to read static registry resource {source}"))?;
-    if bytes.len() > limit {
-        bail!(
-            "static registry resource {source} is too large: {} bytes",
-            bytes.len()
-        );
+    let source_for_thread = source.to_string();
+    let result = thread::spawn(move || -> Result<Vec<u8>> {
+        let response = reqwest::blocking::get(&source_for_thread)
+            .with_context(|| {
+                format!("failed to fetch static registry resource {source_for_thread}")
+            })?
+            .error_for_status()
+            .with_context(|| {
+                format!("static registry resource {source_for_thread} returned an error")
+            })?;
+        let bytes = response.bytes().with_context(|| {
+            format!("failed to read static registry resource {source_for_thread}")
+        })?;
+        if bytes.len() > limit {
+            bail!(
+                "static registry resource {source_for_thread} is too large: {} bytes",
+                bytes.len()
+            );
+        }
+        Ok(bytes.to_vec())
+    })
+    .join();
+
+    match result {
+        Ok(result) => result,
+        Err(_) => bail!("static registry fetch worker panicked for {source}"),
     }
-    Ok(bytes.to_vec())
 }
 
 fn file_url_from_path(path: &Path) -> String {

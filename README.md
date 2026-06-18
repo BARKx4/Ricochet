@@ -569,6 +569,9 @@ against the generated no-database scaffold.
 
 ## Release Packaging
 
+See `docs/releases/v0.1.13-beta.md` for the current beta release notes,
+hardening checklist, and artifact smoke-test expectations.
+
 Windows release packages are built from this repository with:
 
 ```powershell

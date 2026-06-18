@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -8,7 +8,11 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use tar::{Builder, EntryType, Header};
 
 #[test]
 fn new_creates_mvc_project_skeleton() {
@@ -1920,6 +1924,226 @@ fn add_installs_static_registry_url_dependency_with_local_alias() {
     assert!(
         stdout.contains("String(\"hello from static registry\")"),
         "stdout should show imported static registry package result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn static_registry_install_rejects_archive_traversal_entries() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("registry");
+    let app = base.join("app");
+    let archive = static_registry_archive_with_regular_entry("../escape.txt", b"nope");
+    write_static_registry_fixture(&registry, "greeter", "0.2.3", &archive);
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+            escape_toml_string(&file_url_for_test(&registry.join("index.toml")))
+        ),
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !install.status.success(),
+        "rco install should reject traversal archive entries"
+    );
+    let stderr = String::from_utf8_lossy(&install.stderr);
+    assert!(
+        stderr.contains("static registry archive path must not contain .."),
+        "stderr should explain rejected traversal entry, got:\n{stderr}"
+    );
+    assert!(
+        !base.join("escape.txt").exists(),
+        "rejected archive must not write outside the package cache"
+    );
+}
+
+#[test]
+fn static_registry_install_rejects_archive_link_entries() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("registry");
+    let app = base.join("app");
+    let archive = static_registry_archive_with_symlink_entry("link.rco", "ricochet.toml");
+    write_static_registry_fixture(&registry, "greeter", "0.2.3", &archive);
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+            escape_toml_string(&file_url_for_test(&registry.join("index.toml")))
+        ),
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !install.status.success(),
+        "rco install should reject archive links"
+    );
+    let stderr = String::from_utf8_lossy(&install.stderr);
+    assert!(
+        stderr.contains("static registry package archives must not contain links"),
+        "stderr should explain rejected link entry, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn static_registry_rejects_duplicate_versions_in_metadata() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("registry");
+    let archive = static_registry_archive_with_regular_entry("ricochet.toml", b"");
+    write_static_registry_fixture(&registry, "greeter", "0.2.3", &archive);
+    let package_metadata = registry.join("packages").join("greeter.toml");
+    let archive_integrity = sha256_integrity_for_bytes(&archive);
+    fs::write(
+        &package_metadata,
+        format!(
+            "[package]\nname = \"greeter\"\n\n[[versions]]\nversion = \"0.2.3\"\narchive = \"artifacts/greeter-0.2.3.tar.gz\"\narchive_integrity = \"{archive_integrity}\"\npackage_integrity = \"sha256:{}\"\nyanked = false\n\n[[versions]]\nversion = \"0.2.3\"\narchive = \"artifacts/greeter-0.2.3.tar.gz\"\narchive_integrity = \"{archive_integrity}\"\npackage_integrity = \"sha256:{}\"\nyanked = false\n",
+            "0".repeat(64),
+            "0".repeat(64)
+        ),
+    )
+    .expect("duplicate metadata should be written");
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greeter")
+        .arg("--registry-url")
+        .arg(file_url_for_test(&registry.join("index.toml")))
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should reject duplicate static registry versions"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("static registry package greeter lists duplicate version 0.2.3"),
+        "stderr should explain duplicate version metadata, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn registry_check_rejects_archive_integrity_mismatch() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = base.join("greeter_pkg");
+    let registry = base.join("registry");
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        "[package]\nname = \"greeter\"\nversion = \"0.2.3\"\n",
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello\"\nend\n",
+    );
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "hash mismatch package", &publish);
+    let rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for("rco registry rebuild", "hash mismatch package", &rebuild);
+
+    let package_metadata = registry.join("packages").join("greeter.toml");
+    replace_toml_string_line(
+        &package_metadata,
+        "archive_integrity",
+        &format!("sha256:{}", "0".repeat(64)),
+    );
+
+    let check = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("check")
+        .arg(&registry)
+        .output()
+        .expect("rco registry check should launch");
+
+    assert!(
+        !check.status.success(),
+        "rco registry check should reject archive integrity mismatch"
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("static registry archive for greeter 0.2.3 has integrity"),
+        "stderr should explain archive integrity mismatch, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn static_registry_rejects_malformed_index() {
+    let main_path = temp_source_path();
+    let registry = main_path
+        .parent()
+        .expect("source path has parent")
+        .join("registry");
+    write_source_at(&registry, "index.toml", "[packages]\ngreeter = 42\n");
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greeter")
+        .arg("--registry-url")
+        .arg(file_url_for_test(&registry.join("index.toml")))
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should reject malformed static registry index"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("static registry index must include [registry] format"),
+        "stderr should explain malformed index, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn static_registry_reports_http_fetch_failure() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    drop(listener);
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greeter")
+        .arg("--registry-url")
+        .arg(format!("http://{address}/index.toml"))
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should report HTTP registry fetch failures"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("failed to fetch static registry resource"),
+        "stderr should explain HTTP fetch failure, got:\n{stderr}"
     );
 }
 
@@ -6867,6 +7091,162 @@ fn escape_toml_string(value: &str) -> String {
 
 fn file_url_for_test(path: &Path) -> String {
     format!("file:///{}", path_to_slash_for_test(path))
+}
+
+fn write_static_registry_fixture(
+    registry: &Path,
+    package: &str,
+    version: &str,
+    archive_bytes: &[u8],
+) {
+    let archive_relative = format!("artifacts/{package}-{version}.tar.gz");
+    let archive_path = registry.join(&archive_relative);
+    fs::create_dir_all(
+        archive_path
+            .parent()
+            .expect("archive path should have parent"),
+    )
+    .expect("archive directory should be created");
+    fs::write(&archive_path, archive_bytes).expect("archive should be written");
+
+    write_source_at(
+        registry,
+        "index.toml",
+        &format!(
+            "[registry]\nformat = \"ricochet-static-registry-v1\"\n\n[packages]\n{package} = \"packages/{package}.toml\"\n"
+        ),
+    );
+    write_source_at(
+        registry,
+        &format!("packages/{package}.toml"),
+        &format!(
+            "[package]\nname = \"{package}\"\n\n[[versions]]\nversion = \"{version}\"\narchive = \"{archive_relative}\"\narchive_integrity = \"{}\"\npackage_integrity = \"sha256:{}\"\nyanked = false\n",
+            sha256_integrity_for_bytes(archive_bytes),
+            "0".repeat(64)
+        ),
+    );
+}
+
+fn static_registry_archive_with_regular_entry(path: &str, contents: &[u8]) -> Vec<u8> {
+    if path.contains("..") || path.starts_with('/') || path.contains('\\') {
+        return static_registry_archive_with_raw_entry(path, contents, b'0', "");
+    }
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let mut builder = Builder::new(encoder);
+    let mut header = Header::new_gnu();
+    header.set_mode(0o644);
+    header.set_size(contents.len() as u64);
+    header.set_cksum();
+    builder
+        .append_data(&mut header, path, Cursor::new(contents))
+        .expect("archive entry should append");
+    finish_test_archive(builder)
+}
+
+fn static_registry_archive_with_raw_entry(
+    path: &str,
+    contents: &[u8],
+    entry_type: u8,
+    link_name: &str,
+) -> Vec<u8> {
+    let mut tar = Vec::new();
+    let mut header = [0_u8; 512];
+    write_tar_header_string(&mut header[0..100], path);
+    write_tar_header_octal(&mut header[100..108], 0o644);
+    write_tar_header_octal(&mut header[108..116], 0);
+    write_tar_header_octal(&mut header[116..124], 0);
+    write_tar_header_octal(&mut header[124..136], contents.len() as u64);
+    write_tar_header_octal(&mut header[136..148], 0);
+    for byte in &mut header[148..156] {
+        *byte = b' ';
+    }
+    header[156] = entry_type;
+    write_tar_header_string(&mut header[157..257], link_name);
+    header[257..263].copy_from_slice(b"ustar\0");
+    header[263..265].copy_from_slice(b"00");
+    let checksum = header.iter().map(|byte| *byte as u32).sum::<u32>();
+    let checksum_text = format!("{checksum:06o}\0 ");
+    header[148..156].copy_from_slice(checksum_text.as_bytes());
+    tar.extend_from_slice(&header);
+    tar.extend_from_slice(contents);
+    let padding = (512 - (contents.len() % 512)) % 512;
+    tar.resize(tar.len() + padding, 0);
+    tar.extend([0_u8; 1024]);
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(&tar)
+        .expect("raw test archive should gzip");
+    encoder
+        .finish()
+        .expect("raw test archive gzip should finish")
+}
+
+fn write_tar_header_string(field: &mut [u8], value: &str) {
+    let bytes = value.as_bytes();
+    let length = bytes.len().min(field.len());
+    field[..length].copy_from_slice(&bytes[..length]);
+}
+
+fn write_tar_header_octal(field: &mut [u8], value: u64) {
+    let text = format!("{value:0width$o}\0", width = field.len() - 1);
+    field.copy_from_slice(text.as_bytes());
+}
+
+fn static_registry_archive_with_symlink_entry(path: &str, target: &str) -> Vec<u8> {
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let mut builder = Builder::new(encoder);
+    let mut header = Header::new_gnu();
+    header
+        .set_path(path)
+        .expect("symlink archive path should set");
+    header.set_entry_type(EntryType::Symlink);
+    header
+        .set_link_name(target)
+        .expect("symlink archive target should set");
+    header.set_mode(0o777);
+    header.set_size(0);
+    header.set_cksum();
+    builder
+        .append(&header, std::io::empty())
+        .expect("symlink archive entry should append");
+    finish_test_archive(builder)
+}
+
+fn finish_test_archive(mut builder: Builder<GzEncoder<Vec<u8>>>) -> Vec<u8> {
+    builder.finish().expect("test archive should finish");
+    let encoder = builder
+        .into_inner()
+        .expect("test archive encoder should finish");
+    encoder.finish().expect("test archive gzip should finish")
+}
+
+fn sha256_integrity_for_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("sha256:{hex}")
+}
+
+fn replace_toml_string_line(path: &Path, key: &str, new_value: &str) {
+    let source = fs::read_to_string(path).expect("TOML fixture should exist");
+    let prefix = format!("{key} = ");
+    let replaced = source
+        .lines()
+        .map(|line| {
+            if line.starts_with(&prefix) {
+                format!("{key} = \"{new_value}\"")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(path, format!("{replaced}\n")).expect("TOML fixture should update");
 }
 
 fn spawn_single_response_http_server(
