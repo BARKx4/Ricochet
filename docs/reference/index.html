@@ -736,21 +736,30 @@ workspaceOptions map
 "README.md" workspaceOptions get workspace_read_text value readme var
 "." workspaceOptions get workspace_list value workspaceEntries var
 workspaceEntries get count println
-headers map
-headers get "Authorization" "Bearer token" put! drop
+settings map
+provider map
+provider get "api_key" "PROVIDER_API_KEY" secret_env put! drop
+settings get "provider" provider get put! drop
+path array
+path get "provider" push! drop
+path get "api_key" push! drop
+settings get path get config_get value secret_resolve value token var
+payload map
+payload get "probe" true put! drop
 providerHosts array
 providerHosts get "api.example" push! drop
-providerRequest map
-providerRequest get "url" "https://api.example/v1/models" put! drop
-providerRequest get "headers" headers get put! drop
+"POST" "https://api.example/v1/models" http_request_new value providerRequest var
+providerRequest get token get http_bearer_auth value providerRequest set
+providerRequest get payload get http_json_body value providerRequest set
 providerRequest get "allowed_hosts" providerHosts get put! drop
-providerRequest get "timeout_ms" 30000 put! drop
+providerRequest get 30000 http_timeout value providerRequest set
 providerRequest get "max_response_bytes" 1048576 put! drop
 providerRequest get http_request_task await value providerResponse var
 providerResponse get "status" at println
 processArgs array
 processArgs get "status" push! drop
 processOptions map
+processOptions get "GIT_TERMINAL_PROMPT" "0" process_env_put value processOptions set
 "git" processArgs get processOptions get process_spawn value processResult var
 processResult get "success" at println
 processOptions get "stdout_max_bytes" 1048576 put! drop

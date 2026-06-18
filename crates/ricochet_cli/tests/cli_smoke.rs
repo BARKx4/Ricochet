@@ -5459,6 +5459,96 @@ fn run_env_allowlist_bounds_process_environment_writes() {
 }
 
 #[test]
+fn run_supports_secret_config_http_and_process_helper_words() {
+    let source_path = write_source(
+        r#"
+"RICOCHET_SECRET_HELPER_TEST" secret_env secretRef var
+secretRef get "type" at
+secretRef get "name" at
+secretRef get secret_resolve value
+"dry-token" secret_literal secret_resolve value
+
+config map
+provider map
+provider get "token" secretRef get put! drop
+config get "provider" provider get put! drop
+
+path array
+path get "provider" push! drop
+path get "token" push! drop
+config get path get config_get value secret_resolve value
+
+"POST" "https://api.example.test/v1/chat" http_request_new value request var
+request get "secret-token" http_bearer_auth value request set
+payload map
+payload get "ok" true put! drop
+request get payload get http_json_body value request set
+request get 3000 http_timeout value request set
+request get "headers" at "Authorization" at
+request get "json" at "ok" at
+request get "timeout_ms" at
+
+options map
+options get "RICOCHET_CHILD_SECRET" "child" process_env_put value options set
+options get "env" at "RICOCHET_CHILD_SECRET" at
+config get "missing" config_get error "message" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .env("RICOCHET_SECRET_HELPER_TEST", "resolved-token")
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "String(\"env\")",
+        "String(\"RICOCHET_SECRET_HELPER_TEST\")",
+        "String(\"resolved-token\")",
+        "String(\"dry-token\")",
+        "String(\"Bearer secret-token\")",
+        "Bool(true)",
+        "Number(3000)",
+        "String(\"child\")",
+        "String(\"missing config value: missing\")",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "stdout should contain {expected}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn run_secret_resolve_honors_environment_capability_bounds() {
+    let denied_source_path =
+        write_source(r#""RICOCHET_SECRET_DENIED_TEST" secret_env secret_resolve drop"#);
+    let denied = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--env-allow")
+        .arg("RICOCHET_OTHER_SECRET_TEST")
+        .arg(&denied_source_path)
+        .env("RICOCHET_SECRET_DENIED_TEST", "hidden")
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !denied.status.success(),
+        "rco run should fail when secret_resolve target is outside env allowlist"
+    );
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        stderr.contains("environment variable is not allowed: RICOCHET_SECRET_DENIED_TEST"),
+        "stderr should explain secret_resolve allowlist denial, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_exposes_webview_builder_words_with_capability_controls() {
     let source_path = write_source(
         r#"

@@ -1346,6 +1346,15 @@ impl Vm {
             "workspace_mkdir" => self.call_workspace_mkdir(word),
             "workspace_copy" => self.call_workspace_copy(word),
             "workspace_move" => self.call_workspace_move(word),
+            "config_get" => self.call_config_get(word),
+            "secret_env" => self.call_secret_env(word),
+            "secret_literal" => self.call_secret_literal(word),
+            "secret_resolve" => self.call_secret_resolve(word),
+            "http_request_new" => self.call_http_request_new(word),
+            "http_header_put" => self.call_http_header_put(word),
+            "http_bearer_auth" => self.call_http_bearer_auth(word),
+            "http_json_body" => self.call_http_json_body(word),
+            "http_timeout" => self.call_http_timeout(word),
             "http_get" => self.call_capability_method_word(word, Capability::Http, "get"),
             "http_post_json" => {
                 self.call_capability_method_word(word, Capability::Http, "post-json")
@@ -1358,6 +1367,7 @@ impl Vm {
             "http_request_task" => {
                 self.call_capability_method_word(word, Capability::Http, "request-task")
             }
+            "process_env_put" => self.call_process_env_put(word),
             "process_spawn" => self.call_process_spawn(word),
             "process_spawn_task" => self.call_process_spawn_task(word),
             "process_start" => self.call_process_start(word),

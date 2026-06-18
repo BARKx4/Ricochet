@@ -1,6 +1,6 @@
 "ai/openai" import
 
-"OPENAI_API_KEY" env_get token var
+"OPENAI_API_KEY" secret_env secret_resolve value token var
 
 message map
 
@@ -26,7 +26,7 @@ schemes get "https" push! drop
 
 request get "allowed_schemes" schemes get put! drop
 
-request get "timeout_ms" 30000 put! drop
+request get 30000 http_timeout value request set
 
 request get "max_response_bytes" 1048576 put! drop
 

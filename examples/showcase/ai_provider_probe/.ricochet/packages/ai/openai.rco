@@ -16,10 +16,7 @@ end
 
 ( envName -> Map ) ai_secret_ref function
   envName var
-  ref map
-  ref get "type" "env" put! drop
-  ref get "name" envName get put! drop
-  ref get
+  envName get secret_env
 end
 
 ( model messages -> Map ) ai_openai_chat_body function
@@ -37,12 +34,10 @@ end
   token var
   baseUrl var
   model get messages get ai_openai_chat_body body var
-  token get ai_bearer_headers headers var
-  request map
-  request get "method" "POST" put! drop
-  request get "url" baseUrl get "/chat/completions" concat put! drop
-  request get "headers" headers get put! drop
-  request get "body" body get json-encode put! drop
+  "POST" baseUrl get "/chat/completions" concat http_request_new value request var
+  request get token get http_bearer_auth value request set
+  request get "Content-Type" "application/json" http_header_put value request set
+  request get body get http_json_body value request set
   request get
 end
 

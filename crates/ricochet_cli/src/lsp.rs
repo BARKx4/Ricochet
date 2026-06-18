@@ -139,6 +139,36 @@ const WORD_DOCS: &[WordDoc] = &[
         "Return a map describing enabled runtime capabilities.",
     ),
     WordDoc::new(
+        "env_get",
+        "environment",
+        "Read an environment variable through the environment capability.",
+    ),
+    WordDoc::new(
+        "env_set",
+        "environment",
+        "Set an environment variable in the current Ricochet process.",
+    ),
+    WordDoc::new(
+        "secret_env",
+        "secrets",
+        "Build an environment-backed secret reference map.",
+    ),
+    WordDoc::new(
+        "secret_literal",
+        "secrets",
+        "Build a literal secret reference map for tests and fixtures.",
+    ),
+    WordDoc::new(
+        "secret_resolve",
+        "secrets",
+        "Resolve a secret reference through the appropriate capability.",
+    ),
+    WordDoc::new(
+        "config_get",
+        "config",
+        "Read a required value from a config map by key or nested path.",
+    ),
+    WordDoc::new(
         "fs_read_text",
         "filesystem",
         "Read a text file through the filesystem host capability.",
@@ -154,6 +184,31 @@ const WORD_DOCS: &[WordDoc] = &[
         "Perform a structured HTTP request map through the HTTP host capability.",
     ),
     WordDoc::new(
+        "http_request_new",
+        "http",
+        "Create a structured HTTP request map.",
+    ),
+    WordDoc::new(
+        "http_header_put",
+        "http",
+        "Add or update a validated header in a request map.",
+    ),
+    WordDoc::new(
+        "http_bearer_auth",
+        "http",
+        "Add an Authorization bearer header to a request map.",
+    ),
+    WordDoc::new(
+        "http_json_body",
+        "http",
+        "Set a Ricochet value as a request map's JSON body.",
+    ),
+    WordDoc::new(
+        "http_timeout",
+        "http",
+        "Set a bounded timeout on a request map.",
+    ),
+    WordDoc::new(
         "http_request_task",
         "http",
         "Start a structured HTTP request as a Ricochet task.",
@@ -167,6 +222,11 @@ const WORD_DOCS: &[WordDoc] = &[
         "process_start",
         "process",
         "Start a retained long-running child process job.",
+    ),
+    WordDoc::new(
+        "process_env_put",
+        "process",
+        "Add or update a child process environment entry in an options map.",
     ),
     WordDoc::new(
         "pty_start",

@@ -1328,6 +1328,38 @@ const WORDS = [
     "example": "\"RICOCHET_MODE\" \"dev\" env_set value drop"
   },
   {
+    "word": "secret_env",
+    "aliases": ["secrets"],
+    "group": "system",
+    "stack": "name:string -> map",
+    "body": "Builds an environment-backed secret reference map without reading the secret value. Resolve it later with `secret_resolve` under the environment capability.",
+    "example": "\"OPENAI_API_KEY\" secret_env"
+  },
+  {
+    "word": "secret_literal",
+    "aliases": ["secrets"],
+    "group": "system",
+    "stack": "value:string -> map",
+    "body": "Builds a literal secret reference map for tests, fixtures, and dry-run examples. Prefer `secret_env` for real local app secrets.",
+    "example": "\"dry-run-token\" secret_literal"
+  },
+  {
+    "word": "secret_resolve",
+    "aliases": ["secrets"],
+    "group": "system",
+    "stack": "reference:map -> result(string)",
+    "body": "Resolves a secret reference. Environment-backed references use the same explicit environment capability and `--env-allow NAME` bounds as `env_get`.",
+    "example": "\"OPENAI_API_KEY\" secret_env secret_resolve value"
+  },
+  {
+    "word": "config_get",
+    "aliases": ["config"],
+    "group": "system",
+    "stack": "config:map key-or-path:string|array -> result(value)",
+    "body": "Reads a required config value from a map. A string reads one key; an array/list of strings walks nested maps and returns a `ConfigError` result if the path is missing.",
+    "example": "path array\npath get \"provider\" push! drop\npath get \"token\" push! drop\nconfig get path get config_get value"
+  },
+  {
     "word": "cwd",
     "aliases": [],
     "group": "system",
@@ -1340,7 +1372,7 @@ const WORDS = [
     "aliases": ["capabilities"],
     "group": "system",
     "stack": "-> map",
-    "body": "Returns a map describing enabled host capabilities such as filesystem, workspace, HTTP, process, PTY, approval, environment, sleep, TUI, and webview. Environment entries include an `allowlist` array when reads are name-bounded; process entries include the cwd root used by process and PTY launches.",
+    "body": "Returns a map describing enabled host capabilities such as filesystem, workspace, HTTP, process, PTY, approval, environment, sleep, TUI, and webview. Environment entries include an `allowlist` array when access is name-bounded; process entries include the cwd root used by process and PTY launches.",
     "example": "runtime_capabilities \"environment\" at \"allowlist\" at"
   },
   {
@@ -1398,6 +1430,14 @@ const WORDS = [
     "stack": "id:number options:map -> result(map)",
     "body": "Reads retained stdout/stderr for a process job. Options include `stdout_offset` and `stderr_offset`; the result includes output slices, next offsets, and the same snapshot fields as `process_job`.",
     "example": "readOptions map\njob get \"id\" at readOptions get process_read value"
+  },
+  {
+    "word": "process_env_put",
+    "aliases": ["process"],
+    "group": "system",
+    "stack": "options:map name:string value:string -> result(map)",
+    "body": "Adds or updates a child-process environment entry inside a process options map. The nested `env` map is created when missing; variable names and values are validated before use.",
+    "example": "options map\noptions get \"GIT_TERMINAL_PROMPT\" \"0\" process_env_put value options set"
   },
   {
     "word": "pty_start",
@@ -1638,6 +1678,46 @@ const WORDS = [
     "stack": "source:string destination:string options:map -> result(map)",
     "body": "Renames a file or directory inside workspace bounds. Existing destinations are rejected.",
     "example": "options map\n\"tmp/a.txt\" \"tmp/b.txt\" options get workspace_move value"
+  },
+  {
+    "word": "http_request_new",
+    "aliases": ["HTTP"],
+    "group": "system",
+    "stack": "method:string url:string -> result(map)",
+    "body": "Creates a structured HTTP request map with validated method and URL fields. Add headers, JSON bodies, and timeouts before passing it to `http_request` or `http_request_task`.",
+    "example": "\"POST\" \"https://api.example/v1\" http_request_new value"
+  },
+  {
+    "word": "http_header_put",
+    "aliases": ["HTTP", "headers"],
+    "group": "system",
+    "stack": "request:map name:string value:string -> result(map)",
+    "body": "Adds or updates a validated HTTP header inside a request map, creating the nested `headers` map when needed.",
+    "example": "request get \"Accept\" \"application/json\" http_header_put value request set"
+  },
+  {
+    "word": "http_bearer_auth",
+    "aliases": ["HTTP", "secrets"],
+    "group": "system",
+    "stack": "request:map token:string -> result(map)",
+    "body": "Adds an `Authorization: Bearer ...` header to a request map. This is intended to be paired with `secret_resolve` for env-backed API keys.",
+    "example": "request get token get http_bearer_auth value request set"
+  },
+  {
+    "word": "http_json_body",
+    "aliases": ["HTTP", "JSON"],
+    "group": "system",
+    "stack": "request:map body:any -> result(map)",
+    "body": "Stores a Ricochet value as the JSON body for a structured HTTP request and clears any string body already present.",
+    "example": "request get payload get http_json_body value request set"
+  },
+  {
+    "word": "http_timeout",
+    "aliases": ["HTTP"],
+    "group": "system",
+    "stack": "request:map millis:number -> result(map)",
+    "body": "Sets a bounded request timeout in milliseconds on a structured HTTP request map.",
+    "example": "request get 30000 http_timeout value request set"
   },
   {
     "word": "http_get",

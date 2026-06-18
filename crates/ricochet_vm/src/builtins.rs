@@ -1651,6 +1651,331 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_secret_env(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let name = match self.pop_string(word, "environment variable name string") {
+            Ok(name) => name,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if let Some(message) = validate_environment_name(&name) {
+            self.stack = stack_before;
+            return Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message,
+            });
+        }
+        self.stack.push(secret_reference_value("env", "name", name));
+        Ok(())
+    }
+
+    pub(super) fn call_secret_literal(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = match self.pop_string(word, "secret literal string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack
+            .push(secret_reference_value("literal", "value", value));
+        Ok(())
+    }
+
+    pub(super) fn call_secret_resolve(&mut self, word: &str) -> Result<(), VmError> {
+        let reference = self.pop(word)?;
+        let Value::Map(reference) = reference else {
+            self.stack.push(Value::result_err(
+                "SecretReferenceError",
+                format!(
+                    "secret reference must be a map, got {}",
+                    value_kind(&reference)
+                ),
+            ));
+            return Ok(());
+        };
+        let reference = reference.snapshot();
+        let kind = match secret_reference_string(&reference, "type")
+            .or_else(|| secret_reference_string(&reference, "kind"))
+        {
+            Some(kind) => kind,
+            None => {
+                self.stack.push(Value::result_err(
+                    "SecretReferenceError",
+                    "secret reference requires type",
+                ));
+                return Ok(());
+            }
+        };
+        match kind.as_str() {
+            "env" => {
+                let Some(name) = secret_reference_string(&reference, "name")
+                    .or_else(|| secret_reference_string(&reference, "env"))
+                else {
+                    self.stack.push(Value::result_err(
+                        "SecretReferenceError",
+                        "env secret reference requires name",
+                    ));
+                    return Ok(());
+                };
+                if let Some(message) = validate_environment_name(&name) {
+                    self.stack
+                        .push(Value::result_err("SecretReferenceError", message));
+                    return Ok(());
+                }
+                let value = match self.resolve_environment_value(word, &name)? {
+                    Ok(value) => Value::result_ok(Value::String(value)),
+                    Err(error) => Value::result_err("EnvironmentError", error),
+                };
+                self.stack.push(value);
+            }
+            "literal" => {
+                let Some(value) = secret_reference_string(&reference, "value") else {
+                    self.stack.push(Value::result_err(
+                        "SecretReferenceError",
+                        "literal secret reference requires value",
+                    ));
+                    return Ok(());
+                };
+                self.stack.push(Value::result_ok(Value::String(value)));
+            }
+            _ => {
+                self.stack.push(Value::result_err(
+                    "SecretReferenceError",
+                    format!("unsupported secret reference type: {kind}"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn call_config_get(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let path = match self.pop(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let config = match self.pop(word) {
+            Ok(Value::Map(value)) => value,
+            Ok(value) => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "config map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let path = match config_path_from_value(path) {
+            Ok(path) => path,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        self.stack.push(config_get_path(&config, &path));
+        Ok(())
+    }
+
+    pub(super) fn call_http_request_new(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let url = match self.pop_string(word, "HTTP request URL string") {
+            Ok(url) => url,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let method = match self.pop_string(word, "HTTP request method string") {
+            Ok(method) => method,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if method.parse::<reqwest::Method>().is_err() {
+            self.stack.push(Value::result_err(
+                "HttpRequestError",
+                "invalid HTTP request method",
+            ));
+            return Ok(());
+        }
+        if let Err(error) = reqwest::Url::parse(&url) {
+            self.stack.push(Value::result_err(
+                "HttpRequestError",
+                format!("invalid HTTP request URL: {error}"),
+            ));
+            return Ok(());
+        }
+        self.stack.push(Value::result_ok(Value::Map(
+            BTreeMap::from([
+                ("method".to_string(), Value::String(method)),
+                ("url".to_string(), Value::String(url)),
+            ])
+            .into(),
+        )));
+        Ok(())
+    }
+
+    pub(super) fn call_http_header_put(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = match self.pop_string(word, "HTTP header value string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let name = match self.pop_string(word, "HTTP header name string") {
+            Ok(name) => name,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match self.pop_map(word, "HTTP request map") {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack
+            .push(http_request_header_put(request, name, value));
+        Ok(())
+    }
+
+    pub(super) fn call_http_bearer_auth(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let token = match self.pop_string(word, "bearer token string") {
+            Ok(token) => token,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match self.pop_map(word, "HTTP request map") {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if token.is_empty() {
+            self.stack.push(Value::result_err(
+                "HttpRequestError",
+                "bearer token must not be empty",
+            ));
+            return Ok(());
+        }
+        self.stack.push(http_request_header_put(
+            request,
+            "Authorization".to_string(),
+            format!("Bearer {token}"),
+        ));
+        Ok(())
+    }
+
+    pub(super) fn call_http_json_body(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let body = match self.pop(word) {
+            Ok(body) => body,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match self.pop_map(word, "HTTP request map") {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        request.remove("body");
+        request.insert("json".to_string(), body);
+        self.stack.push(Value::result_ok(Value::Map(request)));
+        Ok(())
+    }
+
+    pub(super) fn call_http_timeout(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let timeout_ms = match self.pop_number(word) {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match self.pop_map(word, "HTTP request map") {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if timeout_ms <= 0 {
+            self.stack.push(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP timeout_ms must be positive, got {timeout_ms}"),
+            ));
+            return Ok(());
+        }
+        if timeout_ms > HTTP_MAX_TIMEOUT_MS as i64 {
+            self.stack.push(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP timeout_ms must be at most {HTTP_MAX_TIMEOUT_MS}"),
+            ));
+            return Ok(());
+        }
+        request.insert("timeout_ms".to_string(), Value::Number(timeout_ms));
+        self.stack.push(Value::result_ok(Value::Map(request)));
+        Ok(())
+    }
+
+    pub(super) fn call_process_env_put(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let value = match self.pop_string(word, "process environment variable value string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let name = match self.pop_string(word, "process environment variable name string") {
+            Ok(name) => name,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match self.pop_map(word, "process options map") {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        if let Some(message) = validate_environment_assignment(&name, &value) {
+            self.stack
+                .push(Value::result_err("ProcessRequestError", message));
+            return Ok(());
+        }
+        self.stack
+            .push(process_options_env_put(options, name, value));
+        Ok(())
+    }
+
     pub(super) fn call_cwd(&mut self) -> Result<(), VmError> {
         if !self.environment_enabled {
             return Err(VmError::HostError {
@@ -2940,6 +3265,37 @@ impl Vm {
             Value::String(value) => Ok(value),
             value => Err(method_type_error(word, expected, &value)),
         }
+    }
+
+    fn pop_map(&mut self, word: &str, expected: &str) -> Result<MapValue, VmError> {
+        match self.pop(word)? {
+            Value::Map(value) => Ok(value),
+            value => Err(method_type_error(word, expected, &value)),
+        }
+    }
+
+    fn resolve_environment_value(
+        &self,
+        word: &str,
+        name: &str,
+    ) -> Result<Result<String, String>, VmError> {
+        if !self.environment_enabled {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "environment capability is not enabled".to_string(),
+            });
+        }
+        if self
+            .environment_allowed_names
+            .as_ref()
+            .is_some_and(|names| !names.contains(name))
+        {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("environment variable is not allowed: {name}"),
+            });
+        }
+        Ok(std::env::var(name).map_err(|error| error.to_string()))
     }
 
     fn pop_index(&mut self, word: &str) -> Result<usize, VmError> {
@@ -4310,6 +4666,16 @@ fn process_env_from_map(
 }
 
 fn validate_environment_assignment(name: &str, value: &str) -> Option<String> {
+    if let Some(message) = validate_environment_name(name) {
+        return Some(message);
+    }
+    if value.contains('\0') {
+        return Some("environment variable value must not contain NUL".to_string());
+    }
+    None
+}
+
+fn validate_environment_name(name: &str) -> Option<String> {
     if name.is_empty() {
         return Some("environment variable name must not be empty".to_string());
     }
@@ -4319,10 +4685,150 @@ fn validate_environment_assignment(name: &str, value: &str) -> Option<String> {
     if name.contains('\0') {
         return Some("environment variable name must not contain NUL".to_string());
     }
-    if value.contains('\0') {
-        return Some("environment variable value must not contain NUL".to_string());
-    }
     None
+}
+
+fn secret_reference_value(kind: &str, key: &str, value: String) -> Value {
+    Value::Map(
+        BTreeMap::from([
+            ("type".to_string(), Value::String(kind.to_string())),
+            (key.to_string(), Value::String(value)),
+        ])
+        .into(),
+    )
+}
+
+fn secret_reference_string(reference: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+    match reference.get(key) {
+        Some(Value::String(value)) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn config_path_from_value(path: Value) -> Result<Vec<String>, Value> {
+    match path {
+        Value::String(value) if !value.is_empty() => Ok(vec![value]),
+        Value::String(_) => Err(Value::result_err(
+            "ConfigError",
+            "config path string must not be empty",
+        )),
+        Value::Array(values) => config_path_from_values(values.snapshot()),
+        Value::List(values) => config_path_from_values(values.snapshot()),
+        value => Err(Value::result_err(
+            "ConfigError",
+            format!(
+                "config path must be a string, array, or list, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn config_path_from_values(values: Vec<Value>) -> Result<Vec<String>, Value> {
+    if values.is_empty() {
+        return Err(Value::result_err(
+            "ConfigError",
+            "config path must not be empty",
+        ));
+    }
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::String(value) if !value.is_empty() => Ok(value),
+            Value::String(_) => Err(Value::result_err(
+                "ConfigError",
+                format!("config path[{index}] must not be empty"),
+            )),
+            value => Err(Value::result_err(
+                "ConfigError",
+                format!(
+                    "config path[{index}] must be a string, got {}",
+                    value_kind(&value)
+                ),
+            )),
+        })
+        .collect()
+}
+
+fn config_get_path(config: &MapValue, path: &[String]) -> Value {
+    let mut current = Value::Map(config.clone());
+    let mut traversed = Vec::new();
+    for segment in path {
+        traversed.push(segment.clone());
+        let Value::Map(map) = current else {
+            return Value::result_err(
+                "ConfigError",
+                format!("config path {} does not contain a map", traversed.join(".")),
+            );
+        };
+        match map.get(segment) {
+            Some(Value::Nil) | None => {
+                return Value::result_err(
+                    "ConfigError",
+                    format!("missing config value: {}", traversed.join(".")),
+                );
+            }
+            Some(value) => current = value,
+        }
+    }
+    Value::result_ok(current)
+}
+
+fn http_request_header_put(request: MapValue, name: String, value: String) -> Value {
+    if reqwest::header::HeaderName::from_bytes(name.as_bytes()).is_err() {
+        return Value::result_err(
+            "HttpHeaderError",
+            format!("invalid HTTP header name: {name}"),
+        );
+    }
+    if reqwest::header::HeaderValue::from_str(&value).is_err() {
+        return Value::result_err(
+            "HttpHeaderError",
+            format!("invalid HTTP header value for {name}"),
+        );
+    }
+    let headers = match request.get("headers") {
+        Some(Value::Map(headers)) => headers,
+        Some(Value::Nil) | None => {
+            let headers = MapValue::default();
+            request.insert("headers".to_string(), Value::Map(headers.clone()));
+            headers
+        }
+        Some(value) => {
+            return Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request headers must be a map, got {}",
+                    value_kind(&value)
+                ),
+            );
+        }
+    };
+    headers.insert(name, Value::String(value));
+    Value::result_ok(Value::Map(request))
+}
+
+fn process_options_env_put(options: MapValue, name: String, value: String) -> Value {
+    let env = match options.get("env") {
+        Some(Value::Map(env)) => env,
+        Some(Value::Nil) | None => {
+            let env = MapValue::default();
+            options.insert("env".to_string(), Value::Map(env.clone()));
+            env
+        }
+        Some(value) => {
+            return Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option env must be a map, got {}",
+                    value_kind(&value)
+                ),
+            );
+        }
+    };
+    env.insert(name, Value::String(value));
+    Value::result_ok(Value::Map(options))
 }
 
 fn process_read_offsets(options: Value) -> Result<(usize, usize), Value> {

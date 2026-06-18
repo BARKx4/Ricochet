@@ -295,30 +295,31 @@ $request await value response var
 $response "status" at println
 ```
 
-For authenticated provider calls, pass a request map with explicit headers.
-`http_request` and `http_request_task` preserve the same runtime host allowlist
-and no-follow redirect policy as the simpler HTTP words. Request maps can also
-narrow themselves with `allowed_hosts` and `allowed_schemes`, and can set
-bounded `timeout_ms` and `max_response_bytes` values:
+For authenticated provider calls, keep settings as ordinary maps and store
+secret references instead of secret values. `secret_env` creates an env-backed
+reference, `config_get` reads required nested settings, and `secret_resolve`
+reads the value only at the point of use under the environment capability.
+`http_request_new`, `http_bearer_auth`, `http_json_body`, and `http_timeout`
+cover the common request-map plumbing while preserving the same runtime host
+allowlist and no-follow redirect policy as the simpler HTTP words:
 
 ```forth
-headers map
-headers get "Authorization" "Bearer token" put! drop
-hosts array
-hosts get "api.example" push! drop
-schemes array
-schemes get "https" push! drop
-body map
-body get "probe" true put! drop
-request map
-request get "url" "https://api.example/v1/models" put! drop
-request get "method" "POST" put! drop
-request get "headers" headers get put! drop
-request get "json" body get put! drop
-request get "allowed_hosts" hosts get put! drop
-request get "allowed_schemes" schemes get put! drop
-request get "timeout_ms" 30000 put! drop
-request get "max_response_bytes" 1048576 put! drop
+settings map
+provider map
+provider get "api_key" "PROVIDER_API_KEY" secret_env put! drop
+settings get "provider" provider get put! drop
+
+path array
+path get "provider" push! drop
+path get "api_key" push! drop
+settings get path get config_get value secret_resolve value token var
+
+payload map
+payload get "probe" true put! drop
+"POST" "https://api.example/v1/models" http_request_new value request var
+request get token get http_bearer_auth value request set
+request get payload get http_json_body value request set
+request get 30000 http_timeout value request set
 request get http_request value response var
 response get "status" at println
 ```
@@ -373,6 +374,15 @@ anything.
 `--env-allow` for trusted local beta apps that store secret references as
 environment variable names. `--no-env` keeps the default disabled behavior
 explicit, and conflicts with both env-opening flags.
+
+Use `process_env_put` when a child process needs a bounded environment value
+without hand-building the nested `env` options map:
+
+```forth
+options map
+options get "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
+"git" args get options get process_spawn value
+```
 
 Workspace helpers provide structured filesystem access for local apps while
 preserving the same `--fs-root` and `--fs-readonly` bounds as the lower-level
