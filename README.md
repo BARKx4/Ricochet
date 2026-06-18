@@ -539,14 +539,14 @@ for live editor support.
 
 `rco lsp` speaks stdio Language Server Protocol and provides live diagnostics,
 completion, hover, go-to-definition, document symbols, semantic tokens,
-document formatting, prepare-rename, and single-document rename support. The VS
-Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
+document formatting, quick fixes, prepare-rename, and single-document rename
+support. The VS Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
 `Ricochet: Restart Language Server` for local toolchain rebuilds. The same
 diagnostics warn when old `name get` variable reads should be written as
-`$name`; keep `"name" get` only when the variable name is intentionally data on
-the stack. Use `rco lint [--json] [path]` to run those same compile and syntax
-diagnostics over a file or directory in CI before `rco fmt` rewrites legacy
-source. Terminal
+`$name` and offer a quick fix; keep `"name" get` only when the variable name is
+intentionally data on the stack. Use `rco lint [--json] [path]` to run those
+same compile and syntax diagnostics over a file or directory in CI before
+`rco fmt` rewrites legacy source. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks

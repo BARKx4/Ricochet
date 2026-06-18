@@ -577,6 +577,7 @@ impl LspServer {
                 Ok(vec![response(id, self.semantic_tokens(&params))])
             }
             "textDocument/formatting" => Ok(vec![response(id, self.formatting(&params))]),
+            "textDocument/codeAction" => Ok(vec![response(id, self.code_actions(&params))]),
             "textDocument/prepareRename" => Ok(vec![response(id, self.prepare_rename(&params))]),
             "textDocument/rename" => Ok(vec![response(id, self.rename(&params))]),
             _ if id.is_some() => Ok(vec![error_response(
@@ -819,6 +820,42 @@ impl LspServer {
         }])
     }
 
+    fn code_actions(&self, params: &Value) -> Value {
+        let Some(document) = self.document_for_params(params) else {
+            return json!([]);
+        };
+        let request_range = params
+            .get("range")
+            .and_then(|range| lsp_range_offsets(&document.source, range));
+        let context_diagnostics = params
+            .get("context")
+            .and_then(|context| context.get("diagnostics"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let diagnostics = if context_diagnostics.is_empty() {
+            crate::source_lsp_diagnostics(&document.uri, &document.source)
+        } else {
+            context_diagnostics
+        };
+        let actions = diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic["code"] == "prefer-dollar-reference")
+            .filter(|diagnostic| {
+                request_range.is_none_or(|request_range| {
+                    diagnostic
+                        .get("range")
+                        .and_then(|range| lsp_range_offsets(&document.source, range))
+                        .is_some_and(|diagnostic_range| {
+                            ranges_overlap(request_range, diagnostic_range)
+                        })
+                })
+            })
+            .filter_map(|diagnostic| prefer_reference_code_action(document, diagnostic))
+            .collect::<Vec<_>>();
+        json!(actions)
+    }
+
     fn prepare_rename(&self, params: &Value) -> Value {
         let Some(document) = self.document_for_params(params) else {
             return Value::Null;
@@ -915,6 +952,9 @@ fn initialize_result() -> Value {
                 "full": true,
             },
             "documentFormattingProvider": true,
+            "codeActionProvider": {
+                "codeActionKinds": ["quickfix"],
+            },
             "renameProvider": {
                 "prepareProvider": true,
             },
@@ -1294,12 +1334,56 @@ fn is_renameable(name: &str) -> bool {
         && !word_docs().iter().any(|entry| entry.label.as_ref() == name)
 }
 
+fn prefer_reference_code_action(document: &LspDocument, diagnostic: Value) -> Option<Value> {
+    let replacement = diagnostic
+        .get("data")
+        .and_then(|data| data.get("replacement"))
+        .and_then(Value::as_str)?;
+    let range = diagnostic.get("range")?.clone();
+    let mut changes = serde_json::Map::new();
+    changes.insert(
+        document.uri.clone(),
+        Value::Array(vec![json!({
+            "range": range,
+            "newText": replacement,
+        })]),
+    );
+    Some(json!({
+        "title": format!("Replace legacy variable read with {replacement}"),
+        "kind": "quickfix",
+        "diagnostics": [diagnostic],
+        "isPreferred": true,
+        "edit": {
+            "changes": Value::Object(changes),
+        },
+    }))
+}
+
 fn lsp_range(source: &str, span: Span) -> Value {
     let range = utf16_range_for_span(source, span);
     json!({
         "start": position_json(range.start),
         "end": position_json(range.end),
     })
+}
+
+fn source_position_from_json(value: &Value) -> Option<SourcePosition> {
+    Some(SourcePosition {
+        line: value.get("line")?.as_u64()? as usize,
+        character: value.get("character")?.as_u64()? as usize,
+    })
+}
+
+fn lsp_range_offsets(source: &str, range: &Value) -> Option<(usize, usize)> {
+    let start = source_position_from_json(range.get("start")?)?;
+    let end = source_position_from_json(range.get("end")?)?;
+    let start = offset_for_position(source, start)?;
+    let end = offset_for_position(source, end)?;
+    Some((start.min(end), start.max(end)))
+}
+
+fn ranges_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
+    left.0 <= right.1 && right.0 <= left.1
 }
 
 fn position_json(position: SourcePosition) -> Value {
@@ -1411,6 +1495,11 @@ mod tests {
             messages[0]["result"]["capabilities"]["hoverProvider"], true,
             "initialize should advertise hover support"
         );
+        assert_eq!(
+            messages[0]["result"]["capabilities"]["codeActionProvider"]["codeActionKinds"][0],
+            "quickfix",
+            "initialize should advertise quick fixes"
+        );
         assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
         assert_eq!(
             messages[1]["params"]["diagnostics"][0]["message"],
@@ -1451,6 +1540,52 @@ mod tests {
         assert_eq!(diagnostics[0]["message"], "prefer $name for variable reads");
         assert_eq!(diagnostics[0]["severity"], 2);
         assert_eq!(diagnostics[0]["code"], "prefer-dollar-reference");
+        assert_eq!(diagnostics[0]["data"]["replacement"], "$name");
+    }
+
+    #[test]
+    fn lsp_server_returns_quick_fix_for_legacy_variable_reads() {
+        let uri = "file:///workspace/Style.rco";
+        let source = "\"Ada\" name var\nname get println\n\"name\" get println\n";
+        let input = messages(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"ricochet","version":1,"text":source}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"textDocument/codeAction","params":{"textDocument":{"uri":uri},"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":8}},"context":{"diagnostics":[]}}}),
+            json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ]);
+        let mut output = Vec::new();
+
+        run_lsp(Cursor::new(input), &mut output, false).expect("LSP server should run");
+
+        let messages = parse_messages(&output);
+        let actions = messages
+            .iter()
+            .find(|message| message["id"] == 2)
+            .expect("code action response should exist")["result"]
+            .as_array()
+            .expect("code actions should be an array");
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0]["title"],
+            "Replace legacy variable read with $name"
+        );
+        assert_eq!(actions[0]["kind"], "quickfix");
+        assert_eq!(actions[0]["isPreferred"], true);
+        assert_eq!(actions[0]["edit"]["changes"][uri][0]["newText"], "$name");
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["range"]["start"]["line"],
+            1
+        );
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["range"]["start"]["character"],
+            0
+        );
+        assert_eq!(
+            actions[0]["edit"]["changes"][uri][0]["range"]["end"]["character"],
+            8
+        );
     }
 
     #[test]

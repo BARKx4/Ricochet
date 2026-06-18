@@ -1869,6 +1869,7 @@ struct SyntaxLint {
     span: Span,
     message: String,
     help: String,
+    replacement: Option<String>,
     code: &'static str,
 }
 
@@ -1960,6 +1961,7 @@ fn prefer_reference_lint(name: &str, span: Span) -> SyntaxLint {
         help: format!(
             "Use ${name} for ordinary variable reads. Keep \"{name}\" get only when the variable name is data on the stack."
         ),
+        replacement: Some(format!("${name}")),
         code: "prefer-dollar-reference",
     }
 }
@@ -1990,7 +1992,7 @@ fn syntax_lint_lsp_diagnostic(file: &str, source: &str, lint: SyntaxLint) -> ser
         "code": lint.code,
         "codeDescription": { "href": "https://github.com/BARKx4/Ricochet" },
         "message": lint.message,
-        "data": { "help": lint.help, "file": file },
+        "data": { "help": lint.help, "file": file, "replacement": lint.replacement },
     })
 }
 

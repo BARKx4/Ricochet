@@ -17,8 +17,9 @@ The grammar registers the `source.ricochet` scope and highlights:
 - Args arrows and block/argument delimiters
 
 The language server adds live diagnostics, completion, hover, go-to-definition,
-document symbols, semantic tokens, document formatting, prepare-rename, and
-single-document rename support.
+document symbols, semantic tokens, document formatting, quick fixes,
+prepare-rename, and single-document rename support. The current quick fix
+rewrites legacy `name get` variable reads to `$name`.
 
 The extension also includes `Ricochet: Run With Stack Visualizer`, which runs
 the active `.rco` file with `rco run --trace-file` and opens a separate IDE
