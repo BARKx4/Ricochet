@@ -1,5 +1,7 @@
-use std::collections::BTreeMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufRead, Write};
+use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 use ricochet_compiler::compile_source;
@@ -7,6 +9,7 @@ use ricochet_syntax::{
     format_source, lex, parse_module, utf16_range_for_span, Expr, Item as SyntaxItem, Module,
     SourcePosition, Span, SpannedExpr, Token, TokenKind,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 const TOKEN_TYPES: &[&str] = &[
@@ -24,7 +27,12 @@ const TOKEN_TYPES: &[&str] = &[
     "operator",
 ];
 
-const WORD_DOCS: &[WordDoc] = &[
+const REFERENCE_APP_JS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/reference/app.js"
+));
+
+const CURATED_WORD_DOCS: &[WordDoc] = &[
     WordDoc::new(
         "Subclass",
         "class declaration",
@@ -330,23 +338,122 @@ struct LspDocument {
 
 #[derive(Debug, Clone)]
 pub(crate) struct WordDoc {
-    pub(crate) label: &'static str,
-    pub(crate) detail: &'static str,
-    pub(crate) documentation: &'static str,
+    pub(crate) label: Cow<'static, str>,
+    pub(crate) detail: Cow<'static, str>,
+    pub(crate) documentation: Cow<'static, str>,
 }
 
 impl WordDoc {
     const fn new(label: &'static str, detail: &'static str, documentation: &'static str) -> Self {
         Self {
-            label,
-            detail,
-            documentation,
+            label: Cow::Borrowed(label),
+            detail: Cow::Borrowed(detail),
+            documentation: Cow::Borrowed(documentation),
         }
     }
 }
 
 pub(crate) fn word_docs() -> &'static [WordDoc] {
-    WORD_DOCS
+    static WORD_DOCS: OnceLock<Vec<WordDoc>> = OnceLock::new();
+    WORD_DOCS.get_or_init(build_word_docs).as_slice()
+}
+
+#[derive(Debug, Deserialize)]
+struct ReferenceWordDoc {
+    word: String,
+    group: String,
+    stack: String,
+    body: String,
+    example: String,
+}
+
+fn build_word_docs() -> Vec<WordDoc> {
+    let mut docs = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    if let Ok(reference_docs) = parse_reference_word_docs(REFERENCE_APP_JS) {
+        for entry in reference_docs {
+            if seen.insert(entry.word.clone()) {
+                let documentation = reference_word_markdown(&entry);
+                docs.push(WordDoc {
+                    label: Cow::Owned(entry.word),
+                    detail: Cow::Owned(entry.group),
+                    documentation: Cow::Owned(documentation),
+                });
+            }
+        }
+    }
+
+    for entry in CURATED_WORD_DOCS {
+        if seen.insert(entry.label.to_string()) {
+            docs.push(entry.clone());
+        }
+    }
+
+    docs
+}
+
+fn reference_word_markdown(entry: &ReferenceWordDoc) -> String {
+    let mut documentation = String::new();
+    documentation.push_str(&entry.body);
+    if !entry.stack.is_empty() {
+        documentation.push_str("\n\nStack: `");
+        documentation.push_str(&entry.stack);
+        documentation.push('`');
+    }
+    if !entry.example.is_empty() {
+        documentation.push_str("\n\n```ricochet\n");
+        documentation.push_str(&entry.example);
+        documentation.push_str("\n```");
+    }
+    documentation
+}
+
+fn parse_reference_word_docs(source: &str) -> Result<Vec<ReferenceWordDoc>> {
+    let docs_json = extract_reference_words_json(source)?;
+    serde_json::from_str(docs_json).context("failed to parse embedded reference WORDS catalog")
+}
+
+fn extract_reference_words_json(source: &str) -> Result<&str> {
+    let marker_start = source
+        .find("const WORDS")
+        .context("could not find const WORDS in embedded reference catalog")?;
+    let after_marker = &source[marker_start..];
+    let array_offset = after_marker
+        .find('[')
+        .context("could not find WORDS array start in embedded reference catalog")?;
+    let array_start = marker_start + array_offset;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in source[array_start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '[' => depth += 1,
+            ']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let end = array_start + offset + ch.len_utf8();
+                    return Ok(&source[array_start..end]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    bail!("could not find WORDS array end in embedded reference catalog")
 }
 
 #[derive(Debug, Clone)]
@@ -524,16 +631,16 @@ impl LspServer {
     }
 
     fn completions(&self, params: &Value) -> Vec<Value> {
-        let mut items = WORD_DOCS
+        let mut items = word_docs()
             .iter()
             .map(|entry| {
                 json!({
-                    "label": entry.label,
-                    "kind": completion_kind(entry.label),
-                    "detail": entry.detail,
+                    "label": entry.label.as_ref(),
+                    "kind": completion_kind(entry.label.as_ref()),
+                    "detail": entry.detail.as_ref(),
                     "documentation": {
                         "kind": "markdown",
-                        "value": entry.documentation,
+                        "value": entry.documentation.as_ref(),
                     },
                 })
             })
@@ -562,7 +669,10 @@ impl LspServer {
             return Value::Null;
         };
 
-        if let Some(entry) = WORD_DOCS.iter().find(|entry| entry.label == hit.label) {
+        if let Some(entry) = word_docs()
+            .iter()
+            .find(|entry| entry.label.as_ref() == hit.label)
+        {
             return json!({
                 "contents": {
                     "kind": "markdown",
@@ -1126,7 +1236,7 @@ fn is_renameable(name: &str) -> bool {
         && name.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '?' | '!' | '.')
         })
-        && !WORD_DOCS.iter().any(|entry| entry.label == name)
+        && !word_docs().iter().any(|entry| entry.label.as_ref() == name)
 }
 
 fn lsp_range(source: &str, span: Span) -> Value {

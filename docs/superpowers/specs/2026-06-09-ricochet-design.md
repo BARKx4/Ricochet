@@ -785,7 +785,7 @@ Current implementation note: `rco doc [path]` emits Markdown for `.rco` files,
 directories, or projects. It includes class inheritance, table mappings, fields,
 methods, functions, Args metadata, and preceding doc comments. Full package
 metadata and fully generated built-in reference pages remain future work;
-`rco words [--json] [--check]` now exposes the curated editor/LSP inventory and
+`rco words [--json] [--check]` now exposes the embedded editor/LSP inventory and
 validates the checked-in reference catalog against the TextMate grammar.
 
 ## First Implementation Milestone

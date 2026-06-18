@@ -533,7 +533,7 @@ contracts.
 
 `rco words` prints the built-in editor/LSP word inventory; `rco words --json`
 emits it for tooling. Maintainers can run `rco words --check` from the source
-tree to compare `docs/reference/app.js`, the TextMate grammar, and the curated
+tree to compare `docs/reference/app.js`, the TextMate grammar, and the embedded
 LSP inventory. `scripts/validate-editor-assets.ps1` checks the grammar and VS
 Code wiring against the reference word catalog, and release archives include
 this folder under `editors/vscode`.

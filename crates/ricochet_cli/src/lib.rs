@@ -1268,18 +1268,18 @@ struct ReferenceWord {
 
 #[derive(Debug, Serialize)]
 struct WordInventoryEntry {
-    word: &'static str,
-    detail: &'static str,
-    documentation: &'static str,
+    word: String,
+    detail: String,
+    documentation: String,
 }
 
 fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Result<()> {
     let entries = lsp::word_docs()
         .iter()
         .map(|entry| WordInventoryEntry {
-            word: entry.label,
-            detail: entry.detail,
-            documentation: entry.documentation,
+            word: entry.label.to_string(),
+            detail: entry.detail.to_string(),
+            documentation: entry.documentation.to_string(),
         })
         .collect::<Vec<_>>();
 
@@ -1292,7 +1292,7 @@ fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Res
     if check {
         let summary = check_word_inventory(docs_app, grammar)?;
         let message = format!(
-            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries ({} documented-only words are not in the curated LSP inventory, {} duplicate reference entries)",
+            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries ({} documented token words missing from the embedded LSP inventory, {} duplicate reference entries)",
             summary.documented_words,
             summary.grammar_token_words,
             summary.lsp_words,
@@ -1312,7 +1312,7 @@ fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Res
 fn print_word_inventory(entries: &[WordInventoryEntry]) {
     let mut groups: BTreeMap<&str, Vec<&WordInventoryEntry>> = BTreeMap::new();
     for entry in entries {
-        groups.entry(entry.detail).or_default().push(entry);
+        groups.entry(entry.detail.as_str()).or_default().push(entry);
     }
 
     println!(

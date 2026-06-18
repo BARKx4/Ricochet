@@ -775,6 +775,11 @@ fn words_json_lists_builtin_editor_inventory() {
         serde_json::from_slice(&output.stdout).expect("words output should be JSON");
     let words = payload.as_array().expect("words output should be an array");
     assert!(
+        words.len() > 200,
+        "inventory should embed the full reference catalog, got {} entries\nstdout:\n{stdout}",
+        words.len()
+    );
+    assert!(
         words.iter().any(|entry| entry["word"] == "env_get"),
         "inventory should include env_get\nstdout:\n{stdout}"
     );
@@ -895,6 +900,15 @@ fn lsp_server_initializes_and_publishes_live_diagnostics() {
                 .iter()
                 .any(|item| item["label"] == "Accessor")),
         "completion response should include Ricochet words\nstdout:\n{stdout}"
+    );
+    assert!(
+        messages.iter().any(|message| message["id"] == 2
+            && message["result"]["items"]
+                .as_array()
+                .expect("completion result should contain items")
+                .iter()
+                .any(|item| item["label"] == "workspace_read_text")),
+        "completion response should include embedded reference catalog words\nstdout:\n{stdout}"
     );
 }
 
