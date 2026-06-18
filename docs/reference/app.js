@@ -248,28 +248,12 @@ const WORDS = [
     "example": "users array\nusers get \"Ada\" push! drop"
   },
   {
-    "word": "push!",
-    "aliases": [],
-    "group": "data",
-    "stack": "collection value -> collection",
-    "body": "Appends a value to a mutable array, list, or set and returns the collection.",
-    "example": "users get \"Ada\" push! drop"
-  },
-  {
     "word": "map",
     "aliases": [],
     "group": "data",
     "stack": "name?:string -> | -> map",
     "body": "With a name on top, declares a mutable map variable. With no name, pushes a new empty map. Anonymous construction is also available as `Map new`.",
     "example": "settings map\nsettings get \"theme\" \"dark\" put! drop"
-  },
-  {
-    "word": "put!",
-    "aliases": [],
-    "group": "data",
-    "stack": "map key:string value:any -> map",
-    "body": "Sets a key on a mutable map and returns the map.",
-    "example": "settings get \"name\" \"Ada\" put! drop"
   },
   {
     "word": "var",
@@ -364,7 +348,7 @@ const WORDS = [
     "aliases": [],
     "group": "oop",
     "stack": "block methodName:string ->",
-    "body": "Installs a bytecode method inside the current class body.",
+    "body": "Installs a bytecode method inside the current class body. Top-level methods are not supported.",
     "example": "[ self email.get ] \"displayName\" Method"
   },
   {
@@ -390,14 +374,6 @@ const WORDS = [
     "stack": "declaration",
     "body": "Declares a top-level function. Optional args metadata can precede the name.",
     "example": "( left right -> Number ) sum function\n  left get right get +\nend"
-  },
-  {
-    "word": "Method",
-    "aliases": [],
-    "group": "control",
-    "stack": "class-body declaration",
-    "body": "Declares a named method inside a class body. Top-level methods are not supported.",
-    "example": "[ self email.get ] \"displayName\" Method"
   },
   {
     "word": "return",
@@ -529,11 +505,11 @@ const WORDS = [
   },
   {
     "word": "status",
-    "aliases": [],
+    "aliases": ["task status"],
     "group": "web",
-    "stack": "action status:number -> action",
-    "body": "Sets the HTTP status code on a controller action result map.",
-    "example": "\"created\" text 201 status"
+    "stack": "action status:number -> action | task -> string",
+    "body": "Sets the HTTP status code on a controller action result map, or returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
+    "example": "\"created\" text 201 status\ntask get status"
   },
   {
     "word": "header",
@@ -585,11 +561,11 @@ const WORDS = [
   },
   {
     "word": "find",
-    "aliases": ["Active Record"],
+    "aliases": ["Active Record", "collection", "regex"],
     "group": "web",
-    "stack": "id ModelClass -> result(record|nil)",
-    "body": "Finds a row by id for a mapped model class.",
-    "example": "42 User find"
+    "stack": "id ModelClass -> result(record|nil) | block collection -> value|nil | haystack:string regex -> map|nil",
+    "body": "Finds a row by id for a mapped model class, the first collection item whose block result is truthy, or the first regex match as a map with `text`, `start`, and `end`.",
+    "example": "42 User find\n[ 8 = ] numbers get find\n\"abc123\" digits get find"
   },
   {
     "word": "default-page",
@@ -617,19 +593,19 @@ const WORDS = [
   },
   {
     "word": "count",
-    "aliases": ["Active Record"],
+    "aliases": ["Active Record", "length"],
     "group": "web",
-    "stack": "ModelClass -> result(number)",
-    "body": "Counts rows for a mapped model class.",
-    "example": "User count"
+    "stack": "ModelClass -> result(number) | string|collection -> number",
+    "body": "Counts rows for a mapped model class, characters for strings, or items for collections.",
+    "example": "User count\nusers get count"
   },
   {
     "word": "first",
-    "aliases": ["Active Record"],
+    "aliases": ["Active Record", "collection"],
     "group": "web",
-    "stack": "ModelClass -> result(record|nil)",
-    "body": "Loads the first row for a mapped model class.",
-    "example": "User first"
+    "stack": "ModelClass -> result(record|nil) | string|array|list|set -> value|nil",
+    "body": "Loads the first row for a mapped model class, or returns the first character or collection item.",
+    "example": "User first\nusers get first"
   },
   {
     "word": "exists?",
@@ -864,28 +840,12 @@ const WORDS = [
     "example": "users get clear! drop"
   },
   {
-    "word": "count",
-    "aliases": ["length"],
-    "group": "collection",
-    "stack": "string|collection -> number",
-    "body": "Counts characters for strings or items for collections.",
-    "example": "users get count"
-  },
-  {
     "word": "at",
     "aliases": [],
     "group": "collection",
     "stack": "index:number string|array|list -> value | key:string map -> value",
     "body": "Reads an indexed value, character, or map entry. Missing values produce nil.",
     "example": "users get 0 at\nsettings get \"theme\" at"
-  },
-  {
-    "word": "first",
-    "aliases": [],
-    "group": "collection",
-    "stack": "string|array|list|set -> value|nil",
-    "body": "Returns the first character or item, or nil for an empty receiver.",
-    "example": "users get first"
   },
   {
     "word": "last",
@@ -974,14 +934,6 @@ const WORDS = [
     "stack": "initial:any block array|list|set -> value",
     "body": "Reduces a sequence by calling the block with accumulator then item.",
     "example": "0 [ + ] numbers get reduce"
-  },
-  {
-    "word": "find",
-    "aliases": [],
-    "group": "collection",
-    "stack": "block collection -> value|nil",
-    "body": "Returns the first item whose block result is truthy.",
-    "example": "[ 8 = ] numbers get find"
   },
   {
     "word": "any?",
@@ -1097,11 +1049,11 @@ const WORDS = [
   },
   {
     "word": "replace",
-    "aliases": [],
+    "aliases": ["regex"],
     "group": "string",
-    "stack": "needle:string replacement:string string -> string",
-    "body": "Replaces all matching substrings.",
-    "example": "\"telnet era\" \"telnet\" \"web\" replace"
+    "stack": "needle:string replacement:string string -> string | haystack:string replacement:string regex -> string",
+    "body": "Replaces all matching substrings, or all regex matches when the receiver is a regex.",
+    "example": "\"telnet era\" \"telnet\" \"web\" replace\n\"abc123\" \"#\" digits get replace"
   },
   {
     "word": "contains?",
@@ -1200,28 +1152,12 @@ const WORDS = [
     "example": "\"hello-world\" slugPattern get matches?"
   },
   {
-    "word": "find",
-    "aliases": ["regex"],
-    "group": "string",
-    "stack": "haystack:string regex -> map|nil",
-    "body": "Returns a match map with `text`, `start`, and `end`, or nil.",
-    "example": "\"abc123\" digits get find"
-  },
-  {
     "word": "captures",
     "aliases": ["regex"],
     "group": "string",
     "stack": "haystack:string regex -> map|nil",
     "body": "Returns numbered and named capture groups as a map, or nil.",
     "example": "\"item-42\" pairPattern get captures"
-  },
-  {
-    "word": "replace",
-    "aliases": ["regex"],
-    "group": "string",
-    "stack": "haystack:string replacement:string regex -> string",
-    "body": "Replaces all regex matches.",
-    "example": "\"abc123\" \"#\" digits get replace"
   },
   {
     "word": "ok",
@@ -1974,14 +1910,6 @@ const WORDS = [
     "stack": "task -> map",
     "body": "Returns a task metadata map with `id`, `status`, `pending`, `running`, `completed`, and `failed` fields.",
     "example": "task get info"
-  },
-  {
-    "word": "status",
-    "aliases": [],
-    "group": "inspect",
-    "stack": "task -> string",
-    "body": "Returns `running`, `completed`, `failed`, or `consumed` for a task handle.",
-    "example": "task get status"
   },
   {
     "word": "pending?",

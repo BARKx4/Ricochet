@@ -820,8 +820,8 @@ fn words_check_validates_reference_docs_and_textmate_inventory() {
         "stdout should report a passing inventory check, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("duplicate reference entries"),
-        "stdout should keep existing duplicate reference entries visible, got:\n{stdout}"
+        stdout.contains("0 duplicate reference entries"),
+        "stdout should confirm the reference catalog has no duplicate primary words, got:\n{stdout}"
     );
 }
 
