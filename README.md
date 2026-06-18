@@ -88,8 +88,7 @@ foundation that other developers can scaffold, run, inspect, and extend.
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
 
-Still planned: production auth hardening, streaming AI helpers, and richer
-schema package helpers.
+Still planned: production auth hardening and streaming AI helpers.
 
 ## Quickstart
 
