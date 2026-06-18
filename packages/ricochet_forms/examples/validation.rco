@@ -7,3 +7,14 @@ field get "value" at form_required println
 form_validation validation var
 
 validation get "email" "Email is required" form_error form_add_error json-encode println
+
+form_schema
+  "email" "string" form_required_field
+  "age" "number" form_optional_field
+schema var
+
+data map
+data get "email" "ada@example.com" put! drop
+data get "age" 37 put! drop
+
+data get schema get form_schema_validate json-encode println

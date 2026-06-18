@@ -8,8 +8,8 @@ language core.
   helpers, and extension points. It does not claim production password storage.
 - `@ricochet/ai`: provider-agnostic HTTP request maps, OpenAI-compatible
   request builders, and response normalization layered on core secret refs.
-- `@ricochet/forms`: form field maps, required-field validation, validation
-  result maps, and multipart/upload helper maps.
+- `@ricochet/forms`: form field maps, required-field validation, schema-shaped
+  validation result maps, and multipart/upload helper maps.
 - `@ricochet/test_helpers`: package and MVC test assertions, fixture maps,
   HTTP assertion helpers, and temporary workspace helper maps.
 

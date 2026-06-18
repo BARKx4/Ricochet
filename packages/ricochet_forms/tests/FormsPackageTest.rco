@@ -13,4 +13,33 @@ FormsPackageTest TestCase Subclass
     form_validation "email" "Email required" form_error form_add_error "ok" at
     false assert-equals
   ] "testValidationError" Method
+  [
+    form_schema "email" "string" form_required_field "age" "number" form_optional_field schema var
+    data map
+    data get "email" "ada@example.com" put! drop
+    data get "age" 37 put! drop
+    data get schema get form_schema_validate "ok" at
+    true assert-equals
+  ] "testSchemaValidationAcceptsValidData" Method
+  [
+    form_schema "email" "string" form_required_field schema var
+    data map
+    data get schema get form_schema_validate result var
+    result get "ok" at false assert-equals
+    result get "errors" at first "field" at "email" assert-equals
+  ] "testSchemaValidationRequiresFields" Method
+  [
+    form_schema "age" "number" form_required_field schema var
+    data map
+    data get "age" "old" put! drop
+    data get schema get form_schema_validate result var
+    result get "ok" at false assert-equals
+    result get "errors" at first "message" at "must be number" assert-equals
+  ] "testSchemaValidationReportsTypeMismatch" Method
+  [
+    form_schema "nickname" "string" form_optional_field schema var
+    data map
+    data get schema get form_schema_validate "ok" at
+    true assert-equals
+  ] "testSchemaValidationAllowsMissingOptionalFields" Method
 end

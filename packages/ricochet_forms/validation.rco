@@ -42,6 +42,81 @@ end
   validation get
 end
 
+( -> Map ) form_schema function
+  schema map
+  schema get
+end
+
+( type required -> Map ) form_schema_rule function
+  required var
+  type var
+  rule map
+  rule get "type" type get put! drop
+  rule get "required" required get put! drop
+  rule get
+end
+
+( schema name type -> Map ) form_required_field function
+  type var
+  name var
+  schema var
+  type get true form_schema_rule rule var
+  schema get name get rule get put! drop
+  schema get
+end
+
+( schema name type -> Map ) form_optional_field function
+  type var
+  name var
+  schema var
+  type get false form_schema_rule rule var
+  schema get name get rule get put! drop
+  schema get
+end
+
+( value expectedType -> Bool ) form_type_matches function
+  expectedType var
+  value var
+  expectedType get "any" = if
+    true
+  else
+    value get type expectedType get =
+  end
+end
+
+( data schema -> Map ) form_schema_validate function
+  schema var
+  data var
+  form_validation validation var
+
+  [
+    rule var
+    field var
+    rule get "type" at typeName var
+    data get field get at value var
+
+    rule get "required" at true = if
+      value get nil? if
+        validation get field get "is required" form_error form_add_error validation set
+      else
+        typeName get "string" = if
+          value get blank? if
+            validation get field get "is required" form_error form_add_error validation set
+          end
+        end
+      end
+    end
+
+    value get nil? false = if
+      value get typeName get form_type_matches false = if
+        validation get field get "must be " typeName get concat form_error form_add_error validation set
+      end
+    end
+  ] schema get each drop
+
+  validation get
+end
+
 ( name filename contentType size -> Map ) form_multipart_file function
   size var
   contentType var
