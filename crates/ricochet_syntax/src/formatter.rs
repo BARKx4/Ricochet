@@ -117,8 +117,9 @@ impl Formatter {
 
         let parts = expressions
             .iter()
-            .map(|expr| format_expr_inline(&expr.expr))
+            .map(|expr| (*expr).clone())
             .collect::<Vec<_>>();
+        let parts = format_exprs_inline(&parts);
         self.line(indent, &parts.join(" "));
     }
 
@@ -162,10 +163,8 @@ impl Formatter {
             return;
         }
 
-        let parts = exprs
-            .iter()
-            .map(|expr| format_expr_inline(&expr.expr))
-            .collect::<Vec<_>>();
+        let parts = exprs.to_vec();
+        let parts = format_exprs_inline(&parts);
         self.line(indent, &parts.join(" "));
     }
 
@@ -176,10 +175,8 @@ impl Formatter {
         else_body: &[SpannedExpr],
         indent: usize,
     ) {
-        let condition = prefix
-            .iter()
-            .map(|expr| format_expr_inline(&expr.expr))
-            .collect::<Vec<_>>();
+        let condition = prefix.to_vec();
+        let condition = format_exprs_inline(&condition);
         let head = if condition.is_empty() {
             "if".to_string()
         } else {
@@ -195,10 +192,8 @@ impl Formatter {
     }
 
     fn format_while(&mut self, condition: &[SpannedExpr], body: &[SpannedExpr], indent: usize) {
-        let condition = condition
-            .iter()
-            .map(|expr| format_expr_inline(&expr.expr))
-            .collect::<Vec<_>>();
+        let condition = condition.to_vec();
+        let condition = format_exprs_inline(&condition);
         self.line(indent, &format!("{} while", condition.join(" ")));
         self.format_body(body, indent + 1);
         self.line(indent, "end");
@@ -283,20 +278,50 @@ fn format_expr_inline(expr: &Expr) -> String {
         Expr::Number(value) => value.to_string(),
         Expr::Args(args) => format_args(args),
         Expr::Block(body) => {
-            let parts = body
-                .iter()
-                .map(|expr| format_expr_inline(&expr.expr))
-                .collect::<Vec<_>>();
+            let parts = format_exprs_inline(body);
             format!("[ {} ]", parts.join(" "))
         }
-        Expr::Sequence(exprs) => exprs
-            .iter()
-            .map(|expr| format_expr_inline(&expr.expr))
-            .collect::<Vec<_>>()
-            .join(" "),
+        Expr::Sequence(exprs) => format_exprs_inline(exprs).join(" "),
         Expr::If { .. } => "if".to_string(),
         Expr::While { .. } => "while".to_string(),
     }
+}
+
+fn format_exprs_inline(exprs: &[SpannedExpr]) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut index = 0;
+    while index < exprs.len() {
+        if let Some(name) = exprs
+            .get(index + 1)
+            .and_then(|next| legacy_variable_read_name(&exprs[index], next))
+        {
+            parts.push(format!("${name}"));
+            index += 2;
+        } else {
+            parts.push(format_expr_inline(&exprs[index].expr));
+            index += 1;
+        }
+    }
+    parts
+}
+
+fn legacy_variable_read_name<'a>(name: &'a SpannedExpr, get: &SpannedExpr) -> Option<&'a str> {
+    match (&name.expr, &get.expr) {
+        (Expr::Symbol(name), Expr::Symbol(word))
+            if word == "get" && is_plain_reference_name(name) =>
+        {
+            Some(name)
+        }
+        _ => None,
+    }
+}
+
+fn is_plain_reference_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn format_args(args: &ArgsDecl) -> String {
@@ -358,6 +383,25 @@ end
             format_source("$ctx \"params\" at \"id\" at").expect("source should format");
 
         assert_eq!(formatted, "$ctx \"params\" at \"id\" at\n");
+    }
+
+    #[test]
+    fn canonicalizes_legacy_get_variable_reads() {
+        let formatted = format_source(
+            r#""Ada" name var
+name get println
+count get 10 < while
+count get 1 + count set
+end
+"name" get println
+"#,
+        )
+        .expect("source should format");
+
+        assert_eq!(
+            formatted,
+            "\"Ada\" name var\n\n$name println\n\n$count 10 < while\n  $count 1 + count set\nend\n\n\"name\" get println\n"
+        );
     }
 
     #[test]

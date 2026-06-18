@@ -1544,6 +1544,14 @@ const WORDS = [
     "example": "\"tmp/cache\" fs_create_dir value"
   },
   {
+    "word": "fs_delete",
+    "aliases": [],
+    "group": "system",
+    "stack": "path:string -> result(path)",
+    "body": "Deletes a file, symlink, or empty directory through the filesystem capability. Denied when filesystem writes are disabled or when the requested path is the configured filesystem root.",
+    "example": "\"tmp/cache/file.txt\" fs_delete value"
+  },
+  {
     "word": "workspace_resolve",
     "aliases": [],
     "group": "system",
@@ -1598,6 +1606,14 @@ const WORDS = [
     "stack": "path:string options:map -> result(map)",
     "body": "Creates a workspace directory when filesystem writes are enabled. Option `recursive` defaults to true.",
     "example": "options map\n\"tmp/cache\" $options workspace_mkdir value"
+  },
+  {
+    "word": "workspace_delete",
+    "aliases": [],
+    "group": "system",
+    "stack": "path:string options:map -> result(map)",
+    "body": "Deletes a workspace file, symlink, empty directory, or recursive directory when filesystem writes are enabled. Options include `recursive` and `missing_ok`, both defaulting to false. The configured filesystem root itself is never deleted.",
+    "example": "options map\n$options \"recursive\" true put! drop\n\"tmp/cache\" $options workspace_delete value"
   },
   {
     "word": "workspace_copy",

@@ -403,7 +403,9 @@ $options "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
 
 Workspace helpers provide structured filesystem access for local apps while
 preserving the same `--fs-root` and `--fs-readonly` bounds as the lower-level
-`fs_*` words:
+`fs_*` words. `fs_delete` removes a file, symlink, or empty directory;
+`workspace_delete` adds explicit `recursive` and `missing_ok` options and
+refuses to delete the configured filesystem root:
 
 ```forth
 options map
@@ -413,6 +415,9 @@ $writeOptions "create_parent_dirs" true put! drop
 "." $options workspace_list value entries var
 "generated/out.txt" "hello" $writeOptions workspace_write_text value written var
 $written "relative_path" at println
+deleteOptions map
+$deleteOptions "recursive" true put! drop
+"generated" $deleteOptions workspace_delete value drop
 runtime_capabilities "workspace" at "root" at println
 ```
 
@@ -535,7 +540,10 @@ for live editor support.
 completion, hover, go-to-definition, document symbols, semantic tokens,
 document formatting, prepare-rename, and single-document rename support. The VS
 Code extension exposes `ricochet.server.path` when `rco` is not on `PATH`, plus
-`Ricochet: Restart Language Server` for local toolchain rebuilds. Terminal
+`Ricochet: Restart Language Server` for local toolchain rebuilds. The same
+diagnostics warn when old `name get` variable reads should be written as
+`$name`; keep `"name" get` only when the variable name is intentionally data on
+the stack. Terminal
 debug sessions accept `step`, `next`, `out`, `continue`, `abort`, `stack`,
 `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams the same
 event contract as JSON Lines for editor adapters. `rco debug-adapter` speaks

@@ -4,7 +4,6 @@ use std::io::{self, BufRead, Write};
 use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
-use ricochet_compiler::compile_source;
 use ricochet_syntax::{
     format_source, lex, parse_module, utf16_range_for_span, Expr, Item as SyntaxItem, Module,
     SourcePosition, Span, SpannedExpr, Token, TokenKind,
@@ -185,6 +184,16 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "fs_write_text",
         "filesystem",
         "Write text through the filesystem host capability.",
+    ),
+    WordDoc::new(
+        "fs_delete",
+        "filesystem",
+        "Delete a file, symlink, or empty directory through the filesystem host capability.",
+    ),
+    WordDoc::new(
+        "workspace_delete",
+        "filesystem",
+        "Delete a workspace entry with bounded options such as recursive and missing_ok.",
     ),
     WordDoc::new(
         "http_request",
@@ -933,14 +942,7 @@ fn error_response(id: Option<Value>, code: i64, message: impl Into<String>) -> V
 }
 
 fn publish_diagnostics(document: &LspDocument) -> Value {
-    let diagnostics = match compile_source(&document.uri, &document.source) {
-        Ok(_) => Vec::new(),
-        Err(error) => vec![crate::compile_error_lsp_diagnostic(
-            &document.uri,
-            &document.source,
-            &error,
-        )],
-    };
+    let diagnostics = crate::source_lsp_diagnostics(&document.uri, &document.source);
     json!({
         "jsonrpc": "2.0",
         "method": "textDocument/publishDiagnostics",
@@ -1422,6 +1424,33 @@ mod tests {
             completions.iter().any(|item| item["label"] == "Accessor"),
             "completion should include Ricochet words"
         );
+    }
+
+    #[test]
+    fn lsp_server_publishes_style_warnings() {
+        let uri = "file:///workspace/Style.rco";
+        let input = messages(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"ricochet","version":1,"text":"\"Ada\" name var\nname get println\n\"name\" get println\n"}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ]);
+        let mut output = Vec::new();
+
+        run_lsp(Cursor::new(input), &mut output, false).expect("LSP server should run");
+
+        let messages = parse_messages(&output);
+        let diagnostics = messages
+            .iter()
+            .find(|message| message["method"] == "textDocument/publishDiagnostics")
+            .expect("publish diagnostics should exist")["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0]["message"], "prefer $name for variable reads");
+        assert_eq!(diagnostics[0]["severity"], 2);
+        assert_eq!(diagnostics[0]["code"], "prefer-dollar-reference");
     }
 
     #[test]

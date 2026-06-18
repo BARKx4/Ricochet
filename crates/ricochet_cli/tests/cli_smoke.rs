@@ -756,6 +756,53 @@ fn lsp_diagnostics_reports_compile_error_json() {
 }
 
 #[test]
+fn lsp_diagnostics_warns_for_legacy_get_variable_reads() {
+    let source_path = write_source(
+        r#""Ada" name var
+name get println
+"name" get println
+"Ada" ok result var
+result get value println
+"result" get value println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("lsp-diagnostics")
+        .arg(&source_path)
+        .output()
+        .expect("rco lsp-diagnostics should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco lsp-diagnostics should succeed for lint output\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("diagnostics output should be JSON");
+    let diagnostics = payload["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    assert_eq!(diagnostics.len(), 2, "stdout:\n{stdout}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic["message"]
+            == "prefer $name for variable reads"
+            && diagnostic["severity"] == 2
+            && diagnostic["code"] == "prefer-dollar-reference"),
+        "stdout should include $name warning, got:\n{stdout}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["message"] == "prefer $result for variable reads"),
+        "stdout should include $result warning, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn words_json_lists_builtin_editor_inventory() {
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("words")
@@ -5921,6 +5968,8 @@ fn run_exposes_filesystem_capability() {
 "{data}" fs_read_text value
 "{data}" fs_exists?
 "{directory}" fs_list value count 1 >=
+"{data}" fs_delete value drop
+"{data}" fs_exists?
 "#
         ),
     )
@@ -5941,6 +5990,14 @@ fn run_exposes_filesystem_capability() {
     assert!(
         stdout.matches("Bool(true)").count() >= 2,
         "stdout should confirm existence and directory contents, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(false)"),
+        "stdout should confirm deleted file absence, got:\n{stdout}"
+    );
+    assert!(
+        !data_path.exists(),
+        "fs_delete should remove the requested file"
     );
 }
 
@@ -6666,21 +6723,39 @@ fn run_workspace_words_use_bounded_filesystem_root() {
             r#"
 options map
 writeOptions map
-writeOptions get "create_parent_dirs" true put! drop
+$writeOptions "create_parent_dirs" true put! drop
 copyOptions map
-"inside.txt" options get workspace_read_text value
-"." options get workspace_resolve value resolved var
-resolved get "inside_root" at
-"." options get workspace_list value count 1 >=
-"generated/out.txt" "created" writeOptions get workspace_write_text value written var
-written get "kind" at "file" =
+"inside.txt" $options workspace_read_text value
+"." $options workspace_resolve value resolved var
+$resolved "inside_root" at
+"." $options workspace_list value count 1 >=
+"generated/out.txt" "created" $writeOptions workspace_write_text value written var
+$written "kind" at "file" =
 "generated/out.txt" workspace_metadata value meta var
-meta get "relative_path" at "generated/out.txt" =
-"inside.txt" "generated/copy.txt" copyOptions get workspace_copy value copied var
-copied get "exists" at
+$meta "relative_path" at "generated/out.txt" =
+"inside.txt" "generated/copy.txt" $copyOptions workspace_copy value copied var
+$copied "exists" at
 "." "generated/copy.txt" workspace_contains?
-"{outside}" options get workspace_read_text error denied var
-denied get "kind" at
+"generated/delete-me.txt" "remove" $writeOptions workspace_write_text value drop
+"generated/delete-me.txt" $options workspace_delete value deletedFile var
+$deletedFile "deleted" at
+"generated/delete-me.txt" fs_exists? false =
+recursiveOptions map
+$recursiveOptions "recursive" true put! drop
+"generated/delete-dir/nested.txt" "remove" $writeOptions workspace_write_text value drop
+"generated/delete-dir" $recursiveOptions workspace_delete value deletedDir var
+$deletedDir "deleted" at
+"generated/delete-dir" fs_exists? false =
+missingOptions map
+$missingOptions "missing_ok" true put! drop
+"generated/missing.txt" $missingOptions workspace_delete value missingDelete var
+$missingDelete "deleted" at false =
+"." $options workspace_delete error rootDenied var
+$rootDenied "kind" at
+"." fs_delete error fsRootDenied var
+$fsRootDenied "kind" at
+"{outside}" $options workspace_read_text error denied var
+$denied "kind" at
 runtime_capabilities "workspace" at "enabled" at
 "#
         ),
@@ -6702,12 +6777,12 @@ runtime_capabilities "workspace" at "enabled" at
         "stdout should include readable workspace file contents, got:\n{stdout}"
     );
     assert!(
-        stdout.matches("Bool(true)").count() >= 7,
+        stdout.matches("Bool(true)").count() >= 12,
         "stdout should confirm workspace metadata, copy, containment, and capability state, got:\n{stdout}"
     );
     assert!(
         stdout.contains("String(\"PermissionError\")"),
-        "stdout should report outside-root workspace reads as PermissionError, got:\n{stdout}"
+        "stdout should report outside-root and root-delete workspace denials as PermissionError, got:\n{stdout}"
     );
     assert_eq!(
         fs::read_to_string(root.join("generated/out.txt")).expect("written file should exist"),
@@ -6716,6 +6791,14 @@ runtime_capabilities "workspace" at "enabled" at
     assert_eq!(
         fs::read_to_string(root.join("generated/copy.txt")).expect("copied file should exist"),
         "inside workspace"
+    );
+    assert!(
+        !root.join("generated/delete-me.txt").exists(),
+        "workspace_delete should remove direct file targets"
+    );
+    assert!(
+        !root.join("generated/delete-dir").exists(),
+        "workspace_delete should remove recursive directory targets when requested"
     );
 }
 
@@ -6773,9 +6856,11 @@ fn run_can_make_filesystem_capability_read_only() {
             r#"
 "{data}" fs_read_text value
 "{data}" "changed" fs_write_text error writeDenied var
-writeDenied get "kind" at
+$writeDenied "kind" at
 "{directory}" fs_create_dir error createDenied var
-createDenied get "kind" at
+$createDenied "kind" at
+"{data}" fs_delete error deleteDenied var
+$deleteDenied "kind" at
 "#
         ),
     )
@@ -6795,8 +6880,8 @@ createDenied get "kind" at
         "stdout should include readable file contents, got:\n{stdout}"
     );
     assert!(
-        stdout.matches("String(\"PermissionError\")").count() >= 2,
-        "stdout should report write/create denials as PermissionError, got:\n{stdout}"
+        stdout.matches("String(\"PermissionError\")").count() >= 3,
+        "stdout should report write/create/delete denials as PermissionError, got:\n{stdout}"
     );
     assert_eq!(
         fs::read_to_string(&data_path).expect("data file should remain readable"),
@@ -6815,16 +6900,20 @@ fn run_workspace_words_respect_readonly_filesystem() {
     fs::create_dir_all(root).expect("temp source directory should be created");
     let blocked_path = root.join("blocked.txt");
     let blocked_dir = root.join("blocked-dir");
+    let existing_path = root.join("existing.txt");
+    fs::write(&existing_path, "keep").expect("existing file should be written");
     fs::write(
         &source_path,
         r#"
 options map
 writeOptions map
-writeOptions get "create_parent_dirs" true put! drop
-"blocked.txt" "blocked" writeOptions get workspace_write_text error writeDenied var
-writeDenied get "kind" at
-"blocked-dir" options get workspace_mkdir error mkdirDenied var
-mkdirDenied get "kind" at
+$writeOptions "create_parent_dirs" true put! drop
+"blocked.txt" "blocked" $writeOptions workspace_write_text error writeDenied var
+$writeDenied "kind" at
+"blocked-dir" $options workspace_mkdir error mkdirDenied var
+$mkdirDenied "kind" at
+"existing.txt" $options workspace_delete error deleteDenied var
+$deleteDenied "kind" at
 "#,
     )
     .expect("source should be written");
@@ -6841,8 +6930,8 @@ mkdirDenied get "kind" at
     assert_run_success(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.matches("String(\"PermissionError\")").count() >= 2,
-        "stdout should report workspace write/create denials as PermissionError, got:\n{stdout}"
+        stdout.matches("String(\"PermissionError\")").count() >= 3,
+        "stdout should report workspace write/create/delete denials as PermissionError, got:\n{stdout}"
     );
     assert!(
         !blocked_path.exists(),
@@ -6851,6 +6940,10 @@ mkdirDenied get "kind" at
     assert!(
         !blocked_dir.exists(),
         "read-only workspace policy should not create directories"
+    );
+    assert_eq!(
+        fs::read_to_string(&existing_path).expect("existing file should remain readable"),
+        "keep"
     );
 }
 

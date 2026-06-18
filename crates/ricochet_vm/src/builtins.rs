@@ -158,7 +158,7 @@ impl Vm {
             Value::Capability(Capability::FileSystem) => {
                 matches!(
                     method,
-                    "read-text" | "write-text!" | "exists?" | "list" | "create-dir!"
+                    "read-text" | "write-text!" | "exists?" | "list" | "create-dir!" | "delete!"
                 )
             }
             Value::Capability(Capability::Http) => {
@@ -292,6 +292,7 @@ impl Vm {
             "exists?" => self.method_fs_exists(receiver, method),
             "list" => self.method_fs_list(receiver, method),
             "create-dir!" => self.method_fs_create_dir(receiver, method),
+            "delete!" => self.method_fs_delete(receiver, method),
             "get" => self.method_http_get(receiver, method),
             "post-json" => self.method_http_post_json(receiver, method),
             "request" => self.method_http_request(receiver, method),
@@ -2793,6 +2794,31 @@ impl Vm {
         })
     }
 
+    fn method_fs_delete(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::FileSystem, method)?;
+        let path = self.pop_string(method, "path string")?;
+        if !self.filesystem_writes_enabled() {
+            return Ok(Value::result_err(
+                "PermissionError",
+                "filesystem writes are disabled",
+            ));
+        }
+        let path = match self.resolve_filesystem_path(method, &path) {
+            Ok(path) => path,
+            Err(error) => return Ok(Value::result_err("PermissionError", error.to_string())),
+        };
+        if is_filesystem_root_path(&path, self.filesystem_root_path()) {
+            return Ok(Value::result_err(
+                "PermissionError",
+                "refusing to delete filesystem root",
+            ));
+        }
+        Ok(match delete_filesystem_path(&path, false) {
+            Ok(()) => Value::result_ok(Value::String(path.to_string_lossy().into_owned())),
+            Err(error) => Value::result_err("IoError", error.to_string()),
+        })
+    }
+
     pub(super) fn call_workspace_resolve(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_workspace_enabled(word)?;
         let stack_before = self.stack.clone();
@@ -2979,6 +3005,38 @@ impl Vm {
                         }
                         Err(error) => Value::result_err("IoError", error.to_string()),
                     }
+                }
+                Err(error) => Value::result_err("PermissionError", error.to_string()),
+            }
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_delete(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match workspace_delete_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = if !self.filesystem_writes_enabled() {
+            Value::result_err("PermissionError", "filesystem writes are disabled")
+        } else {
+            match self.resolve_filesystem_path(word, &source) {
+                Ok(path) => {
+                    workspace_delete_result(&source, &path, self.filesystem_root_path(), &options)
                 }
                 Err(error) => Value::result_err("PermissionError", error.to_string()),
             }
@@ -5249,6 +5307,12 @@ struct WorkspaceMkdirOptions {
     recursive: bool,
 }
 
+#[derive(Clone, Copy)]
+struct WorkspaceDeleteOptions {
+    recursive: bool,
+    missing_ok: bool,
+}
+
 fn workspace_options_map(
     value: Value,
     allowed_keys: &[&str],
@@ -5319,6 +5383,14 @@ fn workspace_mkdir_options(value: Value) -> Result<WorkspaceMkdirOptions, Value>
     let mut options = workspace_options_map(value, &["recursive"])?;
     Ok(WorkspaceMkdirOptions {
         recursive: workspace_bool_option(&mut options, "recursive", true)?,
+    })
+}
+
+fn workspace_delete_options(value: Value) -> Result<WorkspaceDeleteOptions, Value> {
+    let mut options = workspace_options_map(value, &["recursive", "missing_ok"])?;
+    Ok(WorkspaceDeleteOptions {
+        recursive: workspace_bool_option(&mut options, "recursive", false)?,
+        missing_ok: workspace_bool_option(&mut options, "missing_ok", false)?,
     })
 }
 
@@ -5398,16 +5470,8 @@ fn workspace_metadata_value(
     metadata: &fs::Metadata,
 ) -> Value {
     let mut fields = workspace_path_fields(source, path, root);
+    let kind = workspace_entry_kind(metadata);
     let file_type = metadata.file_type();
-    let kind = if file_type.is_symlink() {
-        "symlink"
-    } else if metadata.is_dir() {
-        "directory"
-    } else if metadata.is_file() {
-        "file"
-    } else {
-        "other"
-    };
     fields.insert("exists".to_string(), Value::Bool(true));
     fields.insert("kind".to_string(), Value::String(kind.to_string()));
     fields.insert("is_file".to_string(), Value::Bool(metadata.is_file()));
@@ -5430,6 +5494,19 @@ fn workspace_metadata_value(
             .unwrap_or(Value::Nil),
     );
     Value::Map(fields.into())
+}
+
+fn workspace_entry_kind(metadata: &fs::Metadata) -> &'static str {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        "symlink"
+    } else if metadata.is_dir() {
+        "directory"
+    } else if metadata.is_file() {
+        "file"
+    } else {
+        "other"
+    }
 }
 
 fn workspace_path_fields(
@@ -5560,6 +5637,60 @@ fn workspace_write_text_result(
     }
 }
 
+fn workspace_delete_result(
+    source: &str,
+    path: &Path,
+    root: Option<&Path>,
+    options: &WorkspaceDeleteOptions,
+) -> Value {
+    if is_filesystem_root_path(path, root) {
+        return Value::result_err("PermissionError", "refusing to delete filesystem root");
+    }
+
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound && options.missing_ok => {
+            return Value::result_ok(workspace_deleted_value(
+                source,
+                path,
+                root,
+                Value::Nil,
+                false,
+                options.recursive,
+            ));
+        }
+        Err(error) => return Value::result_err("IoError", error.to_string()),
+    };
+    let kind = Value::String(workspace_entry_kind(&metadata).to_string());
+    match delete_filesystem_path(path, options.recursive) {
+        Ok(()) => Value::result_ok(workspace_deleted_value(
+            source,
+            path,
+            root,
+            kind,
+            true,
+            options.recursive,
+        )),
+        Err(error) => Value::result_err("IoError", error.to_string()),
+    }
+}
+
+fn workspace_deleted_value(
+    source: &str,
+    path: &Path,
+    root: Option<&Path>,
+    kind: Value,
+    deleted: bool,
+    recursive: bool,
+) -> Value {
+    let mut fields = workspace_path_fields(source, path, root);
+    fields.insert("exists".to_string(), Value::Bool(false));
+    fields.insert("deleted".to_string(), Value::Bool(deleted));
+    fields.insert("kind".to_string(), kind);
+    fields.insert("recursive".to_string(), Value::Bool(recursive));
+    Value::Map(fields.into())
+}
+
 fn workspace_copy_or_move_result(
     destination_source: &str,
     source: &Path,
@@ -5600,6 +5731,33 @@ fn workspace_copy_or_move_result(
             Ok(_) => workspace_metadata_result(destination_source, destination, root),
             Err(error) => Value::result_err("IoError", error.to_string()),
         }
+    }
+}
+
+fn is_filesystem_root_path(path: &Path, root: Option<&Path>) -> bool {
+    root.is_some_and(|root| path == root)
+}
+
+fn delete_filesystem_path(path: &Path, recursive: bool) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        remove_symlink(path)
+    } else if metadata.is_dir() {
+        if recursive {
+            fs::remove_dir_all(path)
+        } else {
+            fs::remove_dir(path)
+        }
+    } else {
+        fs::remove_file(path)
+    }
+}
+
+fn remove_symlink(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(file_error) => fs::remove_dir(path).map_err(|_| file_error),
     }
 }
 

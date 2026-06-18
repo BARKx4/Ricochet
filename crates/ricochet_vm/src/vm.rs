@@ -1346,6 +1346,9 @@ impl Vm {
             "fs_create_dir" => {
                 self.call_capability_method_word(word, Capability::FileSystem, "create-dir!")
             }
+            "fs_delete" => {
+                self.call_capability_method_word(word, Capability::FileSystem, "delete!")
+            }
             "workspace_resolve" => self.call_workspace_resolve(word),
             "workspace_contains?" => self.call_workspace_contains(word),
             "workspace_metadata" => self.call_workspace_metadata(word),
@@ -1353,6 +1356,7 @@ impl Vm {
             "workspace_read_text" => self.call_workspace_read_text(word),
             "workspace_write_text" => self.call_workspace_write_text(word),
             "workspace_mkdir" => self.call_workspace_mkdir(word),
+            "workspace_delete" => self.call_workspace_delete(word),
             "workspace_copy" => self.call_workspace_copy(word),
             "workspace_move" => self.call_workspace_move(word),
             "config_get" => self.call_config_get(word),

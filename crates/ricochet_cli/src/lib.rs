@@ -1674,10 +1674,7 @@ fn lsp_diagnostics(path: &str, pretty: bool) -> Result<()> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let file = path.to_string_lossy().into_owned();
-    let diagnostics = match compile_source(&file, &source) {
-        Ok(_) => Vec::new(),
-        Err(error) => vec![compile_error_lsp_diagnostic(&file, &source, &error)],
-    };
+    let diagnostics = source_lsp_diagnostics(&file, &source);
     let payload = json!({
         "uri": file_uri(path),
         "diagnostics": diagnostics,
@@ -1689,6 +1686,13 @@ fn lsp_diagnostics(path: &str, pretty: bool) -> Result<()> {
         println!("{}", serde_json::to_string(&payload)?);
     }
     Ok(())
+}
+
+pub(crate) fn source_lsp_diagnostics(file: &str, source: &str) -> Vec<serde_json::Value> {
+    match compile_source(file, source) {
+        Ok(_) => syntax_lsp_diagnostics(file, source),
+        Err(error) => vec![compile_error_lsp_diagnostic(file, source, &error)],
+    }
 }
 
 fn compile_error_lsp_diagnostic(
@@ -1737,6 +1741,135 @@ fn compile_error_lsp_diagnostic(
         diagnostic["data"] = json!({ "help": help });
     }
     diagnostic
+}
+
+struct SyntaxLint {
+    span: Span,
+    message: String,
+    help: String,
+    code: &'static str,
+}
+
+fn syntax_lsp_diagnostics(file: &str, source: &str) -> Vec<serde_json::Value> {
+    let Ok(module) = parse_module(source) else {
+        return Vec::new();
+    };
+    let mut lints = Vec::new();
+    collect_module_lints(&module, &mut lints);
+    lints
+        .into_iter()
+        .map(|lint| syntax_lint_lsp_diagnostic(file, source, lint))
+        .collect()
+}
+
+fn collect_module_lints(module: &Module, lints: &mut Vec<SyntaxLint>) {
+    for item in &module.items {
+        collect_item_lints(item, lints);
+    }
+}
+
+fn collect_item_lints(item: &SyntaxItem, lints: &mut Vec<SyntaxLint>) {
+    match item {
+        SyntaxItem::Class(class) => {
+            for item in &class.body {
+                collect_item_lints(item, lints);
+            }
+        }
+        SyntaxItem::Method(method) => collect_expr_list_lints(&method.body, lints),
+        SyntaxItem::Function(function) => collect_expr_list_lints(&function.body, lints),
+        SyntaxItem::Expr { expr, .. } => collect_expr_lints(expr, lints),
+    }
+}
+
+fn collect_expr_list_lints(exprs: &[SpannedExpr], lints: &mut Vec<SyntaxLint>) {
+    for expr in exprs {
+        collect_expr_lints(&expr.expr, lints);
+    }
+}
+
+fn collect_expr_lints(expr: &Expr, lints: &mut Vec<SyntaxLint>) {
+    match expr {
+        Expr::Sequence(exprs) => {
+            for pair in exprs.windows(2) {
+                if let [name_expr, get_expr] = pair {
+                    if let (Expr::Symbol(name), Expr::Symbol(word)) =
+                        (&name_expr.expr, &get_expr.expr)
+                    {
+                        if word == "get" && is_plain_reference_name(name) {
+                            lints.push(prefer_reference_lint(
+                                name,
+                                Span {
+                                    start: name_expr.span.start,
+                                    end: get_expr.span.end,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+            collect_expr_list_lints(exprs, lints);
+        }
+        Expr::Block(exprs) => collect_expr_list_lints(exprs, lints),
+        Expr::If {
+            then_body,
+            else_body,
+        } => {
+            collect_expr_list_lints(then_body, lints);
+            collect_expr_list_lints(else_body, lints);
+        }
+        Expr::While { condition, body } => {
+            collect_expr_list_lints(condition, lints);
+            collect_expr_list_lints(body, lints);
+        }
+        Expr::Symbol(_)
+        | Expr::BangWord(_)
+        | Expr::DotWord(_)
+        | Expr::Reference(_)
+        | Expr::String(_)
+        | Expr::Number(_)
+        | Expr::Args(_) => {}
+    }
+}
+
+fn prefer_reference_lint(name: &str, span: Span) -> SyntaxLint {
+    SyntaxLint {
+        span,
+        message: format!("prefer ${name} for variable reads"),
+        help: format!(
+            "Use ${name} for ordinary variable reads. Keep \"{name}\" get only when the variable name is data on the stack."
+        ),
+        code: "prefer-dollar-reference",
+    }
+}
+
+fn is_plain_reference_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn syntax_lint_lsp_diagnostic(file: &str, source: &str, lint: SyntaxLint) -> serde_json::Value {
+    let range = utf16_range_for_span(source, lint.span);
+    json!({
+        "range": {
+            "start": {
+                "line": range.start.line,
+                "character": range.start.character,
+            },
+            "end": {
+                "line": range.end.line,
+                "character": range.end.character,
+            },
+        },
+        "severity": 2,
+        "source": "ricochet",
+        "code": lint.code,
+        "codeDescription": { "href": "https://github.com/BARKx4/Ricochet" },
+        "message": lint.message,
+        "data": { "help": lint.help, "file": file },
+    })
 }
 
 fn file_uri(path: &Path) -> String {
