@@ -1373,6 +1373,7 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
     let mut grammar_patterns = Vec::new();
     collect_textmate_patterns(&grammar_json, &mut grammar_patterns);
     let grammar_regexes = grammar_patterns.join("\n");
+    let grammar_builtin_words = textmate_builtin_words(&grammar_json)?;
 
     let mut documented_primary = BTreeSet::new();
     let mut documented_all_names = BTreeSet::new();
@@ -1415,6 +1416,11 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         .iter()
         .filter(|word| !lsp_words.contains(*word))
         .count();
+    let stale_grammar_builtin_words = grammar_builtin_words
+        .iter()
+        .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
 
     let mut failures = Vec::new();
     if !duplicate_words.is_empty() {
@@ -1439,6 +1445,12 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         failures.push(format!(
             "LSP inventory contains words absent from docs/reference/app.js: {}",
             stale_lsp_words.join(", ")
+        ));
+    }
+    if !stale_grammar_builtin_words.is_empty() {
+        failures.push(format!(
+            "TextMate builtin regex contains undocumented words: {}",
+            stale_grammar_builtin_words.join(", ")
         ));
     }
     if failures.is_empty() {
@@ -1478,6 +1490,47 @@ fn validate_reference_word_entry(entry: &ReferenceWord, failures: &mut Vec<Strin
     if entry.example.trim().is_empty() {
         failures.push(format!("{label}: missing example"));
     }
+}
+
+fn textmate_builtin_words(grammar: &serde_json::Value) -> Result<BTreeSet<String>> {
+    let pattern = grammar
+        .get("repository")
+        .and_then(|repository| repository.get("builtins"))
+        .and_then(|builtins| builtins.get("patterns"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|patterns| patterns.first())
+        .and_then(|entry| entry.get("match"))
+        .and_then(serde_json::Value::as_str)
+        .context("TextMate grammar is missing repository.builtins.patterns[0].match")?;
+    let body = pattern
+        .strip_prefix(r"(?<!\S)(?:")
+        .and_then(|body| body.strip_suffix(r")(?!\S)"))
+        .context("TextMate builtin regex does not use the expected Ricochet word alternation")?;
+
+    let mut words = BTreeSet::new();
+    for part in body.split('|') {
+        if part.is_empty() {
+            bail!("TextMate builtin regex contains an empty alternation branch");
+        }
+        words.insert(unescape_textmate_builtin_literal(part)?);
+    }
+    Ok(words)
+}
+
+fn unescape_textmate_builtin_literal(value: &str) -> Result<String> {
+    let mut output = String::new();
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let Some(escaped) = chars.next() else {
+                bail!("TextMate builtin regex contains a trailing escape");
+            };
+            output.push(escaped);
+        } else {
+            output.push(ch);
+        }
+    }
+    Ok(output)
 }
 
 fn extract_reference_words_json(source: &str) -> Result<&str> {

@@ -949,6 +949,49 @@ fn words_check_rejects_malformed_reference_word_entries() {
 }
 
 #[test]
+fn words_check_rejects_stale_textmate_builtin_words() {
+    let root = repo_root_for_test();
+    let temp = temp_source_path()
+        .parent()
+        .expect("temp source path should have parent")
+        .join("words-stale-grammar-check");
+    fs::create_dir_all(&temp).expect("temp words check dir should be created");
+    let grammar_path = temp.join("ricochet.tmLanguage.json");
+    let grammar = fs::read_to_string(root.join("editors/vscode/syntaxes/ricochet.tmLanguage.json"))
+        .expect("TextMate grammar should be readable");
+    let grammar = grammar.replace(
+        "webview_document)(?!\\\\S)",
+        "webview_document|stale_builtin)(?!\\\\S)",
+    );
+    assert!(
+        grammar.contains("stale_builtin"),
+        "stale builtin fixture should include injected word"
+    );
+    fs::write(&grammar_path, grammar).expect("stale grammar fixture should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("words")
+        .arg("--check")
+        .arg("--docs-app")
+        .arg(root.join("docs/reference/app.js"))
+        .arg("--grammar")
+        .arg(&grammar_path)
+        .output()
+        .expect("rco words --check should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "rco words --check should reject stale grammar builtins\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("TextMate builtin regex contains undocumented words: stale_builtin"),
+        "stderr should identify the stale builtin word, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn lsp_server_initializes_and_publishes_live_diagnostics() {
     let uri = "file:///workspace/Bad.rco";
     let mut input = Vec::new();
