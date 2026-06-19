@@ -40,7 +40,7 @@ impl Value {
             Value::Nil => false,
             Value::Bool(v) => *v,
             Value::Number(v) => *v != 0,
-            Value::Float(v) => *v != 0.0,
+            Value::Float(v) => !v.is_nan() && *v != 0.0,
             Value::String(v) => !v.is_empty(),
             Value::Array(v) => !v.is_empty(),
             Value::List(v) => !v.is_empty(),
@@ -129,6 +129,22 @@ mod tests {
             (Value::Map(MapValue::default()), false),
             (Value::Map(MapValue::from(populated_map)), true),
             (instance, true),
+        ];
+
+        for (value, expected) in cases {
+            assert_eq!(value.truthy_for_condition(), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn float_truthiness_treats_zero_and_nan_as_false() {
+        let cases = vec![
+            (Value::Float(0.0), false),
+            (Value::Float(1.25), true),
+            (Value::Float(-1.25), true),
+            (Value::Float(f64::NAN), false),
+            (Value::Float(f64::INFINITY), true),
+            (Value::Float(f64::NEG_INFINITY), true),
         ];
 
         for (value, expected) in cases {

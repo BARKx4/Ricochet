@@ -6743,7 +6743,16 @@ args get "{checked}" push! drop
 options map
 options get "timeout_ms" 10000 put! drop
 "{rco}" args get options get process_start value job var
-1500 sleep
+nil snapshot var
+0 attempts var
+attempts get 50 < while
+  job get "id" at process_job value snapshot set
+  snapshot get "status" at "exited" = if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
 readOptions map
 job get "id" at readOptions get process_read value read var
 read get "stdout" at "checked" contains?
@@ -6793,7 +6802,16 @@ args get "{checked}" push! drop
 options map
 options get "timeout_ms" 10000 put! drop
 "{rco}" args get options get process_start value job var
-1500 sleep
+nil snapshot var
+0 attempts var
+attempts get 50 < while
+  job get "id" at process_job value snapshot set
+  snapshot get "status" at "exited" = if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
 job get "id" at process_release value
 process_jobs count
 runtime_capabilities "process" at "jobs" at
@@ -6885,7 +6903,17 @@ options map
 options get "timeout_ms" 10000 put! drop
 options get "stdout_max_bytes" 3 put! drop
 "{rco}" args get options get process_start value job var
-1500 sleep
+nil read var
+0 attempts var
+attempts get 50 < while
+  readOptions map
+  job get "id" at readOptions get process_read value read set
+  read get "stdout" at "abc" = if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
 readOptions map
 job get "id" at readOptions get process_read value read var
 read get "stdout" at "abc" =
@@ -6966,9 +6994,17 @@ fn run_pty_start_captures_output_when_allowed() {
 args array
 {arg_lines}options map
 "{command}" args get options get pty_start value session var
-500 sleep
-readOptions map
-session get "id" at readOptions get pty_read value read var
+nil read var
+0 attempts var
+attempts get 50 < while
+  readOptions map
+  session get "id" at readOptions get pty_read value read set
+  read get "output" at "ricochet-pty" contains? if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
 read get "output" at "ricochet-pty" contains?
 pty_list count
 runtime_capabilities "pty" at "enabled" at
@@ -7023,7 +7059,16 @@ fn run_pty_release_drops_exited_session_when_allowed() {
 args array
 {arg_lines}options map
 "{command}" args get options get pty_start value session var
-500 sleep
+nil detail var
+0 attempts var
+attempts get 50 < while
+  session get "id" at pty_detail value detail set
+  detail get "running" at false = if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
 session get "id" at pty_release value
 pty_list count
 runtime_capabilities "pty" at "sessions" at
@@ -7757,8 +7802,17 @@ request get "timeout_ms" 10000 put! drop
 request get "max_response_bytes" 1024 put! drop
 request get http_stream_start value stream var
 stream get "id" at id var
-200 sleep
-id get http_stream value "status" at
+nil detail var
+0 attempts var
+attempts get 50 < while
+  id get http_stream value detail set
+  detail get "status" at "completed" = if
+    break
+  end
+  50 sleep
+  attempts get 1 + attempts set
+end
+detail get "status" at
 id get http_stream_release value
 http_streams count
 runtime_capabilities "http" at "streams" at

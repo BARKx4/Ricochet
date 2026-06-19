@@ -143,6 +143,9 @@ fn render_value(value: &Value) -> Result<String> {
 
 fn format_float(value: f64) -> String {
     let formatted = value.to_string();
+    if !value.is_finite() {
+        return formatted;
+    }
     if formatted.contains('.') || formatted.contains('e') || formatted.contains('E') {
         formatted
     } else {
@@ -309,5 +312,13 @@ mod tests {
             .expect_err("faulting expression should fail");
 
         assert!(err.to_string().contains("failed to execute"));
+    }
+
+    #[test]
+    fn template_float_formatting_leaves_special_values_unsuffixed() {
+        assert_eq!(format_float(f64::NAN), "NaN");
+        assert_eq!(format_float(f64::INFINITY), "inf");
+        assert_eq!(format_float(f64::NEG_INFINITY), "-inf");
+        assert_eq!(format_float(2.0), "2.0");
     }
 }

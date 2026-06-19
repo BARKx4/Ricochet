@@ -56,6 +56,7 @@ const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
 const WORKSPACE_MAX_LIST_ENTRIES: usize = 10_000;
 const APPROVAL_DEFAULT_TTL_MS: i64 = 10 * 60 * 1000;
 const APPROVAL_MAX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
+const I64_FLOAT_UPPER_BOUND_EXCLUSIVE: f64 = 9_223_372_036_854_775_808.0;
 
 #[cfg(windows)]
 fn configure_process_window(command: &mut Command) {
@@ -2415,8 +2416,10 @@ impl Vm {
         };
         self.stack.push(
             match date_from_value(&date).and_then(|value| {
+                let duration = ChronoDuration::try_days(days)
+                    .ok_or_else(|| Value::result_err("DateRangeError", "date addition overflow"))?;
                 value
-                    .checked_add_signed(ChronoDuration::days(days))
+                    .checked_add_signed(duration)
                     .map(date_value)
                     .map(Value::result_ok)
                     .ok_or_else(|| Value::result_err("DateRangeError", "date addition overflow"))
@@ -4163,7 +4166,7 @@ fn input_to_integer(value: Value) -> Result<i64, (&'static str, String)> {
     match value {
         Value::Number(value) => Ok(value),
         Value::Float(value) if value.is_finite() && value.fract() == 0.0 => {
-            if value < i64::MIN as f64 || value > i64::MAX as f64 {
+            if value < i64::MIN as f64 || value >= I64_FLOAT_UPPER_BOUND_EXCLUSIVE {
                 Err(("RangeError", format!("{value} is outside integer range")))
             } else {
                 Ok(value as i64)
@@ -4300,23 +4303,32 @@ fn numeric_clamp(
     minimum: NumericValue,
     maximum: NumericValue,
 ) -> Result<Value, VmError> {
-    if minimum.as_f64() > maximum.as_f64() {
-        return Err(VmError::InvalidArgument {
-            word: word.to_string(),
-            message: "minimum cannot exceed maximum".to_string(),
-        });
-    }
-
     match (value, minimum, maximum) {
         (
             NumericValue::Integer(value),
             NumericValue::Integer(minimum),
             NumericValue::Integer(maximum),
-        ) => Ok(Value::Number(value.clamp(minimum, maximum))),
-        _ => finite_float_result(
-            word,
-            value.as_f64().clamp(minimum.as_f64(), maximum.as_f64()),
-        ),
+        ) => {
+            if minimum > maximum {
+                return Err(VmError::InvalidArgument {
+                    word: word.to_string(),
+                    message: "minimum cannot exceed maximum".to_string(),
+                });
+            }
+            Ok(Value::Number(value.clamp(minimum, maximum)))
+        }
+        _ => {
+            if minimum.as_f64() > maximum.as_f64() {
+                return Err(VmError::InvalidArgument {
+                    word: word.to_string(),
+                    message: "minimum cannot exceed maximum".to_string(),
+                });
+            }
+            finite_float_result(
+                word,
+                value.as_f64().clamp(minimum.as_f64(), maximum.as_f64()),
+            )
+        }
     }
 }
 
@@ -7042,5 +7054,49 @@ mod tests {
                 .into()
             ))
         );
+    }
+
+    #[test]
+    fn date_add_days_reports_range_error_when_duration_overflows() {
+        let mut vm = Vm::default();
+        vm.stack
+            .push(date_value(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()));
+        vm.stack.push(Value::Number(i64::MAX));
+
+        vm.call_date_add_days("date_add_days")
+            .expect("date_add_days should return a result value");
+
+        assert!(matches!(
+            vm.stack.as_slice(),
+            [Value::Result(RicochetResult::Err(error))]
+                if error.kind == "DateRangeError"
+                    && error.message == "date addition overflow"
+        ));
+    }
+
+    #[test]
+    fn integer_clamp_validates_large_bounds_without_float_rounding() {
+        let result = numeric_clamp(
+            "clamp",
+            NumericValue::Integer(0),
+            NumericValue::Integer(i64::MAX),
+            NumericValue::Integer(i64::MAX - 1),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::InvalidArgument { message, .. })
+                if message == "minimum cannot exceed maximum"
+        ));
+    }
+
+    #[test]
+    fn float_to_integer_rejects_exclusive_i64_upper_bound() {
+        let result = input_to_integer(Value::Float(I64_FLOAT_UPPER_BOUND_EXCLUSIVE));
+
+        assert!(matches!(
+            result,
+            Err(("RangeError", message)) if message.contains("outside integer range")
+        ));
     }
 }

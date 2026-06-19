@@ -1786,8 +1786,11 @@ fn json_to_session_value(value: JsonValue) -> Option<Value> {
 fn json_number_to_value(value: serde_json::Number) -> Option<Value> {
     if let Some(value) = value.as_i64() {
         Some(Value::Number(value))
-    } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
-        Some(Value::Number(value))
+    } else if let Some(value) = value.as_u64() {
+        match i64::try_from(value) {
+            Ok(value) => Some(Value::Number(value)),
+            Err(_) => Some(Value::String(value.to_string())),
+        }
     } else {
         value.as_f64().map(Value::Float)
     }
@@ -2647,5 +2650,26 @@ mod tests {
         options
             .validate()
             .expect("watch should support serve capability flags");
+    }
+
+    #[test]
+    fn json_number_to_value_preserves_unsigned_values_above_i64() {
+        let value = i64::MAX as u64 + 1;
+
+        assert_eq!(
+            json_number_to_value(serde_json::Number::from(value)),
+            Some(Value::String(value.to_string()))
+        );
+    }
+
+    #[test]
+    fn json_request_values_preserve_large_unsigned_ids() {
+        let id = u64::MAX;
+        let value = json_to_request_value(serde_json::json!({ "id": id }));
+        let Value::Map(values) = value else {
+            panic!("JSON object should decode as a Ricochet map");
+        };
+
+        assert_eq!(values.get("id"), Some(Value::String(id.to_string())));
     }
 }
