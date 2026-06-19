@@ -1492,7 +1492,7 @@ const WORDS = [
     "aliases": ["capabilities"],
     "group": "system",
     "stack": "-> map",
-    "body": "Returns a map describing enabled host capabilities such as filesystem, workspace, HTTP, process, PTY, approval, environment, sleep, TUI, and webview. Environment entries include an `allowlist` array when access is name-bounded; process entries include the cwd root used by process and PTY launches.",
+    "body": "Returns a map describing enabled host capabilities such as filesystem, workspace, HTTP, sockets, process, PTY, approval, environment, sleep, TUI, and webview. Environment entries include an `allowlist` array when access is name-bounded; sockets include allowed hosts and retained TCP/WebSocket counts; process entries include the cwd root used by process and PTY launches.",
     "example": "runtime_capabilities \"environment\" at \"allowlist\" at"
   },
   {
@@ -2134,6 +2134,214 @@ const WORDS = [
     "stack": "id:number -> result(bool)",
     "body": "Removes a completed retained HTTP stream job from the host registry. Running streams return `HttpStreamRunning`; cancel or wait for completion first.",
     "example": "$stream \"id\" at http_stream_release value"
+  },
+  {
+    "word": "tcp_listen",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "host:string port:number options:map -> result(map)",
+    "body": "Binds a retained TCP listener when socket capability is enabled. Port `0` asks the OS for an available port. Options include `nodelay`; `--socket-allow-host` can restrict bind hosts. The returned snapshot includes `id`, actual `port`, `status`, local address, and accepted-connection count.",
+    "example": "options map\n\"127.0.0.1\" 0 $options tcp_listen value listener var"
+  },
+  {
+    "word": "tcp_listeners",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns snapshots for retained TCP listeners in the current VM host.",
+    "example": "tcp_listeners count"
+  },
+  {
+    "word": "tcp_listener",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns a snapshot for one retained TCP listener, or an `UnknownTcpListener` result when the id is unknown.",
+    "example": "$listener \"id\" at tcp_listener value"
+  },
+  {
+    "word": "tcp_accept",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "listener_id:number options:map -> result(map)",
+    "body": "Accepts one inbound connection from a retained TCP listener with bounded `timeout_ms`. The accepted connection is retained as an ordinary TCP socket and can be used with `tcp_read`, `tcp_write`, `tcp_close`, and `tcp_release`.",
+    "example": "acceptOptions map\n$listener \"id\" at $acceptOptions tcp_accept value socket var"
+  },
+  {
+    "word": "tcp_listener_close",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Closes a retained TCP listener and returns the latest listener snapshot. Accepted TCP sockets remain independent retained connections.",
+    "example": "$listener \"id\" at tcp_listener_close value"
+  },
+  {
+    "word": "tcp_listener_release",
+    "aliases": ["socket", "TCP", "server"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a closed retained TCP listener from the host registry. Listening sockets return `TcpListenerOpen`; close them first.",
+    "example": "$listener \"id\" at tcp_listener_release value"
+  },
+  {
+    "word": "tcp_connect",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "host:string port:number options:map -> result(map)",
+    "body": "Opens an outbound TCP connection when socket capability is enabled. Options include bounded `timeout_ms` and `nodelay`; `--socket-allow-host` can restrict destination hosts. The returned snapshot includes `id`, `status`, address fields, and byte counters.",
+    "example": "options map\n\"127.0.0.1\" 9000 $options tcp_connect value socket var"
+  },
+  {
+    "word": "tcp_connections",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns snapshots for retained TCP socket connections in the current VM host.",
+    "example": "tcp_connections count"
+  },
+  {
+    "word": "tcp_connection",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns a snapshot for one retained TCP socket, or an `UnknownTcpSocket` result when the id is unknown.",
+    "example": "$socket \"id\" at tcp_connection value"
+  },
+  {
+    "word": "tcp_write",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "id:number data:string -> result(map)",
+    "body": "Writes UTF-8 text bytes to a connected TCP socket and returns the latest snapshot with updated byte counters.",
+    "example": "$socket \"id\" at \"ping\" tcp_write value"
+  },
+  {
+    "word": "tcp_read",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "id:number options:map -> result(map)",
+    "body": "Reads up to `max_bytes` from a connected TCP socket with a bounded `timeout_ms`. The result includes snapshot fields plus `data` and `bytes`; timeout without data returns an empty chunk.",
+    "example": "readOptions map\n$socket \"id\" at $readOptions tcp_read value"
+  },
+  {
+    "word": "tcp_close",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Closes a retained TCP socket and returns the latest snapshot.",
+    "example": "$socket \"id\" at tcp_close value"
+  },
+  {
+    "word": "tcp_release",
+    "aliases": ["socket", "TCP"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a closed retained TCP socket from the host registry. Connected sockets return `TcpSocketOpen`; close them first.",
+    "example": "$socket \"id\" at tcp_release value"
+  },
+  {
+    "word": "ws_listen",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "host:string port:number options:map -> result(map)",
+    "body": "Binds a retained WebSocket listener when socket capability is enabled. Port `0` asks the OS for an available port; `--socket-allow-host` can restrict bind hosts. Accepted sockets are retained as ordinary WebSocket connections.",
+    "example": "options map\n\"127.0.0.1\" 0 $options ws_listen value listener var"
+  },
+  {
+    "word": "ws_listeners",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns snapshots for retained WebSocket listeners in the current VM host.",
+    "example": "ws_listeners count"
+  },
+  {
+    "word": "ws_listener",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns a snapshot for one retained WebSocket listener, or an `UnknownWebSocketListener` result when the id is unknown.",
+    "example": "$listener \"id\" at ws_listener value"
+  },
+  {
+    "word": "ws_accept",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "listener_id:number options:map -> result(map)",
+    "body": "Accepts one inbound WebSocket handshake from a retained listener with bounded `timeout_ms`. The accepted socket is retained as an ordinary WebSocket and can be used with `ws_read`, `ws_send`, `ws_close`, and `ws_release`.",
+    "example": "acceptOptions map\n$listener \"id\" at $acceptOptions ws_accept value socket var"
+  },
+  {
+    "word": "ws_listener_close",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Closes a retained WebSocket listener and returns the latest listener snapshot. Accepted WebSockets remain independent retained connections.",
+    "example": "$listener \"id\" at ws_listener_close value"
+  },
+  {
+    "word": "ws_listener_release",
+    "aliases": ["socket", "WebSocket", "server"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a closed retained WebSocket listener from the host registry. Listening sockets return `WebSocketListenerOpen`; close them first.",
+    "example": "$listener \"id\" at ws_listener_release value"
+  },
+  {
+    "word": "ws_connect",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "url:string options:map -> result(map)",
+    "body": "Opens an outbound `ws://` or `wss://` WebSocket when socket capability is enabled. Options include bounded `timeout_ms`; `--socket-allow-host` can restrict destination hosts. The returned snapshot includes `id`, `status`, response metadata, and message counters.",
+    "example": "options map\n\"ws://127.0.0.1:9001/echo\" $options ws_connect value socket var"
+  },
+  {
+    "word": "ws_connections",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns snapshots for retained WebSocket connections in the current VM host.",
+    "example": "ws_connections count"
+  },
+  {
+    "word": "ws_connection",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns a snapshot for one retained WebSocket, or an `UnknownWebSocket` result when the id is unknown.",
+    "example": "$socket \"id\" at ws_connection value"
+  },
+  {
+    "word": "ws_send",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "id:number message:string -> result(map)",
+    "body": "Sends a text message on a connected WebSocket and returns the latest snapshot with updated message counters.",
+    "example": "$socket \"id\" at \"hello\" ws_send value"
+  },
+  {
+    "word": "ws_read",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "id:number options:map -> result(map)",
+    "body": "Reads one WebSocket message with a bounded `timeout_ms`. The result includes snapshot fields plus `message_type`, `message`, and `bytes`; timeout without data returns `message_type` `none`.",
+    "example": "readOptions map\n$socket \"id\" at $readOptions ws_read value"
+  },
+  {
+    "word": "ws_close",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Closes a retained WebSocket and returns the latest snapshot.",
+    "example": "$socket \"id\" at ws_close value"
+  },
+  {
+    "word": "ws_release",
+    "aliases": ["socket", "WebSocket"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Removes a closed retained WebSocket from the host registry. Connected sockets return `WebSocketOpen`; close them first.",
+    "example": "$socket \"id\" at ws_release value"
   },
   {
     "word": "tui_enter",

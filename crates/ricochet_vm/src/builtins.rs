@@ -34,6 +34,11 @@ use crate::process_runtime::{ProcessRead, ProcessRequest, ProcessRuntimeError, P
 use crate::pty_runtime::{PtyRead, PtyRequest, PtyRuntimeError, PtySnapshot};
 use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
+use crate::socket_runtime::{
+    SocketRuntimeError, TcpConnectRequest, TcpListenRequest, TcpListenerSnapshot, TcpSocketRead,
+    TcpSocketSnapshot, WebSocketConnectRequest, WebSocketListenRequest, WebSocketListenerSnapshot,
+    WebSocketRead, WebSocketSnapshot,
+};
 use crate::vm::{
     arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
 };
@@ -50,6 +55,10 @@ const PTY_DEFAULT_OUTPUT_MAX_BYTES: usize = 1_048_576;
 const PTY_MAX_OUTPUT_MAX_BYTES: usize = 16 * 1024 * 1024;
 const PTY_DEFAULT_ROWS: u16 = 24;
 const PTY_DEFAULT_COLS: u16 = 80;
+const SOCKET_DEFAULT_TIMEOUT_MS: u64 = 10_000;
+const SOCKET_MAX_TIMEOUT_MS: u64 = 300_000;
+const TCP_DEFAULT_READ_MAX_BYTES: usize = 64 * 1024;
+const TCP_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_READ_BYTES: usize = 1_048_576;
 const WORKSPACE_MAX_READ_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
@@ -2157,6 +2166,585 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_tcp_listen(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let port = match self.pop_number(word) {
+            Ok(port) => port,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let host = match self.pop_string(word, "TCP host string") {
+            Ok(host) => host,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match tcp_listen_request_from_values(host, port, options) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        if let Err(error) = self.check_socket_host_allowed(word, &request.host) {
+            self.stack
+                .push(Value::result_err("PermissionError", error.to_string()));
+            return Ok(());
+        }
+        let result = match self.tcp_listener_registry().listen(request) {
+            Ok(snapshot) => Value::result_ok(tcp_listener_snapshot_value(&snapshot)),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_listeners(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let listeners = self
+            .tcp_listener_registry()
+            .listeners()
+            .iter()
+            .map(tcp_listener_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(listeners.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_listener(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .tcp_listener_registry()
+            .listener(id)
+            .map(|snapshot| Value::result_ok(tcp_listener_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_tcp_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_accept(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let timeout = match socket_timeout_from_value(options, "TCP accept options") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .tcp_listener_registry()
+            .accept(id, timeout, &self.tcp_socket_registry())
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(tcp_socket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_tcp_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_listener_close(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .tcp_listener_registry()
+            .close(id)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(tcp_listener_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_tcp_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_listener_release(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = match self.tcp_listener_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_tcp_listener_value(id),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_connect(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let port = match self.pop_number(word) {
+            Ok(port) => port,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let host = match self.pop_string(word, "TCP host string") {
+            Ok(host) => host,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match tcp_connect_request_from_values(host, port, options) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        if let Err(error) = self.check_socket_host_allowed(word, &request.host) {
+            self.stack
+                .push(Value::result_err("PermissionError", error.to_string()));
+            return Ok(());
+        }
+        let result = match self.tcp_socket_registry().connect(request) {
+            Ok(snapshot) => Value::result_ok(tcp_socket_snapshot_value(&snapshot)),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_connections(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let connections = self
+            .tcp_socket_registry()
+            .connections()
+            .iter()
+            .map(tcp_socket_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(connections.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_connection(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .tcp_socket_registry()
+            .connection(id)
+            .map(|snapshot| Value::result_ok(tcp_socket_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_tcp_socket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_write(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let data = match self.pop_string(word, "TCP data string") {
+            Ok(data) => data,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = self
+            .tcp_socket_registry()
+            .write(id, &data, Duration::from_millis(SOCKET_DEFAULT_TIMEOUT_MS))
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(tcp_socket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_tcp_socket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_read(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match tcp_read_options_from_value(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .tcp_socket_registry()
+            .read(id, options.max_bytes, options.timeout)
+            .map(|result| match result {
+                Ok(read) => Value::result_ok(tcp_socket_read_value(&read)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_tcp_socket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_close(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .tcp_socket_registry()
+            .close(id)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(tcp_socket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_tcp_socket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_tcp_release(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = match self.tcp_socket_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_tcp_socket_value(id),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_listen(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let port = match self.pop_number(word) {
+            Ok(port) => port,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let host = match self.pop_string(word, "WebSocket listener host string") {
+            Ok(host) => host,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match websocket_listen_request_from_values(host, port, options) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        if let Err(error) = self.check_socket_host_allowed(word, &request.host) {
+            self.stack
+                .push(Value::result_err("PermissionError", error.to_string()));
+            return Ok(());
+        }
+        let result = match self.websocket_listener_registry().listen(request) {
+            Ok(snapshot) => Value::result_ok(websocket_listener_snapshot_value(&snapshot)),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_listeners(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let listeners = self
+            .websocket_listener_registry()
+            .listeners()
+            .iter()
+            .map(websocket_listener_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(listeners.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_ws_listener(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .websocket_listener_registry()
+            .listener(id)
+            .map(|snapshot| Value::result_ok(websocket_listener_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_websocket_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_accept(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let timeout = match socket_timeout_from_value(options, "WebSocket accept options") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .websocket_listener_registry()
+            .accept(id, timeout, &self.websocket_registry())
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(websocket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_websocket_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_listener_close(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .websocket_listener_registry()
+            .close(id)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(websocket_listener_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_websocket_listener_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_listener_release(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = match self.websocket_listener_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_websocket_listener_value(id),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_connect(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let url = match self.pop_string(word, "WebSocket URL string") {
+            Ok(url) => url,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let request = match websocket_connect_request_from_values(url, options) {
+            Ok(request) => request,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        if let Err(error) = self.check_socket_host_allowed(word, &request.host) {
+            self.stack
+                .push(Value::result_err("PermissionError", error.to_string()));
+            return Ok(());
+        }
+        let result = match self.websocket_registry().connect(request) {
+            Ok(snapshot) => Value::result_ok(websocket_snapshot_value(&snapshot)),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_connections(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let connections = self
+            .websocket_registry()
+            .connections()
+            .iter()
+            .map(websocket_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(connections.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_ws_connection(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .websocket_registry()
+            .connection(id)
+            .map(|snapshot| Value::result_ok(websocket_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_websocket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_send(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let message = match self.pop_string(word, "WebSocket text message string") {
+            Ok(message) => message,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = self
+            .websocket_registry()
+            .send(
+                id,
+                &message,
+                Duration::from_millis(SOCKET_DEFAULT_TIMEOUT_MS),
+            )
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(websocket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_websocket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_read(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = match self.pop(word) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let id = match self.pop_socket_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let timeout = match websocket_read_timeout_from_value(options) {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = self
+            .websocket_registry()
+            .read(id, timeout)
+            .map(|result| match result {
+                Ok(read) => Value::result_ok(websocket_read_value(&read)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_websocket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_close(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = self
+            .websocket_registry()
+            .close(id)
+            .map(|result| match result {
+                Ok(snapshot) => Value::result_ok(websocket_snapshot_value(&snapshot)),
+                Err(error) => socket_runtime_error_value(error),
+            })
+            .unwrap_or_else(|| unknown_websocket_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_ws_release(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_socket_enabled(word)?;
+        let id = self.pop_socket_id(word)?;
+        let result = match self.websocket_registry().release(id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => unknown_websocket_value(id),
+            Err(error) => socket_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_process_env_put(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
         let value = match self.pop_string(word, "process environment variable value string") {
@@ -3077,6 +3665,19 @@ impl Vm {
         }
     }
 
+    fn pop_socket_id(&mut self, word: &str) -> Result<u64, VmError> {
+        match self.pop_number(word)? {
+            value if value >= 0 => u64::try_from(value).map_err(|_| VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "socket id is too large".to_string(),
+            }),
+            value => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("socket id cannot be negative: {value}"),
+            }),
+        }
+    }
+
     fn method_fs_read_text(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::FileSystem, method)?;
         let path = self.pop_string(method, "path string")?;
@@ -3482,6 +4083,17 @@ impl Vm {
             Err(VmError::HostError {
                 word: word.to_string(),
                 message: "workspace filesystem capability is not enabled".to_string(),
+            })
+        }
+    }
+
+    fn ensure_socket_enabled(&self, word: &str) -> Result<(), VmError> {
+        if self.socket_enabled() {
+            Ok(())
+        } else {
+            Err(VmError::HostError {
+                word: word.to_string(),
+                message: "socket capability is not enabled".to_string(),
             })
         }
     }
@@ -5213,6 +5825,351 @@ fn http_stream_read_offset(options: Value) -> Result<usize, Value> {
     Ok(offset)
 }
 
+struct TcpReadOptions {
+    max_bytes: usize,
+    timeout: Duration,
+}
+
+fn tcp_connect_request_from_values(
+    host: String,
+    port: i64,
+    options: Value,
+) -> Result<TcpConnectRequest, Value> {
+    if host.trim().is_empty() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            "TCP host must not be empty",
+        ));
+    }
+    let port = match port {
+        1..=65535 => u16::try_from(port).expect("validated TCP port should fit u16"),
+        value => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!("TCP port must be between 1 and 65535, got {value}"),
+            ));
+        }
+    };
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("TCP options must be a map, got {}", value_kind(&options)),
+        ));
+    };
+    let mut options = options.snapshot();
+    let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    let nodelay = match options.remove("nodelay") {
+        Some(Value::Bool(value)) => value,
+        Some(Value::Nil) | None => true,
+        Some(value) => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!(
+                    "TCP option nodelay must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown TCP option: {key}"),
+        ));
+    }
+    Ok(TcpConnectRequest {
+        host,
+        port,
+        timeout,
+        nodelay,
+    })
+}
+
+fn tcp_listen_request_from_values(
+    host: String,
+    port: i64,
+    options: Value,
+) -> Result<TcpListenRequest, Value> {
+    if host.trim().is_empty() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            "TCP listener host must not be empty",
+        ));
+    }
+    let port = match port {
+        0..=65535 => u16::try_from(port).expect("validated TCP listener port should fit u16"),
+        value => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!("TCP listener port must be between 0 and 65535, got {value}"),
+            ));
+        }
+    };
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "TCP listener options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let nodelay = match options.remove("nodelay") {
+        Some(Value::Bool(value)) => value,
+        Some(Value::Nil) | None => true,
+        Some(value) => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!(
+                    "TCP listener option nodelay must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown TCP listener option: {key}"),
+        ));
+    }
+    Ok(TcpListenRequest {
+        host,
+        port,
+        nodelay,
+    })
+}
+
+fn tcp_read_options_from_value(options: Value) -> Result<TcpReadOptions, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "TCP read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    let max_bytes = match options.remove("max_bytes") {
+        Some(value) => tcp_read_max_bytes_from_value(value)?,
+        None => TCP_DEFAULT_READ_MAX_BYTES,
+    };
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown TCP read option: {key}"),
+        ));
+    }
+    Ok(TcpReadOptions { max_bytes, timeout })
+}
+
+fn websocket_connect_request_from_values(
+    url: String,
+    options: Value,
+) -> Result<WebSocketConnectRequest, Value> {
+    let parsed = reqwest::Url::parse(&url).map_err(|error| {
+        Value::result_err(
+            "SocketRequestError",
+            format!("invalid WebSocket URL: {error}"),
+        )
+    })?;
+    if !matches!(parsed.scheme(), "ws" | "wss") {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "WebSocket URL scheme must be ws or wss, got {}",
+                parsed.scheme()
+            ),
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| {
+            Value::result_err("SocketRequestError", "WebSocket URL must include a host")
+        })?
+        .to_ascii_lowercase();
+    let port = parsed.port_or_known_default().ok_or_else(|| {
+        Value::result_err(
+            "SocketRequestError",
+            "WebSocket URL must include a port or use ws/wss default ports",
+        )
+    })?;
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "WebSocket options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown WebSocket option: {key}"),
+        ));
+    }
+    Ok(WebSocketConnectRequest {
+        url,
+        host,
+        port,
+        timeout,
+    })
+}
+
+fn websocket_listen_request_from_values(
+    host: String,
+    port: i64,
+    options: Value,
+) -> Result<WebSocketListenRequest, Value> {
+    if host.trim().is_empty() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            "WebSocket listener host must not be empty",
+        ));
+    }
+    let port = match port {
+        0..=65535 => u16::try_from(port).expect("validated WebSocket listener port should fit u16"),
+        value => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!("WebSocket listener port must be between 0 and 65535, got {value}"),
+            ));
+        }
+    };
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "WebSocket listener options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let options = options.snapshot();
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown WebSocket listener option: {key}"),
+        ));
+    }
+    Ok(WebSocketListenRequest { host, port })
+}
+
+fn websocket_read_timeout_from_value(options: Value) -> Result<Duration, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "WebSocket read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown WebSocket read option: {key}"),
+        ));
+    }
+    Ok(timeout)
+}
+
+fn socket_timeout_from_value(options: Value, expected: &str) -> Result<Duration, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("{expected} must be a map, got {}", value_kind(&options)),
+        ));
+    };
+    let mut options = options.snapshot();
+    let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("unknown socket option: {key}"),
+        ));
+    }
+    Ok(timeout)
+}
+
+fn socket_timeout_from_option(
+    options: &mut BTreeMap<String, Value>,
+    key: &str,
+) -> Result<Duration, Value> {
+    let timeout_ms = match options.remove(key) {
+        Some(Value::Number(value)) if value > 0 => u64::try_from(value).map_err(|_| {
+            Value::result_err(
+                "SocketRequestError",
+                format!("socket option {key} is too large"),
+            )
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!("socket option {key} must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => SOCKET_DEFAULT_TIMEOUT_MS,
+        Some(value) => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!(
+                    "socket option {key} must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if timeout_ms > SOCKET_MAX_TIMEOUT_MS {
+        return Err(Value::result_err(
+            "SocketRequestError",
+            format!("socket option {key} must be at most {SOCKET_MAX_TIMEOUT_MS}"),
+        ));
+    }
+    Ok(Duration::from_millis(timeout_ms))
+}
+
+fn tcp_read_max_bytes_from_value(value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value > 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err(
+                    "SocketRequestError",
+                    "TCP read option max_bytes is too large",
+                )
+            })?;
+            if value > TCP_MAX_READ_MAX_BYTES {
+                Err(Value::result_err(
+                    "SocketRequestError",
+                    format!("TCP read option max_bytes must be at most {TCP_MAX_READ_MAX_BYTES}"),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Value::Number(value) => Err(Value::result_err(
+            "SocketRequestError",
+            format!("TCP read option max_bytes must be positive, got {value}"),
+        )),
+        Value::Nil => Ok(TCP_DEFAULT_READ_MAX_BYTES),
+        value => Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "TCP read option max_bytes must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
 fn pty_empty_options(options: Value, expected: &str) -> Result<(), Value> {
     let Value::Map(options) = options else {
         return Err(Value::result_err(
@@ -5450,6 +6407,211 @@ fn http_stream_runtime_error_value(error: HttpStreamRuntimeError) -> Value {
 
 fn unknown_http_stream_value(id: u64) -> Value {
     Value::result_err("UnknownHttpStream", format!("unknown HTTP stream: {id}"))
+}
+
+fn tcp_socket_snapshot_value(snapshot: &TcpSocketSnapshot) -> Value {
+    let local_addr = snapshot
+        .local_addr
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let peer_addr = snapshot
+        .peer_addr
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("host".to_string(), Value::String(snapshot.host.clone())),
+            ("port".to_string(), Value::Number(i64::from(snapshot.port))),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("connected".to_string(), Value::Bool(snapshot.connected)),
+            ("closed".to_string(), Value::Bool(snapshot.closed)),
+            ("local_addr".to_string(), local_addr),
+            ("peer_addr".to_string(), peer_addr),
+            ("error".to_string(), error),
+            (
+                "bytes_read".to_string(),
+                Value::Number(snapshot.bytes_read as i64),
+            ),
+            (
+                "bytes_written".to_string(),
+                Value::Number(snapshot.bytes_written as i64),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn tcp_listener_snapshot_value(snapshot: &TcpListenerSnapshot) -> Value {
+    let local_addr = snapshot
+        .local_addr
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("host".to_string(), Value::String(snapshot.host.clone())),
+            ("port".to_string(), Value::Number(i64::from(snapshot.port))),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("listening".to_string(), Value::Bool(snapshot.listening)),
+            ("closed".to_string(), Value::Bool(snapshot.closed)),
+            ("local_addr".to_string(), local_addr),
+            ("error".to_string(), error),
+            (
+                "accepted_connections".to_string(),
+                Value::Number(snapshot.accepted_connections as i64),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn tcp_socket_read_value(read: &TcpSocketRead) -> Value {
+    let mut values = match tcp_socket_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    values.insert("data".to_string(), Value::String(read.data.clone()));
+    values.insert("bytes".to_string(), Value::Number(read.bytes as i64));
+    Value::Map(values.into())
+}
+
+fn websocket_snapshot_value(snapshot: &WebSocketSnapshot) -> Value {
+    let response_status = snapshot
+        .response_status
+        .map(Value::Number)
+        .unwrap_or(Value::Nil);
+    let response_headers = snapshot
+        .response_headers
+        .iter()
+        .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("url".to_string(), Value::String(snapshot.url.clone())),
+            ("host".to_string(), Value::String(snapshot.host.clone())),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("connected".to_string(), Value::Bool(snapshot.connected)),
+            ("closed".to_string(), Value::Bool(snapshot.closed)),
+            ("response_status".to_string(), response_status),
+            (
+                "response_headers".to_string(),
+                Value::Map(response_headers.into()),
+            ),
+            ("error".to_string(), error),
+            (
+                "messages_sent".to_string(),
+                Value::Number(snapshot.messages_sent as i64),
+            ),
+            (
+                "messages_received".to_string(),
+                Value::Number(snapshot.messages_received as i64),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn websocket_listener_snapshot_value(snapshot: &WebSocketListenerSnapshot) -> Value {
+    let local_addr = snapshot
+        .local_addr
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let error = snapshot
+        .error
+        .as_ref()
+        .map(|error| Value::String(error.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("host".to_string(), Value::String(snapshot.host.clone())),
+            ("port".to_string(), Value::Number(i64::from(snapshot.port))),
+            (
+                "started_at_ms".to_string(),
+                Value::Number(snapshot.started_at_ms),
+            ),
+            ("status".to_string(), Value::String(snapshot.status.clone())),
+            ("listening".to_string(), Value::Bool(snapshot.listening)),
+            ("closed".to_string(), Value::Bool(snapshot.closed)),
+            ("local_addr".to_string(), local_addr),
+            ("error".to_string(), error),
+            (
+                "accepted_connections".to_string(),
+                Value::Number(snapshot.accepted_connections as i64),
+            ),
+        ])
+        .into(),
+    )
+}
+
+fn websocket_read_value(read: &WebSocketRead) -> Value {
+    let mut values = match websocket_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    values.insert(
+        "message_type".to_string(),
+        Value::String(read.message_type.clone()),
+    );
+    values.insert("message".to_string(), Value::String(read.message.clone()));
+    values.insert("bytes".to_string(), Value::Number(read.bytes as i64));
+    Value::Map(values.into())
+}
+
+fn socket_runtime_error_value(error: SocketRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn unknown_tcp_socket_value(id: u64) -> Value {
+    Value::result_err("UnknownTcpSocket", format!("unknown TCP socket: {id}"))
+}
+
+fn unknown_tcp_listener_value(id: u64) -> Value {
+    Value::result_err("UnknownTcpListener", format!("unknown TCP listener: {id}"))
+}
+
+fn unknown_websocket_value(id: u64) -> Value {
+    Value::result_err("UnknownWebSocket", format!("unknown WebSocket: {id}"))
+}
+
+fn unknown_websocket_listener_value(id: u64) -> Value {
+    Value::result_err(
+        "UnknownWebSocketListener",
+        format!("unknown WebSocket listener: {id}"),
+    )
 }
 
 fn pty_snapshot_value(snapshot: &PtySnapshot) -> Value {

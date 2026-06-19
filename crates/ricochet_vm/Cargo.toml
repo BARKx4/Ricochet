@@ -14,5 +14,6 @@ serde_json.workspace = true
 reqwest.workspace = true
 regex.workspace = true
 thiserror.workspace = true
+tungstenite.workspace = true
 wait-timeout.workspace = true
 portable-pty.workspace = true

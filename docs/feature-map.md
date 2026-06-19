@@ -82,7 +82,7 @@ Current top-level groups are:
   `inspect`, `debug`.
 - `web`: route verbs, controller response words, and Active Record words.
 - `system`: host effects, capabilities, date/time, environment/config/secrets,
-  process/PTY, HTTP, TUI, webview, approvals.
+  process/PTY, HTTP, TCP/WebSocket sockets, TUI, webview, approvals.
 
 ## Language Core
 
@@ -232,8 +232,8 @@ Status: implemented beta.
 Implemented:
 
 - Capability profiles: `trusted` and `sandboxed`.
-- CLI flags narrow filesystem, HTTP, environment, sleep, TUI, webview, process,
-  and PTY capabilities.
+- CLI flags narrow filesystem, HTTP, TCP/WebSocket sockets,
+  environment, sleep, TUI, webview, process, and PTY capabilities.
 - `runtime_capabilities` reports the active powers available to the VM.
 - Filesystem words: `fs_read_text`, `fs_write_text`, `fs_exists?`, `fs_list`,
   `fs_create_dir`, `fs_delete`.
@@ -243,6 +243,10 @@ Implemented:
   `workspace_copy`, `workspace_move`.
 - HTTP words cover simple calls, structured request maps, bearer/JSON/timeout
   helpers, task-returning requests, and retained streams with read/cancel/release.
+- Socket words cover retained raw TCP and WebSocket clients/listeners with
+  listen/accept/connect/read/write-or-send/close/release, explicit
+  `--allow-sockets`, and optional `--socket-allow-host` bind/destination
+  allowlists.
 - Process words cover blocking spawn, task spawn, retained process jobs, reads,
   cancellation, release, and env option maps.
 - PTY words cover retained terminal sessions, write/read/resize/stop/release,
@@ -261,6 +265,7 @@ Evidence:
 - `crates/ricochet_vm/src/process_runtime.rs`
 - `crates/ricochet_vm/src/pty_runtime.rs`
 - `crates/ricochet_vm/src/http_stream_runtime.rs`
+- `crates/ricochet_vm/src/socket_runtime.rs`
 - `crates/ricochet_vm/src/approval_runtime.rs`
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`

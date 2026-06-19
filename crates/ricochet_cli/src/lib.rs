@@ -555,6 +555,17 @@ struct CapabilityOptions {
         help = "Allow HTTP requests only to HOST; repeat for multiple hosts"
     )]
     http_allow_hosts: Vec<String>,
+    #[arg(
+        long,
+        help = "Enable outbound TCP and WebSocket socket capabilities for this run"
+    )]
+    allow_sockets: bool,
+    #[arg(
+        long = "socket-allow-host",
+        value_name = "HOST",
+        help = "Allow TCP/WebSocket connects and listener binds only for HOST; repeat for multiple hosts"
+    )]
+    socket_allow_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
@@ -598,6 +609,7 @@ impl CapabilityOptions {
         let http_enabled = !self.no_http
             && (self.capability_profile == CapabilityProfile::Trusted
                 || !self.http_allow_hosts.is_empty());
+        let socket_enabled = self.allow_sockets || !self.socket_allow_hosts.is_empty();
         let process_enabled = self.allow_process;
         let pty_enabled = self.allow_pty;
         let terminal_enabled = !self.no_tui
@@ -610,6 +622,7 @@ impl CapabilityOptions {
         let sleep_enabled = !self.no_sleep && self.capability_profile == CapabilityProfile::Trusted;
 
         vm.set_host_capabilities(filesystem_enabled, http_enabled);
+        vm.set_socket_enabled(socket_enabled);
         vm.set_process_enabled(process_enabled);
         vm.set_pty_enabled(pty_enabled);
         vm.set_terminal_enabled(terminal_enabled);
@@ -642,6 +655,11 @@ impl CapabilityOptions {
         }
         if !self.http_allow_hosts.is_empty() {
             vm.set_http_allowed_hosts(self.http_allow_hosts.clone());
+        }
+        if self.socket_allow_hosts.is_empty() {
+            vm.clear_socket_allowed_hosts();
+        } else {
+            vm.set_socket_allowed_hosts(self.socket_allow_hosts.clone());
         }
         Ok(())
     }

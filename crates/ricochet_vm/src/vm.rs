@@ -20,6 +20,9 @@ use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
+use crate::socket_runtime::{
+    TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
+};
 use crate::value::Value;
 
 const DEFAULT_MAX_RUNNING_TASKS: usize = 64;
@@ -125,6 +128,12 @@ pub struct Vm {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_stream_registry: HttpStreamRegistry,
+    socket_enabled: bool,
+    socket_allowed_hosts: Option<BTreeSet<String>>,
+    tcp_socket_registry: TcpSocketRegistry,
+    tcp_listener_registry: TcpListenerRegistry,
+    websocket_registry: WebSocketRegistry,
+    websocket_listener_registry: WebSocketListenerRegistry,
     process_enabled: bool,
     process_root: Option<PathBuf>,
     process_registry: ProcessRegistry,
@@ -176,6 +185,12 @@ impl Default for Vm {
             http_enabled: false,
             http_allowed_hosts: None,
             http_stream_registry: HttpStreamRegistry::default(),
+            socket_enabled: false,
+            socket_allowed_hosts: None,
+            tcp_socket_registry: TcpSocketRegistry::default(),
+            tcp_listener_registry: TcpListenerRegistry::default(),
+            websocket_registry: WebSocketRegistry::default(),
+            websocket_listener_registry: WebSocketListenerRegistry::default(),
             process_enabled: false,
             process_root: None,
             process_registry: ProcessRegistry::default(),
@@ -223,6 +238,12 @@ struct Task {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_stream_registry: HttpStreamRegistry,
+    socket_enabled: bool,
+    socket_allowed_hosts: Option<BTreeSet<String>>,
+    tcp_socket_registry: TcpSocketRegistry,
+    tcp_listener_registry: TcpListenerRegistry,
+    websocket_registry: WebSocketRegistry,
+    websocket_listener_registry: WebSocketListenerRegistry,
     process_enabled: bool,
     process_root: Option<PathBuf>,
     process_registry: ProcessRegistry,
@@ -421,6 +442,12 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
         http_stream_registry: task.http_stream_registry,
+        socket_enabled: task.socket_enabled,
+        socket_allowed_hosts: task.socket_allowed_hosts,
+        tcp_socket_registry: task.tcp_socket_registry,
+        tcp_listener_registry: task.tcp_listener_registry,
+        websocket_registry: task.websocket_registry,
+        websocket_listener_registry: task.websocket_listener_registry,
         process_enabled: task.process_enabled,
         process_root: task.process_root,
         process_registry: task.process_registry,
@@ -515,6 +542,7 @@ impl Vm {
         self.filesystem_enabled = true;
         self.filesystem_writes_enabled = true;
         self.http_enabled = true;
+        self.socket_enabled = true;
         self.process_enabled = true;
         self.pty_enabled = true;
         self.terminal_enabled = true;
@@ -531,6 +559,39 @@ impl Vm {
 
     pub fn set_http_stream_registry(&mut self, registry: HttpStreamRegistry) {
         self.http_stream_registry = registry;
+    }
+
+    pub fn set_socket_enabled(&mut self, enabled: bool) {
+        self.socket_enabled = enabled;
+    }
+
+    pub fn set_socket_allowed_hosts(&mut self, hosts: impl IntoIterator<Item = String>) {
+        self.socket_allowed_hosts = Some(
+            hosts
+                .into_iter()
+                .map(|host| host.to_ascii_lowercase())
+                .collect(),
+        );
+    }
+
+    pub fn clear_socket_allowed_hosts(&mut self) {
+        self.socket_allowed_hosts = None;
+    }
+
+    pub fn set_tcp_socket_registry(&mut self, registry: TcpSocketRegistry) {
+        self.tcp_socket_registry = registry;
+    }
+
+    pub fn set_tcp_listener_registry(&mut self, registry: TcpListenerRegistry) {
+        self.tcp_listener_registry = registry;
+    }
+
+    pub fn set_websocket_registry(&mut self, registry: WebSocketRegistry) {
+        self.websocket_registry = registry;
+    }
+
+    pub fn set_websocket_listener_registry(&mut self, registry: WebSocketListenerRegistry) {
+        self.websocket_listener_registry = registry;
     }
 
     pub fn set_process_enabled(&mut self, enabled: bool) {
@@ -1389,6 +1450,32 @@ impl Vm {
             "http_stream_read" => self.call_http_stream_read(word),
             "http_stream_cancel" => self.call_http_stream_cancel(word),
             "http_stream_release" => self.call_http_stream_release(word),
+            "tcp_listen" => self.call_tcp_listen(word),
+            "tcp_listeners" => self.call_tcp_listeners(word),
+            "tcp_listener" => self.call_tcp_listener(word),
+            "tcp_accept" => self.call_tcp_accept(word),
+            "tcp_listener_close" => self.call_tcp_listener_close(word),
+            "tcp_listener_release" => self.call_tcp_listener_release(word),
+            "tcp_connect" => self.call_tcp_connect(word),
+            "tcp_connections" => self.call_tcp_connections(word),
+            "tcp_connection" => self.call_tcp_connection(word),
+            "tcp_write" => self.call_tcp_write(word),
+            "tcp_read" => self.call_tcp_read(word),
+            "tcp_close" => self.call_tcp_close(word),
+            "tcp_release" => self.call_tcp_release(word),
+            "ws_listen" => self.call_ws_listen(word),
+            "ws_listeners" => self.call_ws_listeners(word),
+            "ws_listener" => self.call_ws_listener(word),
+            "ws_accept" => self.call_ws_accept(word),
+            "ws_listener_close" => self.call_ws_listener_close(word),
+            "ws_listener_release" => self.call_ws_listener_release(word),
+            "ws_connect" => self.call_ws_connect(word),
+            "ws_connections" => self.call_ws_connections(word),
+            "ws_connection" => self.call_ws_connection(word),
+            "ws_send" => self.call_ws_send(word),
+            "ws_read" => self.call_ws_read(word),
+            "ws_close" => self.call_ws_close(word),
+            "ws_release" => self.call_ws_release(word),
             "process_env_put" => self.call_process_env_put(word),
             "process_spawn" => self.call_process_spawn(word),
             "process_spawn_task" => self.call_process_spawn_task(word),
@@ -1985,6 +2072,12 @@ impl Vm {
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
+            socket_enabled: self.socket_enabled,
+            socket_allowed_hosts: self.socket_allowed_hosts.clone(),
+            tcp_socket_registry: self.tcp_socket_registry.clone(),
+            tcp_listener_registry: self.tcp_listener_registry.clone(),
+            websocket_registry: self.websocket_registry.clone(),
+            websocket_listener_registry: self.websocket_listener_registry.clone(),
             process_enabled: self.process_enabled,
             process_root: self.process_root.clone(),
             process_registry: self.process_registry.clone(),
@@ -2229,12 +2322,32 @@ impl Vm {
         self.http_enabled
     }
 
+    pub(super) fn socket_enabled(&self) -> bool {
+        self.socket_enabled
+    }
+
     pub(super) fn process_registry(&self) -> ProcessRegistry {
         self.process_registry.clone()
     }
 
     pub(super) fn http_stream_registry(&self) -> HttpStreamRegistry {
         self.http_stream_registry.clone()
+    }
+
+    pub(super) fn tcp_socket_registry(&self) -> TcpSocketRegistry {
+        self.tcp_socket_registry.clone()
+    }
+
+    pub(super) fn tcp_listener_registry(&self) -> TcpListenerRegistry {
+        self.tcp_listener_registry.clone()
+    }
+
+    pub(super) fn websocket_registry(&self) -> WebSocketRegistry {
+        self.websocket_registry.clone()
+    }
+
+    pub(super) fn websocket_listener_registry(&self) -> WebSocketListenerRegistry {
+        self.websocket_listener_registry.clone()
     }
 
     pub(super) fn pty_enabled(&self) -> bool {
@@ -2263,6 +2376,20 @@ impl Vm {
             .unwrap_or(Value::Nil);
         let http_allowed_hosts = self
             .http_allowed_hosts
+            .as_ref()
+            .map(|hosts| {
+                Value::Array(
+                    hosts
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>()
+                        .into(),
+                )
+            })
+            .unwrap_or(Value::Nil);
+        let socket_allowed_hosts = self
+            .socket_allowed_hosts
             .as_ref()
             .map(|hosts| {
                 Value::Array(
@@ -2335,6 +2462,32 @@ impl Vm {
                             (
                                 "streams".to_string(),
                                 Value::Number(self.http_stream_registry.len() as i64),
+                            ),
+                        ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "sockets".to_string(),
+                    Value::Map(
+                        BTreeMap::from([
+                            ("enabled".to_string(), Value::Bool(self.socket_enabled)),
+                            ("allowed_hosts".to_string(), socket_allowed_hosts),
+                            (
+                                "tcp_connections".to_string(),
+                                Value::Number(self.tcp_socket_registry.len() as i64),
+                            ),
+                            (
+                                "tcp_listeners".to_string(),
+                                Value::Number(self.tcp_listener_registry.len() as i64),
+                            ),
+                            (
+                                "websocket_connections".to_string(),
+                                Value::Number(self.websocket_registry.len() as i64),
+                            ),
+                            (
+                                "websocket_listeners".to_string(),
+                                Value::Number(self.websocket_listener_registry.len() as i64),
                             ),
                         ])
                         .into(),
@@ -2463,6 +2616,22 @@ impl Vm {
             Err(VmError::HostError {
                 word: word.to_string(),
                 message: format!("HTTP host is not allowed: {host}"),
+            })
+        }
+    }
+
+    pub(super) fn check_socket_host_allowed(&self, word: &str, host: &str) -> Result<(), VmError> {
+        let Some(allowed_hosts) = &self.socket_allowed_hosts else {
+            return Ok(());
+        };
+
+        let host = host.to_ascii_lowercase();
+        if allowed_hosts.contains(&host) {
+            Ok(())
+        } else {
+            Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("socket host is not allowed: {host}"),
             })
         }
     }

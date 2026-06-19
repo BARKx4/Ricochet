@@ -26,10 +26,11 @@ foundation that other developers can scaffold, run, inspect, and extend.
   token exactly once, and complete or reject the record with retained audit
   state through `approval_create`, `approval_claim`, `approval_complete`,
   `approval_reject`, and `approval_detail`.
-- Host capabilities: filesystem/workspace, HTTP, environment, sleep, TUI,
-  webview, opt-in process execution, and opt-in PTY sessions can be inspected
-  with `runtime_capabilities`; direct child process execution uses
-  `process_spawn`, `process_spawn_task`, or retained `process_start` jobs.
+- Host capabilities: filesystem/workspace, HTTP, TCP/WebSocket sockets,
+  environment, sleep, TUI, webview, opt-in process execution, and
+  opt-in PTY sessions can be inspected with `runtime_capabilities`; direct
+  child process execution uses `process_spawn`, `process_spawn_task`, or
+  retained `process_start` jobs.
 - Desktop GUI beta: trusted local scripts can build escaped `webview` document
   maps, preview them with `rco gui`, and package them as native Windows, Linux,
   or macOS WebView executables with `rco package --gui`. MVC projects can also
@@ -89,6 +90,10 @@ foundation that other developers can scaffold, run, inspect, and extend.
   `http_stream`, `http_streams`, `http_stream_cancel`, and
   `http_stream_release` jobs support bounded offset reads for SSE or other
   long-running response bodies.
+- Socket clients and listeners: retained `tcp_connect`/`tcp_listen` plus
+  `tcp_read`/`tcp_write`, and `ws_connect`/`ws_listen` plus
+  `ws_read`/`ws_send`, support bounded raw TCP and WebSocket client/server
+  development behind explicit socket capability flags.
 - Security posture: sandboxable host capabilities, no-follow HTTP redirects,
   import/dependency path containment, signed default sessions, view/template
   traversal guards, and TLS-required remote PostgreSQL connections.
@@ -721,14 +726,18 @@ debugger, release, and tooling surfaces, see `docs/feature-map.md`.
 The CLI uses the `trusted` capability profile by default for local scripts.
 Pass `--capability-profile sandboxed` with `rco run`, `rco run-bytecode`,
 `rco repl`, or `rco test` to start with filesystem, HTTP, TUI, and webview
-disabled. Process execution and PTY sessions are disabled unless explicitly
-enabled in either profile.
+disabled. Process execution, PTY sessions, and TCP/WebSocket sockets
+are disabled unless explicitly enabled in either profile.
 In the sandboxed profile, `--fs-root <path>` enables filesystem access only
 under that directory, `--fs-readonly` denies writes,
 `--http-allow-host <host>` enables HTTP only for named hosts, and
 `--allow-tui` enables terminal UI access, while `--allow-webview` enables
 webview document building. `--no-fs`, `--no-http`, `--no-tui`, and
 `--no-webview` still deny those host powers explicitly in either profile.
+`--allow-sockets` enables raw TCP and WebSocket clients/listeners; prefer
+`--socket-allow-host <host>` for bounded socket access when running examples,
+tests, or third-party code. Listener bind hosts are checked with the same
+allowlist as outbound destinations.
 `--allow-process` enables direct child process execution with captured
 stdout/stderr, bounded output, blocking `process_spawn`, and long-running
 `process_start` jobs retained up to a per-host cap; use `process_release` to

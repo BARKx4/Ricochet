@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -7997,6 +7997,271 @@ response get "body" at
 }
 
 #[test]
+fn run_socket_words_require_explicit_capability() {
+    let source_path = write_source(
+        r#"
+options map
+"127.0.0.1" 9 $options tcp_connect drop
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should fail when socket capability is disabled"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("socket capability is not enabled"),
+        "stderr should explain disabled socket capability, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_sandboxed_profile_allows_bounded_tcp_socket_echo() {
+    let (address, server) = spawn_tcp_echo_server();
+    let source_path = write_source(&format!(
+        r#"
+options map
+$options "timeout_ms" 5000 put! drop
+"127.0.0.1" {port} $options tcp_connect value connection var
+$connection "status" at
+$connection "id" at id var
+$id "ping" tcp_write value "bytes_written" at
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$readOptions "max_bytes" 64 put! drop
+$id $readOptions tcp_read value read var
+$read "data" at
+$id tcp_close value "closed" at
+$id tcp_release value
+tcp_connections count
+runtime_capabilities "sockets" at "tcp_connections" at
+"#,
+        port = address.port()
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--socket-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("TCP echo server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"connected\")")
+            && stdout.contains("Number(4)")
+            && stdout.contains("String(\"tcp:pong\")")
+            && stdout.contains("Bool(true)"),
+        "stdout should show connected TCP echo, write count, close, and release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 2,
+        "stdout should show no retained TCP connections after release, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_sandboxed_profile_allows_bounded_websocket_echo() {
+    let (address, server) = spawn_websocket_echo_server();
+    let source_path = write_source(&format!(
+        r#"
+options map
+$options "timeout_ms" 5000 put! drop
+"ws://127.0.0.1:{port}/echo" $options ws_connect value socket var
+$socket "status" at
+$socket "id" at id var
+$id "hello" ws_send value "messages_sent" at
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$id $readOptions ws_read value message var
+$message "message_type" at
+$message "message" at
+$id ws_close value "closed" at
+$id ws_release value
+ws_connections count
+runtime_capabilities "sockets" at "websocket_connections" at
+"#,
+        port = address.port()
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--socket-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("WebSocket echo server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"connected\")")
+            && stdout.contains("Number(1)")
+            && stdout.contains("String(\"text\")")
+            && stdout.contains("String(\"ws:hello\")")
+            && stdout.contains("Bool(true)"),
+        "stdout should show connected WebSocket echo, sent count, close, and release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 2,
+        "stdout should show no retained WebSocket connections after release, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_sandboxed_profile_allows_bounded_tcp_listener_echo() {
+    let source_path = write_source(
+        r#"
+listenOptions map
+"127.0.0.1" 0 $listenOptions tcp_listen value listener var
+$listener "status" at
+$listener "port" at port var
+[
+  options map
+  $options "timeout_ms" 5000 put! drop
+  "127.0.0.1" $port $options tcp_connect value client var
+  $client "id" at clientId var
+  $clientId "from-client" tcp_write value drop
+  readOptions map
+  $readOptions "timeout_ms" 5000 put! drop
+  $readOptions "max_bytes" 64 put! drop
+  $clientId $readOptions tcp_read value clientRead var
+  $clientId tcp_close value drop
+  $clientId tcp_release value drop
+  $clientRead "data" at
+] spawn clientTask var
+acceptOptions map
+$acceptOptions "timeout_ms" 5000 put! drop
+$listener "id" at $acceptOptions tcp_accept value accepted var
+$accepted "id" at serverId var
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$readOptions "max_bytes" 64 put! drop
+$serverId $readOptions tcp_read value serverRead var
+$serverRead "data" at
+$serverId "from-server" tcp_write value "bytes_written" at
+$serverId tcp_close value "closed" at
+$serverId tcp_release value
+$clientTask await
+$listener "id" at tcp_listener_close value "closed" at
+$listener "id" at tcp_listener_release value
+tcp_listeners count
+tcp_connections count
+runtime_capabilities "sockets" at "tcp_listeners" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--socket-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"listening\")")
+            && stdout.contains("String(\"from-client\")")
+            && stdout.contains("String(\"from-server\")")
+            && stdout.contains("Number(11)")
+            && stdout.contains("Bool(true)"),
+        "stdout should show TCP listener accept, echo, close, and release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 3,
+        "stdout should show no retained TCP listeners or connections after release, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_sandboxed_profile_allows_bounded_websocket_listener_echo() {
+    let source_path = write_source(
+        r#"
+listenOptions map
+"127.0.0.1" 0 $listenOptions ws_listen value listener var
+$listener "status" at
+"ws://127.0.0.1:" $listener "port" at to_string concat "/echo" concat url var
+[
+  options map
+  $options "timeout_ms" 5000 put! drop
+  $url $options ws_connect value client var
+  $client "id" at clientId var
+  $clientId "from-client" ws_send value drop
+  readOptions map
+  $readOptions "timeout_ms" 5000 put! drop
+  $clientId $readOptions ws_read value clientRead var
+  $clientId ws_close value drop
+  $clientId ws_release value drop
+  $clientRead "message" at
+] spawn clientTask var
+acceptOptions map
+$acceptOptions "timeout_ms" 5000 put! drop
+$listener "id" at $acceptOptions ws_accept value accepted var
+$accepted "id" at serverId var
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$serverId $readOptions ws_read value serverRead var
+$serverRead "message_type" at
+$serverRead "message" at
+$serverId "from-server" ws_send value "messages_sent" at
+$serverId ws_close value "closed" at
+$serverId ws_release value
+$clientTask await
+$listener "id" at ws_listener_close value "closed" at
+$listener "id" at ws_listener_release value
+ws_listeners count
+ws_connections count
+runtime_capabilities "sockets" at "websocket_listeners" at
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--socket-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"listening\")")
+            && stdout.contains("String(\"text\")")
+            && stdout.contains("String(\"from-client\")")
+            && stdout.contains("String(\"from-server\")")
+            && stdout.contains("Number(1)")
+            && stdout.contains("Bool(true)"),
+        "stdout should show WebSocket listener accept, echo, close, and release, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("Number(0)").count() >= 3,
+        "stdout should show no retained WebSocket listeners or connections after release, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_http_get_does_not_follow_redirects_past_allowlist() {
     let (address, server) = spawn_single_response_http_server(
         b"HTTP/1.1 302 Found\r\nLocation: http://example.com/blocked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
@@ -8613,6 +8878,72 @@ fn spawn_chunked_http_server(
     });
 
     (address, server)
+}
+
+fn spawn_tcp_echo_server() -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local TCP listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+
+    let server = thread::spawn(move || {
+        let Some(mut stream) = accept_local_test_connection(listener) else {
+            return;
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("accepted TCP stream should set read timeout");
+        let mut buffer = [0_u8; 64];
+        let count = stream.read(&mut buffer).expect("TCP request should read");
+        assert_eq!(&buffer[..count], b"ping");
+        stream
+            .write_all(b"tcp:pong")
+            .expect("TCP response should write");
+        stream.flush().expect("TCP response should flush");
+        let _ = stream.shutdown(Shutdown::Both);
+    });
+
+    (address, server)
+}
+
+fn spawn_websocket_echo_server() -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("local WebSocket listener should bind");
+    let address = listener.local_addr().expect("listener should have address");
+    listener
+        .set_nonblocking(true)
+        .expect("listener should become nonblocking");
+
+    let server = thread::spawn(move || {
+        let Some(stream) = accept_local_test_connection(listener) else {
+            return;
+        };
+        stream
+            .set_nonblocking(false)
+            .expect("accepted WebSocket stream should become blocking");
+        let mut socket = tungstenite::accept(stream).expect("WebSocket handshake should complete");
+        let message = socket.read().expect("WebSocket message should read");
+        let text = message.to_text().expect("WebSocket message should be text");
+        socket
+            .send(tungstenite::Message::Text(format!("ws:{text}").into()))
+            .expect("WebSocket echo should write");
+        let _ = socket.close(None);
+    });
+
+    (address, server)
+}
+
+fn accept_local_test_connection(listener: TcpListener) -> Option<std::net::TcpStream> {
+    for _ in 0..500 {
+        match listener.accept() {
+            Ok((stream, _)) => return Some(stream),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("local test accept failed: {error}"),
+        }
+    }
+    None
 }
 
 fn escape_ricochet_string(value: &str) -> String {

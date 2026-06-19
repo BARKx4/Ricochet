@@ -10,6 +10,7 @@ pub mod process_runtime;
 pub mod pty_runtime;
 pub mod regex_value;
 pub mod result;
+pub mod socket_runtime;
 pub mod value;
 pub mod vm;
 
@@ -24,6 +25,9 @@ pub use process_runtime::ProcessRegistry;
 pub use pty_runtime::PtyRegistry;
 pub use regex_value::RegexValue;
 pub use result::{RicochetError, RicochetResult};
+pub use socket_runtime::{
+    TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
+};
 pub use value::{TruthinessError, Value};
 pub use vm::{Vm, VmError};
 

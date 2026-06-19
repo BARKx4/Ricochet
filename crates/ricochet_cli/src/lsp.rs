@@ -252,6 +252,112 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "http",
         "Release a completed retained HTTP stream job.",
     ),
+    WordDoc::new("tcp_listen", "sockets", "Bind a retained TCP listener."),
+    WordDoc::new("tcp_listeners", "sockets", "List retained TCP listeners."),
+    WordDoc::new(
+        "tcp_listener",
+        "sockets",
+        "Inspect a retained TCP listener.",
+    ),
+    WordDoc::new(
+        "tcp_accept",
+        "sockets",
+        "Accept one retained TCP listener connection.",
+    ),
+    WordDoc::new(
+        "tcp_listener_close",
+        "sockets",
+        "Close a retained TCP listener.",
+    ),
+    WordDoc::new(
+        "tcp_listener_release",
+        "sockets",
+        "Release a closed retained TCP listener.",
+    ),
+    WordDoc::new(
+        "tcp_connect",
+        "sockets",
+        "Open a retained outbound TCP socket connection.",
+    ),
+    WordDoc::new(
+        "tcp_connections",
+        "sockets",
+        "List retained TCP socket connections.",
+    ),
+    WordDoc::new(
+        "tcp_connection",
+        "sockets",
+        "Inspect a retained TCP socket connection.",
+    ),
+    WordDoc::new(
+        "tcp_write",
+        "sockets",
+        "Write text bytes to a retained TCP socket.",
+    ),
+    WordDoc::new(
+        "tcp_read",
+        "sockets",
+        "Read text bytes from a retained TCP socket.",
+    ),
+    WordDoc::new("tcp_close", "sockets", "Close a retained TCP socket."),
+    WordDoc::new(
+        "tcp_release",
+        "sockets",
+        "Release a closed retained TCP socket.",
+    ),
+    WordDoc::new(
+        "ws_listen",
+        "sockets",
+        "Bind a retained WebSocket listener.",
+    ),
+    WordDoc::new(
+        "ws_listeners",
+        "sockets",
+        "List retained WebSocket listeners.",
+    ),
+    WordDoc::new(
+        "ws_listener",
+        "sockets",
+        "Inspect a retained WebSocket listener.",
+    ),
+    WordDoc::new(
+        "ws_accept",
+        "sockets",
+        "Accept one retained WebSocket listener connection.",
+    ),
+    WordDoc::new(
+        "ws_listener_close",
+        "sockets",
+        "Close a retained WebSocket listener.",
+    ),
+    WordDoc::new(
+        "ws_listener_release",
+        "sockets",
+        "Release a closed retained WebSocket listener.",
+    ),
+    WordDoc::new(
+        "ws_connect",
+        "sockets",
+        "Open a retained outbound WebSocket connection.",
+    ),
+    WordDoc::new(
+        "ws_connections",
+        "sockets",
+        "List retained WebSocket connections.",
+    ),
+    WordDoc::new(
+        "ws_connection",
+        "sockets",
+        "Inspect a retained WebSocket connection.",
+    ),
+    WordDoc::new("ws_send", "sockets", "Send a WebSocket text message."),
+    WordDoc::new("ws_read", "sockets", "Read one WebSocket message."),
+    WordDoc::new("ws_close", "sockets", "Close a retained WebSocket."),
+    WordDoc::new(
+        "ws_release",
+        "sockets",
+        "Release a closed retained WebSocket.",
+    ),
     WordDoc::new(
         "process_spawn",
         "process",

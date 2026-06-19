@@ -38,6 +38,9 @@ tokio.workspace = true
 toml_edit.workspace = true
 tower.workspace = true
 
+[dev-dependencies]
+tungstenite.workspace = true
+
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 tao = "0.35"
 wry = "0.55"
