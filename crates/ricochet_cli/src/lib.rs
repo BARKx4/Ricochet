@@ -7460,7 +7460,6 @@ async fn measure_sqlite_mvc_requests(
 ) -> Result<BenchmarkMeasurement> {
     let project = benchmark_sqlite_project_path(repo_root)?;
     create_new_project(&project, NewProjectOptions { with_sqlite: true }, false)?;
-    rewrite_benchmark_sqlite_manifest(&project)?;
     let app = ricochet_web::build_served_app_from_dir(
         &project,
         false,
@@ -7588,19 +7587,6 @@ fn benchmark_sqlite_project_path(repo_root: &Path) -> Result<PathBuf> {
         .join("bench")
         .join(format!("sqlite-mvc-{}-{nanos}", std::process::id()));
     Ok(root)
-}
-
-fn rewrite_benchmark_sqlite_manifest(project: &Path) -> Result<()> {
-    let manifest_path = project.join("ricochet.toml");
-    let manifest = fs::read_to_string(&manifest_path)
-        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let database_path = path_to_slash(&project.join("db").join("development.sqlite3"));
-    let manifest = manifest.replace(
-        "url = \"db/development.sqlite3\"",
-        &format!("url = \"{database_path}\""),
-    );
-    fs::write(&manifest_path, manifest)
-        .with_context(|| format!("failed to write {}", manifest_path.display()))
 }
 
 fn count_package_files(path: &Path) -> Result<usize> {
