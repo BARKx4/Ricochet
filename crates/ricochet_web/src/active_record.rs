@@ -902,6 +902,39 @@ fn postgres_host_is_local(host: &PostgresHost) -> bool {
     }
 }
 
+fn apply_mysql_tls_policy(url: &str) -> Result<(), ActiveRecordError> {
+    let parsed = reqwest::Url::parse(url).map_err(|error| ActiveRecordError::Database {
+        operation: "configure mysql tls",
+        message: format!("invalid MySQL URL: {error}"),
+    })?;
+    let Some(host) = parsed.host_str() else {
+        return Ok(());
+    };
+    if mysql_host_is_local(host) {
+        return Ok(());
+    }
+    let require_ssl = parsed
+        .query_pairs()
+        .find(|(key, _)| key.eq_ignore_ascii_case("require_ssl"))
+        .map(|(_, value)| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if require_ssl {
+        Ok(())
+    } else {
+        Err(ActiveRecordError::Database {
+            operation: "configure mysql tls",
+            message: "remote MySQL URLs must include require_ssl=true".to_string(),
+        })
+    }
+}
+
+fn mysql_host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
 #[derive(Clone)]
 pub struct SqliteDatabase {
     connection: Arc<Mutex<Connection>>,
@@ -1212,6 +1245,7 @@ impl fmt::Debug for MysqlDatabase {
 
 impl MysqlDatabase {
     pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
+        apply_mysql_tls_policy(url)?;
         let pool = MysqlPool::from_url(url).map_err(|error| mysql_error("connect", error))?;
         let database = Self { pool };
         database.ping().await?;
@@ -2626,6 +2660,30 @@ mod tests {
                 actual: "map".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn mysql_tls_policy_rejects_remote_plaintext_urls() {
+        let error = apply_mysql_tls_policy("mysql://user:pass@db.example.test/app")
+            .expect_err("remote MySQL URL without TLS requirement should fail");
+
+        assert!(matches!(
+            error,
+            ActiveRecordError::Database {
+                operation: "configure mysql tls",
+                message
+            } if message.contains("require_ssl=true")
+        ));
+    }
+
+    #[test]
+    fn mysql_tls_policy_allows_local_or_tls_required_urls() {
+        apply_mysql_tls_policy("mysql://user:pass@localhost/app")
+            .expect("localhost MySQL remains allowed for development");
+        apply_mysql_tls_policy("mysql://user:pass@127.0.0.1/app")
+            .expect("loopback MySQL remains allowed for development");
+        apply_mysql_tls_policy("mysql://user:pass@db.example.test/app?require_ssl=true")
+            .expect("remote MySQL must pass with require_ssl=true");
     }
 
     #[test]

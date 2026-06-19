@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,16 +29,17 @@ use super::*;
 use crate::approval_runtime::{ApprovalCreateRequest, ApprovalRuntimeError, ApprovalSnapshot};
 use crate::capability::Capability;
 use crate::http_stream_runtime::{
-    HttpStreamRead, HttpStreamRequest, HttpStreamRuntimeError, HttpStreamSnapshot,
+    HttpResolvedDestination, HttpStreamRead, HttpStreamRequest, HttpStreamRuntimeError,
+    HttpStreamSnapshot,
 };
 use crate::process_runtime::{ProcessRead, ProcessRequest, ProcessRuntimeError, ProcessSnapshot};
 use crate::pty_runtime::{PtyRead, PtyRequest, PtyRuntimeError, PtySnapshot};
 use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
 use crate::socket_runtime::{
-    SocketRuntimeError, TcpConnectRequest, TcpListenRequest, TcpListenerSnapshot, TcpSocketRead,
-    TcpSocketSnapshot, WebSocketConnectRequest, WebSocketListenRequest, WebSocketListenerSnapshot,
-    WebSocketRead, WebSocketSnapshot,
+    socket_address_policy_error, SocketRuntimeError, TcpConnectRequest, TcpListenRequest,
+    TcpListenerSnapshot, TcpSocketRead, TcpSocketSnapshot, WebSocketConnectRequest,
+    WebSocketListenRequest, WebSocketListenerSnapshot, WebSocketRead, WebSocketSnapshot,
 };
 use crate::vm::{
     arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
@@ -59,6 +61,8 @@ const SOCKET_DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const SOCKET_MAX_TIMEOUT_MS: u64 = 300_000;
 const TCP_DEFAULT_READ_MAX_BYTES: usize = 64 * 1024;
 const TCP_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
+const WEBSOCKET_DEFAULT_READ_MAX_BYTES: usize = 1_048_576;
+const WEBSOCKET_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_READ_BYTES: usize = 1_048_576;
 const WORKSPACE_MAX_READ_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
@@ -2049,6 +2053,14 @@ impl Vm {
             self.stack.push(error);
             return Ok(());
         }
+        let resolved_destination =
+            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    self.stack.push(error);
+                    return Ok(());
+                }
+            };
         let stream_request = HttpStreamRequest {
             method: request.method,
             url: request.url,
@@ -2057,6 +2069,7 @@ impl Vm {
             body: request.body,
             timeout: request.timeout,
             max_response_bytes: request.max_response_bytes,
+            resolved_destination,
         };
         let result = match self.http_stream_registry().start(stream_request) {
             Ok(snapshot) => Value::result_ok(http_stream_snapshot_value(&snapshot)),
@@ -2190,7 +2203,12 @@ impl Vm {
                 return Err(error);
             }
         };
-        let request = match tcp_listen_request_from_values(host, port, options) {
+        let request = match tcp_listen_request_from_values(
+            host,
+            port,
+            options,
+            self.socket_host_policy_enabled(),
+        ) {
             Ok(request) => request,
             Err(error) => {
                 self.stack.push(error);
@@ -2321,7 +2339,12 @@ impl Vm {
                 return Err(error);
             }
         };
-        let request = match tcp_connect_request_from_values(host, port, options) {
+        let request = match tcp_connect_request_from_values(
+            host,
+            port,
+            options,
+            self.socket_host_policy_enabled(),
+        ) {
             Ok(request) => request,
             Err(error) => {
                 self.stack.push(error);
@@ -2481,7 +2504,12 @@ impl Vm {
                 return Err(error);
             }
         };
-        let request = match websocket_listen_request_from_values(host, port, options) {
+        let request = match websocket_listen_request_from_values(
+            host,
+            port,
+            options,
+            self.socket_host_policy_enabled(),
+        ) {
             Ok(request) => request,
             Err(error) => {
                 self.stack.push(error);
@@ -2605,7 +2633,11 @@ impl Vm {
                 return Err(error);
             }
         };
-        let request = match websocket_connect_request_from_values(url, options) {
+        let request = match websocket_connect_request_from_values(
+            url,
+            options,
+            self.socket_host_policy_enabled(),
+        ) {
             Ok(request) => request,
             Err(error) => {
                 self.stack.push(error);
@@ -2699,8 +2731,8 @@ impl Vm {
                 return Err(error);
             }
         };
-        let timeout = match websocket_read_timeout_from_value(options) {
-            Ok(timeout) => timeout,
+        let options = match websocket_read_options_from_value(options) {
+            Ok(options) => options,
             Err(error) => {
                 self.stack.push(error);
                 return Ok(());
@@ -2708,7 +2740,7 @@ impl Vm {
         };
         let result = self
             .websocket_registry()
-            .read(id, timeout)
+            .read(id, options.timeout, options.max_bytes)
             .map(|result| match result {
                 Ok(read) => Value::result_ok(websocket_read_value(&read)),
                 Err(error) => socket_runtime_error_value(error),
@@ -4104,7 +4136,11 @@ impl Vm {
         if let Err(error) = self.check_http_url_allowed(method, &url) {
             return Ok(Value::result_err("PermissionError", error.to_string()));
         }
-        Ok(http_in_worker(move || perform_http_get(url)))
+        let destination = match http_resolved_destination(self, &url, None) {
+            Ok(destination) => destination,
+            Err(error) => return Ok(error),
+        };
+        Ok(http_in_worker(move || perform_http_get(url, destination)))
     }
 
     fn method_http_post_json(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
@@ -4118,7 +4154,13 @@ impl Vm {
         if let Err(error) = self.check_http_url_allowed(method, &url) {
             return Ok(Value::result_err("PermissionError", error.to_string()));
         }
-        Ok(http_in_worker(move || perform_http_post_json(url, body)))
+        let destination = match http_resolved_destination(self, &url, None) {
+            Ok(destination) => destination,
+            Err(error) => return Ok(error),
+        };
+        Ok(http_in_worker(move || {
+            perform_http_post_json(url, body, destination)
+        }))
     }
 
     fn method_http_request(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
@@ -4134,19 +4176,37 @@ impl Vm {
         if let Some(error) = http_request_policy_error(&request) {
             return Ok(error);
         }
-        Ok(http_in_worker(move || perform_http_request(request)))
+        let destination =
+            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
+                Ok(destination) => destination,
+                Err(error) => return Ok(error),
+            };
+        Ok(http_in_worker(move || {
+            perform_http_request(request, destination)
+        }))
     }
 
     fn method_http_get_task(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Http, method)?;
         let url = self.pop_string(method, "URL string")?;
-        let permission_error = self
+        let mut permission_error = self
             .check_http_url_allowed(method, &url)
             .err()
-            .map(|error| error.to_string());
+            .map(|error| Value::result_err("PermissionError", error.to_string()));
+        let destination = if permission_error.is_none() {
+            match http_resolved_destination(self, &url, None) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    permission_error = Some(error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.spawn_value_task(method, move || match permission_error {
-            Some(error) => Value::result_err("PermissionError", error),
-            None => perform_http_get(url),
+            Some(error) => error,
+            None => perform_http_get(url, destination),
         })
     }
 
@@ -4162,13 +4222,24 @@ impl Vm {
             Ok(value) => value,
             Err(message) => return Ok(Value::result_err("JsonError", message)),
         };
-        let permission_error = self
+        let mut permission_error = self
             .check_http_url_allowed(method, &url)
             .err()
-            .map(|error| error.to_string());
+            .map(|error| Value::result_err("PermissionError", error.to_string()));
+        let destination = if permission_error.is_none() {
+            match http_resolved_destination(self, &url, None) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    permission_error = Some(error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.spawn_value_task(method, move || match permission_error {
-            Some(error) => Value::result_err("PermissionError", error),
-            None => perform_http_post_json(url, body),
+            Some(error) => error,
+            None => perform_http_post_json(url, body, destination),
         })
     }
 
@@ -4183,14 +4254,25 @@ impl Vm {
             Ok(request) => request,
             Err(error) => return Ok(error),
         };
-        let permission_error = self
+        let mut permission_error = self
             .check_http_url_allowed(method, &request.url)
             .err()
             .map(|error| Value::result_err("PermissionError", error.to_string()))
             .or_else(|| http_request_policy_error(&request));
+        let destination = if permission_error.is_none() {
+            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    permission_error = Some(error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.spawn_value_task(method, move || match permission_error {
             Some(error) => error,
-            None => perform_http_request(request),
+            None => perform_http_request(request, destination),
         })
     }
 
@@ -5202,10 +5284,26 @@ fn webview_document_html(
 fn webview_json_literal(name: &str, value: &Value) -> Result<String, VmError> {
     value_to_json(value)
         .and_then(|value| serde_json::to_string(&value).map_err(|error| error.to_string()))
+        .map(|json| script_safe_json_literal(&json))
         .map_err(|message| VmError::InvalidArgument {
             word: "webview_window_state".to_string(),
             message: format!("webview {name} cannot be encoded as JSON: {message}"),
         })
+}
+
+fn script_safe_json_literal(json: &str) -> String {
+    let mut escaped = String::with_capacity(json.len());
+    for character in json.chars() {
+        match character {
+            '<' => escaped.push_str("\\u003c"),
+            '>' => escaped.push_str("\\u003e"),
+            '&' => escaped.push_str("\\u0026"),
+            '\u{2028}' => escaped.push_str("\\u2028"),
+            '\u{2029}' => escaped.push_str("\\u2029"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn builtin_class_name(value: &Value) -> Option<&'static str> {
@@ -5362,11 +5460,82 @@ fn http_response(
     }
 }
 
-fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client, reqwest::Error> {
-    reqwest::blocking::Client::builder()
+fn http_client(
+    timeout: Duration,
+    destination: Option<&HttpResolvedDestination>,
+) -> Result<reqwest::blocking::Client, reqwest::Error> {
+    let mut builder = reqwest::blocking::Client::builder()
         .timeout(timeout)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(destination) = destination {
+        builder = builder.resolve_to_addrs(&destination.host, &destination.addresses);
+    }
+    builder.build()
+}
+
+fn http_resolved_destination(
+    vm: &Vm,
+    url: &str,
+    request_allowed_hosts: Option<&BTreeSet<String>>,
+) -> Result<Option<HttpResolvedDestination>, Value> {
+    if !vm.http_host_policy_enabled() && request_allowed_hosts.is_none() {
+        return Ok(None);
+    }
+
+    let parsed = reqwest::Url::parse(url).map_err(|error| {
+        Value::result_err(
+            "HttpRequestError",
+            format!("invalid HTTP URL {url:?}: {error}"),
+        )
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(Value::result_err(
+            "HttpRequestError",
+            format!("unsupported HTTP URL scheme: {}", parsed.scheme()),
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| {
+            Value::result_err("HttpRequestError", format!("HTTP URL has no host: {url:?}"))
+        })?
+        .to_ascii_lowercase();
+    if let Some(allowed_hosts) = request_allowed_hosts {
+        if !allowed_hosts.contains(&host) {
+            return Err(Value::result_err(
+                "PermissionError",
+                format!("HTTP host is not allowed by request policy: {host}"),
+            ));
+        }
+    }
+    let port = parsed.port_or_known_default().ok_or_else(|| {
+        Value::result_err(
+            "HttpRequestError",
+            format!("HTTP URL must include a port or use a known scheme: {url:?}"),
+        )
+    })?;
+    let addresses = (host.as_str(), port)
+        .to_socket_addrs()
+        .map_err(|error| {
+            Value::result_err(
+                "HttpRequestError",
+                format!("failed to resolve HTTP host {host}:{port}: {error}"),
+            )
+        })?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(Value::result_err(
+            "HttpRequestError",
+            format!("no socket addresses resolved for HTTP host {host}:{port}"),
+        ));
+    }
+    for address in &addresses {
+        if let Some(message) = socket_address_policy_error(&host, *address) {
+            return Err(Value::result_err("PermissionError", message));
+        }
+    }
+
+    Ok(Some(HttpResolvedDestination { host, addresses }))
 }
 
 #[derive(Clone)]
@@ -5426,6 +5595,9 @@ fn process_request_from_values(
             "process command must not be empty",
         ));
     }
+    let command = vm
+        .resolve_process_command(word, &command)
+        .map_err(|error| Value::result_err("PermissionError", error.to_string()))?;
 
     let Value::Map(options) = options else {
         return Err(Value::result_err(
@@ -5600,6 +5772,9 @@ fn pty_request_from_values(
             "PTY command must not be empty",
         ));
     }
+    let command = vm
+        .resolve_process_command(word, &command)
+        .map_err(|error| Value::result_err("PermissionError", error.to_string()))?;
 
     let Value::Map(options) = options else {
         return Err(Value::result_err(
@@ -5830,10 +6005,16 @@ struct TcpReadOptions {
     timeout: Duration,
 }
 
+struct WebSocketReadOptions {
+    max_bytes: usize,
+    timeout: Duration,
+}
+
 fn tcp_connect_request_from_values(
     host: String,
     port: i64,
     options: Value,
+    enforce_resolved_address_policy: bool,
 ) -> Result<TcpConnectRequest, Value> {
     if host.trim().is_empty() {
         return Err(Value::result_err(
@@ -5882,6 +6063,7 @@ fn tcp_connect_request_from_values(
         port,
         timeout,
         nodelay,
+        enforce_resolved_address_policy,
     })
 }
 
@@ -5889,6 +6071,7 @@ fn tcp_listen_request_from_values(
     host: String,
     port: i64,
     options: Value,
+    enforce_resolved_address_policy: bool,
 ) -> Result<TcpListenRequest, Value> {
     if host.trim().is_empty() {
         return Err(Value::result_err(
@@ -5938,6 +6121,7 @@ fn tcp_listen_request_from_values(
         host,
         port,
         nodelay,
+        enforce_resolved_address_policy,
     })
 }
 
@@ -5969,6 +6153,7 @@ fn tcp_read_options_from_value(options: Value) -> Result<TcpReadOptions, Value> 
 fn websocket_connect_request_from_values(
     url: String,
     options: Value,
+    enforce_resolved_address_policy: bool,
 ) -> Result<WebSocketConnectRequest, Value> {
     let parsed = reqwest::Url::parse(&url).map_err(|error| {
         Value::result_err(
@@ -6019,6 +6204,7 @@ fn websocket_connect_request_from_values(
         host,
         port,
         timeout,
+        enforce_resolved_address_policy,
     })
 }
 
@@ -6026,6 +6212,7 @@ fn websocket_listen_request_from_values(
     host: String,
     port: i64,
     options: Value,
+    enforce_resolved_address_policy: bool,
 ) -> Result<WebSocketListenRequest, Value> {
     if host.trim().is_empty() {
         return Err(Value::result_err(
@@ -6051,17 +6238,26 @@ fn websocket_listen_request_from_values(
             ),
         ));
     };
-    let options = options.snapshot();
+    let mut options = options.snapshot();
+    let allowed_origins = match options.remove("allowed_origins") {
+        Some(value) => socket_string_list_from_value("allowed_origins", value)?,
+        None => Vec::new(),
+    };
     if let Some(key) = options.keys().next() {
         return Err(Value::result_err(
             "SocketRequestError",
             format!("unknown WebSocket listener option: {key}"),
         ));
     }
-    Ok(WebSocketListenRequest { host, port })
+    Ok(WebSocketListenRequest {
+        host,
+        port,
+        allowed_origins,
+        enforce_resolved_address_policy,
+    })
 }
 
-fn websocket_read_timeout_from_value(options: Value) -> Result<Duration, Value> {
+fn websocket_read_options_from_value(options: Value) -> Result<WebSocketReadOptions, Value> {
     let Value::Map(options) = options else {
         return Err(Value::result_err(
             "SocketRequestError",
@@ -6073,13 +6269,17 @@ fn websocket_read_timeout_from_value(options: Value) -> Result<Duration, Value> 
     };
     let mut options = options.snapshot();
     let timeout = socket_timeout_from_option(&mut options, "timeout_ms")?;
+    let max_bytes = match options.remove("max_bytes") {
+        Some(value) => websocket_read_max_bytes_from_value(value)?,
+        None => WEBSOCKET_DEFAULT_READ_MAX_BYTES,
+    };
     if let Some(key) = options.keys().next() {
         return Err(Value::result_err(
             "SocketRequestError",
             format!("unknown WebSocket read option: {key}"),
         ));
     }
-    Ok(timeout)
+    Ok(WebSocketReadOptions { max_bytes, timeout })
 }
 
 fn socket_timeout_from_value(options: Value, expected: &str) -> Result<Duration, Value> {
@@ -6137,6 +6337,42 @@ fn socket_timeout_from_option(
     Ok(Duration::from_millis(timeout_ms))
 }
 
+fn socket_string_list_from_value(name: &str, value: Value) -> Result<Vec<String>, Value> {
+    let values = match value {
+        Value::Array(values) => values.snapshot(),
+        Value::List(values) => values.snapshot(),
+        Value::Nil => return Ok(Vec::new()),
+        value => {
+            return Err(Value::result_err(
+                "SocketRequestError",
+                format!(
+                    "socket option {name} must be an array or list, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::String(value) if !value.is_empty() => Ok(value),
+            Value::String(_) => Err(Value::result_err(
+                "SocketRequestError",
+                format!("socket option {name}[{index}] must not be empty"),
+            )),
+            value => Err(Value::result_err(
+                "SocketRequestError",
+                format!(
+                    "socket option {name}[{index}] must be a string, got {}",
+                    value_kind(&value)
+                ),
+            )),
+        })
+        .collect()
+}
+
 fn tcp_read_max_bytes_from_value(value: Value) -> Result<usize, Value> {
     match value {
         Value::Number(value) if value > 0 => {
@@ -6164,6 +6400,41 @@ fn tcp_read_max_bytes_from_value(value: Value) -> Result<usize, Value> {
             "SocketRequestError",
             format!(
                 "TCP read option max_bytes must be a number, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn websocket_read_max_bytes_from_value(value: Value) -> Result<usize, Value> {
+    match value {
+        Value::Number(value) if value > 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err(
+                    "SocketRequestError",
+                    "WebSocket read option max_bytes is too large",
+                )
+            })?;
+            if value > WEBSOCKET_MAX_READ_MAX_BYTES {
+                Err(Value::result_err(
+                    "SocketRequestError",
+                    format!(
+                        "WebSocket read option max_bytes must be at most {WEBSOCKET_MAX_READ_MAX_BYTES}"
+                    ),
+                ))
+            } else {
+                Ok(value)
+            }
+        }
+        Value::Number(value) => Err(Value::result_err(
+            "SocketRequestError",
+            format!("WebSocket read option max_bytes must be positive, got {value}"),
+        )),
+        Value::Nil => Ok(WEBSOCKET_DEFAULT_READ_MAX_BYTES),
+        value => Err(Value::result_err(
+            "SocketRequestError",
+            format!(
+                "WebSocket read option max_bytes must be a number, got {}",
                 value_kind(&value)
             ),
         )),
@@ -8125,16 +8396,26 @@ fn join_process_output(
     }
 }
 
-fn perform_http_get(url: String) -> Value {
-    let client = match http_client(Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS)) {
+fn perform_http_get(url: String, destination: Option<HttpResolvedDestination>) -> Value {
+    let client = match http_client(
+        Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS),
+        destination.as_ref(),
+    ) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
     http_response(client.get(url).send(), HTTP_DEFAULT_MAX_RESPONSE_BYTES)
 }
 
-fn perform_http_post_json(url: String, body: JsonValue) -> Value {
-    let client = match http_client(Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS)) {
+fn perform_http_post_json(
+    url: String,
+    body: JsonValue,
+    destination: Option<HttpResolvedDestination>,
+) -> Value {
+    let client = match http_client(
+        Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS),
+        destination.as_ref(),
+    ) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
@@ -8144,8 +8425,11 @@ fn perform_http_post_json(url: String, body: JsonValue) -> Value {
     )
 }
 
-fn perform_http_request(request: HttpRequest) -> Value {
-    let client = match http_client(request.timeout) {
+fn perform_http_request(
+    request: HttpRequest,
+    destination: Option<HttpResolvedDestination>,
+) -> Value {
+    let client = match http_client(request.timeout, destination.as_ref()) {
         Ok(client) => client,
         Err(error) => return Value::result_err("HttpError", error.to_string()),
     };
@@ -8259,6 +8543,75 @@ mod tests {
         assert!(matches!(
             result,
             Err(("RangeError", message)) if message.contains("outside integer range")
+        ));
+    }
+
+    #[test]
+    fn webview_json_literals_are_safe_inside_inline_scripts() {
+        let state = Value::Map(
+            BTreeMap::from([(
+                "payload".to_string(),
+                Value::String("</script><script>alert(1)</script>\u{2028}".to_string()),
+            )])
+            .into(),
+        );
+        let actions = Value::Array(
+            vec![Value::String(
+                "</script><script>alert(2)</script>\u{2029}".to_string(),
+            )]
+            .into(),
+        );
+
+        let html = webview_document_html("Title", "<main></main>", &state, &actions)
+            .expect("webview document should render");
+
+        assert_eq!(html.matches("</script>").count(), 1);
+        assert!(!html.contains("</script><script>alert"));
+        assert!(html.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)"));
+        assert!(html.contains("\\u2028"));
+        assert!(html.contains("\\u2029"));
+    }
+
+    #[test]
+    fn process_root_rejects_process_and_pty_executables_outside_root() {
+        let process_root =
+            std::env::temp_dir().join(format!("ricochet-process-root-test-{}", std::process::id()));
+        fs::create_dir_all(&process_root).expect("process root test dir should exist");
+        let outside_executable = std::env::current_exe()
+            .expect("test executable path should resolve")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_process_root(&process_root);
+
+        let process_error = process_request_from_values(
+            &vm,
+            "process_spawn",
+            outside_executable.clone(),
+            Vec::new(),
+            Value::Map(BTreeMap::new().into()),
+        )
+        .expect_err("process executable outside root should fail");
+        assert!(matches!(
+            process_error,
+            Value::Result(RicochetResult::Err(error))
+                if error.kind == "PermissionError"
+                    && error.message.contains("process executable")
+        ));
+
+        let pty_error = pty_request_from_values(
+            &vm,
+            "pty_start",
+            outside_executable,
+            Vec::new(),
+            Value::Map(BTreeMap::new().into()),
+        )
+        .expect_err("PTY executable outside root should fail");
+        assert!(matches!(
+            pty_error,
+            Value::Result(RicochetResult::Err(error))
+                if error.kind == "PermissionError"
+                    && error.message.contains("process executable")
         ));
     }
 }

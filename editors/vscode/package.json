@@ -7,6 +7,12 @@
   "engines": {
     "vscode": "^1.84.0"
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Workspace Ricochet executable settings are ignored until the workspace is trusted."
+    }
+  },
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:ricochet",

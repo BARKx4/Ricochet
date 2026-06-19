@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
@@ -152,6 +154,13 @@ pub struct AiDefault {
 
 impl AiDefault {
     pub fn resolved_config(&self) -> Result<AiProviderConfig> {
+        self.resolved_config_with_env_policy(None)
+    }
+
+    pub fn resolved_config_with_env_policy(
+        &self,
+        allowed_env: Option<&BTreeSet<String>>,
+    ) -> Result<AiProviderConfig> {
         let provider = self.provider.trim();
         if provider.is_empty() {
             bail!("ai.default.provider must not be empty");
@@ -165,13 +174,16 @@ impl AiDefault {
             bail!("ai.default.model must not be empty");
         }
 
-        let api_key = expand_environment_variables(&self.api_key, "AI API key")?;
+        let api_key =
+            expand_environment_variables_with_policy(&self.api_key, "AI API key", allowed_env)?;
         if api_key.is_empty() {
             bail!("ai.default.api_key must not resolve to an empty value");
         }
 
         let base_url = match self.base_url.as_deref() {
-            Some(value) => expand_environment_variables(value, "AI base_url")?,
+            Some(value) => {
+                expand_environment_variables_with_policy(value, "AI base_url", allowed_env)?
+            }
             None if provider == "openai" => "https://api.openai.com/v1".to_string(),
             None => bail!("ai.default.base_url is required for openai-compatible provider"),
         };
@@ -198,9 +210,24 @@ impl DatabaseDefault {
     pub fn resolved_url(&self) -> Result<String> {
         expand_environment_variables(&self.url, "database URL")
     }
+
+    pub fn resolved_url_with_env_policy(
+        &self,
+        allowed_env: Option<&BTreeSet<String>>,
+    ) -> Result<String> {
+        expand_environment_variables_with_policy(&self.url, "database URL", allowed_env)
+    }
 }
 
 fn expand_environment_variables(value: &str, context: &str) -> Result<String> {
+    expand_environment_variables_with_policy(value, context, None)
+}
+
+fn expand_environment_variables_with_policy(
+    value: &str,
+    context: &str,
+    allowed_env: Option<&BTreeSet<String>>,
+) -> Result<String> {
     let mut output = String::new();
     let mut remaining = value;
 
@@ -214,6 +241,11 @@ fn expand_environment_variables(value: &str, context: &str) -> Result<String> {
         let variable = &remaining[variable_start..variable_end];
         if variable.is_empty() {
             bail!("empty environment variable in {context}");
+        }
+        if let Some(allowed_env) = allowed_env {
+            if !allowed_env.contains(variable) {
+                bail!("{context} environment variable {variable} is not allowed by serve policy");
+            }
         }
         let replacement = std::env::var(variable)
             .with_context(|| format!("{context} environment variable {variable} is not set"))?;

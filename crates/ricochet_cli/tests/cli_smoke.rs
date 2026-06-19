@@ -2812,7 +2812,7 @@ fn static_registry_rejects_malformed_index() {
 }
 
 #[test]
-fn static_registry_reports_http_fetch_failure() {
+fn static_registry_rejects_plain_http_registry_urls() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
     let address = listener.local_addr().expect("listener should have address");
     drop(listener);
@@ -2827,12 +2827,87 @@ fn static_registry_reports_http_fetch_failure() {
 
     assert!(
         !search.status.success(),
-        "rco search should report HTTP registry fetch failures"
+        "rco search should reject plain HTTP registry URLs"
     );
     let stderr = String::from_utf8_lossy(&search.stderr);
     assert!(
-        stderr.contains("failed to fetch static registry resource"),
-        "stderr should explain HTTP fetch failure, got:\n{stderr}"
+        stderr.contains("must start with https:// or file://"),
+        "stderr should explain rejected HTTP registry URL, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn static_registry_install_rejects_absolute_archive_urls_in_metadata() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("registry");
+    let app = base.join("app");
+    let archive = static_registry_archive_with_regular_entry("ricochet.toml", b"");
+    write_static_registry_fixture(&registry, "greeter", "0.2.3", &archive);
+    replace_toml_string_line(
+        &registry.join("packages").join("greeter.toml"),
+        "archive",
+        "https://packages.example.test/greeter-0.2.3.tar.gz",
+    );
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+            escape_toml_string(&file_url_for_test(&registry.join("index.toml")))
+        ),
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !install.status.success(),
+        "rco install should reject absolute archive URLs from metadata"
+    );
+    let stderr = String::from_utf8_lossy(&install.stderr);
+    assert!(
+        stderr.contains("archive must be a registry-relative path"),
+        "stderr should explain rejected archive URL, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn static_registry_install_rejects_archive_unpacked_size_over_cap() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("registry");
+    let app = base.join("app");
+    let archive =
+        static_registry_archive_with_raw_entry("huge.bin", &[], b'0', "", Some(129 * 1024 * 1024));
+    write_static_registry_fixture(&registry, "greeter", "0.2.3", &archive);
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        &format!(
+            "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+            escape_toml_string(&file_url_for_test(&registry.join("index.toml")))
+        ),
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !install.status.success(),
+        "rco install should reject archives whose declared unpacked size exceeds the cap"
+    );
+    let stderr = String::from_utf8_lossy(&install.stderr);
+    assert!(
+        stderr.contains("static registry archive entry huge.bin is too large")
+            || stderr.contains("static registry package archive unpacks to more than"),
+        "stderr should explain rejected archive size, got:\n{stderr}"
     );
 }
 
@@ -6677,7 +6752,15 @@ fn run_process_root_bounds_process_cwd_when_allowed() {
     fs::create_dir_all(&outside_root).expect("outside process root should be created");
     let checked_source = process_root.join("checked.rco");
     fs::write(&checked_source, "42\n").expect("checked source should be written");
+    let bounded_rco = process_root.join(if cfg!(windows) {
+        "rco-under-root.exe"
+    } else {
+        "rco-under-root"
+    });
+    fs::copy(env!("CARGO_BIN_EXE_rco"), &bounded_rco)
+        .expect("test rco executable should copy under process root");
     let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let bounded_rco_source = escape_ricochet_string(&bounded_rco.to_string_lossy());
     let process_root_source = escape_ricochet_string(&process_root.to_string_lossy());
     let outside_root_source = escape_ricochet_string(&outside_root.to_string_lossy());
     fs::write(
@@ -6690,14 +6773,18 @@ args get "checked.rco" push! drop
 options map
 options get "cwd" "{process_root_source}" put! drop
 options get "timeout_ms" 10000 put! drop
-"{rco}" args get options get process_spawn value result var
+"{bounded_rco_source}" args get options get process_spawn value result var
 result get "success" at
 result get "stdout" at "checked" contains?
 runtime_capabilities "process" at "root" at "{process_root_source}" =
 outsideOptions map
 outsideOptions get "cwd" "{outside_root_source}" put! drop
-"{rco}" args get outsideOptions get process_spawn error denied var
-denied get "kind" at
+"{bounded_rco_source}" args get outsideOptions get process_spawn error deniedCwd var
+deniedCwd get "kind" at
+outsideCommandOptions map
+outsideCommandOptions get "cwd" "{process_root_source}" put! drop
+"{rco}" args get outsideCommandOptions get process_spawn error deniedCommand var
+deniedCommand get "kind" at
 "#
         ),
     )
@@ -8124,6 +8211,46 @@ runtime_capabilities "sockets" at "websocket_connections" at
 }
 
 #[test]
+fn run_websocket_read_rejects_messages_above_max_bytes() {
+    let (address, server) = spawn_websocket_echo_server();
+    let source_path = write_source(&format!(
+        r#"
+options map
+$options "timeout_ms" 5000 put! drop
+"ws://127.0.0.1:{port}/echo" $options ws_connect value socket var
+$socket "id" at id var
+$id "hello" ws_send value drop
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$readOptions "max_bytes" 2 put! drop
+$id $readOptions ws_read error denied var
+$id ws_close value drop
+$id ws_release value drop
+denied get
+"#,
+        port = address.port()
+    ));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--socket-allow-host")
+        .arg("127.0.0.1")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+    server.join().expect("WebSocket echo server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"WebSocketMessageTooLarge\")"),
+        "stdout should show WebSocket read cap rejection, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_sandboxed_profile_allows_bounded_tcp_listener_echo() {
     let source_path = write_source(
         r#"
@@ -8615,7 +8742,7 @@ fn write_static_registry_fixture(
 
 fn static_registry_archive_with_regular_entry(path: &str, contents: &[u8]) -> Vec<u8> {
     if path.contains("..") || path.starts_with('/') || path.contains('\\') {
-        return static_registry_archive_with_raw_entry(path, contents, b'0', "");
+        return static_registry_archive_with_raw_entry(path, contents, b'0', "", None);
     }
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
@@ -8634,6 +8761,7 @@ fn static_registry_archive_with_raw_entry(
     contents: &[u8],
     entry_type: u8,
     link_name: &str,
+    size_override: Option<u64>,
 ) -> Vec<u8> {
     let mut tar = Vec::new();
     let mut header = [0_u8; 512];
@@ -8641,7 +8769,10 @@ fn static_registry_archive_with_raw_entry(
     write_tar_header_octal(&mut header[100..108], 0o644);
     write_tar_header_octal(&mut header[108..116], 0);
     write_tar_header_octal(&mut header[116..124], 0);
-    write_tar_header_octal(&mut header[124..136], contents.len() as u64);
+    write_tar_header_octal(
+        &mut header[124..136],
+        size_override.unwrap_or(contents.len() as u64),
+    );
     write_tar_header_octal(&mut header[136..148], 0);
     for byte in &mut header[148..156] {
         *byte = b' ';

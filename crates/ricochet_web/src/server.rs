@@ -24,10 +24,12 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use crate::active_record::{ModelMapping, MysqlDatabase, PostgresDatabase, SqliteDatabase};
-use crate::ai_capability::{install_ai_capability, AiProvider};
+use crate::ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
-use crate::manifest::{DatabaseDefault, Manifest, SessionSecure, StaticFiles, WebCapabilities};
+use crate::manifest::{
+    AiDefault, DatabaseDefault, Manifest, SessionSecure, StaticFiles, WebCapabilities,
+};
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
@@ -294,6 +296,8 @@ pub struct ServeOptions {
     pub fs_root: Option<PathBuf>,
     pub fs_readonly: bool,
     pub http_allow_hosts: Vec<String>,
+    pub ai_allow_hosts: Vec<String>,
+    pub database_allow_hosts: Vec<String>,
 }
 
 impl Default for ServeOptions {
@@ -311,6 +315,8 @@ impl Default for ServeOptions {
             fs_root: None,
             fs_readonly: false,
             http_allow_hosts: Vec::new(),
+            ai_allow_hosts: Vec::new(),
+            database_allow_hosts: Vec::new(),
         }
     }
 }
@@ -353,7 +359,7 @@ pub fn build_app_from_dir_with_options(
     let project_root = project_root.as_ref();
     let vm_setup = model_vm_setup(project_root)?;
     let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
-    build_app_from_dir_internal(project_root, vm_setup)
+    build_app_from_dir_internal_with_options(project_root, vm_setup, Some(options))
 }
 
 pub fn build_app_from_dir_with_database(
@@ -385,7 +391,11 @@ pub fn build_watched_app_from_dir_with_options(
             &builder_options,
             capability_state.clone(),
         )?;
-        build_runtime_from_dir_internal(&builder_root, vm_setup)
+        build_runtime_from_dir_internal_with_options(
+            &builder_root,
+            vm_setup,
+            Some(&builder_options),
+        )
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, None)
@@ -419,7 +429,11 @@ pub fn build_watched_app_from_dir_with_options_and_trace(
             &builder_options,
             capability_state.clone(),
         )?;
-        build_runtime_from_dir_internal(&builder_root, vm_setup)
+        build_runtime_from_dir_internal_with_options(
+            &builder_root,
+            vm_setup,
+            Some(&builder_options),
+        )
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
@@ -453,7 +467,11 @@ pub fn build_watched_app_from_dir_with_database_and_options(
             &builder_options,
             capability_state.clone(),
         )?;
-        build_runtime_from_dir_internal(&builder_root, vm_setup)
+        build_runtime_from_dir_internal_with_options(
+            &builder_root,
+            vm_setup,
+            Some(&builder_options),
+        )
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, None)
@@ -490,7 +508,11 @@ pub fn build_watched_app_from_dir_with_database_options_and_trace(
             &builder_options,
             capability_state.clone(),
         )?;
-        build_runtime_from_dir_internal(&builder_root, vm_setup)
+        build_runtime_from_dir_internal_with_options(
+            &builder_root,
+            vm_setup,
+            Some(&builder_options),
+        )
     });
 
     build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
@@ -511,9 +533,30 @@ fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -
     build_static_router(runtime)
 }
 
+fn build_app_from_dir_internal_with_options(
+    project_root: &Path,
+    vm_setup: Option<VmSetup>,
+    options: Option<&ServeOptions>,
+) -> Result<Router> {
+    let runtime = Arc::new(build_runtime_from_dir_internal_with_options(
+        project_root,
+        vm_setup,
+        options,
+    )?);
+    build_static_router(runtime)
+}
+
 fn build_runtime_from_dir_internal(
     project_root: &Path,
     vm_setup: Option<VmSetup>,
+) -> Result<AppRuntime> {
+    build_runtime_from_dir_internal_with_options(project_root, vm_setup, None)
+}
+
+fn build_runtime_from_dir_internal_with_options(
+    project_root: &Path,
+    vm_setup: Option<VmSetup>,
+    options: Option<&ServeOptions>,
 ) -> Result<AppRuntime> {
     let manifest = load_manifest(project_root)?;
     let routes = routes_from_dir(project_root)?;
@@ -526,7 +569,7 @@ fn build_runtime_from_dir_internal(
         .ai
         .default
         .as_ref()
-        .map(|config| config.resolved_config().map(AiProvider::new))
+        .map(|config| resolve_ai_provider_config(config, options).map(AiProvider::new))
         .transpose()?;
     let vm_setup = compose_ai_vm_setup(vm_setup, ai_provider);
     let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
@@ -1200,6 +1243,35 @@ fn compose_ai_vm_setup(
         }
         Ok(capabilities)
     }))
+}
+
+fn resolve_ai_provider_config(
+    config: &AiDefault,
+    options: Option<&ServeOptions>,
+) -> Result<AiProviderConfig> {
+    let Some(options) = options else {
+        return config.resolved_config();
+    };
+    let allowed_env = allowed_env_set(options);
+    let resolved = match allowed_env.as_ref() {
+        Some(allowed_env) => config.resolved_config_with_env_policy(Some(allowed_env))?,
+        None => config.resolved_config_with_env_policy(None)?,
+    };
+    ensure_allowed_http_endpoint(
+        &resolved.base_url,
+        &options.ai_allow_hosts,
+        "AI provider",
+        "--ai-allow-host",
+    )?;
+    Ok(resolved)
+}
+
+fn allowed_env_set(options: &ServeOptions) -> Option<BTreeSet<String>> {
+    if options.allow_env {
+        None
+    } else {
+        Some(options.env_allow.iter().cloned().collect())
+    }
 }
 
 fn model_vm_setup(project_root: &Path) -> Result<Option<VmSetup>> {
@@ -2359,12 +2431,14 @@ pub async fn build_served_app_from_dir(
 ) -> Result<Router> {
     let project_root = project_root.as_ref();
     let manifest = load_manifest(project_root)?;
-    let effective_options = apply_manifest_capabilities(project_root, &manifest, options);
+    let effective_options = apply_manifest_capabilities(project_root, &manifest, options)?;
     effective_options.validate()?;
     let watch_trace_sink = (watch && debug).then(stdout_watch_trace_sink);
     match (watch, manifest.database.default) {
         (true, Some(database)) => {
-            let backend = connect_database_backend(&database).await?;
+            let backend =
+                connect_served_database_backend(project_root, &database, &effective_options)
+                    .await?;
             if let Some(trace_sink) = watch_trace_sink.clone() {
                 build_watched_app_from_dir_with_database_options_and_trace(
                     project_root,
@@ -2392,7 +2466,9 @@ pub async fn build_served_app_from_dir(
             }
         }
         (false, Some(database)) => {
-            let backend = connect_database_backend(&database).await?;
+            let backend =
+                connect_served_database_backend(project_root, &database, &effective_options)
+                    .await?;
             let vm_setup = database_vm_setup(project_root, backend)?;
             let vm_setup = compose_serve_capability_vm_setup(
                 project_root,
@@ -2414,60 +2490,170 @@ fn apply_manifest_capabilities(
     project_root: &Path,
     manifest: &Manifest,
     options: &ServeOptions,
-) -> ServeOptions {
+) -> Result<ServeOptions> {
     let mut effective = options.clone();
     let capabilities = &manifest.web.capabilities;
 
-    apply_manifest_paths(project_root, capabilities, &mut effective);
+    apply_manifest_paths(project_root, capabilities, options, &mut effective)?;
     if capabilities.fs_readonly {
         effective.fs_readonly = true;
     }
     if capabilities.allow_env {
+        if !options.allow_env {
+            bail!(
+                "manifest requests web.capabilities.allow_env; rerun with --allow-env to grant it"
+            );
+        }
         effective.allow_env = true;
     }
-    append_unique(&mut effective.env_allow, &capabilities.env_allow);
+    if !capabilities.env_allow.is_empty() {
+        ensure_manifest_env_allowed(&capabilities.env_allow, options)?;
+        if !options.allow_env {
+            effective.env_allow = capabilities.env_allow.clone();
+        }
+    }
     if capabilities.allow_process {
+        if !options.allow_process {
+            bail!("manifest requests web.capabilities.allow_process; rerun with --allow-process to grant it");
+        }
         effective.allow_process = true;
     }
     if capabilities.allow_pty {
+        if !options.allow_pty {
+            bail!(
+                "manifest requests web.capabilities.allow_pty; rerun with --allow-pty to grant it"
+            );
+        }
         effective.allow_pty = true;
     }
-    append_unique(
-        &mut effective.http_allow_hosts,
-        &capabilities.http_allow_hosts,
-    );
+    if !capabilities.http_allow_hosts.is_empty() {
+        ensure_manifest_hosts_allowed(
+            &capabilities.http_allow_hosts,
+            &options.http_allow_hosts,
+            "HTTP",
+            "--http-allow-host",
+        )?;
+        effective.http_allow_hosts = capabilities.http_allow_hosts.clone();
+    }
 
-    effective
+    Ok(effective)
 }
 
 fn apply_manifest_paths(
     project_root: &Path,
     capabilities: &WebCapabilities,
+    operator: &ServeOptions,
     options: &mut ServeOptions,
-) {
+) -> Result<()> {
     if let Some(root) = capabilities.fs_root.as_deref() {
-        options.fs_root = Some(resolve_manifest_path(project_root, root));
+        let Some(operator_root) = operator.fs_root.as_deref() else {
+            bail!("manifest requests web.capabilities.fs_root; rerun with --fs-root to grant filesystem access");
+        };
+        let manifest_root = resolve_manifest_relative_path(project_root, root, "manifest fs_root")?;
+        ensure_manifest_path_within_operator_root(
+            operator_root,
+            &manifest_root,
+            "manifest fs_root",
+            "--fs-root",
+        )?;
+        options.fs_root = Some(manifest_root);
     }
     if let Some(root) = capabilities.process_root.as_deref() {
-        options.process_root = Some(resolve_manifest_path(project_root, root));
+        let Some(operator_root) = operator.process_root.as_deref() else {
+            bail!("manifest requests web.capabilities.process_root; rerun with --process-root to grant process access");
+        };
+        let manifest_root =
+            resolve_manifest_relative_path(project_root, root, "manifest process_root")?;
+        ensure_manifest_path_within_operator_root(
+            operator_root,
+            &manifest_root,
+            "manifest process_root",
+            "--process-root",
+        )?;
+        options.process_root = Some(manifest_root);
     }
+    Ok(())
 }
 
-fn resolve_manifest_path(project_root: &Path, value: &str) -> PathBuf {
-    let path = PathBuf::from(value);
+fn resolve_manifest_relative_path(
+    project_root: &Path,
+    value: &str,
+    label: &str,
+) -> Result<PathBuf> {
+    if value.contains('\\') {
+        bail!("{label} must use forward slashes");
+    }
+    let path = Path::new(value);
     if path.is_absolute() {
-        path
-    } else {
-        project_root.join(path)
+        bail!("{label} must be relative to the project root");
     }
-}
-
-fn append_unique(target: &mut Vec<String>, values: &[String]) {
-    for value in values {
-        if !target.contains(value) {
-            target.push(value.clone());
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => bail!("{label} must not contain .. components"),
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("{label} must be relative to the project root")
+            }
         }
     }
+    Ok(project_root.join(path))
+}
+
+fn ensure_manifest_path_within_operator_root(
+    operator_root: &Path,
+    candidate: &Path,
+    label: &str,
+    grant: &str,
+) -> Result<()> {
+    let operator_root = fs::canonicalize(operator_root)
+        .with_context(|| format!("failed to resolve {grant} {}", operator_root.display()))?;
+    let existing = nearest_existing_ancestor(candidate);
+    let existing = fs::canonicalize(existing)
+        .with_context(|| format!("failed to resolve {label} {}", candidate.display()))?;
+    if !existing.starts_with(&operator_root) {
+        bail!("{label} must stay within {grant}: {}", candidate.display());
+    }
+    Ok(())
+}
+
+fn nearest_existing_ancestor(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|ancestor| ancestor.exists())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn ensure_manifest_env_allowed(names: &[String], options: &ServeOptions) -> Result<()> {
+    if options.allow_env {
+        return Ok(());
+    }
+    for name in names {
+        if !options.env_allow.iter().any(|allowed| allowed == name) {
+            bail!("manifest requests environment variable {name}; rerun with --env-allow {name} to grant it");
+        }
+    }
+    Ok(())
+}
+
+fn ensure_manifest_hosts_allowed(
+    requested: &[String],
+    allowed: &[String],
+    label: &str,
+    flag: &str,
+) -> Result<()> {
+    for host in requested {
+        if !host_allowed_by_policy(host, allowed) {
+            bail!("manifest requests {label} host {host}; rerun with {flag} {host} to grant it");
+        }
+    }
+    Ok(())
+}
+
+fn host_allowed_by_policy(host: &str, allowed: &[String]) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    !host.is_empty()
+        && allowed
+            .iter()
+            .any(|allowed| allowed.trim().eq_ignore_ascii_case(&host))
 }
 
 fn compose_serve_capability_vm_setup(
@@ -2569,19 +2755,171 @@ pub async fn serve_app_on_listener(listener: tokio::net::TcpListener, app: Route
     Ok(())
 }
 
+async fn connect_served_database_backend(
+    project_root: &Path,
+    database: &DatabaseDefault,
+    options: &ServeOptions,
+) -> Result<Arc<dyn DatabaseBackend>> {
+    let adapter = database.adapter.trim().to_ascii_lowercase();
+    let url = resolve_served_database_url(project_root, database, options, adapter.as_str())?;
+
+    connect_database_backend_url(adapter.as_str(), &url).await
+}
+
+#[cfg(test)]
 async fn connect_database_backend(database: &DatabaseDefault) -> Result<Arc<dyn DatabaseBackend>> {
     let adapter = database.adapter.trim().to_ascii_lowercase();
     let url = database.resolved_url()?;
 
-    match adapter.as_str() {
-        "postgres" | "postgresql" => Ok(Arc::new(PostgresDatabase::connect(&url).await?)),
-        "mysql" | "mariadb" => Ok(Arc::new(MysqlDatabase::connect(&url).await?)),
-        "sqlite" => Ok(Arc::new(SqliteDatabase::connect(&url)?)),
+    connect_database_backend_url(adapter.as_str(), &url).await
+}
+
+async fn connect_database_backend_url(
+    adapter: &str,
+    url: &str,
+) -> Result<Arc<dyn DatabaseBackend>> {
+    match adapter {
+        "postgres" | "postgresql" => Ok(Arc::new(PostgresDatabase::connect(url).await?)),
+        "mysql" | "mariadb" => Ok(Arc::new(MysqlDatabase::connect(url).await?)),
+        "sqlite" => Ok(Arc::new(SqliteDatabase::connect(url)?)),
+        _ => bail!("unsupported database adapter {adapter}; expected postgres, sqlite, or mysql"),
+    }
+}
+
+fn resolve_served_database_url(
+    project_root: &Path,
+    database: &DatabaseDefault,
+    options: &ServeOptions,
+    adapter: &str,
+) -> Result<String> {
+    let allowed_env = allowed_env_set(options);
+    let url = match allowed_env.as_ref() {
+        Some(allowed_env) => database.resolved_url_with_env_policy(Some(allowed_env))?,
+        None => database.resolved_url_with_env_policy(None)?,
+    };
+
+    match adapter {
+        "postgres" | "postgresql" | "mysql" | "mariadb" => {
+            ensure_database_endpoint_allowed(&url, &options.database_allow_hosts)?;
+            Ok(url)
+        }
+        "sqlite" => resolve_served_sqlite_url(project_root, &url),
         _ => bail!(
             "unsupported database adapter {}; expected postgres, sqlite, or mysql",
             database.adapter
         ),
     }
+}
+
+fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
+    let path = sqlite_path_from_url_text(url)?;
+    if path == ":memory:" {
+        return Ok(path);
+    }
+    let path = Path::new(&path);
+    if path.is_absolute() {
+        bail!("SQLite database path must be relative to the project root");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => bail!("SQLite database path must not contain .. components"),
+            Component::RootDir | Component::Prefix(_) => {
+                bail!("SQLite database path must be relative to the project root")
+            }
+        }
+    }
+    let resolved = project_root.join(path);
+    let existing = nearest_existing_ancestor(&resolved);
+    let canonical_root = fs::canonicalize(project_root)
+        .with_context(|| format!("failed to resolve project root {}", project_root.display()))?;
+    let canonical_existing = fs::canonicalize(existing).with_context(|| {
+        format!(
+            "failed to resolve SQLite database path {}",
+            resolved.display()
+        )
+    })?;
+    if !canonical_existing.starts_with(canonical_root) {
+        bail!(
+            "SQLite database path is outside the project root: {}",
+            resolved.display()
+        );
+    }
+    Ok(resolved.to_string_lossy().into_owned())
+}
+
+fn sqlite_path_from_url_text(url: &str) -> Result<String> {
+    let trimmed = url.trim();
+    let path = trimmed
+        .strip_prefix("sqlite://")
+        .or_else(|| trimmed.strip_prefix("sqlite:"))
+        .unwrap_or(trimmed);
+    let path = normalize_sqlite_url_path(path);
+    if path.is_empty() {
+        bail!("SQLite database path is empty");
+    }
+    Ok(path)
+}
+
+#[cfg(windows)]
+fn normalize_sqlite_url_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[2] == b':' {
+        path[1..].to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+#[cfg(not(windows))]
+fn normalize_sqlite_url_path(path: &str) -> String {
+    path.to_string()
+}
+
+fn ensure_database_endpoint_allowed(url: &str, allowed_hosts: &[String]) -> Result<()> {
+    let parsed = reqwest::Url::parse(url).context("database URL must be absolute")?;
+    let Some(host) = parsed.host_str() else {
+        return Ok(());
+    };
+    if host_is_local(host) {
+        return Ok(());
+    }
+    if host_allowed_by_policy(host, allowed_hosts) {
+        Ok(())
+    } else {
+        bail!(
+            "database host {host} is not allowed; rerun with --database-allow-host {host} to grant it"
+        )
+    }
+}
+
+fn ensure_allowed_http_endpoint(
+    url: &str,
+    allowed_hosts: &[String],
+    label: &str,
+    flag: &str,
+) -> Result<()> {
+    let parsed =
+        reqwest::Url::parse(url).with_context(|| format!("{label} URL must be absolute"))?;
+    let scheme = parsed.scheme();
+    let host = parsed
+        .host_str()
+        .with_context(|| format!("{label} URL must include a host"))?;
+    if scheme != "https" && !(scheme == "http" && host_is_local(host)) {
+        bail!("{label} URL must use https, except for localhost development endpoints");
+    }
+    if host_allowed_by_policy(host, allowed_hosts) {
+        Ok(())
+    } else {
+        bail!("{label} host {host} is not allowed; rerun with {flag} {host} to grant it")
+    }
+}
+
+fn host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 #[cfg(test)]
@@ -2653,6 +2991,158 @@ mod tests {
     }
 
     #[test]
+    fn manifest_capabilities_cannot_self_grant_process_access() {
+        let manifest = test_manifest_with_capabilities("allow_process = true");
+        let error =
+            apply_manifest_capabilities(Path::new("."), &manifest, &ServeOptions::default())
+                .expect_err("manifest must not grant process access by itself");
+
+        assert!(
+            error.to_string().contains("--allow-process"),
+            "error should point at the required operator grant, got: {error:#}"
+        );
+    }
+
+    #[test]
+    fn manifest_capabilities_must_narrow_http_hosts() {
+        let manifest = test_manifest_with_capabilities("http_allow_hosts = [\"metadata.test\"]");
+        let options = ServeOptions {
+            http_allow_hosts: vec!["api.example.test".to_string()],
+            ..ServeOptions::default()
+        };
+
+        let error = apply_manifest_capabilities(Path::new("."), &manifest, &options)
+            .expect_err("manifest host outside operator policy should fail");
+
+        assert!(
+            error.to_string().contains("--http-allow-host"),
+            "error should point at the required host grant, got: {error:#}"
+        );
+    }
+
+    #[test]
+    fn ai_provider_policy_requires_allowed_env_and_endpoint_host() {
+        std::env::set_var("RICOCHET_TEST_AI_KEY", "secret");
+        let config = AiDefault {
+            provider: "openai-compatible".to_string(),
+            model: "demo".to_string(),
+            api_key: "${RICOCHET_TEST_AI_KEY}".to_string(),
+            base_url: Some("https://ai.example.test/v1".to_string()),
+        };
+
+        let denied_env = resolve_ai_provider_config(&config, Some(&ServeOptions::default()))
+            .expect_err("ungranted env variable should fail");
+        assert!(
+            denied_env.to_string().contains("RICOCHET_TEST_AI_KEY"),
+            "error should identify denied env variable, got: {denied_env:#}"
+        );
+
+        let denied_host = resolve_ai_provider_config(
+            &config,
+            Some(&ServeOptions {
+                env_allow: vec!["RICOCHET_TEST_AI_KEY".to_string()],
+                ..ServeOptions::default()
+            }),
+        )
+        .expect_err("ungranted AI host should fail");
+        assert!(
+            denied_host.to_string().contains("--ai-allow-host"),
+            "error should identify denied AI host, got: {denied_host:#}"
+        );
+
+        resolve_ai_provider_config(
+            &config,
+            Some(&ServeOptions {
+                env_allow: vec!["RICOCHET_TEST_AI_KEY".to_string()],
+                ai_allow_hosts: vec!["ai.example.test".to_string()],
+                ..ServeOptions::default()
+            }),
+        )
+        .expect("allowed env and host should pass");
+    }
+
+    #[test]
+    fn database_policy_requires_allowed_env_and_remote_host() {
+        std::env::set_var(
+            "RICOCHET_TEST_DATABASE_URL",
+            "postgres://user:pass@db.example.test/app",
+        );
+        let database = DatabaseDefault {
+            adapter: "postgres".to_string(),
+            url: "${RICOCHET_TEST_DATABASE_URL}".to_string(),
+        };
+
+        let denied_env = resolve_served_database_url(
+            Path::new("."),
+            &database,
+            &ServeOptions::default(),
+            "postgres",
+        )
+        .expect_err("ungranted database URL env variable should fail");
+        assert!(
+            denied_env
+                .to_string()
+                .contains("RICOCHET_TEST_DATABASE_URL"),
+            "error should identify denied env variable, got: {denied_env:#}"
+        );
+
+        let denied_host = resolve_served_database_url(
+            Path::new("."),
+            &database,
+            &ServeOptions {
+                env_allow: vec!["RICOCHET_TEST_DATABASE_URL".to_string()],
+                ..ServeOptions::default()
+            },
+            "postgres",
+        )
+        .expect_err("ungranted database host should fail");
+        assert!(
+            denied_host.to_string().contains("--database-allow-host"),
+            "error should identify denied database host, got: {denied_host:#}"
+        );
+
+        resolve_served_database_url(
+            Path::new("."),
+            &database,
+            &ServeOptions {
+                env_allow: vec!["RICOCHET_TEST_DATABASE_URL".to_string()],
+                database_allow_hosts: vec!["db.example.test".to_string()],
+                ..ServeOptions::default()
+            },
+            "postgres",
+        )
+        .expect("allowed env and database host should pass");
+    }
+
+    #[test]
+    fn served_sqlite_urls_must_stay_under_project_root() {
+        let project_root = std::env::current_dir().expect("test cwd should exist");
+
+        let relative = resolve_served_sqlite_url(&project_root, "sqlite:db/development.sqlite3")
+            .expect("relative SQLite URL should resolve under project root");
+        assert!(Path::new(&relative).starts_with(&project_root));
+
+        let parent_error = resolve_served_sqlite_url(&project_root, "../outside.sqlite3")
+            .expect_err("parent traversal should be rejected");
+        assert!(
+            parent_error.to_string().contains("must not contain .."),
+            "parent traversal error was: {parent_error:#}"
+        );
+
+        let absolute_error = resolve_served_sqlite_url(
+            &project_root,
+            &std::env::temp_dir()
+                .join("outside.sqlite3")
+                .to_string_lossy(),
+        )
+        .expect_err("absolute SQLite path should be rejected");
+        assert!(
+            absolute_error.to_string().contains("must be relative"),
+            "absolute path error was: {absolute_error:#}"
+        );
+    }
+
+    #[test]
     fn json_number_to_value_preserves_unsigned_values_above_i64() {
         let value = i64::MAX as u64 + 1;
 
@@ -2671,5 +3161,25 @@ mod tests {
         };
 
         assert_eq!(values.get("id"), Some(Value::String(id.to_string())));
+    }
+
+    fn test_manifest_with_capabilities(capabilities: &str) -> Manifest {
+        toml::from_str(&format!(
+            r#"
+[package]
+name = "policy_test"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.capabilities]
+{capabilities}
+"#
+        ))
+        .expect("test manifest should parse")
     }
 }

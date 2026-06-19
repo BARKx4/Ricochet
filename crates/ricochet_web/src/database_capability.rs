@@ -13,6 +13,8 @@ const DEFAULT_PAGE_LIMIT: i64 = 50;
 const DEFAULT_PAGE_OFFSET: i64 = 0;
 const DEFAULT_PAGE_ORDER_FIELD: &str = "id";
 const DEFAULT_PAGE_ORDER_DIRECTION: &str = "asc";
+const MAX_ACTIVE_RECORD_LIMIT: i64 = 500;
+const MAX_ACTIVE_RECORD_OFFSET: i64 = 100_000;
 
 pub trait DatabaseBackend: Send + Sync {
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError>;
@@ -1095,7 +1097,7 @@ fn map_argument(
 
 fn limit_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64, VmError> {
     match arguments.get(index) {
-        Some(Value::Number(value)) if *value >= 0 => Ok(*value),
+        Some(Value::Number(value)) if *value >= 0 => Ok((*value).min(MAX_ACTIVE_RECORD_LIMIT)),
         Some(Value::Number(value)) => Err(VmError::InvalidArgument {
             word: method.to_string(),
             message: format!("limit must be non-negative, got {value}"),
@@ -1111,7 +1113,7 @@ fn limit_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64
 
 fn offset_argument(arguments: &[Value], index: usize, method: &str) -> Result<i64, VmError> {
     match arguments.get(index) {
-        Some(Value::Number(value)) if *value >= 0 => Ok(*value),
+        Some(Value::Number(value)) if *value >= 0 => Ok((*value).min(MAX_ACTIVE_RECORD_OFFSET)),
         Some(Value::Number(value)) => Err(VmError::InvalidArgument {
             word: method.to_string(),
             message: format!("offset must be non-negative, got {value}"),
@@ -1547,6 +1549,32 @@ mod tests {
         default_page(&database, &mapping).expect("default page succeeds");
 
         assert_eq!(database.calls(), vec!["page"]);
+    }
+
+    #[test]
+    fn active_record_limit_argument_clamps_to_beta_maximum() {
+        assert_eq!(
+            limit_argument(
+                &[Value::Number(MAX_ACTIVE_RECORD_LIMIT + 1)],
+                0,
+                "DatabaseCapability.limit"
+            )
+            .expect("limit clamps"),
+            MAX_ACTIVE_RECORD_LIMIT
+        );
+    }
+
+    #[test]
+    fn active_record_offset_argument_clamps_to_beta_maximum() {
+        assert_eq!(
+            offset_argument(
+                &[Value::Number(MAX_ACTIVE_RECORD_OFFSET + 1)],
+                0,
+                "DatabaseCapability.page"
+            )
+            .expect("offset clamps"),
+            MAX_ACTIVE_RECORD_OFFSET
+        );
     }
 
     #[test]

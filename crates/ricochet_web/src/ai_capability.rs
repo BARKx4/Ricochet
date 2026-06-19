@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ricochet_vm::{Value, Vm, VmError};
 use serde_json::Value as JsonValue;
+
+const AI_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const AI_MAX_ERROR_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiProviderConfig {
@@ -35,6 +39,7 @@ impl AiProvider {
 
 fn chat_blocking(config: AiProviderConfig, prompt: String) -> Result<Value> {
     let http = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .build()
         .context("failed to build AI HTTP client")?;
@@ -57,15 +62,15 @@ fn chat_blocking(config: AiProviderConfig, prompt: String) -> Result<Value> {
         .context("AI provider request failed")?;
     let status = response.status();
     if !status.is_success() {
-        let body = response
-            .text()
+        let body = read_capped_response(response, AI_MAX_ERROR_BYTES)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             .unwrap_or_else(|error| format!("failed to read error body: {error}"));
         bail!("AI provider returned {status}: {body}");
     }
 
-    let response: JsonValue = response
-        .json()
-        .context("AI provider returned invalid JSON")?;
+    let bytes = read_capped_response(response, AI_MAX_RESPONSE_BYTES)?;
+    let response: JsonValue =
+        serde_json::from_slice(&bytes).context("AI provider returned invalid JSON")?;
     let text = response
         .pointer("/choices/0/message/content")
         .and_then(JsonValue::as_str)
@@ -86,6 +91,27 @@ fn chat_blocking(config: AiProviderConfig, prompt: String) -> Result<Value> {
         ])
         .into(),
     ))
+}
+
+fn read_capped_response(
+    response: reqwest::blocking::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        bail!("AI provider response exceeded {max_bytes} bytes");
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .context("failed to read AI provider response")?;
+    if bytes.len() > max_bytes {
+        bail!("AI provider response exceeded {max_bytes} bytes");
+    }
+    Ok(bytes)
 }
 
 pub fn install_ai_capability(vm: &mut Vm, provider: AiProvider) -> Result<Value, VmError> {
@@ -137,5 +163,96 @@ fn ai_value_kind(value: &Value) -> &'static str {
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn ai_chat_does_not_follow_redirects() {
+        let (address, server) = spawn_ai_response_server(
+            b"HTTP/1.1 302 Found\r\nLocation: https://attacker.example/v1/chat/completions\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let error = chat_blocking(test_config(address), "hello".to_string())
+            .expect_err("redirect should be returned as a provider error");
+        server.join().expect("AI test server should finish");
+
+        assert!(
+            error.to_string().contains("302 Found"),
+            "redirect error should expose the 302 response, got: {error:#}"
+        );
+    }
+
+    #[test]
+    fn ai_chat_rejects_oversized_success_response_from_content_length() {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            AI_MAX_RESPONSE_BYTES + 1
+        )
+        .into_bytes();
+        let (address, server) = spawn_ai_response_server(response);
+        let error = chat_blocking(test_config(address), "hello".to_string())
+            .expect_err("oversized response should fail before JSON parsing");
+        server.join().expect("AI test server should finish");
+
+        assert!(
+            error.to_string().contains("AI provider response exceeded"),
+            "oversized response error was: {error:#}"
+        );
+    }
+
+    fn test_config(address: std::net::SocketAddr) -> AiProviderConfig {
+        AiProviderConfig {
+            provider: "openai-compatible".to_string(),
+            model: "demo".to_string(),
+            api_key: "test-key".to_string(),
+            base_url: format!("http://{address}/v1"),
+        }
+    }
+
+    fn spawn_ai_response_server(
+        response: Vec<u8>,
+    ) -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("AI test server should bind");
+        let address = listener
+            .local_addr()
+            .expect("AI test server should have addr");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("AI client should connect");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("AI test server read timeout should set");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => {
+                        request.extend_from_slice(&buffer[..count]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        break;
+                    }
+                    Err(error) => panic!("AI test server read failed: {error}"),
+                }
+            }
+            stream
+                .write_all(&response)
+                .expect("AI test response should write");
+            stream.flush().expect("AI test response should flush");
+        });
+        (address, server)
     }
 }

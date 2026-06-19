@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Read;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -57,6 +58,13 @@ pub struct HttpStreamRequest {
     pub body: Option<String>,
     pub timeout: Duration,
     pub max_response_bytes: usize,
+    pub resolved_destination: Option<HttpResolvedDestination>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HttpResolvedDestination {
+    pub host: String,
+    pub addresses: Vec<SocketAddr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -385,9 +393,13 @@ fn run_http_stream(
     job: Arc<HttpStreamJob>,
     request: HttpStreamRequest,
 ) -> Result<(), HttpStreamRuntimeError> {
-    let client = reqwest::blocking::Client::builder()
+    let mut client = reqwest::blocking::Client::builder()
         .timeout(request.timeout)
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(destination) = &request.resolved_destination {
+        client = client.resolve_to_addrs(&destination.host, &destination.addresses);
+    }
+    let client = client
         .build()
         .map_err(|error| HttpStreamRuntimeError::new("HttpError", error.to_string()))?;
     if job.cancelled() {
@@ -488,6 +500,7 @@ mod tests {
             body: None,
             timeout: Duration::from_millis(250),
             max_response_bytes: 1024,
+            resolved_destination: None,
         }
     }
 

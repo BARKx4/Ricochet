@@ -14,6 +14,12 @@ const pausedDebugSessions = new Set();
 
 function ricochetCommand() {
   const config = vscode.workspace.getConfiguration("ricochet");
+  if (!vscode.workspace.isTrusted) {
+    const inspected = config.inspect("server.path");
+    if (inspected?.workspaceFolderValue !== undefined || inspected?.workspaceValue !== undefined) {
+      return inspected.globalValue ?? inspected.defaultValue ?? "rco";
+    }
+  }
   return config.get("server.path", "rco");
 }
 
@@ -725,6 +731,14 @@ async function activate(context) {
       "ricochet",
       debugAdapterTrackerFactory(context),
     ),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      restartLanguageServer().catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        outputChannel.appendLine(`Ricochet language server restart after trust grant failed: ${message}`);
+      });
+    }),
   );
   await client.start();
 }

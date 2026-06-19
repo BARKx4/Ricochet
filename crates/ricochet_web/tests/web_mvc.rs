@@ -2496,7 +2496,15 @@ end
         &project_root,
         false,
         false,
-        &ricochet_web::server::ServeOptions::default(),
+        &ricochet_web::server::ServeOptions {
+            env_allow: vec!["RICOCHET_MVC_MANIFEST_ENV_TEST".to_string()],
+            allow_process: true,
+            process_root: Some(project_root.clone()),
+            allow_pty: true,
+            fs_root: Some(project_root.clone()),
+            http_allow_hosts: vec!["127.0.0.1".to_string()],
+            ..ricochet_web::server::ServeOptions::default()
+        },
     )
     .await
     .expect("build served app with manifest-declared capabilities");
@@ -2587,7 +2595,7 @@ end
         allow_process: true,
         allow_pty: true,
         fs_root: Some(project_root.clone()),
-        http_allow_hosts: vec!["localhost".to_string()],
+        http_allow_hosts: vec!["127.0.0.1".to_string()],
         ..ricochet_web::server::ServeOptions::default()
     };
 

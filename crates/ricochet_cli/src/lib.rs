@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::hint::black_box;
-use std::io::{self, BufRead, IsTerminal, Write};
+use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
@@ -53,6 +53,10 @@ const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
 const STATIC_REGISTRY_FORMAT: &str = "ricochet-static-registry-v1";
 const MAX_STATIC_REGISTRY_METADATA_BYTES: usize = 2 * 1024 * 1024;
 const MAX_STATIC_REGISTRY_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+const MAX_STATIC_REGISTRY_ARCHIVE_ENTRIES: usize = 4096;
+const MAX_STATIC_REGISTRY_ARCHIVE_ENTRY_BYTES: usize = 64 * 1024 * 1024;
+const MAX_STATIC_REGISTRY_UNPACKED_BYTES: usize = 128 * 1024 * 1024;
+const STATIC_REGISTRY_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
@@ -401,6 +405,18 @@ enum Command {
             help = "Enable MVC HTTP access only to HOST; repeat for multiple hosts"
         )]
         http_allow_hosts: Vec<String>,
+        #[arg(
+            long = "ai-allow-host",
+            value_name = "HOST",
+            help = "Allow MVC AI providers to send requests only to HOST; repeat for multiple hosts"
+        )]
+        ai_allow_hosts: Vec<String>,
+        #[arg(
+            long = "database-allow-host",
+            value_name = "HOST",
+            help = "Allow MVC remote database connections only to HOST; repeat for multiple hosts"
+        )]
+        database_allow_hosts: Vec<String>,
     },
     Routes {
         path: Option<String>,
@@ -892,6 +908,8 @@ pub async fn run_cli() -> Result<()> {
             fs_root,
             fs_readonly,
             http_allow_hosts,
+            ai_allow_hosts,
+            database_allow_hosts,
         } => {
             if allow_env && no_env {
                 bail!("--allow-env cannot be used with --no-env");
@@ -915,6 +933,8 @@ pub async fn run_cli() -> Result<()> {
                 fs_root,
                 fs_readonly,
                 http_allow_hosts,
+                ai_allow_hosts,
+                database_allow_hosts,
             })
             .await?
         }
@@ -3890,7 +3910,7 @@ fn load_static_registry_package(
             .and_then(Item::as_str)
             .context("static registry version must include archive")?
             .to_string();
-        validate_static_registry_relative_or_absolute_url(&archive, "archive")?;
+        validate_static_registry_relative_path(&archive, "archive")?;
         let archive_integrity = table
             .get("archive_integrity")
             .and_then(Item::as_str)
@@ -4083,29 +4103,26 @@ fn ensure_locked_static_registry_field(
 }
 
 fn validate_static_registry_relative_path(path: &str, label: &str) -> Result<()> {
-    if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("file://") {
+    if has_url_scheme(path) {
         bail!("{label} must be a registry-relative path, got {path:?}");
     }
     validate_project_relative_path(path, label)
 }
 
-fn validate_static_registry_relative_or_absolute_url(value: &str, label: &str) -> Result<()> {
-    if value.starts_with("http://") || value.starts_with("https://") || value.starts_with("file://")
-    {
-        validate_static_registry_url(value)?;
-        return Ok(());
-    }
-    validate_static_registry_relative_path(value, label)
+fn has_url_scheme(value: &str) -> bool {
+    let Some((scheme, _)) = value.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic()
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
 }
 
 fn resolve_static_registry_resource(index_source: &str, resource: &str) -> Result<String> {
-    validate_static_registry_relative_or_absolute_url(resource, "static registry resource")?;
-    if resource.starts_with("http://")
-        || resource.starts_with("https://")
-        || resource.starts_with("file://")
-    {
-        return Ok(resource.to_string());
-    }
+    validate_static_registry_relative_path(resource, "static registry resource")?;
     if index_source.starts_with("file://") {
         let index_path = file_url_to_path(index_source)
             .with_context(|| format!("invalid file registry URL {index_source:?}"))?;
@@ -4125,7 +4142,7 @@ fn read_static_registry_bytes(source: &str, limit: usize) -> Result<Vec<u8>> {
     if let Some(path) = file_url_to_path(source) {
         let metadata =
             fs::metadata(&path).with_context(|| format!("failed to inspect {}", path.display()))?;
-        if metadata.len() as usize > limit {
+        if metadata.len() > limit as u64 {
             bail!(
                 "static registry file {} is too large: {} bytes",
                 path.display(),
@@ -4137,7 +4154,14 @@ fn read_static_registry_bytes(source: &str, limit: usize) -> Result<Vec<u8>> {
 
     let source_for_thread = source.to_string();
     let result = thread::spawn(move || -> Result<Vec<u8>> {
-        let response = reqwest::blocking::get(&source_for_thread)
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(STATIC_REGISTRY_FETCH_TIMEOUT)
+            .build()
+            .context("failed to build static registry HTTP client")?;
+        let response = client
+            .get(&source_for_thread)
+            .send()
             .with_context(|| {
                 format!("failed to fetch static registry resource {source_for_thread}")
             })?
@@ -4145,16 +4169,27 @@ fn read_static_registry_bytes(source: &str, limit: usize) -> Result<Vec<u8>> {
             .with_context(|| {
                 format!("static registry resource {source_for_thread} returned an error")
             })?;
-        let bytes = response.bytes().with_context(|| {
-            format!("failed to read static registry resource {source_for_thread}")
-        })?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > limit as u64)
+        {
+            bail!("static registry resource {source_for_thread} is too large");
+        }
+        let mut bytes = Vec::new();
+        let read_limit = limit as u64 + 1;
+        response
+            .take(read_limit)
+            .read_to_end(&mut bytes)
+            .with_context(|| {
+                format!("failed to read static registry resource {source_for_thread}")
+            })?;
         if bytes.len() > limit {
             bail!(
                 "static registry resource {source_for_thread} is too large: {} bytes",
                 bytes.len()
             );
         }
-        Ok(bytes.to_vec())
+        Ok(bytes)
     })
     .join();
 
@@ -4208,10 +4243,18 @@ fn extract_package_archive(bytes: &[u8], destination: &Path) -> Result<()> {
         .with_context(|| format!("failed to create {}", destination.display()))?;
     let decoder = GzDecoder::new(bytes);
     let mut archive = Archive::new(decoder);
+    let mut entry_count = 0_usize;
+    let mut total_unpacked = 0_usize;
     for entry in archive
         .entries()
         .context("failed to read static registry package archive")?
     {
+        entry_count += 1;
+        if entry_count > MAX_STATIC_REGISTRY_ARCHIVE_ENTRIES {
+            bail!(
+                "static registry package archive has too many entries: more than {MAX_STATIC_REGISTRY_ARCHIVE_ENTRIES}"
+            );
+        }
         let mut entry = entry.context("failed to read static registry archive entry")?;
         let entry_type = entry.header().entry_type();
         if entry_type == EntryType::Symlink || entry_type == EntryType::Link {
@@ -4230,14 +4273,31 @@ fn extract_package_archive(bytes: &[u8], destination: &Path) -> Result<()> {
             fs::create_dir_all(&destination_path)
                 .with_context(|| format!("failed to create {}", destination_path.display()))?;
         } else {
+            let entry_size = entry
+                .header()
+                .size()
+                .context("failed to read static registry archive entry size")?;
+            if entry_size > MAX_STATIC_REGISTRY_ARCHIVE_ENTRY_BYTES as u64 {
+                bail!(
+                    "static registry archive entry {} is too large: {} bytes",
+                    entry_path.display(),
+                    entry_size
+                );
+            }
+            if total_unpacked as u64 + entry_size > MAX_STATIC_REGISTRY_UNPACKED_BYTES as u64 {
+                bail!(
+                    "static registry package archive unpacks to more than {MAX_STATIC_REGISTRY_UNPACKED_BYTES} bytes"
+                );
+            }
             if let Some(parent) = destination_path.parent() {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("failed to create {}", parent.display()))?;
             }
             let mut output = fs::File::create(&destination_path)
                 .with_context(|| format!("failed to create {}", destination_path.display()))?;
-            io::copy(&mut entry, &mut output)
+            let copied = io::copy(&mut entry, &mut output)
                 .with_context(|| format!("failed to unpack {}", destination_path.display()))?;
+            total_unpacked += copied as usize;
         }
     }
     Ok(())
@@ -5361,13 +5421,10 @@ fn registry_package_archive_relative_path(package: &str, version: &str) -> PathB
 }
 
 fn validate_static_registry_url(registry_url: &str) -> Result<&str> {
-    if registry_url.starts_with("https://")
-        || registry_url.starts_with("http://")
-        || registry_url.starts_with("file://")
-    {
+    if registry_url.starts_with("https://") || registry_url.starts_with("file://") {
         Ok(registry_url)
     } else {
-        bail!("static registry URL {registry_url:?} must start with https://, http://, or file://");
+        bail!("static registry URL {registry_url:?} must start with https:// or file://");
     }
 }
 
@@ -5426,7 +5483,7 @@ fn fetch_git_dependency(project_root: &Path, spec: &DependencySpec) -> Result<St
             command.arg("--branch").arg(rev);
         }
     }
-    command.arg(git).arg(&package_dir);
+    command.arg("--").arg(git).arg(&package_dir);
 
     let output = command
         .output()
@@ -6464,10 +6521,7 @@ async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Resu
         )
     })?;
 
-    let serve_options = ricochet_web::ServeOptions {
-        fs_root: Some(project_root.clone()),
-        ..Default::default()
-    };
+    let serve_options = embedded_mvc_serve_options(&project_root)?;
     let app = ricochet_web::build_served_app_from_dir(&project_root, false, false, &serve_options)
         .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -6505,6 +6559,44 @@ async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Resu
     );
     server.abort();
     result
+}
+
+fn embedded_mvc_serve_options(project_root: &Path) -> Result<ricochet_web::ServeOptions> {
+    let manifest = load_embedded_mvc_manifest(project_root)?;
+    let capabilities = &manifest.web.capabilities;
+    let process_root_requested =
+        capabilities.allow_process || capabilities.allow_pty || capabilities.process_root.is_some();
+
+    Ok(ricochet_web::ServeOptions {
+        fs_root: Some(project_root.to_path_buf()),
+        allow_env: capabilities.allow_env,
+        env_allow: if capabilities.allow_env {
+            Vec::new()
+        } else {
+            capabilities.env_allow.clone()
+        },
+        allow_process: capabilities.allow_process,
+        process_root: process_root_requested.then(|| project_root.to_path_buf()),
+        allow_pty: capabilities.allow_pty,
+        http_allow_hosts: capabilities.http_allow_hosts.clone(),
+        ..Default::default()
+    })
+}
+
+fn load_embedded_mvc_manifest(project_root: &Path) -> Result<ricochet_web::Manifest> {
+    let manifest_path = project_root.join("ricochet.toml");
+    let manifest_source = fs::read_to_string(&manifest_path).with_context(|| {
+        format!(
+            "failed to read embedded MVC manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    toml::from_str(&manifest_source).with_context(|| {
+        format!(
+            "failed to parse embedded MVC manifest {}",
+            manifest_path.display()
+        )
+    })
 }
 
 async fn fetch_http_body(address: SocketAddr, path: &str) -> Result<String> {
@@ -8753,23 +8845,11 @@ fn extract_embedded_mvc_bundle(bundle: &MvcBundle) -> Result<PathBuf> {
 }
 
 fn unique_mvc_extract_dir() -> Result<PathBuf> {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let base = std::env::temp_dir();
-    for attempt in 0..100 {
-        let path = base.join(format!(
-            "ricochet-mvc-{}-{millis}-{attempt}",
-            std::process::id()
-        ));
-        if !path.exists() {
-            fs::create_dir_all(&path)
-                .with_context(|| format!("failed to create {}", path.display()))?;
-            return Ok(path);
-        }
-    }
-    bail!("failed to find an unused MVC extraction directory")
+    let temp_dir = tempfile::Builder::new()
+        .prefix("ricochet-mvc-")
+        .tempdir()
+        .context("failed to create MVC extraction directory")?;
+    Ok(temp_dir.keep())
 }
 
 fn native_gui_packaging_supported() -> bool {

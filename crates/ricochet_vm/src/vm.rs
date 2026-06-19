@@ -2322,8 +2322,16 @@ impl Vm {
         self.http_enabled
     }
 
+    pub(super) fn http_host_policy_enabled(&self) -> bool {
+        self.http_allowed_hosts.is_some()
+    }
+
     pub(super) fn socket_enabled(&self) -> bool {
         self.socket_enabled
+    }
+
+    pub(super) fn socket_host_policy_enabled(&self) -> bool {
+        self.socket_allowed_hosts.is_some()
     }
 
     pub(super) fn process_registry(&self) -> ProcessRegistry {
@@ -2657,6 +2665,24 @@ impl Vm {
             Some(root) => resolve_bounded_path(word, "process", root, source),
             None => self.resolve_filesystem_path(word, source),
         }
+    }
+
+    pub(super) fn resolve_process_command(
+        &self,
+        word: &str,
+        source: &str,
+    ) -> Result<String, VmError> {
+        let Some(root) = &self.process_root else {
+            return Ok(source.to_string());
+        };
+        let path = resolve_bounded_path(word, "process executable", root, source)?;
+        if !path.is_file() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: format!("process executable is not a file inside process root: {source}"),
+            });
+        }
+        Ok(path.to_string_lossy().into_owned())
     }
 
     fn call_bytecode_block(&mut self, frame: &str, block: &Chunk) -> Result<Value, VmError> {

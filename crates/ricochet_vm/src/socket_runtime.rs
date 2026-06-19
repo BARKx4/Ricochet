@@ -1,17 +1,23 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs,
+};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use tungstenite::handshake::server::{Callback, ErrorResponse, Request, Response};
+use tungstenite::http::StatusCode;
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{client_tls_with_config, Message, WebSocket};
+use tungstenite::{accept_hdr_with_config, client_tls_with_config, Message, WebSocket};
 
 const MAX_RETAINED_TCP_CONNECTIONS: usize = 64;
 const MAX_RETAINED_TCP_LISTENERS: usize = 64;
 const MAX_RETAINED_WEBSOCKET_CONNECTIONS: usize = 64;
 const MAX_RETAINED_WEBSOCKET_LISTENERS: usize = 64;
+const WEBSOCKET_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 type BlockingWebSocket = WebSocket<MaybeTlsStream<TcpStream>>;
 
@@ -88,6 +94,7 @@ pub struct TcpConnectRequest {
     pub port: u16,
     pub timeout: Duration,
     pub nodelay: bool,
+    pub enforce_resolved_address_policy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +102,7 @@ pub struct TcpListenRequest {
     pub host: String,
     pub port: u16,
     pub nodelay: bool,
+    pub enforce_resolved_address_policy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -189,6 +197,7 @@ struct WebSocketListenerState {
     local_addr: Option<String>,
     error: Option<String>,
     accepted_connections: usize,
+    allowed_origins: Vec<String>,
     listener: Option<TcpListener>,
 }
 
@@ -198,12 +207,15 @@ pub struct WebSocketConnectRequest {
     pub host: String,
     pub port: u16,
     pub timeout: Duration,
+    pub enforce_resolved_address_policy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebSocketListenRequest {
     pub host: String,
     pub port: u16,
+    pub allowed_origins: Vec<String>,
+    pub enforce_resolved_address_policy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,6 +271,118 @@ impl SocketRuntimeError {
     }
 }
 
+pub fn socket_address_policy_error(host: &str, address: SocketAddr) -> Option<String> {
+    let ip = address.ip();
+    if !is_sensitive_socket_ip(ip) {
+        return None;
+    }
+    if host_literally_matches_ip(host, ip) {
+        return None;
+    }
+    if local_host_name_allows_ip(host, ip) {
+        return None;
+    }
+    Some(format!(
+        "socket host {host:?} resolved to restricted address {ip}; use an explicit IP literal or localhost for local/private addresses"
+    ))
+}
+
+fn resolve_admitted_socket_addrs(
+    kind: &'static str,
+    host: &str,
+    port: u16,
+    enforce_policy: bool,
+) -> Result<Vec<SocketAddr>, SocketRuntimeError> {
+    let addresses = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| SocketRuntimeError::new(kind, error.to_string()))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(SocketRuntimeError::new(
+            kind,
+            format!("no socket addresses resolved for {host}:{port}"),
+        ));
+    }
+    if enforce_policy {
+        for address in &addresses {
+            if let Some(message) = socket_address_policy_error(host, *address) {
+                return Err(SocketRuntimeError::new(kind, message));
+            }
+        }
+    }
+    Ok(addresses)
+}
+
+fn bind_admitted_tcp_listener(
+    kind: &'static str,
+    host: &str,
+    port: u16,
+    enforce_policy: bool,
+) -> Result<TcpListener, SocketRuntimeError> {
+    let addresses = resolve_admitted_socket_addrs(kind, host, port, enforce_policy)?;
+    let mut last_error = None;
+    for address in addresses {
+        match TcpListener::bind(address) {
+            Ok(listener) => return Ok(listener),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(SocketRuntimeError::new(
+        kind,
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| format!("failed to bind socket listener for {host}:{port}")),
+    ))
+}
+
+fn host_literally_matches_ip(host: &str, ip: IpAddr) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.parse::<IpAddr>().is_ok_and(|host_ip| host_ip == ip)
+}
+
+fn local_host_name_allows_ip(host: &str, ip: IpAddr) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    (host == "localhost" || host.ends_with(".localhost")) && ip.is_loopback()
+}
+
+fn is_sensitive_socket_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_sensitive_ipv4(ip),
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .map(is_sensitive_ipv4)
+            .unwrap_or_else(|| is_sensitive_ipv6(ip)),
+    }
+}
+
+fn is_sensitive_ipv4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, d] = ip.octets();
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || a == 0
+        || (a == 100 && (64..=127).contains(&b))
+        || (a == 169 && b == 254)
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 192 && b == 0 && c == 2)
+        || (a == 198 && (b == 18 || b == 19))
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113)
+        || [a, b, c, d] == [255, 255, 255, 255]
+}
+
+fn is_sensitive_ipv6(ip: Ipv6Addr) -> bool {
+    let segments = ip.segments();
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00
+        || (segments[0] & 0xffc0) == 0xfe80
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+}
+
 impl TcpSocketRegistry {
     pub fn new() -> Self {
         Self::with_max_retained(MAX_RETAINED_TCP_CONNECTIONS)
@@ -280,23 +404,18 @@ impl TcpSocketRegistry {
         request: TcpConnectRequest,
     ) -> Result<TcpSocketSnapshot, SocketRuntimeError> {
         let id = self.reserve_connection_slot()?;
-        let addresses = match (request.host.as_str(), request.port).to_socket_addrs() {
-            Ok(addresses) => addresses.collect::<Vec<_>>(),
+        let addresses = match resolve_admitted_socket_addrs(
+            "TcpSocketError",
+            &request.host,
+            request.port,
+            request.enforce_resolved_address_policy,
+        ) {
+            Ok(addresses) => addresses,
             Err(error) => {
                 self.release_pending_start();
-                return Err(SocketRuntimeError::new("TcpSocketError", error.to_string()));
+                return Err(error);
             }
         };
-        if addresses.is_empty() {
-            self.release_pending_start();
-            return Err(SocketRuntimeError::new(
-                "TcpSocketError",
-                format!(
-                    "no socket addresses resolved for {}:{}",
-                    request.host, request.port
-                ),
-            ));
-        }
 
         let mut last_error = None;
         for address in addresses {
@@ -518,14 +637,16 @@ impl TcpListenerRegistry {
         request: TcpListenRequest,
     ) -> Result<TcpListenerSnapshot, SocketRuntimeError> {
         let id = self.reserve_listener_slot()?;
-        let listener = match TcpListener::bind((request.host.as_str(), request.port)) {
+        let listener = match bind_admitted_tcp_listener(
+            "TcpListenerError",
+            &request.host,
+            request.port,
+            request.enforce_resolved_address_policy,
+        ) {
             Ok(listener) => listener,
             Err(error) => {
                 self.release_pending_start();
-                return Err(SocketRuntimeError::new(
-                    "TcpListenerError",
-                    error.to_string(),
-                ));
+                return Err(error);
             }
         };
         if let Err(error) = listener.set_nonblocking(true) {
@@ -931,23 +1052,18 @@ impl WebSocketRegistry {
         request: WebSocketConnectRequest,
     ) -> Result<WebSocketSnapshot, SocketRuntimeError> {
         let id = self.reserve_connection_slot()?;
-        let addresses = match (request.host.as_str(), request.port).to_socket_addrs() {
-            Ok(addresses) => addresses.collect::<Vec<_>>(),
+        let addresses = match resolve_admitted_socket_addrs(
+            "WebSocketError",
+            &request.host,
+            request.port,
+            request.enforce_resolved_address_policy,
+        ) {
+            Ok(addresses) => addresses,
             Err(error) => {
                 self.release_pending_start();
-                return Err(SocketRuntimeError::new("WebSocketError", error.to_string()));
+                return Err(error);
             }
         };
-        if addresses.is_empty() {
-            self.release_pending_start();
-            return Err(SocketRuntimeError::new(
-                "WebSocketError",
-                format!(
-                    "no socket addresses resolved for {}:{}",
-                    request.host, request.port
-                ),
-            ));
-        }
 
         let mut last_error = None;
         let mut connection_result = None;
@@ -962,7 +1078,12 @@ impl WebSocketRegistry {
                         self.release_pending_start();
                         return Err(SocketRuntimeError::new("WebSocketError", error.to_string()));
                     }
-                    match client_tls_with_config(request.url.as_str(), stream, None, None) {
+                    match client_tls_with_config(
+                        request.url.as_str(),
+                        stream,
+                        Some(websocket_config()),
+                        None,
+                    ) {
                         Ok(connection) => {
                             connection_result = Some(connection);
                             break;
@@ -1077,9 +1198,10 @@ impl WebSocketRegistry {
         &self,
         id: u64,
         timeout: Duration,
+        max_bytes: usize,
     ) -> Option<Result<WebSocketRead, SocketRuntimeError>> {
         let connection = self.connection_arc(id)?;
-        Some(connection.read(timeout))
+        Some(connection.read(timeout, max_bytes))
     }
 
     pub fn close(&self, id: u64) -> Option<Result<WebSocketSnapshot, SocketRuntimeError>> {
@@ -1196,14 +1318,16 @@ impl WebSocketListenerRegistry {
         request: WebSocketListenRequest,
     ) -> Result<WebSocketListenerSnapshot, SocketRuntimeError> {
         let id = self.reserve_listener_slot()?;
-        let listener = match TcpListener::bind((request.host.as_str(), request.port)) {
+        let listener = match bind_admitted_tcp_listener(
+            "WebSocketListenerError",
+            &request.host,
+            request.port,
+            request.enforce_resolved_address_policy,
+        ) {
             Ok(listener) => listener,
             Err(error) => {
                 self.release_pending_start();
-                return Err(SocketRuntimeError::new(
-                    "WebSocketListenerError",
-                    error.to_string(),
-                ));
+                return Err(error);
             }
         };
         if let Err(error) = listener.set_nonblocking(true) {
@@ -1225,6 +1349,7 @@ impl WebSocketListenerRegistry {
                 local_addr: local_addr.map(|addr| addr.to_string()),
                 error: None,
                 accepted_connections: 0,
+                allowed_origins: request.allowed_origins,
                 listener: Some(listener),
             }),
         });
@@ -1393,6 +1518,12 @@ impl WebSocketListenerHandle {
                 Err(error) => return Err(state.fail(error)),
             }
         };
+        let allowed_origins = self
+            .state
+            .lock()
+            .expect("WebSocket listener lock should not be poisoned")
+            .allowed_origins
+            .clone();
 
         let (stream, peer_addr) = accept_tcp_stream(&listener, timeout)?;
         if let Err(error) = stream
@@ -1405,7 +1536,11 @@ impl WebSocketListenerHandle {
                 error.to_string(),
             ));
         }
-        let socket = match tungstenite::accept(MaybeTlsStream::Plain(stream)) {
+        let socket = match accept_hdr_with_config(
+            MaybeTlsStream::Plain(stream),
+            WebSocketOriginGuard { allowed_origins },
+            Some(websocket_config()),
+        ) {
             Ok(socket) => socket,
             Err(error) => {
                 return Err(SocketRuntimeError::new(
@@ -1503,7 +1638,11 @@ impl WebSocketConnection {
         Ok(state.snapshot())
     }
 
-    fn read(&self, timeout: Duration) -> Result<WebSocketRead, SocketRuntimeError> {
+    fn read(
+        &self,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<WebSocketRead, SocketRuntimeError> {
         let mut state = self
             .state
             .lock()
@@ -1518,6 +1657,14 @@ impl WebSocketConnection {
         match socket.read() {
             Ok(message) => {
                 let (message_type, message, bytes) = websocket_message_parts(message);
+                if bytes > max_bytes {
+                    return Err(SocketRuntimeError::new(
+                        "WebSocketMessageTooLarge",
+                        format!(
+                            "WebSocket message has {bytes} bytes, exceeding max_bytes {max_bytes}"
+                        ),
+                    ));
+                }
                 if message_type == "close" {
                     state.status = SocketStatus::Closed;
                     state.socket = None;
@@ -1595,6 +1742,58 @@ impl WebSocketConnectionState {
         self.error = Some(error.to_string());
         SocketRuntimeError::new("WebSocketError", error.to_string())
     }
+}
+
+fn websocket_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(WEBSOCKET_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(WEBSOCKET_MAX_MESSAGE_BYTES))
+}
+
+struct WebSocketOriginGuard {
+    allowed_origins: Vec<String>,
+}
+
+impl Callback for WebSocketOriginGuard {
+    #[allow(clippy::result_large_err)]
+    fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+        websocket_origin_response(request, response, &self.allowed_origins)
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn websocket_origin_response(
+    request: &Request,
+    response: Response,
+    allowed_origins: &[String],
+) -> Result<Response, ErrorResponse> {
+    let Some(origin) = request.headers().get("origin") else {
+        return Ok(response);
+    };
+    let Ok(origin) = origin.to_str() else {
+        return Err(websocket_forbidden_origin_response(
+            "invalid Origin header value",
+        ));
+    };
+    if allowed_origins.iter().any(|allowed| allowed == origin) {
+        Ok(response)
+    } else {
+        Err(websocket_forbidden_origin_response(format!(
+            "WebSocket Origin is not allowed: {origin}"
+        )))
+    }
+}
+
+fn websocket_forbidden_origin_response(message: impl Into<String>) -> ErrorResponse {
+    tungstenite::http::Response::builder()
+        .status(StatusCode::FORBIDDEN)
+        .body(Some(message.into()))
+        .unwrap_or_else(|_| {
+            tungstenite::http::Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Some("WebSocket Origin is not allowed".to_string()))
+                .expect("static WebSocket Origin rejection response should build")
+        })
 }
 
 fn websocket_message_parts(message: Message) -> (String, String, usize) {
@@ -1727,4 +1926,117 @@ fn now_millis() -> i64 {
         .as_millis()
         .try_into()
         .unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    #[test]
+    fn socket_address_policy_rejects_dns_name_to_restricted_ip() {
+        let loopback = "127.0.0.1:8080"
+            .parse::<SocketAddr>()
+            .expect("loopback socket addr");
+        assert!(socket_address_policy_error("example.test", loopback)
+            .expect("DNS name should not be admitted to loopback")
+            .contains("restricted address"));
+        assert!(socket_address_policy_error("127.0.0.1", loopback).is_none());
+        assert!(socket_address_policy_error("localhost", loopback).is_none());
+
+        let private = "10.0.0.5:443"
+            .parse::<SocketAddr>()
+            .expect("private socket addr");
+        assert!(socket_address_policy_error("api.example.test", private).is_some());
+        assert!(socket_address_policy_error("10.0.0.5", private).is_none());
+    }
+
+    #[test]
+    fn websocket_listener_rejects_unapproved_browser_origin() {
+        let listeners = WebSocketListenerRegistry::new();
+        let listener = listeners
+            .listen(WebSocketListenRequest {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                allowed_origins: Vec::new(),
+                enforce_resolved_address_policy: true,
+            })
+            .expect("listener should bind");
+        let addr = listener
+            .local_addr
+            .as_ref()
+            .expect("listener should expose local addr")
+            .parse::<SocketAddr>()
+            .expect("listener local addr should parse");
+        let client = thread::spawn(move || websocket_handshake_probe(addr, "http://evil.example"));
+
+        let websockets = WebSocketRegistry::new();
+        let error = listeners
+            .accept(listener.id, Duration::from_secs(2), &websockets)
+            .expect("listener should still exist")
+            .expect_err("unapproved Origin should be rejected");
+        assert_eq!(error.kind, "WebSocketListenerError");
+
+        let response = client.join().expect("client probe should not panic");
+        assert!(
+            response.contains("403"),
+            "denied Origin should receive a 403 response, got: {response:?}"
+        );
+        let _ = listeners.close(listener.id);
+        let _ = listeners.release(listener.id);
+    }
+
+    #[test]
+    fn websocket_listener_accepts_approved_browser_origin() {
+        let listeners = WebSocketListenerRegistry::new();
+        let listeners_for_accept = listeners.clone();
+        let listener = listeners
+            .listen(WebSocketListenRequest {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                allowed_origins: vec!["http://app.example".to_string()],
+                enforce_resolved_address_policy: true,
+            })
+            .expect("listener should bind");
+        let addr = listener
+            .local_addr
+            .as_ref()
+            .expect("listener should expose local addr")
+            .parse::<SocketAddr>()
+            .expect("listener local addr should parse");
+        let client = thread::spawn(move || websocket_handshake_probe(addr, "http://app.example"));
+
+        let websockets = WebSocketRegistry::new();
+        let snapshot = listeners_for_accept
+            .accept(listener.id, Duration::from_secs(2), &websockets)
+            .expect("listener should still exist")
+            .expect("approved Origin should be accepted");
+        assert!(snapshot.connected);
+
+        let response = client.join().expect("client probe should not panic");
+        assert!(
+            response.contains("101 Switching Protocols"),
+            "approved Origin should receive a 101 response, got: {response:?}"
+        );
+        let _ = websockets.close(snapshot.id);
+        let _ = websockets.release(snapshot.id);
+        let _ = listeners.close(listener.id);
+        let _ = listeners.release(listener.id);
+    }
+
+    fn websocket_handshake_probe(addr: SocketAddr, origin: &str) -> String {
+        let mut stream = TcpStream::connect(addr).expect("probe should connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("probe read timeout should set");
+        write!(
+            stream,
+            "GET /ws HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: {origin}\r\n\r\n"
+        )
+        .expect("probe should write handshake");
+        stream.flush().expect("probe should flush");
+        let mut buffer = [0u8; 1024];
+        let count = stream.read(&mut buffer).unwrap_or_default();
+        String::from_utf8_lossy(&buffer[..count]).into_owned()
+    }
 }
