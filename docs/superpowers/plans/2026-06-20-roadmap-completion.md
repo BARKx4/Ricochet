@@ -341,7 +341,7 @@ The exact syntax must be designed before implementation. It must avoid leading-d
 
 **Implementation Path:**
 
-- [ ] Write a dedicated macro design spec before code.
+- [x] Write a dedicated macro design spec before code.
 - [ ] Decide expansion target: token stream, AST, or compiler IR. Prefer AST if it gives better source spans.
 - [ ] Add parser support for macro declarations and invocations behind tests.
 - [ ] Add compiler expansion pass with recursion/depth limits.
