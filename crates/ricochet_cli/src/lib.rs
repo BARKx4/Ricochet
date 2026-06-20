@@ -1762,10 +1762,36 @@ fn lsp_diagnostics(path: &str, pretty: bool) -> Result<()> {
 }
 
 pub(crate) fn source_lsp_diagnostics(file: &str, source: &str) -> Vec<serde_json::Value> {
+    let syntax_diagnostics = syntax_lsp_diagnostics(file, source);
     match compile_source(file, source) {
-        Ok(_) => syntax_lsp_diagnostics(file, source),
-        Err(error) => vec![compile_error_lsp_diagnostic(file, source, &error)],
+        Ok(_) => syntax_diagnostics,
+        Err(error) => {
+            let mut diagnostics = vec![compile_error_lsp_diagnostic(file, source, &error)];
+            for diagnostic in syntax_diagnostics {
+                if !has_same_lsp_code_and_range(&diagnostics, &diagnostic) {
+                    diagnostics.push(diagnostic);
+                }
+            }
+            diagnostics
+        }
     }
+}
+
+fn has_same_lsp_code_and_range(
+    diagnostics: &[serde_json::Value],
+    candidate: &serde_json::Value,
+) -> bool {
+    let Some(candidate_code) = candidate.get("code") else {
+        return false;
+    };
+    let Some(candidate_range) = candidate.get("range") else {
+        return false;
+    };
+
+    diagnostics.iter().any(|diagnostic| {
+        diagnostic.get("code") == Some(candidate_code)
+            && diagnostic.get("range") == Some(candidate_range)
+    })
 }
 
 fn lint_path(path: &str, json_output: bool) -> Result<()> {
@@ -2049,39 +2075,49 @@ fn syntax_lsp_diagnostics(file: &str, source: &str) -> Vec<serde_json::Value> {
         return Vec::new();
     };
     let mut lints = Vec::new();
-    collect_module_lints(&module, &mut lints);
+    collect_module_lints(&module, source, &mut lints);
     lints
         .into_iter()
         .map(|lint| syntax_lint_lsp_diagnostic(file, source, lint))
         .collect()
 }
 
-fn collect_module_lints(module: &Module, lints: &mut Vec<SyntaxLint>) {
+fn collect_module_lints(module: &Module, source: &str, lints: &mut Vec<SyntaxLint>) {
     for item in &module.items {
-        collect_item_lints(item, lints);
+        collect_item_lints(item, source, lints);
     }
 }
 
-fn collect_item_lints(item: &SyntaxItem, lints: &mut Vec<SyntaxLint>) {
+fn collect_item_lints(item: &SyntaxItem, source: &str, lints: &mut Vec<SyntaxLint>) {
     match item {
         SyntaxItem::Class(class) => {
             for item in &class.body {
-                collect_item_lints(item, lints);
+                collect_item_lints(item, source, lints);
             }
         }
-        SyntaxItem::Method(method) => collect_expr_list_lints(&method.body, lints),
-        SyntaxItem::Function(function) => collect_expr_list_lints(&function.body, lints),
-        SyntaxItem::Expr { expr, .. } => collect_expr_lints(expr, lints),
+        SyntaxItem::Method(method) => collect_expr_list_lints(&method.body, source, lints),
+        SyntaxItem::Function(function) => collect_expr_list_lints(&function.body, source, lints),
+        SyntaxItem::Macro(macro_decl) => collect_expr_list_lints(&macro_decl.body, source, lints),
+        SyntaxItem::Expr { expr, span, .. } => {
+            collect_spanned_expr_lints(expr, *span, source, lints)
+        }
     }
 }
 
-fn collect_expr_list_lints(exprs: &[SpannedExpr], lints: &mut Vec<SyntaxLint>) {
+fn collect_expr_list_lints(exprs: &[SpannedExpr], source: &str, lints: &mut Vec<SyntaxLint>) {
     for expr in exprs {
-        collect_expr_lints(&expr.expr, lints);
+        collect_spanned_expr_lints(&expr.expr, expr.span, source, lints);
     }
 }
 
-fn collect_expr_lints(expr: &Expr, lints: &mut Vec<SyntaxLint>) {
+fn collect_spanned_expr_lints(expr: &Expr, span: Span, source: &str, lints: &mut Vec<SyntaxLint>) {
+    if let Expr::DotWord(word) = expr {
+        lints.push(leading_dot_lint(source, word, span));
+    }
+    collect_expr_lints(expr, source, lints);
+}
+
+fn collect_expr_lints(expr: &Expr, source: &str, lints: &mut Vec<SyntaxLint>) {
     match expr {
         Expr::Sequence(exprs) => {
             for pair in exprs.windows(2) {
@@ -2101,19 +2137,19 @@ fn collect_expr_lints(expr: &Expr, lints: &mut Vec<SyntaxLint>) {
                     }
                 }
             }
-            collect_expr_list_lints(exprs, lints);
+            collect_expr_list_lints(exprs, source, lints);
         }
-        Expr::Block(exprs) => collect_expr_list_lints(exprs, lints),
+        Expr::Block(exprs) => collect_expr_list_lints(exprs, source, lints),
         Expr::If {
             then_body,
             else_body,
         } => {
-            collect_expr_list_lints(then_body, lints);
-            collect_expr_list_lints(else_body, lints);
+            collect_expr_list_lints(then_body, source, lints);
+            collect_expr_list_lints(else_body, source, lints);
         }
         Expr::While { condition, body } => {
-            collect_expr_list_lints(condition, lints);
-            collect_expr_list_lints(body, lints);
+            collect_expr_list_lints(condition, source, lints);
+            collect_expr_list_lints(body, source, lints);
         }
         Expr::Symbol(_)
         | Expr::BangWord(_)
@@ -2123,6 +2159,17 @@ fn collect_expr_lints(expr: &Expr, lints: &mut Vec<SyntaxLint>) {
         | Expr::Number(_)
         | Expr::Float(_)
         | Expr::Args(_) => {}
+    }
+}
+
+fn leading_dot_lint(source: &str, word: &str, span: Span) -> SyntaxLint {
+    let fix = leading_dot_fix(source, span);
+    SyntaxLint {
+        span: fix.as_ref().map(|fix| fix.span).unwrap_or(span),
+        message: format!("avoid leading-dot method syntax {word:?}"),
+        help: "Use postfix selectors, for example: user email.get or http_request".to_string(),
+        replacement: fix.map(|fix| fix.replacement),
+        code: "leading-dot-syntax",
     }
 }
 
@@ -3414,6 +3461,7 @@ fn write_item_docs(output: &mut String, item: &SyntaxItem, indent: usize) -> Res
             )?;
             write_docs(output, &function.docs, indent)?;
         }
+        SyntaxItem::Macro(_) => {}
         SyntaxItem::Method(method) => {
             writeln!(
                 output,
@@ -10134,4 +10182,72 @@ fn collect_rco_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostics_include_macro_body_lints_when_macro_compile_is_unsupported() {
+        let source = r#"
+"unless" Macro
+[
+  name get
+  http .request
+]
+end
+"#;
+
+        let diagnostics = source_lsp_diagnostics("test.rco", source);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic["message"].as_str().is_some_and(
+                    |message| message.contains("compile-time macros are not implemented yet")
+                )),
+            "unsupported macro diagnostic should still be published"
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic["code"]
+                .as_str()
+                .is_some_and(|code| code == "prefer-dollar-reference")),
+            "syntax lints inside macro bodies should be published with compile diagnostics"
+        );
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic["code"]
+                .as_str()
+                .is_some_and(|code| code == "leading-dot-syntax")
+                && diagnostic["data"]["replacement"] == "http_request"),
+            "leading-dot lints inside macro bodies should include the usual replacement"
+        );
+    }
+
+    #[test]
+    fn doc_generation_omits_unsupported_macro_declarations() {
+        let source = r#"
+(( Internal macro docs. ))
+"unless" Macro
+[
+  "ok"
+]
+end
+
+(( User docs. ))
+User Model Subclass
+  (( Email docs. ))
+  "email" Accessor
+end
+"#;
+        let module = parse_module(source).expect("source should parse");
+        let mut output = String::new();
+
+        write_module_docs(&mut output, Path::new("test.rco"), &module).expect("docs should render");
+
+        assert!(!output.contains("unless"));
+        assert!(!output.contains("Internal macro docs"));
+        assert!(output.contains("## Class `User`"));
+        assert!(output.contains("- Accessor: `email`"));
+    }
 }

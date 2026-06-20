@@ -97,6 +97,17 @@ impl Compiler {
             Item::Class(class) => self.compile_class(class),
             Item::Expr { expr, span, .. } => self.compile_expr_item(expr, *span),
             Item::Function(function) => self.compile_function_decl(function),
+            Item::Macro(macro_decl) => Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macros are not implemented yet: macro declaration {:?}",
+                    macro_decl.name
+                ),
+                span: macro_decl.span,
+                help: Some(
+                    "macro declarations parse for editor support, but expansion and lowering will land in a later compiler slice"
+                        .to_string(),
+                ),
+            }),
             Item::Method(method) => Err(CompileError::Unsupported {
                 feature: format!("top-level method declaration {}", method.name),
                 span: method.span,
@@ -203,6 +214,17 @@ impl Compiler {
                 feature: format!("function declaration {}", function.name),
                 span: function.span,
                 help: Some("move function declarations to the top level".to_string()),
+            }),
+            Item::Macro(macro_decl) => Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macros are not implemented yet: macro declaration {:?}",
+                    macro_decl.name
+                ),
+                span: macro_decl.span,
+                help: Some(
+                    "macro declarations inside class bodies are parsed for editor support, but macro expansion is not available yet"
+                        .to_string(),
+                ),
             }),
         }
     }
@@ -1037,6 +1059,71 @@ mod tests {
                     outputs: vec!["String".to_string()],
                 }),
             }]
+        );
+    }
+
+    #[test]
+    fn rejects_macro_declaration_until_expansion_lands() {
+        let source = r#"
+          "unless" Macro
+            [
+              "ok"
+            ]
+          end
+        "#;
+        let err = compile_source("test.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("compile-time macros are not implemented yet"));
+            }
+            other => panic!("expected unsupported macro declaration, got {other:?}"),
+        }
+        let diagnostic = format_compile_error("test.rco", source, &err);
+        assert!(diagnostic.contains("compile-time macros are not implemented yet"));
+    }
+
+    #[test]
+    fn rejects_class_body_macro_declaration_until_expansion_lands() {
+        let source = r#"
+          User Model Subclass
+            "displayName" Macro
+              [
+                "ok"
+              ]
+            end
+          end
+        "#;
+        let err = compile_source("test.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported {
+                feature,
+                span,
+                help,
+            } => {
+                assert!(feature.contains("compile-time macros are not implemented yet"));
+                assert_eq!(span.start, source.find("\"displayName\"").unwrap());
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("inside class bodies")));
+            }
+            other => panic!("expected unsupported class-body macro declaration, got {other:?}"),
+        }
+        let diagnostic = format_compile_error("test.rco", source, &err);
+        assert!(diagnostic.contains("compile-time macros are not implemented yet"));
+    }
+
+    #[test]
+    fn compiles_macro_call_as_ordinary_runtime_words_for_now() {
+        let chunk = compile_source("test.rco", r#""unless" macro_call"#).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("unless".to_string()),
+                Op::CallWord("macro_call".to_string()),
+            ]
         );
     }
 

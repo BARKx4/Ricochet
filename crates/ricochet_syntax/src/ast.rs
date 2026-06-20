@@ -10,6 +10,7 @@ pub enum Item {
     Class(ClassDecl),
     Method(MethodDecl),
     Function(FunctionDecl),
+    Macro(MacroDecl),
     Expr {
         expr: Expr,
         span: Span,
@@ -37,6 +38,15 @@ pub struct MethodDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
+    pub name: String,
+    pub args: Option<ArgsDecl>,
+    pub body: Vec<SpannedExpr>,
+    pub docs: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MacroDecl {
     pub name: String,
     pub args: Option<ArgsDecl>,
     pub body: Vec<SpannedExpr>,

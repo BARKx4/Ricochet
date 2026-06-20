@@ -63,6 +63,11 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Declare a top-level function with postfix function syntax.",
     ),
     WordDoc::new(
+        "Macro",
+        "macro declaration",
+        "Declare an unsupported compile-time macro for editor-safe future macro syntax.",
+    ),
+    WordDoc::new(
         "end",
         "control",
         "Close a class, function, method body, `if`, or `while` block.",
@@ -755,6 +760,7 @@ struct SymbolDef {
 enum SymbolKind {
     Class,
     Function,
+    Macro,
     Method,
     Property,
     Field,
@@ -1131,7 +1137,7 @@ impl SymbolKind {
     fn lsp_kind(self) -> u8 {
         match self {
             SymbolKind::Class => 5,
-            SymbolKind::Function => 12,
+            SymbolKind::Function | SymbolKind::Macro => 12,
             SymbolKind::Method => 6,
             SymbolKind::Property | SymbolKind::Field | SymbolKind::Table => 7,
         }
@@ -1141,6 +1147,7 @@ impl SymbolKind {
         match self {
             SymbolKind::Class => "class",
             SymbolKind::Function => "function",
+            SymbolKind::Macro => "macro",
             SymbolKind::Method => "method",
             SymbolKind::Property => "accessor",
             SymbolKind::Field => "field",
@@ -1253,6 +1260,13 @@ fn symbol_for_item(item: &SyntaxItem) -> Option<SymbolDef> {
             docs: function.docs.clone(),
             children: Vec::new(),
         }),
+        SyntaxItem::Macro(macro_decl) => Some(SymbolDef {
+            name: macro_decl.name.clone(),
+            kind: SymbolKind::Macro,
+            span: macro_decl.span,
+            docs: macro_decl.docs.clone(),
+            children: Vec::new(),
+        }),
         SyntaxItem::Method(method) => Some(SymbolDef {
             name: method.name.clone(),
             kind: SymbolKind::Method,
@@ -1290,6 +1304,13 @@ fn symbol_for_class_body_item(item: &SyntaxItem) -> Option<SymbolDef> {
             kind: SymbolKind::Function,
             span: function.span,
             docs: function.docs.clone(),
+            children: Vec::new(),
+        }),
+        SyntaxItem::Macro(macro_decl) => Some(SymbolDef {
+            name: macro_decl.name.clone(),
+            kind: SymbolKind::Macro,
+            span: macro_decl.span,
+            docs: macro_decl.docs.clone(),
             children: Vec::new(),
         }),
         SyntaxItem::Expr { .. } => None,
@@ -1382,19 +1403,22 @@ fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a SymbolDef
 }
 
 fn insert_symbol_completion(symbols: &mut BTreeMap<String, Value>, symbol: &SymbolDef) {
-    symbols.insert(
-        symbol.name.clone(),
-        json!({
-            "label": symbol.name,
-            "kind": match symbol.kind {
-                SymbolKind::Class => 7,
-                SymbolKind::Function => 3,
-                SymbolKind::Method => 2,
-                SymbolKind::Property | SymbolKind::Field | SymbolKind::Table => 10,
-            },
-            "detail": symbol.kind.detail(),
-        }),
-    );
+    if !matches!(symbol.kind, SymbolKind::Macro) {
+        symbols.insert(
+            symbol.name.clone(),
+            json!({
+                "label": symbol.name,
+                "kind": match symbol.kind {
+                    SymbolKind::Class => 7,
+                    SymbolKind::Function => 3,
+                    SymbolKind::Method => 2,
+                    SymbolKind::Property | SymbolKind::Field | SymbolKind::Table => 10,
+                    SymbolKind::Macro => unreachable!("macro completions are gated above"),
+                },
+                "detail": symbol.kind.detail(),
+            }),
+        );
+    }
     for child in &symbol.children {
         insert_symbol_completion(symbols, child);
     }
@@ -1402,7 +1426,7 @@ fn insert_symbol_completion(symbols: &mut BTreeMap<String, Value>, symbol: &Symb
 
 fn completion_kind(label: &str) -> u8 {
     match label {
-        "Subclass" | "Accessor" | "Field" | "Table" | "Method" | "function" => 14,
+        "Subclass" | "Accessor" | "Field" | "Table" | "Method" | "function" | "Macro" => 14,
         "if" | "else" | "while" | "end" | "break" | "continue" => 14,
         _ => 3,
     }
@@ -1500,6 +1524,7 @@ fn is_keyword(word: &str) -> bool {
             | "break"
             | "continue"
             | "function"
+            | "Macro"
             | "Subclass"
             | "Accessor"
             | "Field"
@@ -1933,6 +1958,69 @@ mod tests {
         assert!(
             edits.len() >= 2,
             "rename should update declaration and selector/reference uses"
+        );
+    }
+
+    #[test]
+    fn lsp_handles_macro_declaration_symbols_formatting_and_diagnostics() {
+        let uri = "file:///workspace/Macros.rco";
+        let source = "(( Run when false. ))\n\"unless\" Macro\n( condition body -> expansion )\n[ \"ok\" ]\nend\n";
+        let input = messages(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"ricochet","version":1,"text":source}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":uri}}}),
+            json!({"jsonrpc":"2.0","id":3,"method":"textDocument/formatting","params":{"textDocument":{"uri":uri},"options":{"tabSize":2,"insertSpaces":true}}}),
+            json!({"jsonrpc":"2.0","id":4,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":1,"character":0}}}),
+            json!({"jsonrpc":"2.0","id":5,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ]);
+        let mut output = Vec::new();
+
+        run_lsp(Cursor::new(input), &mut output, false).expect("LSP server should run");
+
+        let messages = parse_messages(&output);
+        let diagnostics = messages
+            .iter()
+            .find(|message| message["method"] == "textDocument/publishDiagnostics")
+            .expect("publish diagnostics should exist")["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        assert!(diagnostics[0]["message"]
+            .as_str()
+            .expect("diagnostic message should be text")
+            .contains("compile-time macros are not implemented yet"));
+
+        let symbols = messages
+            .iter()
+            .find(|message| message["id"] == 2)
+            .expect("document symbol response should exist")["result"]
+            .as_array()
+            .expect("symbols should be an array");
+        assert_eq!(symbols[0]["name"], "unless");
+        assert_eq!(symbols[0]["detail"], "macro");
+
+        let formatting = messages
+            .iter()
+            .find(|message| message["id"] == 3)
+            .expect("formatting response should exist")["result"]
+            .as_array()
+            .expect("formatting should be an array");
+        let formatted = formatting[0]["newText"]
+            .as_str()
+            .expect("format edit should contain newText");
+        assert!(formatted.contains("\"unless\" Macro\n  ( condition body -> expansion )"));
+        assert!(formatted.contains("  [\n    \"ok\"\n  ]"));
+
+        let completions = messages
+            .iter()
+            .find(|message| message["id"] == 4)
+            .expect("completion response should exist")["result"]["items"]
+            .as_array()
+            .expect("completion response should contain items");
+        assert!(
+            !completions.iter().any(|item| item["label"] == "unless"),
+            "unsupported macros should not be suggested as bare callable words"
         );
     }
 

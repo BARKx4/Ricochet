@@ -55,6 +55,9 @@ impl Parser {
         if let Some(class) = self.try_parse_class()? {
             return Ok(Item::Class(ClassDecl { docs, ..class }));
         }
+        if let Some(macro_decl) = self.try_parse_macro()? {
+            return Ok(Item::Macro(MacroDecl { docs, ..macro_decl }));
+        }
         if let Some(function) = self.try_parse_function()? {
             return Ok(Item::Function(FunctionDecl { docs, ..function }));
         }
@@ -110,6 +113,54 @@ impl Parser {
             }
             body.push(self.parse_item()?);
         }
+    }
+
+    fn try_parse_macro(&mut self) -> Result<Option<MacroDecl>, ParseError> {
+        self.skip_newlines();
+        let checkpoint = self.pos;
+        let start = self.current_span();
+        let TokenKind::String(name) = self.peek_kind().clone() else {
+            return Ok(None);
+        };
+        self.advance();
+        if !self.consume_symbol("Macro") {
+            self.pos = checkpoint;
+            return Ok(None);
+        }
+
+        self.skip_newlines();
+        let args = if matches!(self.peek_kind(), TokenKind::LeftParen) {
+            let args = self.parse_args()?;
+            self.skip_newlines();
+            Some(args)
+        } else {
+            None
+        };
+
+        if !matches!(self.peek_kind(), TokenKind::LeftBracket) {
+            let token = self.current_token().clone();
+            return Err(ParseError::Expected {
+                expected: "macro body block",
+                found: token.kind,
+                span: token.span,
+            });
+        }
+        self.advance();
+        let body = self.parse_block_exprs()?;
+        self.expect_right_bracket()?;
+        self.skip_newlines();
+        self.expect_symbol("end")?;
+        let end = self.previous_span().end;
+        Ok(Some(MacroDecl {
+            name,
+            args,
+            body,
+            docs: Vec::new(),
+            span: Span {
+                start: start.start,
+                end,
+            },
+        }))
     }
 
     fn try_parse_function(&mut self) -> Result<Option<FunctionDecl>, ParseError> {
@@ -837,6 +888,152 @@ mod tests {
                 assert_eq!(unspan(&function.body), vec![Expr::String("hi".to_string())]);
             }
             other => panic!("expected function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_macro_declaration_without_args() {
+        let module = parse_module(
+            r#"
+              "unless" Macro
+                [
+                  "ok"
+                ]
+              end
+            "#,
+        )
+        .expect("parse succeeds");
+
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0] {
+            Item::Macro(macro_decl) => {
+                assert_eq!(macro_decl.name, "unless");
+                assert_eq!(macro_decl.args, None);
+                assert_eq!(
+                    unspan(&macro_decl.body),
+                    vec![Expr::String("ok".to_string())]
+                );
+            }
+            other => panic!("expected macro, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_macro_declaration_with_args() {
+        let module = parse_module(
+            r#"
+              "unless" Macro
+                ( condition body -> expansion )
+                [
+                  condition body
+                ]
+              end
+            "#,
+        )
+        .expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Macro(macro_decl) => {
+                let args = macro_decl.args.as_ref().expect("args should parse");
+                assert_eq!(args.inputs, vec!["condition", "body"]);
+                assert_eq!(args.outputs, vec!["expansion"]);
+                match &macro_decl.body[0].expr {
+                    Expr::Sequence(exprs) => assert_eq!(
+                        unspan(exprs),
+                        vec![
+                            Expr::Symbol("condition".to_string()),
+                            Expr::Symbol("body".to_string()),
+                        ]
+                    ),
+                    other => panic!("expected macro body sequence, got {other:?}"),
+                }
+            }
+            other => panic!("expected macro, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn attaches_docs_to_macro_declaration() {
+        let module = parse_module(
+            r#"
+              (( Run a block when a condition is false. ))
+              "unless" Macro
+                []
+              end
+            "#,
+        )
+        .expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Macro(macro_decl) => {
+                assert_eq!(
+                    macro_decl.docs,
+                    vec!["Run a block when a condition is false."]
+                );
+            }
+            other => panic!("expected macro, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_macro_declaration_without_body_block() {
+        let err = parse_module(r#""unless" Macro end"#).expect_err("parse fails");
+        match err {
+            ParseError::Expected { expected, .. } => {
+                assert_eq!(expected, "macro body block");
+            }
+            other => panic!("expected macro body error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_macro_declaration_without_end() {
+        let err = parse_module(r#""unless" Macro [ "ok" ]"#).expect_err("parse fails");
+        match err {
+            ParseError::Expected { expected, .. } => {
+                assert_eq!(expected, "end");
+            }
+            other => panic!("expected end error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn macro_call_stays_ordinary_expression_sequence() {
+        let module = parse_module(r#"$ready [ "not ready" println ] "unless" macro_call"#)
+            .expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                assert_eq!(exprs[0].expr, Expr::Reference("ready".to_string()));
+                assert!(matches!(exprs[1].expr, Expr::Block(_)));
+                assert_eq!(exprs[2].expr, Expr::String("unless".to_string()));
+                assert_eq!(exprs[3].expr, Expr::Symbol("macro_call".to_string()));
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_macro_name_stays_ordinary_expression_sequence() {
+        let module = parse_module("name Macro").expect("parse succeeds");
+
+        match &module.items[0] {
+            Item::Expr {
+                expr: Expr::Sequence(exprs),
+                ..
+            } => {
+                assert_eq!(
+                    unspan(exprs),
+                    vec![
+                        Expr::Symbol("name".to_string()),
+                        Expr::Symbol("Macro".to_string()),
+                    ]
+                );
+            }
+            other => panic!("expected expression sequence, got {other:?}"),
         }
     }
 

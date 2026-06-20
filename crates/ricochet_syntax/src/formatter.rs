@@ -1,4 +1,6 @@
-use crate::ast::{ArgsDecl, ClassDecl, Expr, FunctionDecl, Item, MethodDecl, Module, SpannedExpr};
+use crate::ast::{
+    ArgsDecl, ClassDecl, Expr, FunctionDecl, Item, MacroDecl, MethodDecl, Module, SpannedExpr,
+};
 use crate::parse_module;
 use crate::parser::ParseError;
 
@@ -50,6 +52,10 @@ impl Formatter {
                 self.format_docs(&function.docs, indent);
                 self.format_function(function, indent);
             }
+            Item::Macro(macro_decl) => {
+                self.format_docs(&macro_decl.docs, indent);
+                self.format_macro(macro_decl, indent);
+            }
             Item::Expr { expr, docs, .. } => {
                 self.format_docs(docs, indent);
                 self.format_statement(expr, indent);
@@ -82,6 +88,20 @@ impl Formatter {
             .unwrap_or_default();
         self.line(indent, &format!("{prefix}{} Method", method.name));
         self.format_body(&method.body, indent + 1);
+        self.line(indent, "end");
+    }
+
+    fn format_macro(&mut self, macro_decl: &MacroDecl, indent: usize) {
+        self.line(
+            indent,
+            &format!("\"{}\" Macro", escape_string(&macro_decl.name)),
+        );
+        if let Some(args) = &macro_decl.args {
+            self.line(indent + 1, &format_args(args));
+        }
+        self.line(indent + 1, "[");
+        self.format_body(&macro_decl.body, indent + 2);
+        self.line(indent + 1, "]");
         self.line(indent, "end");
     }
 
@@ -422,5 +442,41 @@ end
             formatted,
             "(( User docs ))\nUser Model Subclass\n  (( Email docs ))\n  email Accessor\nend\n"
         );
+    }
+
+    #[test]
+    fn formats_macro_declaration_with_docs_and_args() {
+        let source = r#"
+(( Run a block when a condition is false. ))
+"unless" Macro
+( condition body -> expansion )
+[
+"ok"
+]
+end
+"#;
+
+        let formatted = format_source(source).expect("source should format");
+
+        assert_eq!(
+            formatted,
+            "(( Run a block when a condition is false. ))\n\"unless\" Macro\n  ( condition body -> expansion )\n  [\n    \"ok\"\n  ]\nend\n"
+        );
+
+        let reparsed = parse_module(&formatted).expect("formatted macro should parse");
+        let Item::Macro(macro_decl) = &reparsed.items[0] else {
+            panic!("formatted source should parse back to a macro declaration");
+        };
+        assert_eq!(macro_decl.docs, ["Run a block when a condition is false."]);
+        assert_eq!(macro_decl.name, "unless");
+        assert_eq!(
+            macro_decl.args.as_ref().expect("macro args should parse"),
+            &ArgsDecl {
+                inputs: vec!["condition".to_string(), "body".to_string()],
+                outputs: vec!["expansion".to_string()],
+            }
+        );
+        assert_eq!(macro_decl.body.len(), 1);
+        assert!(matches!(macro_decl.body[0].expr, Expr::String(ref value) if value == "ok"));
     }
 }
