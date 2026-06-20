@@ -357,11 +357,18 @@ Implemented:
 - Write words include `insert` and `update`.
 - `default_page` provides a bounded list page and orders by `id asc` when the
   model maps an `id`.
-- `rco migrate status` and `rco migrate apply` read ordered SQL files from
-  `db/migrations` and record applied versions in `schema_migrations`.
+- `rco migrate new NAME [--dsl]` creates timestamped raw SQL migrations or
+  paired Ricochet migration DSL `.up.rco` / `.down.rco` files.
+- `rco migrate status` and `rco migrate apply` read ordered SQL and Ricochet
+  migration DSL files from `db/migrations` and record applied versions in
+  `schema_migrations`.
 - `rco migrate rollback` supports reversible SQLite migrations through paired
-  `VERSION_name.up.sql` and `VERSION_name.down.sql` files, while existing
+  `VERSION_name.up.sql` / `VERSION_name.down.sql` files or
+  `VERSION_name.up.rco` / `VERSION_name.down.rco` files, while existing
   one-file `VERSION_name.sql` migrations remain apply-compatible.
+- The native migration DSL is scoped to migration files and supports postfix
+  `table_create`, `column`, `primary_key`, `not_null`, `unique`, and
+  `table_drop`, compiling to SQLite, PostgreSQL, or MySQL/MariaDB SQL.
 - `rco migrate dump` writes deterministic SQLite schema snapshots that exclude
   `schema_migrations` and SQLite internal objects.
 - `rco seed` runs ordered SQLite `db/seeds/*.sql` and `db/seeds/*.rco` files,
@@ -380,8 +387,8 @@ Evidence:
 
 Remaining:
 
-- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and a
-  Ricochet-native migration DSL are future polish.
+- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
+  richer migration DSL operations are future polish.
 - Active Record targets existing schemas; do not describe it as a full
   schema-definition ORM.
 
@@ -574,7 +581,8 @@ Do not assume:
 
 Implemented foundations that should not be listed as missing:
 
-- SQL migrations (`rco migrate status/apply`).
+- SQL and native DSL migrations (`rco migrate new/status/apply`, SQLite
+  rollback, SQLite schema dump).
 - Native app packaging (`rco package`, release scripts, `.deb`, installers).
 - Debugger, DAP, and VS Code debug surfaces.
 - Static assets.
@@ -587,7 +595,7 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
-  optional Ricochet migration DSL.
+  richer migration DSL operations.
 - Template embedded script blocks beyond interpolation.
 - Compile-time macros.
 - Persistent REPL images and source emission.

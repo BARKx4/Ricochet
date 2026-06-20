@@ -112,8 +112,20 @@ Write-Host "==> SQLite beta app smoke"
 & $betaAppSmoke -Rco $Rco -Project $sqliteProject
 
 $sqliteMigrations = Join-Path $sqliteProject "db\migrations"
-Write-Utf8File -Path (Join-Path $sqliteMigrations "0002_acceptance_notes.up.sql") -Content "create table acceptance_notes (id integer primary key, body text not null);`n"
-Write-Utf8File -Path (Join-Path $sqliteMigrations "0002_acceptance_notes.down.sql") -Content "drop table acceptance_notes;`n"
+Invoke-Rco "generate SQLite DSL acceptance migration" @("migrate", "new", "acceptance_notes", "--dsl", $sqliteProject)
+$dslUp = Get-ChildItem -LiteralPath $sqliteMigrations -Filter "*_acceptance_notes.up.rco" | Sort-Object Name | Select-Object -Last 1
+$dslDown = Get-ChildItem -LiteralPath $sqliteMigrations -Filter "*_acceptance_notes.down.rco" | Sort-Object Name | Select-Object -Last 1
+if ($null -eq $dslUp -or $null -eq $dslDown) {
+    throw "Generated SQLite DSL migration files were not found"
+}
+Write-Utf8File -Path $dslUp.FullName -Content @"
+"acceptance_notes" table_create
+"id" "integer" column primary_key
+"body" "text" column not_null
+"@
+Write-Utf8File -Path $dslDown.FullName -Content @"
+"acceptance_notes" table_drop
+"@
 Write-Utf8File -Path (Join-Path $sqliteProject "app\Models\AcceptanceNote.rco") -Content @"
 AcceptanceNote Model Subclass
   "acceptance_notes" Table

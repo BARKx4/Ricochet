@@ -668,9 +668,10 @@ end</code></pre>
           <div><code>rco debug-adapter</code><span>Run the stdio Debug Adapter Protocol bridge for IDEs. It supports launch, source breakpoints, continue, pause, step into/over/out, stack frames, scopes, variables, output events, and termination.</span></div>
           <div><code>rco run-bytecode [--debug] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] &lt;path&gt; [args...]</code><span>Execute a previously built `.rcob` bytecode file; optionally record JSON debug trace events.</span></div>
           <div><code>rco build [path]</code><span>Write bytecode to `build/app.rcob`; defaults to `main.rco`.</span></div>
+          <div><code>rco migrate new NAME [--dsl] [path]</code><span>Create a timestamped SQL migration or paired Ricochet DSL `.up.rco` / `.down.rco` migration files under `db/migrations`.</span></div>
           <div><code>rco migrate status [path]</code><span>Show migration status for a SQLite, PostgreSQL, or MySQL/MariaDB MVC project with `[database.default]` configured.</span></div>
-          <div><code>rco migrate apply [path]</code><span>Apply pending SQL migrations from `db/migrations` and record them in `schema_migrations`.</span></div>
-          <div><code>rco migrate rollback [path] [--steps N]</code><span>Roll back applied SQLite migrations newest-first using paired `VERSION_name.down.sql` files.</span></div>
+          <div><code>rco migrate apply [path]</code><span>Apply pending SQL or migration DSL files from `db/migrations` and record them in `schema_migrations`.</span></div>
+          <div><code>rco migrate rollback [path] [--steps N]</code><span>Roll back applied SQLite migrations newest-first using paired `.down.sql` or `.down.rco` files.</span></div>
           <div><code>rco migrate dump [path] [--output PATH]</code><span>Write a deterministic SQLite schema snapshot, defaulting to `db/schema.sql`.</span></div>
           <div><code>rco seed [path]</code><span>Run ordered SQLite seed files from `db/seeds/*.sql` and `db/seeds/*.rco`; seeds are not tracked, so make them idempotent.</span></div>
           <div><code>rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] &lt;path&gt; [args...]</code><span>Open a `webview_window` or `webview_window_state` document in the native desktop GUI host on Windows, Linux, or macOS. Linux hosts require WebKitGTK 4.1.</span></div>
@@ -701,6 +702,14 @@ end</code></pre>
 cwd value println
 now println
 100 random println</code></pre>
+          </article>
+          <article class="example-panel">
+            <h3>Migration DSL</h3>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy migration DSL example" title="Copy">copy</button><code>&quot;notes&quot; table_create
+&quot;id&quot; &quot;integer&quot; column primary_key
+&quot;body&quot; &quot;text&quot; column not_null
+
+&quot;notes&quot; table_drop</code></pre>
           </article>
           <article class="example-panel">
             <h3>Numeric Conversions</h3>

@@ -35,6 +35,7 @@ if ($failures.Count -eq 0) {
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
     $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
     $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
+    $webAndDataGuide = Get-Content -LiteralPath (Join-Path $Root "guides/web-and-data.html") -Raw
 
     $requiredIndexMarkers = @(
         "Ricochet Reference",
@@ -437,11 +438,15 @@ if ($failures.Count -eq 0) {
         "rco words [--json] [--check] [--docs-app PATH] [--grammar PATH]",
         "rco bench [--iterations N] [--smoke] [--json]",
         "rco lsp-diagnostics [--pretty] &lt;path&gt;",
+        "rco migrate new NAME [--dsl] [path]",
         "rco migrate status [path]",
         "rco migrate apply [path]",
         "rco migrate rollback [path] [--steps N]",
         "rco migrate dump [path] [--output PATH]",
         "rco seed [path]",
+        "&quot;notes&quot; table_create",
+        "&quot;id&quot; &quot;integer&quot; column primary_key",
+        "&quot;notes&quot; table_drop",
         "`"lib/math`" import",
         "`"forms/validation`" import",
         "[dependencies.forms]",
@@ -506,7 +511,7 @@ if ($failures.Count -eq 0) {
     )
 
     foreach ($example in $requiredExamples) {
-        if (-not $index.Contains($example) -and -not $app.Contains($example)) {
+        if (-not $index.Contains($example) -and -not $app.Contains($example) -and -not $webAndDataGuide.Contains($example)) {
             $failures.Add("Docs are missing example text: $example")
         }
     }

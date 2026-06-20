@@ -40,6 +40,7 @@ use toml_edit::{value, DocumentMut, Item, Table};
 use tower::ServiceExt;
 
 mod lsp;
+mod migration_dsl;
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
@@ -441,6 +442,12 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum MigrateCommand {
+    New {
+        name: String,
+        #[arg(long, help = "Create paired Ricochet migration DSL files")]
+        dsl: bool,
+        path: Option<String>,
+    },
     Status {
         path: Option<String>,
     },
@@ -2185,6 +2192,9 @@ fn percent_encode_uri_path(path: &str) -> String {
 
 async fn migrate(command: MigrateCommand) -> Result<()> {
     match command {
+        MigrateCommand::New { name, dsl, path } => {
+            migrate_new(Path::new(path.as_deref().unwrap_or(".")), &name, dsl)
+        }
         MigrateCommand::Status { path } => {
             migrate_status(Path::new(path.as_deref().unwrap_or("."))).await
         }
@@ -2218,6 +2228,31 @@ fn seed(path: &Path) -> Result<()> {
             adapter
         ),
     }
+}
+
+fn migrate_new(path: &Path, name: &str, dsl: bool) -> Result<()> {
+    let project_root = migration_project_root(path)?;
+    let migrations_dir = project_root.join("db").join("migrations");
+    fs::create_dir_all(&migrations_dir)
+        .with_context(|| format!("failed to create {}", migrations_dir.display()))?;
+
+    let version = format!("{}_{}", migration_timestamp(), migration_name_slug(name)?);
+    if dsl {
+        let up_path = migrations_dir.join(format!("{version}.up.rco"));
+        let down_path = migrations_dir.join(format!("{version}.down.rco"));
+        ensure_new_file_path(&up_path)?;
+        ensure_new_file_path(&down_path)?;
+        write_new_file(&up_path, migration_dsl_up_template())?;
+        write_new_file(&down_path, migration_dsl_down_template())?;
+        println!("created {}", up_path.display());
+        println!("created {}", down_path.display());
+    } else {
+        let sql_path = migrations_dir.join(format!("{version}.sql"));
+        ensure_new_file_path(&sql_path)?;
+        write_new_file(&sql_path, migration_sql_template())?;
+        println!("created {}", sql_path.display());
+    }
+    Ok(())
 }
 
 async fn migrate_status(path: &Path) -> Result<()> {
@@ -2363,8 +2398,8 @@ fn migrate_apply_sqlite(
         if applied.contains(&migration.version) {
             continue;
         }
-        let sql = fs::read_to_string(&migration.path)
-            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let sql = migration_sql(&migration.source, database)
+            .with_context(|| format!("failed to prepare migration {}", migration.version))?;
         let tx = connection
             .transaction()
             .with_context(|| format!("failed to start migration {}", migration.version))?;
@@ -2419,13 +2454,13 @@ fn migrate_rollback_sqlite(
                 "cannot roll back migration {version}: no matching migration file found in db/migrations"
             )
         })?;
-        let down_path = migration.down_path.as_ref().with_context(|| {
+        let down = migration.down.as_ref().with_context(|| {
             format!(
-                "cannot roll back migration {version}: no down SQL found; add db/migrations/{version}.down.sql"
+                "cannot roll back migration {version}: no down SQL or DSL migration found; add db/migrations/{version}.down.sql or db/migrations/{version}.down.rco"
             )
         })?;
-        let sql = fs::read_to_string(down_path)
-            .with_context(|| format!("failed to read {}", down_path.display()))?;
+        let sql = migration_sql(down, database)
+            .with_context(|| format!("failed to prepare rollback {}", migration.version))?;
         let tx = connection
             .transaction()
             .with_context(|| format!("failed to start rollback {}", migration.version))?;
@@ -2559,14 +2594,14 @@ async fn migrate_apply_postgres(
     database: &MigrationDatabase,
     migrations: Vec<MigrationFile>,
 ) -> Result<()> {
-    let database = PostgresDatabase::connect(&database.url)
+    let backend = PostgresDatabase::connect(&database.url)
         .await
         .context("failed to connect to PostgreSQL for migrations")?;
-    database
+    backend
         .ensure_schema_migrations_table()
         .await
         .context("failed to create PostgreSQL schema_migrations")?;
-    let mut applied = database
+    let mut applied = backend
         .migration_versions()
         .await
         .context("failed to read PostgreSQL schema_migrations")?
@@ -2578,10 +2613,10 @@ async fn migrate_apply_postgres(
         if applied.contains(&migration.version) {
             continue;
         }
-        let sql = fs::read_to_string(&migration.path)
-            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let sql = migration_sql(&migration.source, database)
+            .with_context(|| format!("failed to prepare migration {}", migration.version))?;
         let applied_at = migration_timestamp();
-        database
+        backend
             .apply_migration(&migration.version, &applied_at, &sql)
             .await
             .with_context(|| format!("failed to apply migration {}", migration.version))?;
@@ -2597,14 +2632,14 @@ async fn migrate_apply_mysql(
     database: &MigrationDatabase,
     migrations: Vec<MigrationFile>,
 ) -> Result<()> {
-    let database = MysqlDatabase::connect(&database.url)
+    let backend = MysqlDatabase::connect(&database.url)
         .await
         .context("failed to connect to MySQL for migrations")?;
-    database
+    backend
         .ensure_schema_migrations_table()
         .await
         .context("failed to create MySQL schema_migrations")?;
-    let mut applied = database
+    let mut applied = backend
         .migration_versions()
         .await
         .context("failed to read MySQL schema_migrations")?
@@ -2616,10 +2651,10 @@ async fn migrate_apply_mysql(
         if applied.contains(&migration.version) {
             continue;
         }
-        let sql = fs::read_to_string(&migration.path)
-            .with_context(|| format!("failed to read {}", migration.path.display()))?;
+        let sql = migration_sql(&migration.source, database)
+            .with_context(|| format!("failed to prepare migration {}", migration.version))?;
         let applied_at = migration_timestamp();
-        database
+        backend
             .apply_migration(&migration.version, &applied_at, &sql)
             .await
             .with_context(|| format!("failed to apply migration {}", migration.version))?;
@@ -2648,8 +2683,26 @@ struct MigrationDatabase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MigrationFile {
     version: String,
+    source: MigrationSource,
+    down: Option<MigrationSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MigrationSource {
     path: PathBuf,
-    down_path: Option<PathBuf>,
+    kind: MigrationFileKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MigrationFileKind {
+    Sql,
+    RicochetDsl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MigrationDirection {
+    Up,
+    Down,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2739,63 +2792,109 @@ fn sqlite_database_path(project_root: &Path, url: &str) -> PathBuf {
     }
 }
 
+fn migration_sql(source: &MigrationSource, database: &MigrationDatabase) -> Result<String> {
+    let contents = fs::read_to_string(&source.path)
+        .with_context(|| format!("failed to read {}", source.path.display()))?;
+    match source.kind {
+        MigrationFileKind::Sql => Ok(contents),
+        MigrationFileKind::RicochetDsl => migration_dsl::compile(&database.adapter, &contents)
+            .with_context(|| format!("failed to compile {}", source.path.display())),
+    }
+}
+
+fn migration_source_for_path(
+    path: &Path,
+) -> Result<Option<(String, MigrationDirection, MigrationSource)>> {
+    let kind = match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("sql") => MigrationFileKind::Sql,
+        Some("rco") => MigrationFileKind::RicochetDsl,
+        _ => return Ok(None),
+    };
+
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .context("migration file name must be UTF-8")?;
+
+    let (version, direction) = if let Some(version) = stem.strip_suffix(".down") {
+        (version.to_string(), MigrationDirection::Down)
+    } else if let Some(version) = stem.strip_suffix(".up") {
+        (version.to_string(), MigrationDirection::Up)
+    } else if kind == MigrationFileKind::Sql {
+        (stem.to_string(), MigrationDirection::Up)
+    } else {
+        bail!(
+            "Ricochet migration DSL files must use .up.rco or .down.rco: {}",
+            path.display()
+        );
+    };
+
+    Ok(Some((
+        version,
+        direction,
+        MigrationSource {
+            path: path.to_path_buf(),
+            kind,
+        },
+    )))
+}
+
 fn discover_migrations(project_root: &Path) -> Result<Vec<MigrationFile>> {
     let migrations_dir = project_root.join("db").join("migrations");
     if !migrations_dir.is_dir() {
         return Ok(Vec::new());
     }
-    let mut migrations = Vec::new();
-    let mut down_paths = BTreeMap::new();
+    let mut up_sources = BTreeMap::new();
+    let mut down_sources = BTreeMap::new();
     for entry in fs::read_dir(&migrations_dir)
         .with_context(|| format!("failed to read {}", migrations_dir.display()))?
     {
         let entry = entry
             .with_context(|| format!("failed to read entry in {}", migrations_dir.display()))?;
         let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("sql") {
+        let Some((version, direction, source)) = migration_source_for_path(&path)? else {
             continue;
-        }
-        let version = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .context("migration file name must be UTF-8")?
-            .to_string();
-        if let Some(version) = version.strip_suffix(".down") {
-            validate_migration_version(version, &path)?;
-            if down_paths
-                .insert(version.to_string(), path.clone())
-                .is_some()
-            {
-                bail!("duplicate down migration for version {version}");
-            }
-            continue;
-        }
-        let version = version
-            .strip_suffix(".up")
-            .map(str::to_string)
-            .unwrap_or(version);
+        };
         validate_migration_version(&version, &path)?;
-        if migrations
-            .iter()
-            .any(|migration: &MigrationFile| migration.version == version)
-        {
-            bail!("duplicate migration for version {version}");
+        match direction {
+            MigrationDirection::Up => {
+                if let Some(existing) = up_sources.insert(version.clone(), source) {
+                    bail!(
+                        "duplicate migration for version {version}: {}",
+                        existing.path.display()
+                    );
+                }
+            }
+            MigrationDirection::Down => {
+                if let Some(existing) = down_sources.insert(version.clone(), source) {
+                    bail!(
+                        "duplicate down migration for version {version}: {}",
+                        existing.path.display()
+                    );
+                }
+            }
         }
+    }
+
+    let mut migrations = Vec::new();
+    for (version, source) in up_sources {
+        let down = down_sources.remove(&version);
         migrations.push(MigrationFile {
             version,
-            path,
-            down_path: None,
+            source,
+            down,
         });
     }
-    migrations.sort_by(|left, right| left.version.cmp(&right.version));
-    for migration in migrations.iter_mut() {
-        migration.down_path = down_paths.remove(&migration.version);
-    }
-    if let Some((version, path)) = down_paths.into_iter().next() {
+    if let Some((version, source)) = down_sources.into_iter().next() {
         bail!(
             "down migration {} has no matching up migration: {}",
             version,
-            path.display()
+            source.path.display()
         );
     }
     Ok(migrations)
@@ -2936,6 +3035,72 @@ fn migration_timestamp() -> String {
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
     millis.to_string()
+}
+
+fn migration_name_slug(name: &str) -> Result<String> {
+    let mut slug = String::new();
+    let mut last_was_separator = false;
+    for character in name.trim().chars() {
+        let next = match character {
+            'a'..='z' | '0'..='9' => character,
+            'A'..='Z' => character.to_ascii_lowercase(),
+            '_' | '-' => character,
+            character if character.is_whitespace() => '_',
+            _ => '_',
+        };
+        if matches!(next, '_' | '-') {
+            if slug.is_empty() || last_was_separator {
+                continue;
+            }
+            last_was_separator = true;
+        } else {
+            last_was_separator = false;
+        }
+        slug.push(next);
+    }
+    while slug.ends_with('_') || slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        bail!("migration name must contain at least one letter or digit");
+    }
+    Ok(slug)
+}
+
+fn write_new_file(path: &Path, contents: &str) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    file.write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn ensure_new_file_path(path: &Path) -> Result<()> {
+    if path.exists() {
+        bail!("migration file already exists: {}", path.display());
+    }
+    Ok(())
+}
+
+fn migration_sql_template() -> &'static str {
+    "-- Write migration SQL here.\n"
+}
+
+fn migration_dsl_up_template() -> &'static str {
+    r#"(( Write migration DSL here. Example:
+"items" table_create
+"id" "integer" column primary_key
+))
+"#
+}
+
+fn migration_dsl_down_template() -> &'static str {
+    r#"(( Write rollback DSL here. Example:
+"items" table_drop
+))
+"#
 }
 
 fn routes(path: &str) -> Result<()> {

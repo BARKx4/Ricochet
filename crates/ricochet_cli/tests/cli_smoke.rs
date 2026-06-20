@@ -447,6 +447,216 @@ map "body" "from rco seed" put! Note insert value drop
 }
 
 #[test]
+fn migrate_new_dsl_creates_paired_ricochet_files() {
+    let source_path = temp_source_path();
+    let root = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("dsl_new_app");
+    write_source_at(
+        &root,
+        "ricochet.toml",
+        "[package]\nname = \"dsl_new_app\"\n\n[database.default]\nadapter = \"sqlite\"\nurl = \"db/development.sqlite3\"\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("new")
+        .arg("Create Widgets")
+        .arg("--dsl")
+        .arg(&root)
+        .output()
+        .expect("rco migrate new should launch");
+
+    assert_run_success_for("rco migrate new --dsl", "Create Widgets", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(".up.rco") && stdout.contains(".down.rco"),
+        "stdout should list created DSL files, got:\n{stdout}"
+    );
+
+    let migrations_dir = root.join("db").join("migrations");
+    let mut names = fs::read_dir(&migrations_dir)
+        .expect("migrations dir should exist")
+        .map(|entry| {
+            entry
+                .expect("migration entry should read")
+                .file_name()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(names.len(), 2);
+    assert!(names[0].contains("_create_widgets."));
+    assert!(names.iter().any(|name| name.ends_with(".up.rco")));
+    assert!(names.iter().any(|name| name.ends_with(".down.rco")));
+    let up_file = names
+        .iter()
+        .find(|name| name.ends_with(".up.rco"))
+        .expect("up DSL file should be present");
+    let up_contents =
+        fs::read_to_string(migrations_dir.join(up_file)).expect("up DSL file should read");
+    assert!(up_contents.contains("table_create"));
+}
+
+#[test]
+fn migrate_applies_dumps_and_rolls_back_ricochet_dsl() {
+    let source_path = temp_source_path();
+    let root = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("dsl_migration_app");
+    write_source_at(
+        &root,
+        "ricochet.toml",
+        "[package]\nname = \"dsl_migration_app\"\n\n[database.default]\nadapter = \"sqlite\"\nurl = \"db/development.sqlite3\"\n",
+    );
+    write_source_at(
+        &root,
+        "db/migrations/0001_create_widgets.up.rco",
+        r#"
+"widgets" table_create
+"id" "integer" column primary_key
+"name" "text" column not_null unique
+"#,
+    );
+    write_source_at(
+        &root,
+        "db/migrations/0001_create_widgets.down.rco",
+        r#"
+"widgets" table_drop
+"#,
+    );
+
+    let apply_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("apply")
+        .arg(&root)
+        .output()
+        .expect("rco migrate apply should launch");
+    assert_run_success_for("rco migrate apply", "DSL migration", &apply_output);
+    let apply_stdout = String::from_utf8_lossy(&apply_output.stdout);
+    assert!(apply_stdout.contains("applied 0001_create_widgets"));
+
+    let database_path = root.join("db").join("development.sqlite3");
+    let connection = rusqlite::Connection::open(&database_path).expect("sqlite database opens");
+    let widget_table_count: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'widgets'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("widgets table check should run");
+    assert_eq!(widget_table_count, 1);
+
+    let dump_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("dump")
+        .arg("--output")
+        .arg("db/schema.sql")
+        .arg(&root)
+        .output()
+        .expect("rco migrate dump should launch");
+    assert_run_success_for("rco migrate dump", "DSL migration", &dump_output);
+    let schema_dump =
+        fs::read_to_string(root.join("db").join("schema.sql")).expect("schema dump should exist");
+    assert!(schema_dump
+        .to_ascii_lowercase()
+        .contains("create table \"widgets\""));
+
+    let rollback_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("rollback")
+        .arg("--steps")
+        .arg("1")
+        .arg(&root)
+        .output()
+        .expect("rco migrate rollback should launch");
+    assert_run_success_for("rco migrate rollback", "DSL migration", &rollback_output);
+    let rollback_stdout = String::from_utf8_lossy(&rollback_output.stdout);
+    assert!(rollback_stdout.contains("rolled back 0001_create_widgets"));
+    let widget_table_count_after_rollback: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'widgets'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("widgets rollback table check should run");
+    assert_eq!(widget_table_count_after_rollback, 0);
+    let recorded_count: i64 = connection
+        .query_row("select count(*) from schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("schema_migrations count should run");
+    assert_eq!(recorded_count, 0);
+}
+
+#[test]
+fn malformed_migration_dsl_fails_without_recording_version() {
+    let source_path = temp_source_path();
+    let root = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("bad_dsl_migration_app");
+    write_source_at(
+        &root,
+        "ricochet.toml",
+        "[package]\nname = \"bad_dsl_migration_app\"\n\n[database.default]\nadapter = \"sqlite\"\nurl = \"db/development.sqlite3\"\n",
+    );
+    write_source_at(
+        &root,
+        "db/migrations/0001_bad_widgets.up.rco",
+        r#"
+"widgets" table_create
+"id" "integer" column primary_key
+"widgets" table_drop
+"#,
+    );
+    write_source_at(
+        &root,
+        "db/migrations/0001_bad_widgets.down.rco",
+        r#"
+"widgets" table_drop
+"#,
+    );
+
+    let apply_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("apply")
+        .arg(&root)
+        .output()
+        .expect("rco migrate apply should launch");
+    let stderr = String::from_utf8_lossy(&apply_output.stderr);
+    assert!(
+        !apply_output.status.success(),
+        "malformed DSL should fail\nstdout:\n{}\nstderr:\n{stderr}",
+        String::from_utf8_lossy(&apply_output.stdout)
+    );
+    assert!(
+        stderr.contains("cannot mix table_create and table_drop"),
+        "stderr should identify malformed DSL, got:\n{stderr}"
+    );
+
+    let database_path = root.join("db").join("development.sqlite3");
+    let connection = rusqlite::Connection::open(&database_path).expect("sqlite database opens");
+    let recorded_count: i64 = connection
+        .query_row("select count(*) from schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("schema_migrations count should run");
+    assert_eq!(recorded_count, 0);
+    let widget_table_count: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'widgets'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("widgets table check should run");
+    assert_eq!(widget_table_count, 0);
+}
+
+#[test]
 fn migrate_rollback_fails_when_latest_migration_has_no_down_sql() {
     let source_path = temp_source_path();
     let root = source_path

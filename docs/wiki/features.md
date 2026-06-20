@@ -62,9 +62,9 @@ foundation that developers can scaffold, run, inspect, and extend.
   tables with `find_record`, `all`, `where`, `count_records`, `first_record`,
   `exists?`, `insert`, `update`, `default_page`, `limit`, `page`,
   `order_page`, `where_limit`, `where_page`, and `where_order_page`.
-- Database migrations: apply ordered SQL migrations from `db/migrations` to
-  SQLite, PostgreSQL, or MySQL/MariaDB projects and track them in
-  `schema_migrations`.
+- Database migrations: generate and apply ordered SQL or native Ricochet DSL
+  migrations from `db/migrations` to SQLite, PostgreSQL, or MySQL/MariaDB
+  projects and track them in `schema_migrations`.
 - Local beta scaffold: `rco new --with-sqlite` creates a zero-service app with
   a seeded SQLite database, `/users` Active Record page, and copyable
   form/session login loop. New apps include `public/app.css` served at

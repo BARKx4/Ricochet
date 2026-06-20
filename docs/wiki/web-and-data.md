@@ -85,25 +85,45 @@ url = "${MYSQL_URL}"
 ```
 
 Active Record maps model declarations to existing tables, and `rco migrate`
-applies ordered SQL migrations from `db/migrations` while recording applied
-versions in `schema_migrations`.
+applies ordered SQL or Ricochet DSL migrations from `db/migrations` while
+recording applied versions in `schema_migrations`.
 
 ## Migrations And Seeds
 
-Use `rco migrate status [path]` to list ordered migration files and
-`rco migrate apply [path]` to apply pending SQL. Existing
-`VERSION_name.sql` files remain apply-only migrations. For reversible SQLite
-migrations, use paired files:
+Use `rco migrate new NAME [path]` to create an apply-only SQL migration, or
+`rco migrate new NAME --dsl [path]` to create paired Ricochet migration DSL
+files. Use `rco migrate status [path]` to list ordered migration files and
+`rco migrate apply [path]` to apply pending SQL or DSL. Existing
+`VERSION_name.sql` files remain apply-only migrations. For reversible
+migrations, use paired SQL or DSL files:
 
 ```text
 db/migrations/0002_create_notes.up.sql
 db/migrations/0002_create_notes.down.sql
+db/migrations/0003_create_tags.up.rco
+db/migrations/0003_create_tags.down.rco
+```
+
+Migration DSL files are compiled only by the migration command; the DSL words
+are not global runtime words. The first slice is intentionally small and stays
+postfix:
+
+```ricochet
+"notes" table_create
+"id" "integer" column primary_key
+"body" "text" column not_null
+```
+
+Rollback DSL uses the same postfix shape:
+
+```ricochet
+"notes" table_drop
 ```
 
 `rco migrate rollback [path] --steps 1` rolls back applied SQLite migrations
 newest-first and removes each version from `schema_migrations` after its down
-SQL succeeds. Rollback fails loudly when the newest migration has no matching
-down SQL file.
+SQL or DSL succeeds. Rollback fails loudly when the newest migration has no
+matching down migration file.
 
 `rco migrate dump [path] --output db/schema.sql` writes a deterministic SQLite
 schema dump for user tables, indexes, views, and triggers. The dump excludes
