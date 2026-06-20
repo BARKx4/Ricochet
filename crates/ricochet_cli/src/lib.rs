@@ -18,10 +18,12 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
-use ricochet_compiler::{compile_file_with_imports, compile_source, CompileError};
+use ricochet_compiler::{compile_file_with_imports, compile_source, expand_source, CompileError};
+use ricochet_syntax::formatter::format_module;
 use ricochet_syntax::{
-    format_source, lex, parse_module, utf16_range_for_span, ArgsDecl, Expr, Item as SyntaxItem,
-    LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr, TokenKind,
+    format_source, lex, line_column, line_starts, parse_module, utf16_range_for_span, ArgsDecl,
+    Expr, Item as SyntaxItem, LexError, Module, ParseError, SourceDiagnostic, Span, SpannedExpr,
+    TokenKind,
 };
 use ricochet_vm::{
     DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, MapValue, RicochetResult,
@@ -44,6 +46,7 @@ mod migration_dsl;
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
+const EXPAND_JSON_SCHEMA_VERSION: u32 = 1;
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
@@ -83,6 +86,11 @@ enum Command {
     },
     Check {
         path: Option<String>,
+    },
+    Expand {
+        path: String,
+        #[arg(long, help = "Emit macro expansion details as JSON")]
+        json: bool,
     },
     Repl {
         #[arg(long)]
@@ -752,6 +760,7 @@ pub async fn run_cli() -> Result<()> {
             new_project(Path::new(&path), NewProjectOptions { with_sqlite })?
         }
         Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
+        Command::Expand { path, json } => expand_path(&path, json)?,
         Command::Repl {
             debug,
             capabilities,
@@ -10103,6 +10112,323 @@ fn embedded_app_from_bytes_with_marker(
     Ok(Some(EmbeddedApp { kind, payload }))
 }
 
+fn expand_path(path: &str, json_output: bool) -> Result<()> {
+    let path = Path::new(path);
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let module_id = module_id_for_path(path);
+
+    if json_output {
+        match expand_json_payload(&module_id, &source) {
+            Ok(payload) => {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+                Ok(())
+            }
+            Err(error) => {
+                let payload = expand_json_error_payload(&module_id, &source, &error);
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+                bail!("expand failed")
+            }
+        }
+    } else {
+        match expand_source(&module_id, &source) {
+            Ok(expansion) => {
+                print!("{}", format_module(&expansion.module));
+                Ok(())
+            }
+            Err(error) => {
+                bail!(
+                    "{}",
+                    ricochet_compiler::format_compile_error(&module_id, &source, &error)
+                )
+            }
+        }
+    }
+}
+
+fn expand_json_payload(
+    module_id: &str,
+    source: &str,
+) -> std::result::Result<serde_json::Value, CompileError> {
+    let expansion = expand_source(module_id, source)?;
+    let expanded_source = format_module(&expansion.module);
+    let source_line_starts = line_starts(source);
+    Ok(json!({
+        "schema_version": EXPAND_JSON_SCHEMA_VERSION,
+        "module_id": &expansion.module_id,
+        "source_hash": sha256_text(source),
+        "compiler_version": ricochet_compiler::crate_version(),
+        "formatter_version": ricochet_syntax::crate_version(),
+        "imports": [],
+        "macro_tables": macro_tables_json(source, &source_line_starts, &expansion.macro_tables),
+        "expanded_ast": module_ast_json(source, &source_line_starts, &expansion.module),
+        "expanded_source": &expanded_source,
+        "trace": trace_json(source, &source_line_starts, &expansion.trace),
+        "diagnostics": [],
+        "output_hash": sha256_text(&expanded_source),
+    }))
+}
+
+fn expand_json_error_payload(
+    module_id: &str,
+    source: &str,
+    error: &CompileError,
+) -> serde_json::Value {
+    json!({
+        "schema_version": EXPAND_JSON_SCHEMA_VERSION,
+        "module_id": module_id,
+        "source_hash": sha256_text(source),
+        "compiler_version": ricochet_compiler::crate_version(),
+        "formatter_version": ricochet_syntax::crate_version(),
+        "imports": [],
+        "macro_tables": [],
+        "expanded_ast": serde_json::Value::Null,
+        "expanded_source": serde_json::Value::Null,
+        "trace": [],
+        "diagnostics": [compile_error_lsp_diagnostic(module_id, source, error)],
+        "output_hash": serde_json::Value::Null,
+    })
+}
+
+fn macro_tables_json(
+    source: &str,
+    source_line_starts: &[usize],
+    tables: &[ricochet_compiler::MacroTableSummary],
+) -> Vec<serde_json::Value> {
+    tables
+        .iter()
+        .map(|table| {
+            let macros = table
+                .macros
+                .iter()
+                .map(|macro_summary| {
+                    json!({
+                        "name": &macro_summary.name,
+                        "args": {
+                            "inputs": &macro_summary.inputs,
+                            "outputs": &macro_summary.outputs,
+                        },
+                        "docs": &macro_summary.docs,
+                        "span": span_json(source, source_line_starts, macro_summary.span),
+                        "body_span": macro_summary
+                            .body_span
+                            .map(|span| span_json(source, source_line_starts, span)),
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "module_id": &table.module_id,
+                "scope": "local",
+                "macros": macros,
+            })
+        })
+        .collect()
+}
+
+fn trace_json(
+    source: &str,
+    source_line_starts: &[usize],
+    trace: &[ricochet_compiler::MacroExpansionTraceEntry],
+) -> Vec<serde_json::Value> {
+    trace
+        .iter()
+        .map(|entry| {
+            json!({
+                "id": &entry.id,
+                "module_id": &entry.module_id,
+                "macro_name": &entry.macro_name,
+                "depth": entry.depth,
+                "argument_count": entry.argument_count,
+                "output_node_count": entry.output_node_count,
+                "invocation_span": span_json(source, source_line_starts, entry.invocation_span),
+                "name_span": span_json(source, source_line_starts, entry.name_span),
+                "definition_span": span_json(source, source_line_starts, entry.definition_span),
+            })
+        })
+        .collect()
+}
+
+fn module_ast_json(
+    source: &str,
+    source_line_starts: &[usize],
+    module: &Module,
+) -> serde_json::Value {
+    json!({
+        "type": "module",
+        "items": module
+            .items
+            .iter()
+            .map(|item| item_ast_json(source, source_line_starts, item))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn item_ast_json(
+    source: &str,
+    source_line_starts: &[usize],
+    item: &SyntaxItem,
+) -> serde_json::Value {
+    match item {
+        SyntaxItem::Class(class) => json!({
+            "type": "class",
+            "name": &class.name,
+            "superclass": &class.superclass,
+            "docs": &class.docs,
+            "span": span_json(source, source_line_starts, class.span),
+            "body": class
+                .body
+                .iter()
+                .map(|item| item_ast_json(source, source_line_starts, item))
+                .collect::<Vec<_>>(),
+        }),
+        SyntaxItem::Method(method) => json!({
+            "type": "method",
+            "name": &method.name,
+            "args": args_json(method.args.as_ref()),
+            "docs": &method.docs,
+            "span": span_json(source, source_line_starts, method.span),
+            "body": spanned_exprs_ast_json(source, source_line_starts, &method.body),
+        }),
+        SyntaxItem::Function(function) => json!({
+            "type": "function",
+            "name": &function.name,
+            "args": args_json(function.args.as_ref()),
+            "docs": &function.docs,
+            "span": span_json(source, source_line_starts, function.span),
+            "body": spanned_exprs_ast_json(source, source_line_starts, &function.body),
+        }),
+        SyntaxItem::Macro(macro_decl) => json!({
+            "type": "macro",
+            "name": &macro_decl.name,
+            "args": args_json(macro_decl.args.as_ref()),
+            "docs": &macro_decl.docs,
+            "span": span_json(source, source_line_starts, macro_decl.span),
+            "body": spanned_exprs_ast_json(source, source_line_starts, &macro_decl.body),
+        }),
+        SyntaxItem::Expr { expr, span, docs } => json!({
+            "type": "expr",
+            "docs": docs,
+            "span": span_json(source, source_line_starts, *span),
+            "expr": expr_ast_json(source, source_line_starts, expr),
+        }),
+    }
+}
+
+fn spanned_exprs_ast_json(
+    source: &str,
+    source_line_starts: &[usize],
+    exprs: &[SpannedExpr],
+) -> Vec<serde_json::Value> {
+    exprs
+        .iter()
+        .map(|expr| spanned_expr_ast_json(source, source_line_starts, expr))
+        .collect()
+}
+
+fn spanned_expr_ast_json(
+    source: &str,
+    source_line_starts: &[usize],
+    expr: &SpannedExpr,
+) -> serde_json::Value {
+    json!({
+        "span": span_json(source, source_line_starts, expr.span),
+        "expr": expr_ast_json(source, source_line_starts, &expr.expr),
+    })
+}
+
+fn expr_ast_json(source: &str, source_line_starts: &[usize], expr: &Expr) -> serde_json::Value {
+    match expr {
+        Expr::Symbol(name) => json!({ "kind": "symbol", "name": name }),
+        Expr::BangWord(name) => json!({ "kind": "bang_word", "name": name }),
+        Expr::DotWord(name) => json!({ "kind": "dot_word", "name": name }),
+        Expr::Reference(name) => json!({ "kind": "reference", "name": name }),
+        Expr::String(value) => json!({ "kind": "string", "value": value }),
+        Expr::Number(value) => json!({ "kind": "number", "value": value }),
+        Expr::Float(value) => json!({ "kind": "float", "value": value }),
+        Expr::Args(args) => json!({
+            "kind": "args",
+            "value": args_json(Some(args)),
+        }),
+        Expr::Block(body) => json!({
+            "kind": "block",
+            "body": spanned_exprs_ast_json(source, source_line_starts, body),
+        }),
+        Expr::Sequence(exprs) => json!({
+            "kind": "sequence",
+            "exprs": spanned_exprs_ast_json(source, source_line_starts, exprs),
+        }),
+        Expr::If {
+            then_body,
+            else_body,
+        } => json!({
+            "kind": "if",
+            "then": spanned_exprs_ast_json(source, source_line_starts, then_body),
+            "else": spanned_exprs_ast_json(source, source_line_starts, else_body),
+        }),
+        Expr::While { condition, body } => json!({
+            "kind": "while",
+            "condition": spanned_exprs_ast_json(source, source_line_starts, condition),
+            "body": spanned_exprs_ast_json(source, source_line_starts, body),
+        }),
+    }
+}
+
+fn args_json(args: Option<&ArgsDecl>) -> serde_json::Value {
+    args.map_or_else(
+        || serde_json::Value::Null,
+        |args| {
+            json!({
+                "inputs": &args.inputs,
+                "outputs": &args.outputs,
+            })
+        },
+    )
+}
+
+fn span_json(source: &str, source_line_starts: &[usize], span: Span) -> serde_json::Value {
+    let bounded_start = span.start.min(source.len());
+    let bounded_end = span.end.min(source.len());
+    let (start_line, start_column) = line_column(source_line_starts, bounded_start);
+    let (end_line, end_column) = line_column(source_line_starts, bounded_end);
+    json!({
+        "start": span.start,
+        "end": span.end,
+        "start_line": start_line,
+        "start_column": start_column,
+        "end_line": end_line,
+        "end_column": end_column,
+    })
+}
+
+fn module_id_for_path(path: &Path) -> String {
+    let relative = if path.is_absolute() {
+        std::env::current_dir()
+            .ok()
+            .and_then(|current_dir| path.strip_prefix(current_dir).ok().map(Path::to_path_buf))
+            .unwrap_or_else(|| {
+                path.file_name()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("source.rco"))
+            })
+    } else {
+        path.to_path_buf()
+    };
+    let module_id = relative.to_string_lossy().replace('\\', "/");
+    let module_id = module_id.strip_prefix("./").unwrap_or(&module_id);
+    if module_id.is_empty() {
+        ".".to_string()
+    } else {
+        module_id.to_string()
+    }
+}
+
+fn sha256_text(source: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    let digest = hasher.finalize();
+    format!("sha256:{}", hex_digest(&digest))
+}
+
 fn format_path(path: &str, check: bool) -> Result<()> {
     let path = Path::new(path);
     if path.is_file() {
@@ -10270,5 +10596,89 @@ end
         assert!(!output.contains("Internal macro docs"));
         assert!(output.contains("## Class `User`"));
         assert!(output.contains("- Accessor: `email`"));
+    }
+
+    #[test]
+    fn expand_json_payload_includes_local_macro_table_trace_and_ast() {
+        let source = r#"
+(( Say ok. ))
+"say_ok" Macro
+[
+  [ "ok" println ] quote_ast
+]
+end
+
+"say_ok" macro_call
+"#;
+
+        let payload =
+            expand_json_payload("src\\macro_test.rco", source).expect("expand JSON succeeds");
+
+        assert_eq!(payload["schema_version"], EXPAND_JSON_SCHEMA_VERSION);
+        assert_eq!(payload["module_id"], "src/macro_test.rco");
+        assert!(payload["source_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("sha256:")));
+        assert_eq!(
+            payload["compiler_version"],
+            ricochet_compiler::crate_version()
+        );
+        assert_eq!(
+            payload["formatter_version"],
+            ricochet_syntax::crate_version()
+        );
+        assert_eq!(
+            payload["imports"].as_array().expect("imports array").len(),
+            0
+        );
+        assert_eq!(
+            payload["diagnostics"]
+                .as_array()
+                .expect("diagnostics array")
+                .len(),
+            0
+        );
+        assert!(payload["expanded_source"]
+            .as_str()
+            .is_some_and(|source| source.contains("\"ok\" println")));
+        assert!(payload["output_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("sha256:")));
+
+        let macro_table = &payload["macro_tables"][0];
+        assert_eq!(macro_table["module_id"], "src/macro_test.rco");
+        assert_eq!(macro_table["scope"], "local");
+        assert_eq!(macro_table["macros"][0]["name"], "say_ok");
+        assert_eq!(macro_table["macros"][0]["docs"][0], "Say ok.");
+
+        assert_eq!(payload["expanded_ast"]["type"], "module");
+        let item = &payload["expanded_ast"]["items"][0];
+        assert_eq!(item["type"], "expr");
+        assert_eq!(item["expr"]["kind"], "sequence");
+        assert_eq!(item["expr"]["exprs"][0]["expr"]["kind"], "string");
+        assert_eq!(item["expr"]["exprs"][0]["expr"]["value"], "ok");
+        assert_eq!(item["expr"]["exprs"][1]["expr"]["kind"], "symbol");
+        assert_eq!(item["expr"]["exprs"][1]["expr"]["name"], "println");
+
+        let trace = &payload["trace"][0];
+        assert_eq!(trace["macro_name"], "say_ok");
+        assert_eq!(trace["module_id"], "src/macro_test.rco");
+        assert_eq!(trace["depth"], 0);
+        assert_eq!(trace["argument_count"], 0);
+        assert_eq!(trace["output_node_count"], 2);
+        let trace_id = trace["id"].as_str().expect("trace id");
+        assert!(!trace_id.contains('\\'));
+        assert!(!trace_id.contains('/'));
+    }
+
+    #[test]
+    fn expand_module_id_for_external_absolute_paths_omits_machine_local_prefix() {
+        let path = if cfg!(windows) {
+            Path::new(r"C:\Users\lotti\AppData\Local\Temp\macro_test.rco")
+        } else {
+            Path::new("/tmp/macro_test.rco")
+        };
+
+        assert_eq!(module_id_for_path(path), "macro_test.rco");
     }
 }

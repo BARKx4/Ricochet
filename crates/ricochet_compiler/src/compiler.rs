@@ -25,12 +25,60 @@ pub enum CompileError {
     LoopControlOutsideLoop { word: String, span: Span },
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MacroExpansion {
+    pub module_id: String,
+    pub module: Module,
+    pub macro_tables: Vec<MacroTableSummary>,
+    pub trace: Vec<MacroExpansionTraceEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MacroTableSummary {
+    pub module_id: String,
+    pub macros: Vec<MacroSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MacroSummary {
+    pub name: String,
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub docs: Vec<String>,
+    pub span: Span,
+    pub body_span: Option<Span>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionTraceEntry {
+    pub id: String,
+    pub module_id: String,
+    pub macro_name: String,
+    pub invocation_span: Span,
+    pub name_span: Span,
+    pub definition_span: Span,
+    pub depth: usize,
+    pub argument_count: usize,
+    pub output_node_count: usize,
+}
+
 pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
-    let module = parse_module(source)?;
-    let module = expand_local_macros(&module)?;
+    let expansion = expand_source(file, source)?;
     let mut compiler = Compiler::from_source(file, source);
-    compiler.compile_module(&module)?;
+    compiler.compile_module(&expansion.module)?;
     Ok(compiler.finish())
+}
+
+pub fn expand_source(module_id: &str, source: &str) -> Result<MacroExpansion, CompileError> {
+    let module = parse_module(source)?;
+    expand_module(module_id, &module)
+}
+
+pub fn expand_module(module_id: &str, module: &Module) -> Result<MacroExpansion, CompileError> {
+    let module_id = normalize_module_id(module_id);
+    let mut expander = MacroExpander::new(&module_id, module)?;
+    let module = expander.expand_module(module)?;
+    Ok(expander.finish(module))
 }
 
 pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> String {
@@ -60,22 +108,21 @@ pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> S
     }
 }
 
-fn expand_local_macros(module: &Module) -> Result<Module, CompileError> {
-    let mut expander = MacroExpander::new(module)?;
-    expander.expand_module(module)
-}
-
 #[derive(Clone)]
 struct MacroDefinition {
     name: String,
     inputs: Vec<String>,
+    outputs: Vec<String>,
+    docs: Vec<String>,
     body: Vec<SpannedExpr>,
     span: Span,
 }
 
 struct MacroExpander {
+    module_id: String,
     macros: HashMap<String, MacroDefinition>,
     generated_ast_nodes: usize,
+    trace: Vec<MacroExpansionTraceEntry>,
 }
 
 #[derive(Clone)]
@@ -119,7 +166,7 @@ impl ExpandedSegment {
 }
 
 impl MacroExpander {
-    fn new(module: &Module) -> Result<Self, CompileError> {
+    fn new(module_id: &str, module: &Module) -> Result<Self, CompileError> {
         let mut macros = HashMap::new();
         for item in &module.items {
             let Item::Macro(macro_decl) = item else {
@@ -147,9 +194,40 @@ impl MacroExpander {
         }
 
         Ok(Self {
+            module_id: module_id.to_string(),
             macros,
             generated_ast_nodes: 0,
+            trace: Vec::new(),
         })
+    }
+
+    fn finish(self, module: Module) -> MacroExpansion {
+        MacroExpansion {
+            module_id: self.module_id.clone(),
+            module,
+            macro_tables: vec![self.macro_table_summary()],
+            trace: self.trace,
+        }
+    }
+
+    fn macro_table_summary(&self) -> MacroTableSummary {
+        let mut macros = self
+            .macros
+            .values()
+            .map(|macro_def| MacroSummary {
+                name: macro_def.name.clone(),
+                inputs: macro_def.inputs.clone(),
+                outputs: macro_def.outputs.clone(),
+                docs: macro_def.docs.clone(),
+                span: macro_def.span,
+                body_span: exprs_span(&macro_def.body),
+            })
+            .collect::<Vec<_>>();
+        macros.sort_by(|left, right| left.name.cmp(&right.name));
+        MacroTableSummary {
+            module_id: self.module_id.clone(),
+            macros,
+        }
     }
 
     fn expand_module(&mut self, module: &Module) -> Result<Module, CompileError> {
@@ -398,6 +476,18 @@ impl MacroExpander {
         let expansion = evaluator.evaluate(&macro_def)?;
         self.record_generated_nodes(&expansion, name_span)?;
         let expansion = self.expand_exprs(&expansion, stack, depth + 1)?;
+        let output_node_count = count_spanned_exprs(&expansion);
+        self.trace.push(MacroExpansionTraceEntry {
+            id: trace_id(self.trace.len(), &macro_def.name, call_span),
+            module_id: self.module_id.clone(),
+            macro_name: macro_def.name.clone(),
+            invocation_span: call_span,
+            name_span,
+            definition_span: macro_def.span,
+            depth,
+            argument_count: arg_count,
+            output_node_count,
+        });
         stack.pop();
 
         output.push(ExpandedSegment::new(expansion, name_span));
@@ -432,6 +522,12 @@ impl MacroDefinition {
                 .as_ref()
                 .map(|args| args.inputs.clone())
                 .unwrap_or_default(),
+            outputs: macro_decl
+                .args
+                .as_ref()
+                .map(|args| args.outputs.clone())
+                .unwrap_or_default(),
+            docs: macro_decl.docs.clone(),
             body: macro_decl.body.clone(),
             span: macro_decl.span,
         }
@@ -751,6 +847,29 @@ fn count_spanned_expr(expr: &SpannedExpr) -> usize {
         }
         _ => 0,
     }
+}
+
+fn normalize_module_id(module_id: &str) -> String {
+    let module_id = module_id.replace('\\', "/");
+    if module_id.is_empty() {
+        "<source>".to_string()
+    } else {
+        module_id
+    }
+}
+
+fn trace_id(index: usize, macro_name: &str, span: Span) -> String {
+    let safe_name = macro_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("local:{index}:{safe_name}:{}-{}", span.start, span.end)
 }
 
 struct Compiler {
@@ -1828,6 +1947,60 @@ mod tests {
                 Op::CallWord("println".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn expand_source_returns_macro_table_expanded_module_and_trace() {
+        let source = r#"
+          (( Say ok. ))
+          "say_ok" Macro
+            [
+              [ "ok" println ] quote_ast
+            ]
+          end
+
+          "say_ok" macro_call
+        "#;
+        let expansion = expand_source("src\\macro_test.rco", source).expect("expansion succeeds");
+
+        assert_eq!(expansion.module_id, "src/macro_test.rco");
+        assert_eq!(expansion.macro_tables.len(), 1);
+        let table = &expansion.macro_tables[0];
+        assert_eq!(table.module_id, "src/macro_test.rco");
+        assert_eq!(table.macros.len(), 1);
+        assert_eq!(table.macros[0].name, "say_ok");
+        assert_eq!(table.macros[0].inputs, Vec::<String>::new());
+        assert_eq!(table.macros[0].outputs, Vec::<String>::new());
+        assert_eq!(table.macros[0].docs, vec!["Say ok.".to_string()]);
+        assert_eq!(
+            table.macros[0].span.start,
+            source.find("\"say_ok\"").unwrap()
+        );
+        assert!(table.macros[0].body_span.is_some());
+
+        let [Item::Expr { expr, .. }] = expansion.module.items.as_slice() else {
+            panic!("expanded module should contain one expression item");
+        };
+        let Expr::Sequence(exprs) = expr else {
+            panic!("expanded expression should remain a sequence");
+        };
+        assert!(matches!(&exprs[0].expr, Expr::String(value) if value == "ok"));
+        assert!(matches!(&exprs[1].expr, Expr::Symbol(word) if word == "println"));
+
+        assert_eq!(expansion.trace.len(), 1);
+        let trace = &expansion.trace[0];
+        assert_eq!(trace.macro_name, "say_ok");
+        assert_eq!(trace.module_id, "src/macro_test.rco");
+        assert_eq!(trace.depth, 0);
+        assert_eq!(trace.argument_count, 0);
+        assert_eq!(trace.output_node_count, 2);
+        assert_eq!(trace.definition_span, table.macros[0].span);
+        assert_eq!(
+            trace.invocation_span.start,
+            source.rfind("macro_call").unwrap()
+        );
+        assert!(!trace.id.contains('\\'));
+        assert!(!trace.id.contains('/'));
     }
 
     #[test]

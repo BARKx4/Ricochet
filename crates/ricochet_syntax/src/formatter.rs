@@ -8,9 +8,13 @@ const INDENT: &str = "  ";
 
 pub fn format_source(source: &str) -> Result<String, ParseError> {
     let module = parse_module(source)?;
+    Ok(format_module(&module))
+}
+
+pub fn format_module(module: &Module) -> String {
     let mut formatter = Formatter::default();
-    formatter.format_module(&module);
-    Ok(formatter.finish())
+    formatter.format_module(module);
+    formatter.finish()
 }
 
 #[derive(Default)]
