@@ -100,9 +100,6 @@ foundation that other developers can scaffold, run, inspect, and extend.
 
 Still planned: production credential/password policy.
 
-For an agent-facing status map of implemented features, remaining polish, and
-stale assumptions to avoid, see `docs/feature-map.md`.
-
 ## Quickstart
 
 For published releases, download the package for your platform from
@@ -718,8 +715,7 @@ public GitHub releases.
 
 The documentation website is static and lives at
 `docs/reference/index.html`. Open it directly in a browser; there is no build
-step. For a maintainer/agent orientation map across language, VM, web, package,
-debugger, release, and tooling surfaces, see `docs/feature-map.md`.
+step.
 
 ## Safety Notes
 
