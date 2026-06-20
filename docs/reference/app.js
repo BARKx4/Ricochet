@@ -2672,15 +2672,17 @@ function inlineCode(value) {
   return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
-filterButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    activeFilter = button.dataset.filter;
-    filterButtons.forEach((item) => item.classList.toggle("active", item === button));
-    renderWords();
+if (grid && search) {
+  filterButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      activeFilter = button.dataset.filter;
+      filterButtons.forEach((item) => item.classList.toggle("active", item === button));
+      renderWords();
+    });
   });
-});
 
-search.addEventListener("input", renderWords);
+  search.addEventListener("input", renderWords);
+}
 
 document.querySelectorAll(".copy-button").forEach((button) => {
   button.addEventListener("click", async () => {
@@ -2704,4 +2706,6 @@ document.querySelectorAll(".copy-button").forEach((button) => {
   });
 });
 
-renderWords();
+if (grid && search) {
+  renderWords();
+}

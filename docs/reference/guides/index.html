@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Reference companion</p>
+          <h1>Ricochet Guides</h1>
+          <p class="lede">Production-facing guides for the current Ricochet toolchain, styled and served alongside the official static reference.</p>
+          <div class="command-strip" aria-label="Quick links">
+            <code>rco run examples/basic-oop.rco</code>
+            <code>rco new --with-sqlite my_app</code>
+            <code>rco serve --watch</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band" aria-labelledby="guides-title">
+        <div class="section-heading">
+          <p class="eyebrow">Browse</p>
+          <h2 id="guides-title">Guide Categories</h2>
+          <p class="guide-kicker">These pages mirror the Markdown docs in <code>docs/wiki</code> while using the official reference visual system.</p>
+        </div>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="features.html"><strong>Feature Overview</strong><span>A guided snapshot of the current Ricochet beta surface: language runtime, web apps, packages, tools, and safety posture.</span></a>
+          <a class="guide-card" href="getting-started.html"><strong>Getting Started</strong><span>Common rco commands for scripts, scaffolded apps, desktop GUI builds, terminal UI apps, and showcase projects.</span></a>
+          <a class="guide-card" href="language-runtime.html"><strong>Language And Runtime</strong><span>Syntax patterns and runtime examples for bindings, numbers, tasks, HTTP helpers, date/time, secrets, and webview documents.</span></a>
+          <a class="guide-card" href="web-and-data.html"><strong>Web And Data</strong><span>Serve Ricochet MVC projects, use hot reload, configure databases, parse requests, and work with Active Record.</span></a>
+          <a class="guide-card" href="host-capabilities.html"><strong>Host Capabilities And Safety</strong><span>Filesystem, HTTP, process, PTY, sockets, approvals, and sandboxing behavior for local scripts and MVC apps.</span></a>
+          <a class="guide-card" href="packages.html"><strong>Packages And Registries</strong><span>Local packages, registry publishing, lockfile integrity, static indexes, audits, and import examples.</span></a>
+          <a class="guide-card" href="editor-debugging.html"><strong>Editor And Debugging</strong><span>VS Code integration, LSP diagnostics, linting, formatting, tracing, DAP sessions, and word inventory checks.</span></a>
+          <a class="guide-card" href="development-release.html"><strong>Development And Release</strong><span>Benchmarks, local verification, reference validation, release packaging, tags, and nightly artifacts.</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

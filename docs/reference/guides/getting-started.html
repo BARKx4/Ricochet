@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Getting Started - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">First workflows</p>
+          <h1>Getting Started</h1>
+          <p class="lede">Common rco commands for scripts, scaffolded apps, desktop GUI builds, terminal UI apps, and showcase projects.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/getting-started.html</code>
+            <code>docs/wiki/getting-started.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Getting Started content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#scripts">Scripts</a>
+          <a href="#desktop-gui-and-tui">Desktop GUI And TUI</a>
+          <a href="#showcase-apps">Showcase Apps</a>
+        </aside>
+        <article class="guide-content">
+          <p>After installing <code>rco</code>, use it as the Ricochet toolchain:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco new my_app
+rco new --with-sqlite my_beta_app
+rco routes my_app
+rco migrate status my_beta_app
+rco migrate apply my_beta_app
+rco doctor my_app
+rco verify my_app
+rco lsp-diagnostics my_app/app/Models/User.rco --pretty
+rco lsp
+rco bench --smoke
+rco doc my_app
+rco test my_app</code></pre>
+          <p>MVC apps serve static files from <code>public/</code> at <code>/assets</code> by default. Override that with <code>[web.static] dir = &quot;...&quot;</code> and <code>mount = &quot;/...&quot;</code> in <code>ricochet.toml</code>.</p>
+          <h2 id="scripts">Scripts</h2>
+          <p>Run a script:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco run examples/basic-oop.rco</code></pre>
+          <p>Format, lint, and package a script:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco fmt examples/basic-oop.rco
+rco lint examples/basic-oop.rco
+rco build examples/basic-oop.rco
+rco run-bytecode build/app.rcob
+rco package examples/basic-oop.rco --output basic-oop.exe</code></pre>
+          <h2 id="desktop-gui-and-tui">Desktop GUI And TUI</h2>
+          <p>Preview and package a desktop GUI app:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco gui examples/webview_ui.rco
+rco package examples/webview_ui.rco --gui --output webview-ui.exe</code></pre>
+          <p>Run and package an interactive terminal UI app:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco tui examples/tui_counter.rco
+rco package examples/tui_counter.rco --tui --output tui-counter.exe</code></pre>
+          <p>Package an MVC app directory as a desktop beta build:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco new my_desktop_app
+rco package my_desktop_app --gui --mvc --output my-desktop-app.exe</code></pre>
+          <p>Use <code>--output webview-ui</code> on Linux and macOS. Linux GUI launchers use WebKitGTK 4.1; Debian packages generated for GUI apps declare the <code>libwebkit2gtk-4.1-0</code> and <code>libgtk-3-0</code> runtime dependencies.</p>
+          <p>On Linux, the same <code>package</code> command can also create portable tarballs or Debian packages for a <code>.rco</code> file:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco package examples/basic-oop.rco \
+  --output basic-oop \
+  --linux-package tar \
+  --linux-package deb \
+  --package-name basic-oop \
+  --package-version 0.1.0</code></pre>
+          <h2 id="showcase-apps">Showcase Apps</h2>
+          <p>Explore the beta showcase apps:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco check examples/showcase/sqlite_notes
+rco run examples/showcase/package_auth_forms/main.rco
+rco run examples/showcase/ai_provider_probe/main.rco
+rco gui examples/showcase/gui_task_monitor.rco
+rco debug --step examples/showcase/debugger_demo.rco</code></pre>
+          <p>See <code>examples/showcase/README.md</code> for the SQLite notes MVC app, first-party package consumer, AI provider probe, GUI v2 task monitor, and debugger demo.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Language And Runtime - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Postfix core</p>
+          <h1>Language And Runtime</h1>
+          <p class="lede">Syntax patterns and runtime examples for bindings, numbers, tasks, HTTP helpers, date/time, secrets, and webview documents.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/language-runtime.html</code>
+            <code>docs/wiki/language-runtime.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Language And Runtime content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#numbers">Numbers</a>
+          <a href="#tasks">Tasks</a>
+          <a href="#date-time-and-duration">Date, Time, And Duration</a>
+          <a href="#provider-settings-and-secrets">Provider Settings And Secrets</a>
+          <a href="#webview-documents">Webview Documents</a>
+        </aside>
+        <article class="guide-content">
+          <p>Read an existing binding with <code>$name</code>. Declaration words still keep the name-first shape, and <code>$</code> is useful when a declaration name is itself stored in another variable:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;users&quot; name var
+$name array
+$users &quot;Ada&quot; push! drop
+$users count println</code></pre>
+          <p>Top-level declarations are shared across the VM. Function and method calls get fresh local declaration scopes, so helper locals declared with <code>var</code>, <code>array</code>, <code>map</code>, <code>list</code>, or <code>Set</code> refresh within the active call and do not leak into later calls.</p>
+          <h2 id="numbers">Numbers</h2>
+          <p>Ricochet has two numeric runtime values: <code>Number</code> is signed 64-bit integer storage, and <code>Float</code> is finite 64-bit floating-point storage. Plain integer literals stay exact <code>Number</code> values; decimal or exponent literals become <code>Float</code>. Mixed numeric math promotes to <code>Float</code>, and conversion words provide checked boundaries for database- or package-facing intent:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>1.5 2 + println
+12.0 to_integer value println
+12.5 to_integer error &quot;kind&quot; at println
+255 to_unsigned_tinyint value println
+&quot;1.23456789&quot; to_float32 value println</code></pre>
+          <h2 id="tasks">Tasks</h2>
+          <p>Spawn a task and await its result:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[ 40 2 + ] spawn answer var
+$answer task_status
+$answer running?
+tasks count
+$answer await
+$answer release_task
+$answer task_status
+handles array
+$handles [ 20 2 + ] spawn push! drop
+$handles [ 30 4 + ] spawn push! drop
+$handles await_all</code></pre>
+          <p>HTTP capability calls can also be launched as tasks:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;https://example.com&quot; http_get_task request var
+$request await value response var
+$response &quot;status&quot; at println</code></pre>
+          <p>Long-running HTTP responses can be retained and read incrementally by offset:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;GET&quot; &quot;https://api.example/v1/events&quot; http_request_new value request var
+$request 60000 http_timeout value request set
+$request http_stream_start value stream var
+
+options map
+$stream &quot;id&quot; at $options http_stream_read value chunk var
+$chunk &quot;body&quot; at println
+$chunk &quot;offset&quot; at nextOffset var</code></pre>
+          <h2 id="date-time-and-duration">Date, Time, And Duration</h2>
+          <p>Date, timestamp, and duration words use UTC Unix epoch milliseconds as their timestamp boundary. RFC3339 parsing accepts offsets and normalizes to UTC; format patterns use Chrono/strftime syntax:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;2026-06-18T13:14:15.250Z&quot; timestamp_parse value startedAt var
+$startedAt timestamp_format value println
+$startedAt &quot;%Y-%m-%d %H:%M:%S&quot; timestamp_format_pattern value println
+$startedAt timestamp_parts value parts var
+$parts &quot;year&quot; at println
+
+$startedAt 2 duration_hours value timestamp_add value later var
+$startedAt $later timestamp_diff value println
+
+&quot;2026-02-28&quot; date_parse value date var
+$date 1 date_add_days value nextDate var
+$nextDate &quot;%Y-%m-%d&quot; date_format value println
+$date $nextDate date_diff_days value println</code></pre>
+          <h2 id="provider-settings-and-secrets">Provider Settings And Secrets</h2>
+          <p>For authenticated provider calls, keep settings as ordinary maps and store secret references instead of secret values. <code>secret_env</code> creates an env-backed reference, <code>config_get</code> reads required nested settings, and <code>secret_resolve</code> reads the value only at the point of use under the environment capability. <code>http_request_new</code>, <code>http_bearer_auth</code>, <code>http_json_body</code>, and <code>http_timeout</code> cover the common request-map plumbing while preserving the same runtime host allowlist and no-follow redirect policy as the simpler HTTP words:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>settings map
+provider map
+$provider &quot;api_key&quot; &quot;PROVIDER_API_KEY&quot; secret_env put! drop
+$settings &quot;provider&quot; $provider put! drop
+
+path array
+$path &quot;provider&quot; push! drop
+$path &quot;api_key&quot; push! drop
+$settings $path config_get value secret_resolve value token var
+
+payload map
+$payload &quot;probe&quot; true put! drop
+&quot;POST&quot; &quot;https://api.example/v1/models&quot; http_request_new value request var
+$request $token http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 30000 http_timeout value request set
+$request http_request value response var
+$response &quot;status&quot; at println</code></pre>
+          <h2 id="webview-documents">Webview Documents</h2>
+          <p>Build a webview document for desktop UI hosts:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>state map
+$state &quot;count&quot; 1 put! drop
+&quot;Count: &quot; $state &quot;count&quot; at to_string concat webview_text countText var
+&quot;Increment&quot; &quot;increment&quot; webview_button button var
+actions array
+$actions &quot;Increment&quot; &quot;increment&quot; &quot;increment_counter&quot; webview_action push! drop
+&quot;&lt;main&gt;&quot; $countText concat
+$countText concat
+$button concat
+&quot;&lt;/main&gt;&quot; concat body var
+&quot;Counter&quot; $body $state $actions webview_window_state value document var</code></pre>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

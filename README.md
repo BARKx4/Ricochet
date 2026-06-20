@@ -61,6 +61,7 @@ rco serve
 Start with the wiki-style docs index:
 
 - [Docs Wiki](docs/wiki/README.md)
+- [HTML Reference Guides](docs/reference/guides/index.html)
 - [Feature Overview](docs/wiki/features.md)
 - [Getting Started](docs/wiki/getting-started.md)
 - [Language And Runtime](docs/wiki/language-runtime.md)

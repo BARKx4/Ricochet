@@ -537,9 +537,133 @@ h3 {
   text-decoration: none;
 }
 
+.guide-page .hero {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: auto;
+  padding-bottom: clamp(34px, 5vw, 64px);
+}
+
+.guide-page h1 {
+  font-size: clamp(2.8rem, 8vw, 6.4rem);
+}
+
+.guide-kicker {
+  max-width: 980px;
+  color: var(--paper-dim);
+}
+
+.guide-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.guide-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  color: var(--paper-dim);
+  text-decoration: none;
+  background: linear-gradient(180deg, rgba(38, 48, 55, 0.95), rgba(32, 38, 43, 0.95));
+  border: 1px solid rgba(244, 239, 229, 0.13);
+  border-radius: 8px;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.18);
+}
+
+.guide-card:hover,
+.guide-card:focus-visible {
+  border-color: rgba(41, 212, 184, 0.6);
+  outline: none;
+}
+
+.guide-card strong {
+  color: var(--paper);
+  font-size: 1.12rem;
+}
+
+.guide-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 980px);
+  gap: clamp(24px, 4vw, 48px);
+  align-items: start;
+}
+
+.guide-toc {
+  position: sticky;
+  top: 86px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px;
+  background: rgba(17, 20, 23, 0.66);
+  border: 1px solid rgba(244, 239, 229, 0.12);
+  border-radius: 8px;
+}
+
+.guide-toc strong {
+  color: var(--teal);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.guide-toc a {
+  color: var(--paper-dim);
+  text-decoration: none;
+}
+
+.guide-toc a:hover,
+.guide-toc a:focus-visible {
+  color: var(--paper);
+}
+
+.guide-content {
+  min-width: 0;
+}
+
+.guide-content h2 {
+  margin-top: 44px;
+  font-size: clamp(1.8rem, 3vw, 3.1rem);
+}
+
+.guide-content h2:first-child {
+  margin-top: 0;
+}
+
+.guide-content h3 {
+  margin-top: 30px;
+}
+
+.guide-content p,
+.guide-content li {
+  color: var(--paper-dim);
+}
+
+.guide-content ul {
+  margin: 18px 0 26px;
+  padding-left: 22px;
+}
+
+.guide-content li + li {
+  margin-top: 10px;
+}
+
+.guide-content .code-block {
+  margin: 18px 0 26px;
+}
+
+.guide-content hr {
+  height: 1px;
+  margin: 38px 0;
+  background: rgba(244, 239, 229, 0.12);
+  border: 0;
+}
+
 @media (max-width: 1040px) {
   .hero,
-  .word-tools {
+  .word-tools,
+  .guide-layout {
     grid-template-columns: 1fr;
   }
 
@@ -553,6 +677,14 @@ h3 {
 
   .word-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guide-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guide-toc {
+    position: static;
   }
 
   .stack-rail {
@@ -574,6 +706,7 @@ h3 {
   .syntax-grid,
   .example-grid,
   .word-grid,
+  .guide-card-grid,
   .stack-rail {
     grid-template-columns: 1fr;
   }

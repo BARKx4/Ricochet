@@ -8,7 +8,16 @@ $requiredFiles = @(
     "index.html",
     "styles.css",
     "app.js",
-    "README.md"
+    "README.md",
+    "guides/index.html",
+    "guides/features.html",
+    "guides/getting-started.html",
+    "guides/language-runtime.html",
+    "guides/web-and-data.html",
+    "guides/host-capabilities.html",
+    "guides/packages.html",
+    "guides/editor-debugging.html",
+    "guides/development-release.html"
 )
 
 $failures = New-Object System.Collections.Generic.List[string]
@@ -25,6 +34,7 @@ if ($failures.Count -eq 0) {
     $styles = Get-Content -LiteralPath (Join-Path $Root "styles.css") -Raw
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
     $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
+    $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
 
     $requiredIndexMarkers = @(
         "Ricochet Reference",
@@ -36,12 +46,31 @@ if ($failures.Count -eq 0) {
         "id=""turing-complete""",
         "id=""debugging""",
         "id=""cli""",
-        "id=""limits"""
+        "id=""limits""",
+        "guides/index.html"
     )
 
     foreach ($marker in $requiredIndexMarkers) {
         if (-not $index.Contains($marker)) {
             $failures.Add("index.html is missing marker: $marker")
+        }
+    }
+
+    $requiredGuideMarkers = @(
+        "Ricochet Guides",
+        "Feature Overview",
+        "Getting Started",
+        "Language And Runtime",
+        "Web And Data",
+        "Host Capabilities And Safety",
+        "Packages And Registries",
+        "Editor And Debugging",
+        "Development And Release"
+    )
+
+    foreach ($marker in $requiredGuideMarkers) {
+        if (-not $guidesIndex.Contains($marker)) {
+            $failures.Add("guides/index.html is missing marker: $marker")
         }
     }
 

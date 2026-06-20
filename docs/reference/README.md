@@ -1,6 +1,8 @@
 # Ricochet Reference Website
 
-Open index.html in a browser to read the static reference site.
+Open index.html in a browser to read the static reference site. The guide
+pages live under guides/index.html and mirror the Markdown guide set in
+../wiki.
 
 From the repository root:
 

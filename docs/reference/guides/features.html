@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Feature Overview - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Platform map</p>
+          <h1>Feature Overview</h1>
+          <p class="lede">A guided snapshot of the current Ricochet beta surface: language runtime, web apps, packages, tools, and safety posture.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/features.html</code>
+            <code>docs/wiki/features.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Feature Overview content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#current-features">Current Features</a>
+        </aside>
+        <article class="guide-content">
+          <p>Ricochet is currently aimed at a developer-facing v1 beta: a usable web app foundation that developers can scaffold, run, inspect, and extend.</p>
+          <h2 id="current-features">Current Features</h2>
+          <ul>
+            <li>Language runtime: Rust bytecode VM, dynamic OOP, stack/debug tracing, regular expressions, collections, and postfix control flow.</li>
+            <li>Task model: first-class task values with <code>spawn</code>, <code>await</code>, <code>await_all</code>, retained completed/failed status, explicit <code>release_task</code> cleanup, eager background execution, task inspection, and task-returning HTTP helpers.</li>
+            <li>Approval model: local apps can create approval records, claim a generated token exactly once, and complete or reject the record with retained audit state through <code>approval_create</code>, <code>approval_claim</code>, <code>approval_complete</code>, <code>approval_reject</code>, and <code>approval_detail</code>.</li>
+            <li>Host capabilities: filesystem/workspace, HTTP, TCP/WebSocket sockets, environment, sleep, TUI, webview, opt-in process execution, and opt-in PTY sessions can be inspected with <code>runtime_capabilities</code>; direct child process execution uses <code>process_spawn</code>, <code>process_spawn_task</code>, or retained <code>process_start</code> jobs.</li>
+            <li>Desktop GUI beta: trusted local scripts can build escaped <code>webview</code> document maps, preview them with <code>rco gui</code>, and package them as native Windows, Linux, or macOS WebView executables with <code>rco package --gui</code>. MVC projects can also be packaged as local-server desktop WebView apps with <code>rco package --gui --mvc</code>.</li>
+            <li>Terminal UI beta: trusted local scripts can use the <code>tui</code> capability for alternate-screen terminal apps with drawing, cursor movement, flushing, size checks, and key polling/reading through <code>rco tui</code> or <code>rco package --tui</code>.</li>
+            <li>CLI workflow: run <code>.rco</code> scripts, format source, build and run bytecode, package standalone executables, generate Markdown docs, run Ricochet tests, and serve local web apps.</li>
+            <li>Debugging workflow: trace instruction execution, pause on source breakpoints, step into/over/out of calls, inspect stack/locals/globals at pauses, and inspect task snapshots at pauses; write JSON runtime traces with <code>rco run --trace-file</code>, stream JSON Lines with <code>rco debug --json</code>, or serve IDEs through <code>rco debug-adapter</code> over Debug Adapter Protocol stdio.</li>
+            <li>Package workflow: record, install, verify, audit, and locally publish path/GitHub/registry dependencies, enforce semver requirements, pin Git dependencies to immutable commits in <code>ricochet.lock</code>, store deterministic <code>sha256:</code> package-content integrity hashes, attach provenance/signature digests to registry packages, rebuild/check static mirrorable registries, search static registry indexes, install scoped registry packages through <code>--registry-url</code>, and import package sources by local alias.</li>
+            <li>First-party beta packages: repo-local <code>@ricochet/auth</code>, <code>@ricochet/ai</code>, <code>@ricochet/forms</code>, and <code>@ricochet/test_helpers</code> packages provide session guards, fail-closed CSRF helpers, provider HTTP request builders, SSE response-body parsing, form/validation helpers, and package test utilities without moving app-specific workflows into language core.</li>
+            <li>MVC web apps: scaffold projects, list routes, serve apps, use hot reload during local development, serve static assets from <code>public/</code> under <code>/assets</code>, and render templates with controller-provided view data.</li>
+            <li>Controller context: request params, query, URL-encoded and multipart form data, JSON request bodies, in-memory file uploads, headers, cookies, lightweight session state, logger, safe manifest config, database capability, and optional AI capability are available to controllers.</li>
+            <li>Sessions and cookies: sessions are HMAC-signed by default with a per-process beta key or a manifest-provided secret, can use authenticated encrypted v2 cookies, and emit secure cookie attributes for non-local requests.</li>
+            <li>Active Record: map models to existing SQLite, PostgreSQL, and MySQL/MariaDB tables with <code>find_record</code>, <code>all</code>, <code>where</code>, <code>count_records</code>, <code>first_record</code>, <code>exists?</code>, <code>insert</code>, <code>update</code>, <code>default_page</code>, <code>limit</code>, <code>page</code>, <code>order_page</code>, <code>where_limit</code>, <code>where_page</code>, and <code>where_order_page</code>.</li>
+            <li>Database migrations: apply ordered SQL migrations from <code>db/migrations</code> to SQLite, PostgreSQL, or MySQL/MariaDB projects and track them in <code>schema_migrations</code>.</li>
+            <li>Local beta scaffold: <code>rco new --with-sqlite</code> creates a zero-service app with a seeded SQLite database, <code>/users</code> Active Record page, and copyable form/session login loop. New apps include <code>public/app.css</code> served at <code>/assets/app.css</code>.</li>
+            <li>AI integration: MVC apps can opt into an OpenAI-compatible <code>[ai.default]</code> provider and receive an <code>ai</code> controller capability whose <code>chat</code> method returns <code>Result</code> maps.</li>
+            <li>Result contracts: stack <code>Result</code> values use <code>ok?</code>, <code>value</code>, and <code>error</code>; <code>result_envelope</code> converts them to <code>{ ok, data, error, meta }</code> maps for app/API boundaries that need stable structured responses.</li>
+            <li>HTTP streams: retained <code>http_stream_start</code>, <code>http_stream_read</code>, <code>http_stream</code>, <code>http_streams</code>, <code>http_stream_cancel</code>, and <code>http_stream_release</code> jobs support bounded offset reads for SSE or other long-running response bodies.</li>
+            <li>Socket clients and listeners: retained <code>tcp_connect</code>/<code>tcp_listen</code> plus <code>tcp_read</code>/<code>tcp_write</code>, and <code>ws_connect</code>/<code>ws_listen</code> plus <code>ws_read</code>/<code>ws_send</code>, support bounded raw TCP and WebSocket client/server development behind explicit socket capability flags.</li>
+            <li>Security posture: sandboxable host capabilities, no-follow HTTP redirects, import/dependency path containment, signed default sessions, view/template traversal guards, and TLS-required remote PostgreSQL connections.</li>
+          </ul>
+          <p>Still planned: production credential/password policy.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

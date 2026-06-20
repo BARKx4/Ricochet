@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Web And Data - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">MVC apps</p>
+          <h1>Web And Data</h1>
+          <p class="lede">Serve Ricochet MVC projects, use hot reload, configure databases, parse requests, and work with Active Record.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/web-and-data.html</code>
+            <code>docs/wiki/web-and-data.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Web And Data content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#sqlite-scaffold">SQLite Scaffold</a>
+          <a href="#postgresql">PostgreSQL</a>
+          <a href="#mysql-and-mariadb">MySQL And MariaDB</a>
+          <a href="#request-data">Request Data</a>
+        </aside>
+        <article class="guide-content">
+          <p>Serve an MVC app from its project directory:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco serve --host 127.0.0.1 --port 3000
+rco serve --allow-env --http-allow-host 127.0.0.1
+rco serve --env-allow OPENAI_API_KEY --http-allow-host api.openai.com
+rco serve --allow-process --fs-root .
+rco serve --allow-process --process-root .\scripts
+rco serve --allow-pty --fs-root .
+rco serve --watch
+rco serve --watch --fs-root . --http-allow-host 127.0.0.1</code></pre>
+          <p><code>--watch</code> reloads Ricochet MVC routes, controllers, models, views, and the manifest between requests. If a reload fails, the request returns a clear MVC error and the next request retries after you fix the source. Combine <code>--watch</code> with <code>--debug</code> to print reload trace lines with the new revision and changed files. The same filesystem, HTTP, environment, process, and PTY capability flags used by ordinary <code>rco serve</code> are also honored by watched MVC runtimes and by each hot-reloaded revision.</p>
+          <p>Use <code>rco doctor [path]</code> for a read-only health check of a source file, source tree, package project, or MVC app. Add <code>--capabilities</code> to print the MVC manifest capability surface that will matter for trusted local beta apps. Package projects can also run <code>rco verify [path]</code> to check dependency manifest/lock consistency, local path containment, git package cache commit matches, and locked package-content integrity without fetching or rewriting anything.</p>
+          <p><code>rco serve</code> keeps MVC process environment access disabled unless you pass <code>--allow-env</code> or one or more <code>--env-allow NAME</code> entries. Prefer <code>--env-allow</code> for trusted local beta apps that store secret references as environment variable names. <code>--no-env</code> keeps the default disabled behavior explicit, and conflicts with both env-opening flags.</p>
+          <h2 id="sqlite-scaffold">SQLite Scaffold</h2>
+          <p>For a zero-service local beta app, <code>rco new --with-sqlite my_beta_app</code> creates <code>db/development.sqlite3</code>, seeds <code>users</code>, configures Active Record, and adds <code>/login</code>, <code>/me</code>, and <code>/logout</code> routes that exercise form params and the session cookie. The manifest shape is:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]
+adapter = &quot;sqlite&quot;
+url = &quot;db/development.sqlite3&quot;</code></pre>
+          <h2 id="postgresql">PostgreSQL</h2>
+          <p>For a Postgres-backed app, use the same manifest shape with a Postgres URL:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]
+adapter = &quot;postgres&quot;
+url = &quot;${DATABASE_URL}&quot; # use sslmode=require for remote databases</code></pre>
+          <p>Ricochet requires TLS for remote Postgres connections. <code>sslmode=disable</code> is accepted only for <code>localhost</code> or loopback development databases.</p>
+          <h2 id="mysql-and-mariadb">MySQL And MariaDB</h2>
+          <p>For a MySQL or MariaDB-backed app, use the MySQL adapter with a <code>mysql://</code> URL:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]
+adapter = &quot;mysql&quot;
+url = &quot;${MYSQL_URL}&quot;</code></pre>
+          <p>Active Record maps model declarations to existing tables, and <code>rco migrate</code> applies ordered SQL migrations from <code>db/migrations</code> while recording applied versions in <code>schema_migrations</code>.</p>
+          <h2 id="request-data">Request Data</h2>
+          <p>MVC actions parse <code>application/x-www-form-urlencoded</code>, <code>application/json</code>, and <code>multipart/form-data</code> request bodies for <code>POST</code>, <code>PUT</code>, <code>PATCH</code>, and <code>DELETE</code>. Declared action Args bind route params first, then form fields, JSON object fields, upload fields, query params, and finally context values. The same data is available through <code>$ctx &quot;request&quot; at</code>: <code>form</code> holds text fields, <code>json</code> and <code>body</code> hold parsed JSON values, <code>uploads</code> is keyed by multipart file field name, and <code>files</code> contains every uploaded file. Upload values include <code>name</code>, <code>filename</code>, <code>content_type</code>, <code>size</code>, <code>text</code> when the bytes are UTF-8, and <code>data_base64</code> for arbitrary file bytes. Request body parsing is in-memory with a 16 MiB beta limit.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Development And Release - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Contributor workflow</p>
+          <h1>Development And Release</h1>
+          <p class="lede">Benchmarks, local verification, reference validation, release packaging, tags, and nightly artifacts.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/development-release.html</code>
+            <code>docs/wiki/development-release.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Development And Release content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#benchmarks">Benchmarks</a>
+          <a href="#developing-ricochet">Developing Ricochet</a>
+          <a href="#verification">Verification</a>
+          <a href="#release-packaging">Release Packaging</a>
+          <a href="#reference-docs">Reference Docs</a>
+        </aside>
+        <article class="guide-content">
+          <h2 id="benchmarks">Benchmarks</h2>
+          <p><code>rco bench</code> runs a repeatable local benchmark suite for parser/compiler work, VM arithmetic, function and method dispatch, collection mutation, JSON encode/decode, template rendering, package verification, and a SQLite MVC request path. Use <code>rco bench --smoke</code> for CI-sized coverage or <code>rco bench --iterations 5</code> for a local baseline. The current website-copy baseline lives in <code>docs/benchmarks/2026-06-17-baseline.md</code>.</p>
+          <h2 id="developing-ricochet">Developing Ricochet</h2>
+          <p>Use Cargo when changing the Rust implementation itself. For an uninstalled source-tree run, this is equivalent to <code>rco run examples/basic-oop.rco</code>:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco</code></pre>
+          <h2 id="verification">Verification</h2>
+          <p>For contributor verification, use a current stable Rust toolchain and install the formatter, linter, and audit plugin explicitly:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rustup component add rustfmt clippy
+cargo install cargo-audit --locked</code></pre>
+          <p>Then run:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+          <p>The acceptance suite validates the static reference docs, editor assets, word inventory drift check, examples, scaffolded project checks/tests, and a live <code>rco serve</code> smoke request against the generated no-database scaffold.</p>
+          <h2 id="release-packaging">Release Packaging</h2>
+          <p>See <code>docs/releases/v0.1.18-beta.md</code> for the current beta release notes, hardening checklist, and artifact smoke-test expectations.</p>
+          <p>Windows release packages are built from this repository with:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1</code></pre>
+          <p>The script builds <code>rco.exe</code>, <code>rco-gui.exe</code>, and <code>ricochet.exe</code>, creates a portable ZIP, writes <code>SHA256SUMS.txt</code>, and creates a Windows <code>.exe</code> installer when NSIS <code>makensis.exe</code> is installed. GitHub Actions installs NSIS automatically in the release workflow.</p>
+          <p>Linux release packages are built on Linux with:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>bash scripts/package-release-linux.sh</code></pre>
+          <p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, writes <code>SHA256SUMS-linux-x64.txt</code>, and creates a Debian <code>.deb</code> package with <code>dpkg-deb</code>.</p>
+          <p>Unsigned macOS release tarballs are built on macOS with:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>bash scripts/package-release-macos.sh --target macos-arm64
+bash scripts/package-release-macos.sh --target macos-x64</code></pre>
+          <p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, and writes a target-specific checksum file. GitHub Actions builds Apple Silicon and Intel tarballs on separate macOS runners.</p>
+          <p>To publish a GitHub release, push a version tag:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>git tag vX.Y.Z
+git push origin vX.Y.Z</code></pre>
+          <p>The release workflow packages the Windows, Linux, and macOS artifacts, writes a combined <code>SHA256SUMS.txt</code>, and attaches the ZIP, Windows installer, Linux tarball, Debian package, unsigned macOS tarballs, and checksums to the GitHub release.</p>
+          <p>The same workflow also runs nightly from <code>main</code>. Nightly builds use a version like <code>X.Y.Z-nightly.N</code>, build the same Windows, Linux, and macOS packages, and upload them as GitHub Actions artifacts for 30 days. Nightlies do not create public GitHub releases.</p>
+          <h2 id="reference-docs">Reference Docs</h2>
+          <p>The documentation website is static and lives at <code>docs/reference/index.html</code>. Open it directly in a browser; there is no build step.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

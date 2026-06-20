@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Packages And Registries - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Dependency workflow</p>
+          <h1>Packages And Registries</h1>
+          <p class="lede">Local packages, registry publishing, lockfile integrity, static indexes, audits, and import examples.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/packages.html</code>
+            <code>docs/wiki/packages.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Packages And Registries content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#top">Top</a>
+        </aside>
+        <article class="guide-content">
+          <p>Add a package dependency from a Ricochet project:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco add ./packages/ricochet_forms --as forms
+rco add ./packages/ricochet_forms --as forms --version &quot;^0.1.0&quot;
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry `
+  --provenance-file provenance.json --signature-file forms.sig --signature-kind minisign
+rco registry rebuild ../ricochet-registry
+rco registry check ../ricochet-registry
+rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
+rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version &quot;^0.1.0&quot;
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version &quot;^0.1.0&quot;
+rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
+rco install
+rco verify
+rco audit --json</code></pre>
+          <p><code>ricochet.lock</code> records each resolved package source, cache path, optional Git commit, optional local registry, optional semantic version requirement, resolved package version, and <code>sha256:</code> content integrity hash.</p>
+          <p><code>rco publish --registry</code> creates a file-backed local registry entry for packages with <code>[package] name</code> and <code>version</code>; optional <code>--provenance-file</code>, <code>--signature-file</code>, and <code>--signature-kind</code> flags attach registry metadata and lockfile-visible <code>sha256:</code> digests for external attestation/signing workflows.</p>
+          <p><code>rco registry rebuild PATH</code> writes a static <code>index.toml</code>, package metadata, and release-style archives, while <code>rco registry check PATH</code> verifies the generated hashes. <code>rco add registry:name --registry PATH</code> installs from the local registry layout, or uses <code>RICOCHET_REGISTRY</code> when <code>--registry</code> is omitted.</p>
+          <p><code>rco add registry:@scope/name --registry-url URL --as alias</code> installs from a static HTTP/file registry index with required <code>sha256:</code> archive verification. <code>rco install</code> and <code>rco verify</code> reject packages whose <code>[package] version</code> does not satisfy the manifest requirement, and <code>rco verify</code> recomputes the package tree hash while ignoring VCS metadata, so it catches local path changes, registry cache drift, or cached Git package drift without fetching or rewriting anything. Locked static-registry installs also reject same-version registry metadata changes instead of accepting replacement archives during ordinary <code>rco install</code>.</p>
+          <p>Use <code>rco search QUERY --registry-url URL</code> to discover static registry packages, and use <code>rco audit</code> or <code>rco audit --json</code> for dependency reports in CI and release tooling.</p>
+          <p>Local package dependencies can be imported by package name:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import
+&quot;email&quot; &quot;ada@example.com&quot; form_field
+&quot;value&quot; at</code></pre>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

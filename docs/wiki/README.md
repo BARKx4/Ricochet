@@ -3,6 +3,9 @@
 This wiki collects detailed Ricochet guides for feature details, command
 examples, safety notes, contributor workflows, and release packaging.
 
+The same guide set is also available as static HTML beside the official
+reference: [Reference Guides](../reference/guides/index.html).
+
 ## Start Here
 
 - [Feature Overview](features.md) - current beta surface area and project scope.
