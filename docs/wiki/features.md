@@ -50,7 +50,8 @@ foundation that developers can scaffold, run, inspect, and extend.
   without moving app-specific workflows into language core.
 - MVC web apps: scaffold projects, list routes, serve apps, use hot reload
   during local development, serve static assets from `public/` under `/assets`,
-  and render templates with controller-provided view data.
+  and render templates with controller-provided view data, escaped
+  interpolation, and embedded postfix script/control blocks.
 - Controller context: request params, query, URL-encoded and multipart form
   data, JSON request bodies, in-memory file uploads, headers, cookies,
   lightweight session state, logger, safe manifest config, database capability,

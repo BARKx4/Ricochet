@@ -1667,6 +1667,76 @@ end
 }
 
 #[tokio::test]
+async fn serves_template_script_blocks_in_mvc_views() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::create_dir_all(project_root.join("app/Views/home"))
+        .expect("view directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "template_blocks"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        r#"
+HomeController Controller Subclass
+  [
+    users array
+    users get "Ada <Lovelace>" push! drop
+    users get "Grace" push! drop
+    true show var
+    ctx get
+    "home/index" swap view
+  ] "index" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+    fs::write(
+        project_root.join("app/Views/home/index.html"),
+        r#"{% "Users" "heading" var do %}<h1>{ heading get }</h1><ul>{% show get if %}{% users get "user" each %}<li>{ user get }</li>{% end %}{% else %}<li>none</li>{% end %}</ul>"#,
+    )
+    .expect("view should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+
+    assert_eq!(
+        body.trim(),
+        "<h1>Users</h1><ul><li>Ada &lt;Lovelace&gt;</li><li>Grace</li></ul>"
+    );
+}
+
+#[tokio::test]
 async fn serves_route_params_to_ricochet_controller() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

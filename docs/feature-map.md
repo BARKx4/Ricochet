@@ -312,8 +312,11 @@ Implemented:
   and optional `ai`.
 - Declared action args bind route params first, then form fields, JSON fields,
   upload fields, query params, and context values.
-- Templates run Ricochet interpolation and HTML-escape by default; each template
-  expression must leave exactly one scalar renderable value.
+- Templates run Ricochet scalar interpolation with HTML escaping by default.
+  Embedded template directives support non-rendering script blocks
+  (`{% ... do %}`), postfix conditionals (`{% condition if %}` /
+  `{% else %}` / `{% end %}`), and collection loops
+  (`{% collection "item" each %}` / `{% end %}`).
 - Static assets serve from `[web.static]`, defaulting to `public` mounted at
   `/assets`, with traversal/canonicalization guards.
 
@@ -335,7 +338,6 @@ Remaining:
   read/release words.
 - Upload limits are configured through `[web.uploads] max_request_bytes`,
   `max_file_bytes`, `memory_threshold_bytes`, and `max_retained_streams`.
-- Template embedded script blocks beyond interpolation are future work.
 
 Do not assume:
 
@@ -596,7 +598,6 @@ Still real remaining work:
 
 - PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
   richer migration DSL operations.
-- Template embedded script blocks beyond interpolation.
 - Compile-time macros.
 - Persistent REPL images and source emission.
 - Central hosted package registry.

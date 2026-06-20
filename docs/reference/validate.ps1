@@ -507,7 +507,10 @@ if ($failures.Count -eq 0) {
         "result_envelope",
         "runtime_capabilities",
         "tui_write",
-        "{ `$user name.get }"
+        "{ `$user name.get }",
+        "{% show get if %}",
+        "{% users get &quot;user&quot; each %}",
+        "{% &quot;Featured users&quot; &quot;heading&quot; var do %}"
     )
 
     foreach ($example in $requiredExamples) {

@@ -35,6 +35,37 @@ for trusted local beta apps that store secret references as environment
 variable names. `--no-env` keeps the default disabled behavior explicit, and
 conflicts with both env-opening flags.
 
+## Templates
+
+MVC views use ordinary HTML files with Ricochet template markers. `{ ... }`
+runs an expression and renders exactly one scalar value: nil, bool, number,
+float, or string. Values are HTML-escaped by default.
+
+Use `{% ... do %}` for non-rendering setup code. Script blocks share template
+locals with later expressions and blocks, and they must leave no values on the
+stack. Use postfix `{% condition if %}`, `{% else %}`, and `{% end %}` for
+conditionals. Use `{% collection "item" each %}` and `{% end %}` to loop arrays,
+lists, sets, or maps; map items expose `key` and `value`.
+
+```html
+{% "Featured users" "heading" var do %}
+<h1>{ heading get }</h1>
+{% show get if %}
+  <ul>
+    {% users get "user" each %}
+      <li>{ user get "name" at }</li>
+    {% end %}
+  </ul>
+{% else %}
+  <p>No users</p>
+{% end %}
+```
+
+Template directives are compiled only by the template renderer; `do`, `if`,
+`else`, `each`, and `end` in `{% ... %}` are not new global VM words. Template
+markers are rejected inside HTML attributes, `<script>`, and `<style>` so
+untrusted view data stays in text context.
+
 ## SQLite Scaffold
 
 For a zero-service local beta app, `rco new --with-sqlite my_beta_app` creates
