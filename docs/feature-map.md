@@ -369,8 +369,10 @@ Implemented:
   `VERSION_name.up.rco` / `VERSION_name.down.rco` files, while existing
   one-file `VERSION_name.sql` migrations remain apply-compatible.
 - The native migration DSL is scoped to migration files and supports postfix
-  `table_create`, `column`, `primary_key`, `not_null`, `unique`, and
-  `table_drop`, compiling to SQLite, PostgreSQL, or MySQL/MariaDB SQL.
+  table creation/drop, column creation/add/drop/rename, index create/drop,
+  unique index creation, and column modifiers `primary_key`, `not_null`,
+  `unique`, and `default`, compiling to SQLite, PostgreSQL, or MySQL/MariaDB
+  SQL.
 - `rco migrate dump` writes deterministic SQLite schema snapshots that exclude
   `schema_migrations` and SQLite internal objects.
 - `rco seed` runs ordered SQLite `db/seeds/*.sql` and `db/seeds/*.rco` files,
@@ -389,8 +391,8 @@ Evidence:
 
 Remaining:
 
-- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
-  richer migration DSL operations are future polish.
+- PostgreSQL/MySQL rollback and schema dumps, and seed support beyond SQLite
+  are future polish.
 - Active Record targets existing schemas; do not describe it as a full
   schema-definition ORM.
 
@@ -596,8 +598,7 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
-  richer migration DSL operations.
+- PostgreSQL/MySQL rollback and schema dumps, and seed support beyond SQLite.
 - Compile-time macros.
 - Persistent REPL images and source emission.
 - Central hosted package registry.

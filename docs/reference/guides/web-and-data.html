@@ -103,12 +103,21 @@ rco migrate apply
 rco migrate rollback --steps 1
 rco migrate dump --output db/schema.sql
 rco seed</code></pre>
-          <p>Migration DSL files are compiled only by the migration command; the DSL words are not global runtime words. The first slice is intentionally small and stays postfix:</p>
+          <p>Migration DSL files are compiled only by the migration command; the DSL words are not global runtime words. The DSL stays postfix and covers safe table, column, index, and string-literal default operations:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;notes&quot; table_create
 &quot;id&quot; &quot;integer&quot; column primary_key
-&quot;body&quot; &quot;text&quot; column not_null</code></pre>
+&quot;body&quot; &quot;text&quot; column not_null
+&quot;status&quot; &quot;text&quot; column not_null &quot;writer's draft&quot; default
+
+&quot;notes&quot; &quot;archived_at&quot; &quot;text&quot; column_add
+&quot;notes&quot; &quot;archived_at&quot; &quot;archived_on&quot; column_rename
+&quot;idx_notes_status&quot; &quot;notes&quot; &quot;status&quot; index_create
+&quot;uq_notes_body&quot; &quot;notes&quot; &quot;body&quot; unique_index_create</code></pre>
           <p>Rollback DSL uses the same postfix shape:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;notes&quot; table_drop</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;idx_notes_status&quot; &quot;notes&quot; index_drop
+&quot;uq_notes_body&quot; &quot;notes&quot; index_drop
+&quot;notes&quot; &quot;archived_on&quot; column_drop
+&quot;notes&quot; table_drop</code></pre>
           <p><code>rco migrate rollback [path] --steps N</code> rolls back applied SQLite migrations newest-first and fails loudly when a migration has no matching down SQL or DSL file. <code>rco migrate dump [path] --output db/schema.sql</code> writes a deterministic SQLite schema snapshot that excludes <code>schema_migrations</code> and SQLite internal objects.</p>
           <p><code>rco seed [path]</code> runs <code>db/seeds/*.sql</code> and <code>db/seeds/*.rco</code> in filename order for SQLite projects. Ricochet seed files load project models and receive the <code>db</code> capability. Seeds are not tracked, so non-idempotent seed files run again on every invocation.</p>
           <h2 id="request-data">Request Data</h2>

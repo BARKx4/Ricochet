@@ -724,10 +724,20 @@ now println
           </article>
           <article class="example-panel">
             <h3>Migration DSL</h3>
-            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy migration DSL example" title="Copy">copy</button><code>&quot;notes&quot; table_create
+            <h4>Up</h4>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy migration DSL up example" title="Copy">copy</button><code>&quot;notes&quot; table_create
 &quot;id&quot; &quot;integer&quot; column primary_key
 &quot;body&quot; &quot;text&quot; column not_null
+&quot;status&quot; &quot;text&quot; column not_null &quot;writer's draft&quot; default
 
+&quot;notes&quot; &quot;archived_at&quot; &quot;text&quot; column_add
+&quot;notes&quot; &quot;archived_at&quot; &quot;archived_on&quot; column_rename
+&quot;idx_notes_status&quot; &quot;notes&quot; &quot;status&quot; index_create
+&quot;uq_notes_body&quot; &quot;notes&quot; &quot;body&quot; unique_index_create</code></pre>
+            <h4>Down</h4>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy migration DSL down example" title="Copy">copy</button><code>&quot;idx_notes_status&quot; &quot;notes&quot; index_drop
+&quot;uq_notes_body&quot; &quot;notes&quot; index_drop
+&quot;notes&quot; &quot;archived_on&quot; column_drop
 &quot;notes&quot; table_drop</code></pre>
           </article>
           <article class="example-panel">

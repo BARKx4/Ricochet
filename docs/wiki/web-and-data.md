@@ -136,18 +136,27 @@ db/migrations/0003_create_tags.down.rco
 ```
 
 Migration DSL files are compiled only by the migration command; the DSL words
-are not global runtime words. The first slice is intentionally small and stays
-postfix:
+are not global runtime words. The DSL stays postfix and covers safe table,
+column, index, and string-literal default operations:
 
 ```ricochet
 "notes" table_create
 "id" "integer" column primary_key
 "body" "text" column not_null
+"status" "text" column not_null "writer's draft" default
+
+"notes" "archived_at" "text" column_add
+"notes" "archived_at" "archived_on" column_rename
+"idx_notes_status" "notes" "status" index_create
+"uq_notes_body" "notes" "body" unique_index_create
 ```
 
 Rollback DSL uses the same postfix shape:
 
 ```ricochet
+"idx_notes_status" "notes" index_drop
+"uq_notes_body" "notes" index_drop
+"notes" "archived_on" column_drop
 "notes" table_drop
 ```
 

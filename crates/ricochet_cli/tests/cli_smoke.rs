@@ -519,12 +519,14 @@ fn migrate_applies_dumps_and_rolls_back_ricochet_dsl() {
 "widgets" table_create
 "id" "integer" column primary_key
 "name" "text" column not_null unique
+"idx_widgets_name" "widgets" "name" index_create
 "#,
     );
     write_source_at(
         &root,
         "db/migrations/0001_create_widgets.down.rco",
         r#"
+"idx_widgets_name" "widgets" index_drop
 "widgets" table_drop
 "#,
     );
@@ -564,6 +566,9 @@ fn migrate_applies_dumps_and_rolls_back_ricochet_dsl() {
     assert!(schema_dump
         .to_ascii_lowercase()
         .contains("create table \"widgets\""));
+    assert!(schema_dump
+        .to_ascii_lowercase()
+        .contains("create index \"idx_widgets_name\""));
 
     let rollback_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("migrate")

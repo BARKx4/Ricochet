@@ -935,6 +935,133 @@ fn mysql_host_is_local(host: &str) -> bool {
             .is_ok_and(|address| address.is_loopback())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MysqlBatchState {
+    Normal,
+    SingleQuote,
+    DoubleQuote,
+    Backtick,
+    LineComment,
+    BlockComment,
+}
+
+fn split_mysql_batch(sql: &str) -> Vec<String> {
+    let chars = sql.chars().collect::<Vec<_>>();
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut state = MysqlBatchState::Normal;
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let character = chars[index];
+        match state {
+            MysqlBatchState::Normal => match character {
+                ';' => {
+                    let statement = current.trim();
+                    if !statement.is_empty() {
+                        statements.push(statement.to_string());
+                    }
+                    current.clear();
+                }
+                '\'' => {
+                    current.push(character);
+                    state = MysqlBatchState::SingleQuote;
+                }
+                '"' => {
+                    current.push(character);
+                    state = MysqlBatchState::DoubleQuote;
+                }
+                '`' => {
+                    current.push(character);
+                    state = MysqlBatchState::Backtick;
+                }
+                '-' if chars.get(index + 1) == Some(&'-') => {
+                    current.push(character);
+                    current.push(chars[index + 1]);
+                    index += 1;
+                    state = MysqlBatchState::LineComment;
+                }
+                '#' => {
+                    current.push(character);
+                    state = MysqlBatchState::LineComment;
+                }
+                '/' if chars.get(index + 1) == Some(&'*') => {
+                    current.push(character);
+                    current.push(chars[index + 1]);
+                    index += 1;
+                    state = MysqlBatchState::BlockComment;
+                }
+                _ => current.push(character),
+            },
+            MysqlBatchState::SingleQuote => {
+                current.push(character);
+                if character == '\\' {
+                    if let Some(next) = chars.get(index + 1) {
+                        current.push(*next);
+                        index += 1;
+                    }
+                } else if character == '\'' {
+                    if chars.get(index + 1) == Some(&'\'') {
+                        current.push(chars[index + 1]);
+                        index += 1;
+                    } else {
+                        state = MysqlBatchState::Normal;
+                    }
+                }
+            }
+            MysqlBatchState::DoubleQuote => {
+                current.push(character);
+                if character == '\\' {
+                    if let Some(next) = chars.get(index + 1) {
+                        current.push(*next);
+                        index += 1;
+                    }
+                } else if character == '"' {
+                    if chars.get(index + 1) == Some(&'"') {
+                        current.push(chars[index + 1]);
+                        index += 1;
+                    } else {
+                        state = MysqlBatchState::Normal;
+                    }
+                }
+            }
+            MysqlBatchState::Backtick => {
+                current.push(character);
+                if character == '`' {
+                    if chars.get(index + 1) == Some(&'`') {
+                        current.push(chars[index + 1]);
+                        index += 1;
+                    } else {
+                        state = MysqlBatchState::Normal;
+                    }
+                }
+            }
+            MysqlBatchState::LineComment => {
+                current.push(character);
+                if character == '\n' || character == '\r' {
+                    state = MysqlBatchState::Normal;
+                }
+            }
+            MysqlBatchState::BlockComment => {
+                current.push(character);
+                if character == '*' && chars.get(index + 1) == Some(&'/') {
+                    current.push(chars[index + 1]);
+                    index += 1;
+                    state = MysqlBatchState::Normal;
+                }
+            }
+        }
+
+        index += 1;
+    }
+
+    let statement = current.trim();
+    if !statement.is_empty() {
+        statements.push(statement.to_string());
+    }
+    statements
+}
+
 #[derive(Clone)]
 pub struct SqliteDatabase {
     connection: Arc<Mutex<Connection>>,
@@ -1271,11 +1398,7 @@ impl MysqlDatabase {
             .get_conn()
             .await
             .map_err(|error| mysql_error("execute migration", error))?;
-        for statement in sql
-            .split(';')
-            .map(str::trim)
-            .filter(|statement| !statement.is_empty())
-        {
+        for statement in split_mysql_batch(sql) {
             connection
                 .query_drop(statement)
                 .await
@@ -2526,6 +2649,41 @@ mod tests {
         assert_eq!(
             mapping.update_by_id_sql_without_returning_for(SqlDialect::Mysql),
             "update users set email = ?, name = ? where id = ?"
+        );
+    }
+
+    #[test]
+    fn mysql_batch_splitter_ignores_semicolons_inside_quotes() {
+        assert_eq!(
+            split_mysql_batch(
+                r#"insert into logs (message) values ('one;two');
+insert into logs (`semi;field`) values ("three;four");
+insert into logs (message) values ('C:\\tmp;done');"#,
+            ),
+            vec![
+                "insert into logs (message) values ('one;two')".to_string(),
+                r#"insert into logs (`semi;field`) values ("three;four")"#.to_string(),
+                r#"insert into logs (message) values ('C:\\tmp;done')"#.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn mysql_batch_splitter_ignores_semicolons_inside_comments() {
+        assert_eq!(
+            split_mysql_batch(
+                r#"/* bootstrap; comment */
+create table notes (id integer);
+-- line; comment
+insert into notes (id) values (1);
+# hash; comment
+insert into notes (id) values (2);"#,
+            ),
+            vec![
+                "/* bootstrap; comment */\ncreate table notes (id integer)".to_string(),
+                "-- line; comment\ninsert into notes (id) values (1)".to_string(),
+                "# hash; comment\ninsert into notes (id) values (2)".to_string(),
+            ]
         );
     }
 
