@@ -5327,7 +5327,14 @@ events array
   events get "done" push! drop
   7
 ] spawn task var
-150 sleep
+0 attempts var
+attempts get 50 < while
+  task get completed? if
+    break
+  end
+  20 sleep
+  attempts get 1 + attempts set
+end
 events get count
 task get task_status
 task get completed?
@@ -7870,7 +7877,7 @@ task get completed?
 fn run_exposes_http_stream_reads_with_offsets() {
     let (address, server) = spawn_chunked_http_server(vec![
         (b"data: first\n\n".to_vec(), Duration::from_millis(0)),
-        (b"data: second\n\n".to_vec(), Duration::from_millis(150)),
+        (b"data: second\n\n".to_vec(), Duration::from_millis(500)),
     ]);
     let output = run_source(&format!(
         r#"
@@ -7880,17 +7887,45 @@ request get "timeout_ms" 10000 put! drop
 request get "max_response_bytes" 1024 put! drop
 request get http_stream_start value stream var
 stream get "id" at id var
-50 sleep
 options map
-id get options get http_stream_read value first var
+nil first var
+0 attempts var
+attempts get 50 < while
+  id get options get http_stream_read value first set
+  first get "body" at "" = if
+    20 sleep
+    attempts get 1 + attempts set
+  else
+    break
+  end
+end
 first get "body" at
 first get "offset" at offset var
-200 sleep
 nextOptions map
 nextOptions get "offset" offset get put! drop
-id get nextOptions get http_stream_read value second var
+nil second var
+0 attempts set
+attempts get 50 < while
+  id get nextOptions get http_stream_read value second set
+  second get "body" at "" = if
+    20 sleep
+    attempts get 1 + attempts set
+  else
+    break
+  end
+end
 second get "body" at
-id get http_stream value "status" at
+nil detail var
+0 attempts set
+attempts get 50 < while
+  id get http_stream value detail set
+  detail get "status" at "completed" = if
+    break
+  end
+  20 sleep
+  attempts get 1 + attempts set
+end
+detail get "status" at
 runtime_capabilities "http" at "streams" at
 "#
     ));
