@@ -6359,6 +6359,36 @@ config get "missing" config_get error "message" at
 }
 
 #[test]
+fn run_exposes_password_hash_and_verify_words() {
+    let output = run_source(
+        r#"
+"Long unique passphrase 2026" password_hash value hash var
+$hash "$argon2" starts_with?
+"Long unique passphrase 2026" $hash password_verify value
+"Wrong unique passphrase 2026" $hash password_verify value
+"" $hash password_verify value
+"Long unique passphrase 2026" "not-a-hash" password_verify error "kind" at
+"" password_hash error "kind" at
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 2,
+        "hash prefix and matching password should be true, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Bool(false)"),
+        "wrong or blank submitted password should verify false, got:\n{stdout}"
+    );
+    assert!(
+        stdout.matches("String(\"PasswordHashError\")").count() >= 2,
+        "invalid stored hash and blank password should return PasswordHashError, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_secret_resolve_honors_environment_capability_bounds() {
     let denied_source_path =
         write_source(r#""RICOCHET_SECRET_DENIED_TEST" secret_env secret_resolve drop"#);

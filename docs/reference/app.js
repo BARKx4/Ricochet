@@ -1472,6 +1472,22 @@ const WORDS = [
     "example": "\"OPENAI_API_KEY\" secret_env secret_resolve value"
   },
   {
+    "word": "password_hash",
+    "aliases": ["auth", "security"],
+    "group": "system",
+    "stack": "password:string -> result(string)",
+    "body": "Hashes a password with Argon2id and a fresh random salt, returning a PHC-format hash string suitable for credential storage. Pair it with package-level password policy checks before accepting user passwords.",
+    "example": "\"Long unique passphrase 2026\" password_hash value"
+  },
+  {
+    "word": "password_verify",
+    "aliases": ["auth", "security"],
+    "group": "system",
+    "stack": "password:string storedHash:string -> result(bool)",
+    "body": "Verifies a password against an Argon2id PHC-format stored hash. A mismatch returns `ok(false)`; malformed or unsupported stored hashes return `PasswordHashError`.",
+    "example": "$password $storedHash password_verify value"
+  },
+  {
     "word": "config_get",
     "aliases": ["config"],
     "group": "system",

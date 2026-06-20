@@ -1427,6 +1427,8 @@ impl Vm {
             "secret_env" => self.call_secret_env(word),
             "secret_literal" => self.call_secret_literal(word),
             "secret_resolve" => self.call_secret_resolve(word),
+            "password_hash" => self.call_password_hash(word),
+            "password_verify" => self.call_password_verify(word),
             "http_request_new" => self.call_http_request_new(word),
             "http_header_put" => self.call_http_header_put(word),
             "http_bearer_auth" => self.call_http_bearer_auth(word),

@@ -9,6 +9,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use argon2::{
+    password_hash::{
+        Error as PasswordHashError, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+    },
+    Argon2,
+};
 use chrono::{
     DateTime, Datelike, Duration as ChronoDuration, FixedOffset, NaiveDate, SecondsFormat,
     TimeZone, Timelike, Utc,
@@ -69,6 +75,7 @@ const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
 const WORKSPACE_MAX_LIST_ENTRIES: usize = 10_000;
 const APPROVAL_DEFAULT_TTL_MS: i64 = 10 * 60 * 1000;
 const APPROVAL_MAX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
+const PASSWORD_MAX_BYTES: usize = 4096;
 const I64_FLOAT_UPPER_BOUND_EXCLUSIVE: f64 = 9_223_372_036_854_775_808.0;
 
 #[cfg(windows)]
@@ -1827,6 +1834,33 @@ impl Vm {
                 ));
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn call_password_hash(&mut self, word: &str) -> Result<(), VmError> {
+        let password = self.pop_string(word, "password string")?;
+        self.stack.push(password_hash_result(&password));
+        Ok(())
+    }
+
+    pub(super) fn call_password_verify(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let stored_hash = match self.pop_string(word, "stored password hash string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let password = match self.pop_string(word, "password string") {
+            Ok(value) => value,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        self.stack
+            .push(password_verify_result(&password, &stored_hash));
         Ok(())
     }
 
@@ -7022,6 +7056,69 @@ fn secret_reference_string(reference: &BTreeMap<String, Value>, key: &str) -> Op
         Some(Value::String(value)) => Some(value.clone()),
         _ => None,
     }
+}
+
+fn password_hash_result(password: &str) -> Value {
+    if let Some(message) = validate_password_hash_input(password) {
+        return Value::result_err("PasswordHashError", message);
+    }
+
+    let mut salt_bytes = [0_u8; 16];
+    if getrandom::fill(&mut salt_bytes).is_err() {
+        return Value::result_err("PasswordHashError", "failed to generate password salt");
+    }
+    let salt = match SaltString::encode_b64(&salt_bytes) {
+        Ok(salt) => salt,
+        Err(_) => {
+            return Value::result_err("PasswordHashError", "failed to encode password salt");
+        }
+    };
+
+    match Argon2::default().hash_password(password.as_bytes(), &salt) {
+        Ok(hash) => Value::result_ok(Value::String(hash.to_string())),
+        Err(_) => Value::result_err("PasswordHashError", "failed to hash password"),
+    }
+}
+
+fn password_verify_result(password: &str, stored_hash: &str) -> Value {
+    if stored_hash.is_empty() {
+        return Value::result_err(
+            "PasswordHashError",
+            "stored password hash must not be empty",
+        );
+    }
+    if let Some(message) = validate_password_verify_input(password) {
+        return Value::result_err("PasswordHashError", message);
+    }
+
+    let parsed_hash = match PasswordHash::new(stored_hash) {
+        Ok(hash) => hash,
+        Err(_) => {
+            return Value::result_err("PasswordHashError", "stored password hash is invalid");
+        }
+    };
+
+    match Argon2::default().verify_password(password.as_bytes(), &parsed_hash) {
+        Ok(()) => Value::result_ok(Value::Bool(true)),
+        Err(PasswordHashError::Password) => Value::result_ok(Value::Bool(false)),
+        Err(_) => Value::result_err("PasswordHashError", "stored password hash is not supported"),
+    }
+}
+
+fn validate_password_hash_input(password: &str) -> Option<String> {
+    if password.is_empty() {
+        return Some("password must not be empty".to_string());
+    }
+    validate_password_verify_input(password)
+}
+
+fn validate_password_verify_input(password: &str) -> Option<String> {
+    if password.len() > PASSWORD_MAX_BYTES {
+        return Some(format!(
+            "password must not exceed {PASSWORD_MAX_BYTES} bytes"
+        ));
+    }
+    None
 }
 
 fn config_path_from_value(path: Value) -> Result<Vec<String>, Value> {

@@ -378,7 +378,7 @@ Do not assume:
 
 ## Sessions, Auth, Forms, And AI
 
-Status: implemented beta with production policy remaining.
+Status: implemented beta.
 
 Implemented:
 
@@ -390,7 +390,9 @@ Implemented:
 - Secure cookie attributes are emitted for non-local requests.
 - SQLite scaffold includes a copyable local beta form/session login loop.
 - `@ricochet/auth` provides session guard predicates, route guard result maps,
-  fail-closed CSRF helpers, session construction, and cookie option helpers.
+  fail-closed CSRF helpers, session construction, cookie option helpers,
+  credential normalization, password policy validation, and Argon2id password
+  hash/verify wrappers.
 - `@ricochet/forms` provides field maps, validation maps, schema validation, and
   multipart file maps.
 - MVC `[ai.default]` injects an `ai` controller capability whose `chat` method
@@ -403,6 +405,8 @@ Implemented:
 
 Evidence:
 
+- `crates/ricochet_vm/src/builtins.rs`
+- `crates/ricochet_cli/tests/cli_smoke.rs`
 - `crates/ricochet_web/src/server.rs`
 - `crates/ricochet_web/src/manifest.rs`
 - `crates/ricochet_web/src/ai_capability.rs`
@@ -416,13 +420,12 @@ Evidence:
 
 Remaining:
 
-- Production credential/password policy remains app/package work.
 - Richer provider packages, retries/tool execution, AI streaming integration,
   and structured schema validation remain future package work.
 
 Do not assume:
 
-- Production auth exists just because scaffold auth exists.
+- The scaffold login loop is full production auth.
 - MVC AI or first-party AI helpers are missing.
 
 ## Packages And Registries
@@ -569,7 +572,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Production credential/password policy.
 - Streaming upload APIs.
 - Migration rollback, schema dumps, seed command, and optional Ricochet
   migration DSL.

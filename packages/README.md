@@ -5,8 +5,8 @@ published through the static registry flow and intentionally live outside the
 language core.
 
 - `@ricochet/auth`: session guards, route guard result maps, fail-closed
-  CSRF/form-token helpers, secure cookie option maps, and extension points. It
-  does not claim production password storage.
+  CSRF/form-token helpers, secure cookie option maps, credential normalization,
+  password policy validation, and Argon2id password hash/verify wrappers.
 - `@ricochet/ai`: provider-agnostic HTTP request maps, OpenAI-compatible
   request builders, SSE response-body parsing, and response normalization
   layered on core secret refs.

@@ -48,6 +48,19 @@ adapter = "sqlite"
 url = "db/development.sqlite3"
 ```
 
+For production credential flows, import `@ricochet/auth` and validate
+credentials before storing password hashes. The core `password_hash` and
+`password_verify` words use Argon2id PHC-format hashes; the auth package wraps
+them with credential normalization, length/common-password checks, and a generic
+`auth_credentials_verify` result map for login paths.
+
+```ricochet
+"auth/session" import
+
+"Ada@Example.COM" "Long unique passphrase 2026" auth_password_hash value hash var
+" ada@example.com " "Long unique passphrase 2026" "ada@example.com" $hash auth_credentials_verify
+```
+
 ## PostgreSQL
 
 For a Postgres-backed app, use the same manifest shape with a Postgres URL:

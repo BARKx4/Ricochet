@@ -171,6 +171,16 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Resolve a secret reference through the appropriate capability.",
     ),
     WordDoc::new(
+        "password_hash",
+        "security",
+        "Hash a password with Argon2id and a fresh random salt.",
+    ),
+    WordDoc::new(
+        "password_verify",
+        "security",
+        "Verify a password against an Argon2id PHC-format stored hash.",
+    ),
+    WordDoc::new(
         "config_get",
         "config",
         "Read a required value from a config map by key or nested path.",

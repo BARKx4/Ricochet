@@ -61,6 +61,11 @@ rco serve --watch --fs-root . --http-allow-host 127.0.0.1</code></pre>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]
 adapter = &quot;sqlite&quot;
 url = &quot;db/development.sqlite3&quot;</code></pre>
+          <p>For production credential flows, import <code>@ricochet/auth</code> and validate credentials before storing password hashes. The core <code>password_hash</code> and <code>password_verify</code> words use Argon2id PHC-format hashes; the auth package wraps them with credential normalization, length/common-password checks, and a generic <code>auth_credentials_verify</code> result map for login paths.</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;auth/session&quot; import
+
+&quot;Ada@Example.COM&quot; &quot;Long unique passphrase 2026&quot; auth_password_hash value hash var
+&quot; ada@example.com &quot; &quot;Long unique passphrase 2026&quot; &quot;ada@example.com&quot; $hash auth_credentials_verify</code></pre>
           <h2 id="postgresql">PostgreSQL</h2>
           <p>For a Postgres-backed app, use the same manifest shape with a Postgres URL:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]

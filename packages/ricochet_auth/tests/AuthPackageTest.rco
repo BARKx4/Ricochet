@@ -63,4 +63,105 @@ AuthPackageTest TestCase Subclass
     $options "same_site" at
     "Lax" assert_equals
   ] "testSecureCookieOptions" Method
+  [
+    " ADA@Example.COM " auth_credential_normalize
+    "ada@example.com" assert_equals
+  ] "testCredentialNormalize" Method
+  [
+    " ada@example.com " auth_credential_validate result var
+    $result "ok" at
+    true assert_equals
+    $result "credential" at
+    "ada@example.com" assert_equals
+  ] "testCredentialValidateAcceptsNormalizedIdentifier" Method
+  [
+    "bad user" auth_credential_validate result var
+    $result "ok" at
+    false assert_equals
+    $result "reason" at
+    "credential_whitespace" assert_equals
+  ] "testCredentialValidateRejectsWhitespace" Method
+  [
+    auth_password_policy policy var
+    $policy "storage" at
+    "argon2id" assert_equals
+    $policy "min_length" at
+    12 assert_equals
+  ] "testPasswordPolicy" Method
+  [
+    "ada@example.com" "Long unique passphrase 2026" auth_password_validate result var
+    $result "ok" at
+    true assert_equals
+  ] "testPasswordValidateAcceptsPassphrase" Method
+  [
+    "ada@example.com" "short" auth_password_validate result var
+    $result "ok" at
+    false assert_equals
+    $result "reason" at
+    "password_too_short" assert_equals
+  ] "testPasswordValidateRejectsShortPassword" Method
+  [
+    "ada@example.com" "ada@example.com has a long password" auth_password_validate result var
+    $result "ok" at
+    false assert_equals
+    $result "reason" at
+    "password_contains_credential" assert_equals
+  ] "testPasswordValidateRejectsCredentialSubstring" Method
+  [
+    "ada@example.com" "welcome123456" auth_password_validate result var
+    $result "ok" at
+    false assert_equals
+    $result "reason" at
+    "password_common" assert_equals
+  ] "testPasswordValidateRejectsCommonPassword" Method
+  [
+    "ada@example.com" "Long unique passphrase 2026" auth_password_hash assert_ok
+  ] "testPasswordHashAcceptsValidPolicy" Method
+  [
+    "ada@example.com" "short" auth_password_hash error "kind" at
+    "PasswordPolicyError" assert_equals
+  ] "testPasswordHashRejectsInvalidPolicy" Method
+  [
+    "ada@example.com" "Long unique passphrase 2026" auth_password_hash value hash var
+    "Long unique passphrase 2026" $hash auth_password_verify verification var
+    $verification "ok" at
+    true assert_equals
+    $verification "authenticated" at
+    true assert_equals
+  ] "testPasswordVerifyAcceptsMatchingPassword" Method
+  [
+    "ada@example.com" "Long unique passphrase 2026" auth_password_hash value hash var
+    "Wrong unique passphrase 2026" $hash auth_password_verify verification var
+    $verification "ok" at
+    true assert_equals
+    $verification "authenticated" at
+    false assert_equals
+    $verification "reason" at
+    "password_mismatch" assert_equals
+  ] "testPasswordVerifyRejectsMismatch" Method
+  [
+    "Long unique passphrase 2026" "not-a-hash" auth_password_verify verification var
+    $verification "ok" at
+    false assert_equals
+    $verification "reason" at
+    "PasswordHashError" assert_equals
+  ] "testPasswordVerifyRejectsInvalidHash" Method
+  [
+    "Ada@Example.COM" "Long unique passphrase 2026" auth_password_hash value hash var
+    " ada@example.com " "Long unique passphrase 2026" "ada@example.com" $hash auth_credentials_verify verification var
+    $verification "ok" at
+    true assert_equals
+    $verification "authenticated" at
+    true assert_equals
+  ] "testCredentialsVerifyAcceptsNormalizedCredentialAndPassword" Method
+  [
+    "ada@example.com" "Long unique passphrase 2026" auth_password_hash value hash var
+    "grace@example.com" "Long unique passphrase 2026" "ada@example.com" $hash auth_credentials_verify verification var
+    $verification "ok" at
+    true assert_equals
+    $verification "authenticated" at
+    false assert_equals
+    $verification "reason" at
+    "invalid_credentials" assert_equals
+  ] "testCredentialsVerifyRejectsCredentialMismatch" Method
 end

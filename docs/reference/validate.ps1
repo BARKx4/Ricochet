@@ -242,6 +242,8 @@ if ($failures.Count -eq 0) {
         '"secret_env"',
         '"secret_literal"',
         '"secret_resolve"',
+        '"password_hash"',
+        '"password_verify"',
         '"config_get"',
         '"cwd"',
         '"runtime_capabilities"',
