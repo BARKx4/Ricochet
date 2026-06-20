@@ -2,8 +2,6 @@
 
 Open index.html in a browser to read the static reference site.
 
-For a cross-repo agent-facing status map, see `../feature-map.md`.
-
 From the repository root:
 
 ```powershell
