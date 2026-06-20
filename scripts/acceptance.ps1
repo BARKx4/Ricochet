@@ -27,6 +27,16 @@ function Invoke-Rco {
     }
 }
 
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+function Write-Utf8File {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+
+    [System.IO.File]::WriteAllText($Path, $Content, $Utf8NoBom)
+}
+
 $docsValidator = Join-Path $Root "docs\reference\validate.ps1"
 Write-Host "==> docs reference validation"
 & $docsValidator
@@ -100,6 +110,35 @@ Write-Host "==> SQLite live server smoke"
 $betaAppSmoke = Join-Path $Root "scripts\beta-app-smoke.ps1"
 Write-Host "==> SQLite beta app smoke"
 & $betaAppSmoke -Rco $Rco -Project $sqliteProject
+
+$sqliteMigrations = Join-Path $sqliteProject "db\migrations"
+Write-Utf8File -Path (Join-Path $sqliteMigrations "0002_acceptance_notes.up.sql") -Content "create table acceptance_notes (id integer primary key, body text not null);`n"
+Write-Utf8File -Path (Join-Path $sqliteMigrations "0002_acceptance_notes.down.sql") -Content "drop table acceptance_notes;`n"
+Write-Utf8File -Path (Join-Path $sqliteProject "app\Models\AcceptanceNote.rco") -Content @"
+AcceptanceNote Model Subclass
+  "acceptance_notes" Table
+  "id" Accessor
+  "body" Accessor
+end
+"@
+Invoke-Rco "apply SQLite acceptance migration" @("migrate", "apply", $sqliteProject)
+Invoke-Rco "rollback SQLite acceptance migration" @("migrate", "rollback", "--steps", "1", $sqliteProject)
+Invoke-Rco "reapply SQLite acceptance migration" @("migrate", "apply", $sqliteProject)
+Invoke-Rco "dump SQLite acceptance schema" @("migrate", "dump", "--output", "db/schema.sql", $sqliteProject)
+$schemaDump = Get-Content -LiteralPath (Join-Path $sqliteProject "db\schema.sql") -Raw
+if ($schemaDump -notlike "*acceptance_notes*") {
+    throw "SQLite schema dump did not include acceptance_notes"
+}
+
+$sqliteSeeds = Join-Path $sqliteProject "db\seeds"
+New-Item -ItemType Directory -Path $sqliteSeeds -Force | Out-Null
+Write-Utf8File -Path (Join-Path $sqliteSeeds "001_acceptance_notes.sql") -Content "insert into acceptance_notes (body) values ('from sql seed');`n"
+Write-Utf8File -Path (Join-Path $sqliteSeeds "002_acceptance_notes.rco") -Content @"
+map "body" "from rco seed" put! AcceptanceNote insert value drop
+AcceptanceNote count_records value
+2 assert_equals
+"@
+Invoke-Rco "seed SQLite acceptance data" @("seed", $sqliteProject)
 
 Write-Host "Ricochet acceptance suite passed."
 Write-Host "Generated scaffold left at: $project"

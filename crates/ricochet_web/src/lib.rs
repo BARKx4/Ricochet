@@ -23,8 +23,8 @@ pub use server::{
     build_app_from_dir_with_database, build_served_app_from_dir, build_test_app,
     build_watched_app_from_dir, build_watched_app_from_dir_with_database,
     build_watched_app_from_dir_with_database_and_trace, build_watched_app_from_dir_with_trace,
-    routes_from_dir, serve_app_on_listener, serve_current_dir, ServeOptions, WatchTraceEvent,
-    WatchTraceSink,
+    install_project_database_runtime, routes_from_dir, serve_app_on_listener, serve_current_dir,
+    ServeOptions, WatchTraceEvent, WatchTraceSink,
 };
 pub use template::{render_template, EscapeMode};
 

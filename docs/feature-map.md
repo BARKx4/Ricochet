@@ -359,6 +359,13 @@ Implemented:
   model maps an `id`.
 - `rco migrate status` and `rco migrate apply` read ordered SQL files from
   `db/migrations` and record applied versions in `schema_migrations`.
+- `rco migrate rollback` supports reversible SQLite migrations through paired
+  `VERSION_name.up.sql` and `VERSION_name.down.sql` files, while existing
+  one-file `VERSION_name.sql` migrations remain apply-compatible.
+- `rco migrate dump` writes deterministic SQLite schema snapshots that exclude
+  `schema_migrations` and SQLite internal objects.
+- `rco seed` runs ordered SQLite `db/seeds/*.sql` and `db/seeds/*.rco` files,
+  with an explicit non-idempotent seed warning.
 - The SQLite scaffold creates an initial migration and seeds a local database.
 
 Evidence:
@@ -373,14 +380,15 @@ Evidence:
 
 Remaining:
 
-- Migration rollback, schema dump/seed commands, and a Ricochet-native migration
-  DSL are future polish.
+- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and a
+  Ricochet-native migration DSL are future polish.
 - Active Record targets existing schemas; do not describe it as a full
   schema-definition ORM.
 
 Do not assume:
 
 - Migrations are missing. SQL `status` and `apply` exist.
+- SQLite rollback, schema dump, and seed commands are missing.
 
 ## Sessions, Auth, Forms, And AI
 
@@ -578,8 +586,8 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Migration rollback, schema dumps, seed command, and optional Ricochet
-  migration DSL.
+- PostgreSQL/MySQL rollback and schema dumps, seed support beyond SQLite, and
+  optional Ricochet migration DSL.
 - Template embedded script blocks beyond interpolation.
 - Compile-time macros.
 - Persistent REPL images and source emission.

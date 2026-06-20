@@ -1252,6 +1252,19 @@ fn database_vm_setup(project_root: &Path, backend: Arc<dyn DatabaseBackend>) -> 
     }))
 }
 
+pub fn install_project_database_runtime(
+    vm: &mut Vm,
+    project_root: &Path,
+    backend: Arc<dyn DatabaseBackend>,
+) -> Result<BTreeMap<String, Value>> {
+    let (model_chunks, mappings) = load_model_runtime(project_root)?;
+    for chunk in model_chunks.iter() {
+        vm.run_chunk(chunk)?;
+    }
+    let database = install_database_capability(vm, backend, mappings)?;
+    Ok(BTreeMap::from([("db".to_string(), database)]))
+}
+
 fn compose_ai_vm_setup(
     vm_setup: Option<VmSetup>,
     ai_provider: Option<AiProvider>,

@@ -259,10 +259,29 @@ fn new_with_sqlite_creates_ready_database_project() {
         project_path
             .join("db")
             .join("migrations")
-            .join("0002_create_notes.sql"),
+            .join("0002_create_notes.up.sql"),
         "create table notes (id integer primary key, body text not null);\n",
     )
     .expect("second migration should be written");
+    fs::write(
+        project_path
+            .join("db")
+            .join("migrations")
+            .join("0002_create_notes.down.sql"),
+        "drop table notes;\n",
+    )
+    .expect("second down migration should be written");
+    fs::write(
+        project_path.join("app").join("Models").join("Note.rco"),
+        r#"
+Note Model Subclass
+  "notes" Table
+  "id" Accessor
+  "body" Accessor
+end
+"#,
+    )
+    .expect("note model should be written");
 
     let status_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("migrate")
@@ -301,6 +320,103 @@ fn new_with_sqlite_creates_ready_database_project() {
         .expect("notes table check should run");
     assert_eq!(notes_count, 1);
 
+    let rollback_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("rollback")
+        .arg("--steps")
+        .arg("1")
+        .arg(&project_path)
+        .output()
+        .expect("rco migrate rollback should launch");
+    let rollback_stdout = String::from_utf8_lossy(&rollback_output.stdout);
+    let rollback_stderr = String::from_utf8_lossy(&rollback_output.stderr);
+    assert!(
+        rollback_output.status.success(),
+        "migrate rollback should pass\nstdout:\n{rollback_stdout}\nstderr:\n{rollback_stderr}"
+    );
+    assert!(rollback_stdout.contains("rolled back 0002_create_notes"));
+    let notes_count_after_rollback: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'notes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("notes rollback table check should run");
+    assert_eq!(notes_count_after_rollback, 0);
+
+    let reapply_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("apply")
+        .arg(&project_path)
+        .output()
+        .expect("rco migrate apply should relaunch");
+    let reapply_stdout = String::from_utf8_lossy(&reapply_output.stdout);
+    let reapply_stderr = String::from_utf8_lossy(&reapply_output.stderr);
+    assert!(
+        reapply_output.status.success(),
+        "migrate reapply should pass\nstdout:\n{reapply_stdout}\nstderr:\n{reapply_stderr}"
+    );
+    assert!(reapply_stdout.contains("applied 0002_create_notes"));
+
+    let dump_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("dump")
+        .arg("--output")
+        .arg("db/schema.sql")
+        .arg(&project_path)
+        .output()
+        .expect("rco migrate dump should launch");
+    let dump_stdout = String::from_utf8_lossy(&dump_output.stdout);
+    let dump_stderr = String::from_utf8_lossy(&dump_output.stderr);
+    assert!(
+        dump_output.status.success(),
+        "migrate dump should pass\nstdout:\n{dump_stdout}\nstderr:\n{dump_stderr}"
+    );
+    let schema_dump = fs::read_to_string(project_path.join("db").join("schema.sql"))
+        .expect("schema dump should exist");
+    let normalized_schema_dump = schema_dump.to_ascii_lowercase();
+    assert!(normalized_schema_dump.contains("create table users"));
+    assert!(normalized_schema_dump.contains("create table notes"));
+    assert!(!schema_dump.contains("schema_migrations"));
+
+    fs::create_dir_all(project_path.join("db").join("seeds")).expect("seeds dir should exist");
+    fs::write(
+        project_path.join("db").join("seeds").join("001_notes.sql"),
+        "insert into notes (body) values ('from sql seed');\n",
+    )
+    .expect("sql seed should be written");
+    fs::write(
+        project_path.join("db").join("seeds").join("002_notes.rco"),
+        r#"
+map "body" "from rco seed" put! Note insert value drop
+"#,
+    )
+    .expect("ricochet seed should be written");
+    let seed_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("seed")
+        .arg(&project_path)
+        .output()
+        .expect("rco seed should launch");
+    let seed_stdout = String::from_utf8_lossy(&seed_output.stdout);
+    let seed_stderr = String::from_utf8_lossy(&seed_output.stderr);
+    assert!(
+        seed_output.status.success(),
+        "seed should pass\nstdout:\n{seed_stdout}\nstderr:\n{seed_stderr}"
+    );
+    assert!(seed_stdout.contains("seeded 001_notes.sql"));
+    assert!(seed_stdout.contains("seeded 002_notes.rco"));
+    let seeded_notes: Vec<String> = {
+        let mut statement = connection
+            .prepare("select body from notes order by id")
+            .expect("seeded notes query should prepare");
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("seeded notes query should run")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("seeded notes should decode")
+    };
+    assert_eq!(seeded_notes, vec!["from sql seed", "from rco seed"]);
+
     let check_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("check")
         .arg(&project_path)
@@ -328,6 +444,66 @@ fn new_with_sqlite_creates_ready_database_project() {
         test_stdout.contains("2 tests, 0 failed"),
         "SQLite scaffolded test summary should pass, got:\n{test_stdout}"
     );
+}
+
+#[test]
+fn migrate_rollback_fails_when_latest_migration_has_no_down_sql() {
+    let source_path = temp_source_path();
+    let root = source_path
+        .parent()
+        .expect("source path has parent")
+        .join("missing_down_migration_app");
+    write_source_at(
+        &root,
+        "ricochet.toml",
+        "[package]\nname = \"missing_down_migration_app\"\n\n[database.default]\nadapter = \"sqlite\"\nurl = \"db/development.sqlite3\"\n",
+    );
+    write_source_at(
+        &root,
+        "db/migrations/0001_create_widgets.sql",
+        "create table widgets (id integer primary key, name text not null);\n",
+    );
+
+    let apply_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("apply")
+        .arg(&root)
+        .output()
+        .expect("rco migrate apply should launch");
+    assert_run_success_for("rco migrate apply", "missing down fixture", &apply_output);
+
+    let rollback_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("migrate")
+        .arg("rollback")
+        .arg(&root)
+        .output()
+        .expect("rco migrate rollback should launch");
+    let stderr = String::from_utf8_lossy(&rollback_output.stderr);
+    assert!(
+        !rollback_output.status.success(),
+        "rollback should fail without down SQL"
+    );
+    assert!(
+        stderr.contains("no down SQL"),
+        "stderr should identify missing down SQL, got:\n{stderr}"
+    );
+
+    let database_path = root.join("db").join("development.sqlite3");
+    let connection = rusqlite::Connection::open(database_path).expect("sqlite database opens");
+    let widget_table_count: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_master where type = 'table' and name = 'widgets'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("widgets table should still be present");
+    assert_eq!(widget_table_count, 1);
+    let recorded_version: String = connection
+        .query_row("select version from schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("migration record should remain");
+    assert_eq!(recorded_version, "0001_create_widgets");
 }
 
 #[test]

@@ -7,6 +7,7 @@ use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,7 +27,10 @@ use ricochet_vm::{
     DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, MapValue, RicochetResult,
     Value, Vm,
 };
-use ricochet_web::{MysqlDatabase, PostgresDatabase};
+use ricochet_web::{
+    install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
+    SqliteDatabase,
+};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -153,6 +157,9 @@ enum Command {
     Migrate {
         #[command(subcommand)]
         command: MigrateCommand,
+    },
+    Seed {
+        path: Option<String>,
     },
     Gui {
         #[command(flatten)]
@@ -434,8 +441,22 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum MigrateCommand {
-    Status { path: Option<String> },
-    Apply { path: Option<String> },
+    Status {
+        path: Option<String>,
+    },
+    Apply {
+        path: Option<String>,
+    },
+    Rollback {
+        path: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        steps: usize,
+    },
+    Dump {
+        path: Option<String>,
+        #[arg(long, value_name = "PATH", default_value = "db/schema.sql")]
+        output: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -795,6 +816,7 @@ pub async fn run_cli() -> Result<()> {
         } => run_bytecode(&path, debug, trace_file.as_deref(), args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Migrate { command } => migrate(command).await?,
+        Command::Seed { path } => seed(Path::new(path.as_deref().unwrap_or(".")))?,
         Command::Gui {
             capabilities,
             path,
@@ -2169,6 +2191,32 @@ async fn migrate(command: MigrateCommand) -> Result<()> {
         MigrateCommand::Apply { path } => {
             migrate_apply(Path::new(path.as_deref().unwrap_or("."))).await
         }
+        MigrateCommand::Rollback { path, steps } => {
+            migrate_rollback(Path::new(path.as_deref().unwrap_or(".")), steps)
+        }
+        MigrateCommand::Dump { path, output } => {
+            migrate_dump(Path::new(path.as_deref().unwrap_or(".")), &output)
+        }
+    }
+}
+
+fn seed(path: &Path) -> Result<()> {
+    let project_root = migration_project_root_for_command("seed", path)?;
+    let Some(database) = project_database_config(&project_root)? else {
+        bail!("No [database.default] configured.");
+    };
+    let seed_files = discover_seed_files(&project_root)?;
+    if seed_files.is_empty() {
+        println!("No seed files found in db/seeds.");
+        return Ok(());
+    }
+
+    match database.adapter.as_str() {
+        "sqlite" => seed_sqlite(&project_root, &database, seed_files),
+        adapter => bail!(
+            "rco seed currently supports SQLite projects; found adapter {:?}",
+            adapter
+        ),
     }
 }
 
@@ -2215,6 +2263,40 @@ async fn migrate_apply(path: &Path) -> Result<()> {
         "mysql" | "mariadb" => migrate_apply_mysql(&database, migrations).await,
         adapter => bail!(
             "rco migrate supports sqlite, postgres, and mysql projects; found adapter {:?}",
+            adapter
+        ),
+    }
+}
+
+fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
+    if steps == 0 {
+        bail!("rollback --steps must be greater than 0");
+    }
+    let project_root = migration_project_root(path)?;
+    let Some(database) = project_database_config(&project_root)? else {
+        bail!("No [database.default] configured.");
+    };
+    let migrations = discover_migrations(&project_root)?;
+
+    match database.adapter.as_str() {
+        "sqlite" => migrate_rollback_sqlite(&project_root, &database, migrations, steps),
+        adapter => bail!(
+            "rco migrate rollback currently supports SQLite projects; found adapter {:?}",
+            adapter
+        ),
+    }
+}
+
+fn migrate_dump(path: &Path, output: &Path) -> Result<()> {
+    let project_root = migration_project_root(path)?;
+    let Some(database) = project_database_config(&project_root)? else {
+        bail!("No [database.default] configured.");
+    };
+
+    match database.adapter.as_str() {
+        "sqlite" => migrate_dump_sqlite(&project_root, &database, output),
+        adapter => bail!(
+            "rco migrate dump currently supports SQLite projects; found adapter {:?}",
             adapter
         ),
     }
@@ -2301,6 +2383,175 @@ fn migrate_apply_sqlite(
     }
 
     print_migration_apply_summary(applied_count);
+    Ok(())
+}
+
+fn migrate_rollback_sqlite(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+    steps: usize,
+) -> Result<()> {
+    let database_path = sqlite_database_path(project_root, &database.url);
+    if !database_path.is_file() {
+        bail!(
+            "SQLite database does not exist: {}",
+            database_path.display()
+        );
+    }
+    let mut connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    ensure_schema_migrations_table(&connection)?;
+    let applied = sqlite_applied_migrations(&connection)?;
+    if applied.is_empty() {
+        println!("No applied migrations to roll back.");
+        return Ok(());
+    }
+
+    let migrations_by_version = migrations
+        .iter()
+        .map(|migration| (migration.version.as_str(), migration))
+        .collect::<BTreeMap<_, _>>();
+    let mut rolled_back = 0usize;
+    for version in applied.iter().rev().take(steps) {
+        let migration = migrations_by_version.get(version.as_str()).with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no matching migration file found in db/migrations"
+            )
+        })?;
+        let down_path = migration.down_path.as_ref().with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no down SQL found; add db/migrations/{version}.down.sql"
+            )
+        })?;
+        let sql = fs::read_to_string(down_path)
+            .with_context(|| format!("failed to read {}", down_path.display()))?;
+        let tx = connection
+            .transaction()
+            .with_context(|| format!("failed to start rollback {}", migration.version))?;
+        tx.execute_batch(&sql)
+            .with_context(|| format!("failed to roll back migration {}", migration.version))?;
+        tx.execute(
+            "delete from schema_migrations where version = ?1",
+            [&migration.version],
+        )
+        .with_context(|| format!("failed to forget migration {}", migration.version))?;
+        tx.commit()
+            .with_context(|| format!("failed to commit rollback {}", migration.version))?;
+        rolled_back += 1;
+        println!("rolled back {}", migration.version);
+    }
+
+    if rolled_back == 0 {
+        println!("No applied migrations to roll back.");
+    } else {
+        println!("Rolled back {rolled_back} migration(s).");
+    }
+    Ok(())
+}
+
+fn migrate_dump_sqlite(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    output: &Path,
+) -> Result<()> {
+    let database_path = sqlite_database_path(project_root, &database.url);
+    if !database_path.is_file() {
+        bail!(
+            "SQLite database does not exist: {}",
+            database_path.display()
+        );
+    }
+    let connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    let dump = sqlite_schema_dump(&connection)?;
+    let output_path = if output.is_absolute() {
+        output.to_path_buf()
+    } else {
+        project_root.join(output)
+    };
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(&output_path, dump)
+        .with_context(|| format!("failed to write {}", output_path.display()))?;
+    println!("dumped schema to {}", output_path.display());
+    Ok(())
+}
+
+fn seed_sqlite(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    seed_files: Vec<SeedFile>,
+) -> Result<()> {
+    let database_path = sqlite_database_path(project_root, &database.url);
+    if let Some(parent) = database_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let mut connection = rusqlite::Connection::open(&database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .context("failed to configure SQLite foreign keys")?;
+    eprintln!(
+        "Seed files are not tracked; make them idempotent because rco seed runs them every time."
+    );
+
+    let mut seeded_count = 0usize;
+    for seed_file in seed_files {
+        match seed_file.kind {
+            SeedFileKind::Sql => {
+                let sql = fs::read_to_string(&seed_file.path)
+                    .with_context(|| format!("failed to read {}", seed_file.path.display()))?;
+                let tx = connection
+                    .transaction()
+                    .with_context(|| format!("failed to start seed {}", seed_file.name))?;
+                tx.execute_batch(&sql)
+                    .with_context(|| format!("failed to run SQL seed {}", seed_file.name))?;
+                tx.commit()
+                    .with_context(|| format!("failed to commit seed {}", seed_file.name))?;
+            }
+            SeedFileKind::Ricochet => {
+                run_ricochet_seed_sqlite(project_root, &database_path, &seed_file.path)
+                    .with_context(|| format!("failed to run Ricochet seed {}", seed_file.name))?;
+            }
+        }
+        seeded_count += 1;
+        println!("seeded {}", seed_file.name);
+    }
+
+    println!("Ran {seeded_count} seed file(s).");
+    Ok(())
+}
+
+fn run_ricochet_seed_sqlite(
+    project_root: &Path,
+    database_path: &Path,
+    seed_path: &Path,
+) -> Result<()> {
+    let chunk = compile_source_file(seed_path)?;
+    let mut vm = cli_vm(Vec::new(), &CapabilityOptions::default())?;
+    let database_url = database_path.to_string_lossy().to_string();
+    let backend: Arc<dyn DatabaseBackend> = Arc::new(
+        SqliteDatabase::connect(&database_url)
+            .with_context(|| format!("failed to connect to {}", database_path.display()))?,
+    );
+    let capabilities = install_project_database_runtime(&mut vm, project_root, backend)?;
+    for (name, value) in capabilities {
+        vm.set_variable(name, value);
+    }
+
+    let result = vm.run_chunk(&chunk);
+    print!("{}", vm.stdout());
+    eprint!("{}", vm.stderr());
+    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
+        std::process::exit(code);
+    }
+    if let Err(error) = result {
+        bail!("{}", runtime_error_message(&vm, &error));
+    }
     Ok(())
 }
 
@@ -2398,9 +2649,27 @@ struct MigrationDatabase {
 struct MigrationFile {
     version: String,
     path: PathBuf,
+    down_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeedFileKind {
+    Sql,
+    Ricochet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SeedFile {
+    name: String,
+    path: PathBuf,
+    kind: SeedFileKind,
 }
 
 fn migration_project_root(path: &Path) -> Result<PathBuf> {
+    migration_project_root_for_command("migrate", path)
+}
+
+fn migration_project_root_for_command(command: &str, path: &Path) -> Result<PathBuf> {
     let path = if path.is_file() {
         path.parent().unwrap_or_else(|| Path::new("."))
     } else {
@@ -2417,7 +2686,7 @@ fn migration_project_root(path: &Path) -> Result<PathBuf> {
         }
     }
     bail!(
-        "migrate must be run inside a Ricochet project with ricochet.toml: {}",
+        "{command} must be run inside a Ricochet project with ricochet.toml: {}",
         path.display()
     )
 }
@@ -2476,6 +2745,7 @@ fn discover_migrations(project_root: &Path) -> Result<Vec<MigrationFile>> {
         return Ok(Vec::new());
     }
     let mut migrations = Vec::new();
+    let mut down_paths = BTreeMap::new();
     for entry in fs::read_dir(&migrations_dir)
         .with_context(|| format!("failed to read {}", migrations_dir.display()))?
     {
@@ -2490,10 +2760,44 @@ fn discover_migrations(project_root: &Path) -> Result<Vec<MigrationFile>> {
             .and_then(|stem| stem.to_str())
             .context("migration file name must be UTF-8")?
             .to_string();
+        if let Some(version) = version.strip_suffix(".down") {
+            validate_migration_version(version, &path)?;
+            if down_paths
+                .insert(version.to_string(), path.clone())
+                .is_some()
+            {
+                bail!("duplicate down migration for version {version}");
+            }
+            continue;
+        }
+        let version = version
+            .strip_suffix(".up")
+            .map(str::to_string)
+            .unwrap_or(version);
         validate_migration_version(&version, &path)?;
-        migrations.push(MigrationFile { version, path });
+        if migrations
+            .iter()
+            .any(|migration: &MigrationFile| migration.version == version)
+        {
+            bail!("duplicate migration for version {version}");
+        }
+        migrations.push(MigrationFile {
+            version,
+            path,
+            down_path: None,
+        });
     }
     migrations.sort_by(|left, right| left.version.cmp(&right.version));
+    for migration in migrations.iter_mut() {
+        migration.down_path = down_paths.remove(&migration.version);
+    }
+    if let Some((version, path)) = down_paths.into_iter().next() {
+        bail!(
+            "down migration {} has no matching up migration: {}",
+            version,
+            path.display()
+        );
+    }
     Ok(migrations)
 }
 
@@ -2556,6 +2860,74 @@ fn sqlite_applied_migrations(connection: &rusqlite::Connection) -> Result<BTreeS
         applied.insert(row?);
     }
     Ok(applied)
+}
+
+fn sqlite_schema_dump(connection: &rusqlite::Connection) -> Result<String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+select type, name, sql
+from sqlite_schema
+where sql is not null
+  and name not like 'sqlite_%'
+  and name != 'schema_migrations'
+  and tbl_name != 'schema_migrations'
+  and type in ('table', 'index', 'view', 'trigger')
+order by case type
+  when 'table' then 0
+  when 'index' then 1
+  when 'view' then 2
+  when 'trigger' then 3
+  else 4
+end, name
+"#,
+        )
+        .context("failed to read SQLite schema")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+
+    let mut dump = String::from("-- Ricochet SQLite schema dump\n\n");
+    for row in rows {
+        let (kind, name, sql) = row?;
+        let sql = sql.trim().trim_end_matches(';').trim();
+        writeln!(dump, "-- {kind}: {name}")?;
+        writeln!(dump, "{sql};\n")?;
+    }
+    Ok(dump)
+}
+
+fn discover_seed_files(project_root: &Path) -> Result<Vec<SeedFile>> {
+    let seeds_dir = project_root.join("db").join("seeds");
+    if !seeds_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut seed_files = Vec::new();
+    for entry in fs::read_dir(&seeds_dir)
+        .with_context(|| format!("failed to read {}", seeds_dir.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", seeds_dir.display()))?;
+        let path = entry.path();
+        let kind = match path.extension().and_then(|extension| extension.to_str()) {
+            Some("sql") => SeedFileKind::Sql,
+            Some("rco") => SeedFileKind::Ricochet,
+            _ => continue,
+        };
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("seed file name must be UTF-8")?
+            .to_string();
+        seed_files.push(SeedFile { name, path, kind });
+    }
+    seed_files.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(seed_files)
 }
 
 fn migration_timestamp() -> String {
