@@ -364,8 +364,9 @@ Implemented:
 - `rco migrate status` and `rco migrate apply` read ordered SQL and Ricochet
   migration DSL files from `db/migrations` and record applied versions in
   `schema_migrations`.
-- `rco migrate rollback` supports reversible SQLite migrations through paired
-  `VERSION_name.up.sql` / `VERSION_name.down.sql` files or
+- `rco migrate rollback` supports reversible SQLite, PostgreSQL, and
+  MySQL/MariaDB migrations through paired `VERSION_name.up.sql` /
+  `VERSION_name.down.sql` files or
   `VERSION_name.up.rco` / `VERSION_name.down.rco` files, while existing
   one-file `VERSION_name.sql` migrations remain apply-compatible.
 - The native migration DSL is scoped to migration files and supports postfix
@@ -373,10 +374,12 @@ Implemented:
   unique index creation, and column modifiers `primary_key`, `not_null`,
   `unique`, and `default`, compiling to SQLite, PostgreSQL, or MySQL/MariaDB
   SQL.
-- `rco migrate dump` writes deterministic SQLite schema snapshots that exclude
-  `schema_migrations` and SQLite internal objects.
-- `rco seed` runs ordered SQLite `db/seeds/*.sql` and `db/seeds/*.rco` files,
-  with an explicit non-idempotent seed warning.
+- `rco migrate dump` writes deterministic beta DDL schema snapshots for
+  SQLite, PostgreSQL, and MySQL/MariaDB, excluding `schema_migrations` and
+  adapter-internal objects where applicable.
+- `rco seed` runs ordered SQLite, PostgreSQL, and MySQL/MariaDB
+  `db/seeds/*.sql` and `db/seeds/*.rco` files, with an explicit
+  non-idempotent seed warning.
 - The SQLite scaffold creates an initial migration and seeds a local database.
 
 Evidence:
@@ -391,15 +394,15 @@ Evidence:
 
 Remaining:
 
-- PostgreSQL/MySQL rollback and schema dumps, and seed support beyond SQLite
-  are future polish.
-- Active Record targets existing schemas; do not describe it as a full
-  schema-definition ORM.
+- None for the v1 beta database lifecycle.
 
 Do not assume:
 
+- Active Record is a full schema-definition ORM; it targets existing schemas.
 - Migrations are missing. SQL `status` and `apply` exist.
-- SQLite rollback, schema dump, and seed commands are missing.
+- PostgreSQL/MySQL rollback, schema dump, and seed commands are missing.
+- `rco migrate dump` is a replacement for `pg_dump` or `mysqldump`; it is a
+  deterministic Ricochet beta DDL snapshot.
 
 ## Sessions, Auth, Forms, And AI
 
@@ -585,8 +588,8 @@ Do not assume:
 
 Implemented foundations that should not be listed as missing:
 
-- SQL and native DSL migrations (`rco migrate new/status/apply`, SQLite
-  rollback, SQLite schema dump).
+- SQL and native DSL migrations (`rco migrate new/status/apply/rollback/dump`)
+  plus ordered SQL/Ricochet seed files.
 - Native app packaging (`rco package`, release scripts, `.deb`, installers).
 - Debugger, DAP, and VS Code debug surfaces.
 - Static assets.
@@ -598,7 +601,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- PostgreSQL/MySQL rollback and schema dumps, and seed support beyond SQLite.
 - Compile-time macros.
 - Persistent REPL images and source emission.
 - Central hosted package registry.

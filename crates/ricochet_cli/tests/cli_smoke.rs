@@ -769,6 +769,40 @@ fn migrate_status_recognizes_postgres_and_mysql_without_files() {
 }
 
 #[test]
+fn seed_accepts_postgres_and_mysql_projects_without_seed_files() {
+    for (adapter, url) in [
+        ("postgres", "postgres://app:secret@db.example.com/app"),
+        ("mysql", "mysql://app:secret@db.example.com/app"),
+    ] {
+        let source_path = temp_source_path();
+        let root = source_path
+            .parent()
+            .expect("source path has parent")
+            .join(format!("{adapter}_seed_app"));
+        write_source_at(
+            &root,
+            "ricochet.toml",
+            &format!(
+                "[package]\nname = \"seed_app\"\n\n[database.default]\nadapter = \"{adapter}\"\nurl = \"{url}\"\n"
+            ),
+        );
+
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("seed")
+            .arg(&root)
+            .output()
+            .expect("rco seed should launch");
+
+        assert_run_success_for("rco seed", adapter, &output);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("No seed files found in db/seeds."),
+            "stdout should report missing seeds for {adapter}, got:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn new_refuses_non_empty_directory() {
     let source_path = temp_source_path();
     let project_path = source_path

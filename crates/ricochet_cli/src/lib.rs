@@ -823,7 +823,7 @@ pub async fn run_cli() -> Result<()> {
         } => run_bytecode(&path, debug, trace_file.as_deref(), args, capabilities)?,
         Command::Build { path } => build(path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE))?,
         Command::Migrate { command } => migrate(command).await?,
-        Command::Seed { path } => seed(Path::new(path.as_deref().unwrap_or(".")))?,
+        Command::Seed { path } => seed(Path::new(path.as_deref().unwrap_or("."))).await?,
         Command::Gui {
             capabilities,
             path,
@@ -2202,15 +2202,15 @@ async fn migrate(command: MigrateCommand) -> Result<()> {
             migrate_apply(Path::new(path.as_deref().unwrap_or("."))).await
         }
         MigrateCommand::Rollback { path, steps } => {
-            migrate_rollback(Path::new(path.as_deref().unwrap_or(".")), steps)
+            migrate_rollback(Path::new(path.as_deref().unwrap_or(".")), steps).await
         }
         MigrateCommand::Dump { path, output } => {
-            migrate_dump(Path::new(path.as_deref().unwrap_or(".")), &output)
+            migrate_dump(Path::new(path.as_deref().unwrap_or(".")), &output).await
         }
     }
 }
 
-fn seed(path: &Path) -> Result<()> {
+async fn seed(path: &Path) -> Result<()> {
     let project_root = migration_project_root_for_command("seed", path)?;
     let Some(database) = project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
@@ -2223,9 +2223,10 @@ fn seed(path: &Path) -> Result<()> {
 
     match database.adapter.as_str() {
         "sqlite" => seed_sqlite(&project_root, &database, seed_files),
+        "postgres" | "postgresql" => seed_postgres(&project_root, &database, seed_files).await,
+        "mysql" | "mariadb" => seed_mysql(&project_root, &database, seed_files).await,
         adapter => bail!(
-            "rco seed currently supports SQLite projects; found adapter {:?}",
-            adapter
+            "rco seed supports sqlite, postgres, and mysql projects; found adapter {adapter:?}"
         ),
     }
 }
@@ -2303,7 +2304,7 @@ async fn migrate_apply(path: &Path) -> Result<()> {
     }
 }
 
-fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
+async fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
     if steps == 0 {
         bail!("rollback --steps must be greater than 0");
     }
@@ -2315,14 +2316,15 @@ fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
 
     match database.adapter.as_str() {
         "sqlite" => migrate_rollback_sqlite(&project_root, &database, migrations, steps),
-        adapter => bail!(
-            "rco migrate rollback currently supports SQLite projects; found adapter {:?}",
-            adapter
-        ),
+        "postgres" | "postgresql" => {
+            migrate_rollback_postgres(&database, migrations, steps).await
+        }
+        "mysql" | "mariadb" => migrate_rollback_mysql(&database, migrations, steps).await,
+        adapter => bail!("rco migrate rollback supports sqlite, postgres, and mysql projects; found adapter {adapter:?}"),
     }
 }
 
-fn migrate_dump(path: &Path, output: &Path) -> Result<()> {
+async fn migrate_dump(path: &Path, output: &Path) -> Result<()> {
     let project_root = migration_project_root(path)?;
     let Some(database) = project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
@@ -2330,10 +2332,9 @@ fn migrate_dump(path: &Path, output: &Path) -> Result<()> {
 
     match database.adapter.as_str() {
         "sqlite" => migrate_dump_sqlite(&project_root, &database, output),
-        adapter => bail!(
-            "rco migrate dump currently supports SQLite projects; found adapter {:?}",
-            adapter
-        ),
+        "postgres" | "postgresql" => migrate_dump_postgres(&project_root, &database, output).await,
+        "mysql" | "mariadb" => migrate_dump_mysql(&project_root, &database, output).await,
+        adapter => bail!("rco migrate dump supports sqlite, postgres, and mysql projects; found adapter {adapter:?}"),
     }
 }
 
@@ -2485,6 +2486,122 @@ fn migrate_rollback_sqlite(
     Ok(())
 }
 
+async fn migrate_rollback_postgres(
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+    steps: usize,
+) -> Result<()> {
+    let backend = PostgresDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to PostgreSQL for rollback")?;
+    backend
+        .ensure_schema_migrations_table()
+        .await
+        .context("failed to create PostgreSQL schema_migrations")?;
+    let applied = backend
+        .migration_versions()
+        .await
+        .context("failed to read PostgreSQL schema_migrations")?
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    if applied.is_empty() {
+        println!("No applied migrations to roll back.");
+        return Ok(());
+    }
+
+    let migrations_by_version = migrations
+        .iter()
+        .map(|migration| (migration.version.as_str(), migration))
+        .collect::<BTreeMap<_, _>>();
+    let mut rolled_back = 0usize;
+    for version in applied.iter().rev().take(steps) {
+        let migration = migrations_by_version.get(version.as_str()).with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no matching migration file found in db/migrations"
+            )
+        })?;
+        let down = migration.down.as_ref().with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no down SQL or DSL migration found; add db/migrations/{version}.down.sql or db/migrations/{version}.down.rco"
+            )
+        })?;
+        let sql = migration_sql(down, database)
+            .with_context(|| format!("failed to prepare rollback {}", migration.version))?;
+        backend
+            .rollback_migration(&migration.version, &sql)
+            .await
+            .with_context(|| format!("failed to roll back migration {}", migration.version))?;
+        rolled_back += 1;
+        println!("rolled back {}", migration.version);
+    }
+
+    if rolled_back == 0 {
+        println!("No applied migrations to roll back.");
+    } else {
+        println!("Rolled back {rolled_back} migration(s).");
+    }
+    Ok(())
+}
+
+async fn migrate_rollback_mysql(
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+    steps: usize,
+) -> Result<()> {
+    let backend = MysqlDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to MySQL for rollback")?;
+    backend
+        .ensure_schema_migrations_table()
+        .await
+        .context("failed to create MySQL schema_migrations")?;
+    let applied = backend
+        .migration_versions()
+        .await
+        .context("failed to read MySQL schema_migrations")?
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    if applied.is_empty() {
+        println!("No applied migrations to roll back.");
+        return Ok(());
+    }
+
+    let migrations_by_version = migrations
+        .iter()
+        .map(|migration| (migration.version.as_str(), migration))
+        .collect::<BTreeMap<_, _>>();
+    let mut rolled_back = 0usize;
+    for version in applied.iter().rev().take(steps) {
+        let migration = migrations_by_version.get(version.as_str()).with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no matching migration file found in db/migrations"
+            )
+        })?;
+        let down = migration.down.as_ref().with_context(|| {
+            format!(
+                "cannot roll back migration {version}: no down SQL or DSL migration found; add db/migrations/{version}.down.sql or db/migrations/{version}.down.rco"
+            )
+        })?;
+        let sql = migration_sql(down, database)
+            .with_context(|| format!("failed to prepare rollback {}", migration.version))?;
+        backend
+            .rollback_migration(&migration.version, &sql)
+            .await
+            .with_context(|| format!("failed to roll back migration {}", migration.version))?;
+        rolled_back += 1;
+        println!("rolled back {}", migration.version);
+    }
+
+    if rolled_back == 0 {
+        println!("No applied migrations to roll back.");
+    } else {
+        println!("Rolled back {rolled_back} migration(s).");
+    }
+    Ok(())
+}
+
 fn migrate_dump_sqlite(
     project_root: &Path,
     database: &MigrationDatabase,
@@ -2500,6 +2617,40 @@ fn migrate_dump_sqlite(
     let connection = rusqlite::Connection::open(&database_path)
         .with_context(|| format!("failed to open {}", database_path.display()))?;
     let dump = sqlite_schema_dump(&connection)?;
+    write_schema_dump(project_root, output, dump)
+}
+
+async fn migrate_dump_postgres(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    output: &Path,
+) -> Result<()> {
+    let backend = PostgresDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to PostgreSQL for schema dump")?;
+    let dump = backend
+        .schema_dump()
+        .await
+        .context("failed to dump PostgreSQL schema")?;
+    write_schema_dump(project_root, output, dump)
+}
+
+async fn migrate_dump_mysql(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    output: &Path,
+) -> Result<()> {
+    let backend = MysqlDatabase::connect(&database.url)
+        .await
+        .context("failed to connect to MySQL for schema dump")?;
+    let dump = backend
+        .schema_dump()
+        .await
+        .context("failed to dump MySQL schema")?;
+    write_schema_dump(project_root, output, dump)
+}
+
+fn write_schema_dump(project_root: &Path, output: &Path, dump: String) -> Result<()> {
     let output_path = if output.is_absolute() {
         output.to_path_buf()
     } else {
@@ -2549,7 +2700,12 @@ fn seed_sqlite(
                     .with_context(|| format!("failed to commit seed {}", seed_file.name))?;
             }
             SeedFileKind::Ricochet => {
-                run_ricochet_seed_sqlite(project_root, &database_path, &seed_file.path)
+                let database_url = database_path.to_string_lossy().to_string();
+                let backend: Arc<dyn DatabaseBackend> =
+                    Arc::new(SqliteDatabase::connect(&database_url).with_context(|| {
+                        format!("failed to connect to {}", database_path.display())
+                    })?);
+                run_ricochet_seed(project_root, backend, &seed_file.path)
                     .with_context(|| format!("failed to run Ricochet seed {}", seed_file.name))?;
             }
         }
@@ -2561,18 +2717,91 @@ fn seed_sqlite(
     Ok(())
 }
 
-fn run_ricochet_seed_sqlite(
+async fn seed_postgres(
     project_root: &Path,
-    database_path: &Path,
+    database: &MigrationDatabase,
+    seed_files: Vec<SeedFile>,
+) -> Result<()> {
+    let backend = Arc::new(
+        PostgresDatabase::connect(&database.url)
+            .await
+            .context("failed to connect to PostgreSQL for seeds")?,
+    );
+    eprintln!(
+        "Seed files are not tracked; make them idempotent because rco seed runs them every time."
+    );
+
+    let mut seeded_count = 0usize;
+    for seed_file in seed_files {
+        match seed_file.kind {
+            SeedFileKind::Sql => {
+                let sql = fs::read_to_string(&seed_file.path)
+                    .with_context(|| format!("failed to read {}", seed_file.path.display()))?;
+                backend
+                    .execute_seed(&sql)
+                    .await
+                    .with_context(|| format!("failed to run SQL seed {}", seed_file.name))?;
+            }
+            SeedFileKind::Ricochet => {
+                let seed_backend: Arc<dyn DatabaseBackend> = backend.clone();
+                run_ricochet_seed(project_root, seed_backend, &seed_file.path)
+                    .with_context(|| format!("failed to run Ricochet seed {}", seed_file.name))?;
+            }
+        }
+        seeded_count += 1;
+        println!("seeded {}", seed_file.name);
+    }
+
+    println!("Ran {seeded_count} seed file(s).");
+    Ok(())
+}
+
+async fn seed_mysql(
+    project_root: &Path,
+    database: &MigrationDatabase,
+    seed_files: Vec<SeedFile>,
+) -> Result<()> {
+    let backend = Arc::new(
+        MysqlDatabase::connect(&database.url)
+            .await
+            .context("failed to connect to MySQL for seeds")?,
+    );
+    eprintln!(
+        "Seed files are not tracked; make them idempotent because rco seed runs them every time."
+    );
+
+    let mut seeded_count = 0usize;
+    for seed_file in seed_files {
+        match seed_file.kind {
+            SeedFileKind::Sql => {
+                let sql = fs::read_to_string(&seed_file.path)
+                    .with_context(|| format!("failed to read {}", seed_file.path.display()))?;
+                backend
+                    .execute_seed(&sql)
+                    .await
+                    .with_context(|| format!("failed to run SQL seed {}", seed_file.name))?;
+            }
+            SeedFileKind::Ricochet => {
+                let seed_backend: Arc<dyn DatabaseBackend> = backend.clone();
+                run_ricochet_seed(project_root, seed_backend, &seed_file.path)
+                    .with_context(|| format!("failed to run Ricochet seed {}", seed_file.name))?;
+            }
+        }
+        seeded_count += 1;
+        println!("seeded {}", seed_file.name);
+    }
+
+    println!("Ran {seeded_count} seed file(s).");
+    Ok(())
+}
+
+fn run_ricochet_seed(
+    project_root: &Path,
+    backend: Arc<dyn DatabaseBackend>,
     seed_path: &Path,
 ) -> Result<()> {
     let chunk = compile_source_file(seed_path)?;
     let mut vm = cli_vm(Vec::new(), &CapabilityOptions::default())?;
-    let database_url = database_path.to_string_lossy().to_string();
-    let backend: Arc<dyn DatabaseBackend> = Arc::new(
-        SqliteDatabase::connect(&database_url)
-            .with_context(|| format!("failed to connect to {}", database_path.display()))?,
-    );
     let capabilities = install_project_database_runtime(&mut vm, project_root, backend)?;
     for (name, value) in capabilities {
         vm.set_variable(name, value);

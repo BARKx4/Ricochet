@@ -160,20 +160,30 @@ Rollback DSL uses the same postfix shape:
 "notes" table_drop
 ```
 
-`rco migrate rollback [path] --steps 1` rolls back applied SQLite migrations
-newest-first and removes each version from `schema_migrations` after its down
-SQL or DSL succeeds. Rollback fails loudly when the newest migration has no
-matching down migration file.
+`rco migrate rollback [path] --steps 1` rolls back applied SQLite,
+PostgreSQL, and MySQL/MariaDB migrations newest-first and removes each version
+from `schema_migrations` after its down SQL or DSL succeeds. Rollback fails
+loudly when the newest migration has no matching down migration file. MySQL and
+MariaDB DDL can auto-commit depending on the statement; Ricochet still records
+the migration as rolled back only after the down migration succeeds.
 
-`rco migrate dump [path] --output db/schema.sql` writes a deterministic SQLite
-schema dump for user tables, indexes, views, and triggers. The dump excludes
-`schema_migrations` and SQLite internal objects.
+`rco migrate dump [path] --output db/schema.sql` writes a deterministic beta
+DDL snapshot for SQLite, PostgreSQL, and MySQL/MariaDB user objects. The dump
+excludes `schema_migrations` and adapter-internal objects where applicable. It
+is not a byte-for-byte replacement for `pg_dump` or `mysqldump`; use those
+native tools when you need full adapter fidelity.
 
 `rco seed [path]` runs `db/seeds/*.sql` and `db/seeds/*.rco` files in filename
-order for SQLite projects. SQL seeds execute directly. Ricochet seed files run
-with project models loaded and the `db` capability available, so Active Record
-methods such as `Note insert` can populate tables. Seeds are not tracked;
-non-idempotent seed files will run again on every `rco seed`.
+order for SQLite, PostgreSQL, and MySQL/MariaDB projects. SQL seeds execute
+directly. Ricochet seed files run with project models loaded and the `db`
+capability available, so Active Record methods such as `Note insert` can
+populate tables. Seeds are not tracked; non-idempotent seed files will run
+again on every `rco seed`.
+
+Raw MySQL migration batches do not support `DELIMITER` routine-body syntax in
+this beta path. Keep stored procedure/function installation in native adapter
+tooling or use single-statement migrations that do not require delimiter
+rewriting.
 
 ## Request Data
 

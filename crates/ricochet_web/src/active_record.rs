@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use bytes::BytesMut;
 use mysql_async::prelude::Queryable;
-use mysql_async::{Pool as MysqlPool, Row as MysqlRow, Value as MysqlSqlValue};
+use mysql_async::{Conn as MysqlConn, Pool as MysqlPool, Row as MysqlRow, Value as MysqlSqlValue};
 use ricochet_vm::Value;
 use rusqlite::types::{ToSqlOutput, Value as SqliteSqlValue, ValueRef};
 use rusqlite::{Connection, Row as SqliteRow};
@@ -583,6 +583,17 @@ create table if not exists schema_migrations (
         Ok(())
     }
 
+    pub async fn forget_migration(&self, version: &str) -> Result<(), ActiveRecordError> {
+        self.client
+            .execute(
+                "delete from schema_migrations where version = $1",
+                &[&version],
+            )
+            .await
+            .map_err(|error| database_error("forget migration", error))?;
+        Ok(())
+    }
+
     pub async fn apply_migration(
         &self,
         version: &str,
@@ -602,6 +613,206 @@ create table if not exists schema_migrations (
                 Err(error)
             }
         }
+    }
+
+    pub async fn rollback_migration(
+        &self,
+        version: &str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        self.execute_batch("begin").await?;
+        let result = async {
+            self.execute_batch(sql).await?;
+            self.forget_migration(version).await
+        }
+        .await;
+        match result {
+            Ok(()) => self.execute_batch("commit").await,
+            Err(error) => {
+                let _ = self.execute_batch("rollback").await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn execute_seed(&self, sql: &str) -> Result<(), ActiveRecordError> {
+        self.execute_batch("begin").await?;
+        let result = self.execute_batch(sql).await;
+        match result {
+            Ok(()) => self.execute_batch("commit").await,
+            Err(error) => {
+                let _ = self.execute_batch("rollback").await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn schema_dump(&self) -> Result<String, ActiveRecordError> {
+        let sequence_rows = self
+            .client
+            .query(
+                r#"
+select sequence_class.relname as sequence_name
+from pg_class sequence_class
+join pg_namespace namespace on namespace.oid = sequence_class.relnamespace
+where namespace.nspname = current_schema()
+  and sequence_class.relkind = 'S'
+order by sequence_class.relname
+"#,
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("dump schema", error))?;
+
+        let column_rows = self
+            .client
+            .query(
+                r#"
+select
+  table_class.relname as table_name,
+  attribute.attname as column_name,
+  pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) as data_type,
+  attribute.attnotnull as not_null,
+  pg_get_expr(attribute_default.adbin, attribute_default.adrelid) as default_expr
+from pg_class table_class
+join pg_namespace namespace on namespace.oid = table_class.relnamespace
+join pg_attribute attribute on attribute.attrelid = table_class.oid
+left join pg_attrdef attribute_default
+  on attribute_default.adrelid = table_class.oid
+  and attribute_default.adnum = attribute.attnum
+where namespace.nspname = current_schema()
+  and table_class.relkind in ('r', 'p')
+  and table_class.relname <> 'schema_migrations'
+  and attribute.attnum > 0
+  and not attribute.attisdropped
+order by table_class.relname, attribute.attnum
+"#,
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("dump schema", error))?;
+        let mut tables = BTreeMap::<String, Vec<String>>::new();
+        for row in column_rows {
+            let table_name = row.get::<_, String>("table_name");
+            let column_name = row.get::<_, String>("column_name");
+            let data_type = row.get::<_, String>("data_type");
+            let not_null = row.get::<_, bool>("not_null");
+            let default_expr = row.get::<_, Option<String>>("default_expr");
+
+            let mut definition =
+                format!("{} {}", quote_postgres_identifier(&column_name), data_type);
+            if let Some(default_expr) = default_expr {
+                definition.push_str(" default ");
+                definition.push_str(&default_expr);
+            }
+            if not_null {
+                definition.push_str(" not null");
+            }
+            tables.entry(table_name).or_default().push(definition);
+        }
+
+        let constraint_rows = self
+            .client
+            .query(
+                r#"
+select
+  table_class.relname as table_name,
+  constraint_object.conname as constraint_name,
+  pg_get_constraintdef(constraint_object.oid) as constraint_definition
+from pg_constraint constraint_object
+join pg_class table_class on table_class.oid = constraint_object.conrelid
+join pg_namespace namespace on namespace.oid = table_class.relnamespace
+where namespace.nspname = current_schema()
+  and table_class.relname <> 'schema_migrations'
+  and constraint_object.contype in ('p', 'u', 'f', 'c')
+order by table_class.relname, constraint_object.conname
+"#,
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("dump schema", error))?;
+
+        let index_rows = self
+            .client
+            .query(
+                r#"
+select
+  table_class.relname as table_name,
+  index_class.relname as index_name,
+  pg_get_indexdef(index_object.indexrelid) as index_definition
+from pg_index index_object
+join pg_class index_class on index_class.oid = index_object.indexrelid
+join pg_class table_class on table_class.oid = index_object.indrelid
+join pg_namespace namespace on namespace.oid = table_class.relnamespace
+left join pg_constraint constraint_object on constraint_object.conindid = index_object.indexrelid
+where namespace.nspname = current_schema()
+  and table_class.relname <> 'schema_migrations'
+  and constraint_object.oid is null
+order by table_class.relname, index_class.relname
+"#,
+                &[],
+            )
+            .await
+            .map_err(|error| database_error("dump schema", error))?;
+
+        let mut dump = String::from("-- Ricochet PostgreSQL schema dump\n\n");
+        for row in sequence_rows {
+            let sequence_name = row.get::<_, String>("sequence_name");
+            dump.push_str("-- sequence: ");
+            dump.push_str(&sequence_name);
+            dump.push('\n');
+            dump.push_str("create sequence ");
+            dump.push_str(&quote_postgres_identifier(&sequence_name));
+            dump.push_str(";\n\n");
+        }
+        for (table_name, columns) in tables {
+            dump.push_str("-- table: ");
+            dump.push_str(&table_name);
+            dump.push('\n');
+            dump.push_str("create table ");
+            dump.push_str(&quote_postgres_identifier(&table_name));
+            dump.push_str(" (\n");
+            for (index, column) in columns.iter().enumerate() {
+                dump.push_str("  ");
+                dump.push_str(column);
+                if index + 1 == columns.len() {
+                    dump.push('\n');
+                } else {
+                    dump.push_str(",\n");
+                }
+            }
+            dump.push_str(");\n\n");
+        }
+        for row in constraint_rows {
+            let table_name = row.get::<_, String>("table_name");
+            let constraint_name = row.get::<_, String>("constraint_name");
+            let constraint_definition = row.get::<_, String>("constraint_definition");
+            dump.push_str("-- constraint: ");
+            dump.push_str(&table_name);
+            dump.push(' ');
+            dump.push_str(&constraint_name);
+            dump.push('\n');
+            dump.push_str("alter table ");
+            dump.push_str(&quote_postgres_identifier(&table_name));
+            dump.push_str(" add constraint ");
+            dump.push_str(&quote_postgres_identifier(&constraint_name));
+            dump.push(' ');
+            dump.push_str(&constraint_definition);
+            dump.push_str(";\n\n");
+        }
+        for row in index_rows {
+            let table_name = row.get::<_, String>("table_name");
+            let index_name = row.get::<_, String>("index_name");
+            let index_definition = row.get::<_, String>("index_definition");
+            dump.push_str("-- index: ");
+            dump.push_str(&table_name);
+            dump.push(' ');
+            dump.push_str(&index_name);
+            dump.push('\n');
+            dump.push_str(index_definition.trim_end_matches(';'));
+            dump.push_str(";\n\n");
+        }
+        Ok(dump)
     }
 
     pub async fn find(
@@ -1062,6 +1273,47 @@ fn split_mysql_batch(sql: &str) -> Vec<String> {
     statements
 }
 
+async fn execute_mysql_batch(
+    connection: &mut MysqlConn,
+    operation: &'static str,
+    sql: &str,
+) -> Result<(), ActiveRecordError> {
+    for statement in split_mysql_batch(sql) {
+        connection
+            .query_drop(statement)
+            .await
+            .map_err(|error| mysql_error(operation, error))?;
+    }
+    Ok(())
+}
+
+fn quote_postgres_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn quote_mysql_identifier(identifier: &str) -> String {
+    format!("`{}`", identifier.replace('`', "``"))
+}
+
+fn normalize_mysql_create_table(sql: &str) -> String {
+    let normalized = sql.replace("\r\n", "\n");
+    let mut output = String::new();
+    let mut rest = normalized.as_str();
+    while let Some(index) = rest.find(" AUTO_INCREMENT=") {
+        output.push_str(&rest[..index]);
+        rest = &rest[index + " AUTO_INCREMENT=".len()..];
+        let digits = rest
+            .char_indices()
+            .take_while(|(_, character)| character.is_ascii_digit())
+            .last()
+            .map(|(index, character)| index + character.len_utf8())
+            .unwrap_or(0);
+        rest = &rest[digits..];
+    }
+    output.push_str(rest);
+    output
+}
+
 #[derive(Clone)]
 pub struct SqliteDatabase {
     connection: Arc<Mutex<Connection>>,
@@ -1398,13 +1650,7 @@ impl MysqlDatabase {
             .get_conn()
             .await
             .map_err(|error| mysql_error("execute migration", error))?;
-        for statement in split_mysql_batch(sql) {
-            connection
-                .query_drop(statement)
-                .await
-                .map_err(|error| mysql_error("execute migration", error))?;
-        }
-        Ok(())
+        execute_mysql_batch(&mut connection, "execute migration", sql).await
     }
 
     pub async fn migration_versions(&self) -> Result<Option<Vec<String>>, ActiveRecordError> {
@@ -1462,25 +1708,161 @@ create table if not exists schema_migrations (
         Ok(())
     }
 
+    pub async fn forget_migration(&self, version: &str) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("forget migration", error))?;
+        connection
+            .exec_drop(
+                "delete from schema_migrations where version = ?",
+                (version,),
+            )
+            .await
+            .map_err(|error| mysql_error("forget migration", error))?;
+        Ok(())
+    }
+
     pub async fn apply_migration(
         &self,
         version: &str,
         applied_at: &str,
         sql: &str,
     ) -> Result<(), ActiveRecordError> {
-        self.execute_batch("start transaction").await?;
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("apply migration", error))?;
+        connection
+            .query_drop("start transaction")
+            .await
+            .map_err(|error| mysql_error("apply migration", error))?;
         let result = async {
-            self.execute_batch(sql).await?;
-            self.record_migration(version, applied_at).await
+            execute_mysql_batch(&mut connection, "apply migration", sql).await?;
+            connection
+                .exec_drop(
+                    "insert into schema_migrations (version, applied_at) values (?, ?)",
+                    (version, applied_at),
+                )
+                .await
+                .map_err(|error| mysql_error("record migration", error))?;
+            Ok(())
         }
         .await;
         match result {
-            Ok(()) => self.execute_batch("commit").await,
+            Ok(()) => connection
+                .query_drop("commit")
+                .await
+                .map_err(|error| mysql_error("commit migration", error)),
             Err(error) => {
-                let _ = self.execute_batch("rollback").await;
+                let _ = connection.query_drop("rollback").await;
                 Err(error)
             }
         }
+    }
+
+    pub async fn rollback_migration(
+        &self,
+        version: &str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("rollback migration", error))?;
+        connection
+            .query_drop("start transaction")
+            .await
+            .map_err(|error| mysql_error("rollback migration", error))?;
+        let result = async {
+            execute_mysql_batch(&mut connection, "rollback migration", sql).await?;
+            connection
+                .exec_drop(
+                    "delete from schema_migrations where version = ?",
+                    (version,),
+                )
+                .await
+                .map_err(|error| mysql_error("forget migration", error))?;
+            Ok(())
+        }
+        .await;
+        match result {
+            Ok(()) => connection
+                .query_drop("commit")
+                .await
+                .map_err(|error| mysql_error("commit rollback", error)),
+            Err(error) => {
+                let _ = connection.query_drop("rollback").await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn execute_seed(&self, sql: &str) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("seed", error))?;
+        connection
+            .query_drop("start transaction")
+            .await
+            .map_err(|error| mysql_error("seed", error))?;
+        let result = execute_mysql_batch(&mut connection, "seed", sql).await;
+        match result {
+            Ok(()) => connection
+                .query_drop("commit")
+                .await
+                .map_err(|error| mysql_error("commit seed", error)),
+            Err(error) => {
+                let _ = connection.query_drop("rollback").await;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn schema_dump(&self) -> Result<String, ActiveRecordError> {
+        let mut connection = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|error| mysql_error("dump schema", error))?;
+        let tables: Vec<String> = connection
+            .exec_map(
+                r#"
+select table_name
+from information_schema.tables
+where table_schema = database()
+  and table_type = 'BASE TABLE'
+  and table_name <> 'schema_migrations'
+order by table_name
+"#,
+                (),
+                |table_name: String| table_name,
+            )
+            .await
+            .map_err(|error| mysql_error("dump schema", error))?;
+
+        let mut dump = String::from("-- Ricochet MySQL schema dump\n\n");
+        for table_name in tables {
+            let query = format!("show create table {}", quote_mysql_identifier(&table_name));
+            let row: Option<(String, String)> = connection
+                .query_first(query)
+                .await
+                .map_err(|error| mysql_error("dump schema", error))?;
+            let Some((_, create_table)) = row else {
+                continue;
+            };
+            dump.push_str("-- table: ");
+            dump.push_str(&table_name);
+            dump.push('\n');
+            dump.push_str(normalize_mysql_create_table(&create_table).trim_end_matches(';'));
+            dump.push_str(";\n\n");
+        }
+        Ok(dump)
     }
 
     pub async fn find(
@@ -2684,6 +3066,25 @@ insert into notes (id) values (2);"#,
                 "-- line; comment\ninsert into notes (id) values (1)".to_string(),
                 "# hash; comment\ninsert into notes (id) values (2)".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn sql_identifier_quoting_escapes_adapter_delimiters() {
+        assert_eq!(
+            quote_postgres_identifier("user\"audit"),
+            "\"user\"\"audit\""
+        );
+        assert_eq!(quote_mysql_identifier("user`audit"), "`user``audit`");
+    }
+
+    #[test]
+    fn mysql_schema_dump_normalizes_auto_increment_counters() {
+        assert_eq!(
+            normalize_mysql_create_table(
+                "CREATE TABLE `notes` (\n  `id` int NOT NULL AUTO_INCREMENT\n) ENGINE=InnoDB AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb4;"
+            ),
+            "CREATE TABLE `notes` (\n  `id` int NOT NULL AUTO_INCREMENT\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
         );
     }
 
