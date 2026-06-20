@@ -65,7 +65,7 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
     WordDoc::new(
         "Macro",
         "macro declaration",
-        "Declare an unsupported compile-time macro for editor-safe future macro syntax.",
+        "Declare a local beta compile-time macro with string-literal postfix syntax.",
     ),
     WordDoc::new(
         "end",
@@ -1986,10 +1986,10 @@ mod tests {
             .expect("publish diagnostics should exist")["params"]["diagnostics"]
             .as_array()
             .expect("diagnostics should be an array");
-        assert!(diagnostics[0]["message"]
-            .as_str()
-            .expect("diagnostic message should be text")
-            .contains("compile-time macros are not implemented yet"));
+        assert!(
+            diagnostics.is_empty(),
+            "top-level macro declarations should parse and compile away without editor errors"
+        );
 
         let symbols = messages
             .iter()

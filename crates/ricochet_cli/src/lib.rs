@@ -10189,7 +10189,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diagnostics_include_macro_body_lints_when_macro_compile_is_unsupported() {
+    fn diagnostics_include_macro_body_lints_for_top_level_macro_declarations() {
         let source = r#"
 "unless" Macro
 [
@@ -10202,12 +10202,10 @@ end
         let diagnostics = source_lsp_diagnostics("test.rco", source);
 
         assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic["message"].as_str().is_some_and(
-                    |message| message.contains("compile-time macros are not implemented yet")
-                )),
-            "unsupported macro diagnostic should still be published"
+            !diagnostics.iter().any(|diagnostic| diagnostic["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("compile-time macros are not implemented yet"))),
+            "top-level macro declarations should compile away without an unsupported macro diagnostic"
         );
         assert!(
             diagnostics.iter().any(|diagnostic| diagnostic["code"]
@@ -10221,6 +10219,29 @@ end
                 .is_some_and(|code| code == "leading-dot-syntax")
                 && diagnostic["data"]["replacement"] == "http_request"),
             "leading-dot lints inside macro bodies should include the usual replacement"
+        );
+    }
+
+    #[test]
+    fn diagnostics_keep_class_body_macro_rejection() {
+        let source = r#"
+User Model Subclass
+  "displayName" Macro
+  [
+    "ok"
+  ]
+  end
+end
+"#;
+
+        let diagnostics = source_lsp_diagnostics("test.rco", source);
+
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic["message"]
+                .as_str()
+                .is_some_and(|message| message
+                    .contains("macro declarations are only supported at top level"))),
+            "class-body macro declarations should still publish a clear unsupported diagnostic"
         );
     }
 

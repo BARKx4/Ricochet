@@ -376,6 +376,14 @@ const WORDS = [
     "example": "( left right -> Number ) sum function\n  $left $right +\nend"
   },
   {
+    "word": "Macro",
+    "aliases": [],
+    "group": "control",
+    "stack": "declaration",
+    "body": "Declares a local beta compile-time macro. Macro names are string literals, macro bodies run in a restricted compile-time evaluator, and top-level declarations compile away before runtime bytecode is emitted.",
+    "example": "\"say_ok\" Macro\n  [\n    [ \"ok\" println ] quote_ast\n  ]\nend\n\n\"say_ok\" macro_call"
+  },
+  {
     "word": "return",
     "aliases": [],
     "group": "control",

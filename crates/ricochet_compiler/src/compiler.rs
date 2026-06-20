@@ -1,9 +1,15 @@
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_syntax::{
     line_column, line_starts, parse_error_diagnostic, parse_module, ArgsDecl, ClassDecl, Expr,
-    Item, MethodDecl, Module, ParseError, SourceDiagnostic, Span, SpannedExpr,
+    Item, MacroDecl, MethodDecl, Module, ParseError, SourceDiagnostic, Span, SpannedExpr,
 };
+use std::collections::HashMap;
 use thiserror::Error;
+
+const MAX_MACRO_EXPANSION_DEPTH: usize = 32;
+const MAX_SAME_MACRO_RECURSION: usize = 8;
+const MAX_MACRO_EVALUATOR_STEPS: usize = 10_000;
+const MAX_GENERATED_AST_NODES: usize = 100_000;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum CompileError {
@@ -21,6 +27,7 @@ pub enum CompileError {
 
 pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
     let module = parse_module(source)?;
+    let module = expand_local_macros(&module)?;
     let mut compiler = Compiler::from_source(file, source);
     compiler.compile_module(&module)?;
     Ok(compiler.finish())
@@ -50,6 +57,699 @@ pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> S
             format!("{word} can only be used inside a loop"),
         )
         .render(source),
+    }
+}
+
+fn expand_local_macros(module: &Module) -> Result<Module, CompileError> {
+    let mut expander = MacroExpander::new(module)?;
+    expander.expand_module(module)
+}
+
+#[derive(Clone)]
+struct MacroDefinition {
+    name: String,
+    inputs: Vec<String>,
+    body: Vec<SpannedExpr>,
+    span: Span,
+}
+
+struct MacroExpander {
+    macros: HashMap<String, MacroDefinition>,
+    generated_ast_nodes: usize,
+}
+
+#[derive(Clone)]
+struct ExpandedSegment {
+    exprs: Vec<SpannedExpr>,
+    span: Span,
+}
+
+impl ExpandedSegment {
+    fn new(exprs: Vec<SpannedExpr>, fallback_span: Span) -> Self {
+        let span = exprs_span(&exprs).unwrap_or(fallback_span);
+        Self { exprs, span }
+    }
+
+    fn single(expr: SpannedExpr) -> Self {
+        Self {
+            span: expr.span,
+            exprs: vec![expr],
+        }
+    }
+
+    fn as_operand(&self) -> SpannedExpr {
+        match self.exprs.as_slice() {
+            [expr] => expr.clone(),
+            _ => SpannedExpr {
+                expr: Expr::Sequence(self.exprs.clone()),
+                span: self.span,
+            },
+        }
+    }
+
+    fn string_literal(&self) -> Option<(&str, Span)> {
+        match self.exprs.as_slice() {
+            [SpannedExpr {
+                expr: Expr::String(value),
+                span,
+            }] => Some((value, *span)),
+            _ => None,
+        }
+    }
+}
+
+impl MacroExpander {
+    fn new(module: &Module) -> Result<Self, CompileError> {
+        let mut macros = HashMap::new();
+        for item in &module.items {
+            let Item::Macro(macro_decl) = item else {
+                continue;
+            };
+
+            if macros.contains_key(&macro_decl.name) {
+                return Err(CompileError::Unsupported {
+                    feature: format!(
+                        "ambiguous compile-time macro {:?}: duplicate local declarations",
+                        macro_decl.name
+                    ),
+                    span: macro_decl.span,
+                    help: Some(
+                        "keep one local macro declaration for each macro name in this file"
+                            .to_string(),
+                    ),
+                });
+            }
+
+            macros.insert(
+                macro_decl.name.clone(),
+                MacroDefinition::from_decl(macro_decl),
+            );
+        }
+
+        Ok(Self {
+            macros,
+            generated_ast_nodes: 0,
+        })
+    }
+
+    fn expand_module(&mut self, module: &Module) -> Result<Module, CompileError> {
+        let mut items = Vec::new();
+        let mut stack = Vec::new();
+        for item in &module.items {
+            if let Some(item) = self.expand_top_level_item(item, &mut stack)? {
+                items.push(item);
+            }
+        }
+        Ok(Module { items })
+    }
+
+    fn expand_top_level_item(
+        &mut self,
+        item: &Item,
+        stack: &mut Vec<String>,
+    ) -> Result<Option<Item>, CompileError> {
+        match item {
+            Item::Macro(_) => Ok(None),
+            Item::Class(class) => Ok(Some(Item::Class(self.expand_class(class, stack)?))),
+            Item::Method(method) => Ok(Some(Item::Method(self.expand_method(method, stack)?))),
+            Item::Function(function) => Ok(Some(Item::Function(ricochet_syntax::FunctionDecl {
+                name: function.name.clone(),
+                args: function.args.clone(),
+                body: self.expand_exprs(&function.body, stack, 0)?,
+                docs: function.docs.clone(),
+                span: function.span,
+            }))),
+            Item::Expr { expr, span, docs } => Ok(Some(Item::Expr {
+                expr: self.expand_expr(expr, stack, 0)?,
+                span: *span,
+                docs: docs.clone(),
+            })),
+        }
+    }
+
+    fn expand_class(
+        &mut self,
+        class: &ClassDecl,
+        stack: &mut Vec<String>,
+    ) -> Result<ClassDecl, CompileError> {
+        let mut body = Vec::new();
+        for item in &class.body {
+            body.push(self.expand_class_body_item(item, stack)?);
+        }
+        Ok(ClassDecl {
+            name: class.name.clone(),
+            superclass: class.superclass.clone(),
+            body,
+            docs: class.docs.clone(),
+            span: class.span,
+        })
+    }
+
+    fn expand_class_body_item(
+        &mut self,
+        item: &Item,
+        stack: &mut Vec<String>,
+    ) -> Result<Item, CompileError> {
+        match item {
+            Item::Macro(macro_decl) => Err(CompileError::Unsupported {
+                feature: "macro declarations are only supported at top level in this local macro slice"
+                    .to_string(),
+                span: macro_decl.span,
+                help: Some(
+                    "move the macro declaration to the top level of the file and invoke it from the class body"
+                        .to_string(),
+                ),
+            }),
+            Item::Class(class) => Ok(Item::Class(self.expand_class(class, stack)?)),
+            Item::Method(method) => Ok(Item::Method(self.expand_method(method, stack)?)),
+            Item::Function(function) => Ok(Item::Function(ricochet_syntax::FunctionDecl {
+                name: function.name.clone(),
+                args: function.args.clone(),
+                body: self.expand_exprs(&function.body, stack, 0)?,
+                docs: function.docs.clone(),
+                span: function.span,
+            })),
+            Item::Expr { expr, span, docs } => Ok(Item::Expr {
+                expr: self.expand_expr(expr, stack, 0)?,
+                span: *span,
+                docs: docs.clone(),
+            }),
+        }
+    }
+
+    fn expand_method(
+        &mut self,
+        method: &MethodDecl,
+        stack: &mut Vec<String>,
+    ) -> Result<MethodDecl, CompileError> {
+        Ok(MethodDecl {
+            name: method.name.clone(),
+            args: method.args.clone(),
+            body: self.expand_exprs(&method.body, stack, 0)?,
+            docs: method.docs.clone(),
+            span: method.span,
+        })
+    }
+
+    fn expand_expr(
+        &mut self,
+        expr: &Expr,
+        stack: &mut Vec<String>,
+        depth: usize,
+    ) -> Result<Expr, CompileError> {
+        match expr {
+            Expr::Block(body) => Ok(Expr::Block(self.expand_exprs(body, stack, depth)?)),
+            Expr::Sequence(exprs) => Ok(Expr::Sequence(self.expand_exprs(exprs, stack, depth)?)),
+            Expr::If {
+                then_body,
+                else_body,
+            } => Ok(Expr::If {
+                then_body: self.expand_exprs(then_body, stack, depth)?,
+                else_body: self.expand_exprs(else_body, stack, depth)?,
+            }),
+            Expr::While { condition, body } => Ok(Expr::While {
+                condition: self.expand_exprs(condition, stack, depth)?,
+                body: self.expand_exprs(body, stack, depth)?,
+            }),
+            _ => Ok(expr.clone()),
+        }
+    }
+
+    fn expand_spanned_expr(
+        &mut self,
+        expr: &SpannedExpr,
+        stack: &mut Vec<String>,
+        depth: usize,
+    ) -> Result<SpannedExpr, CompileError> {
+        Ok(SpannedExpr {
+            expr: self.expand_expr(&expr.expr, stack, depth)?,
+            span: expr.span,
+        })
+    }
+
+    fn expand_exprs(
+        &mut self,
+        exprs: &[SpannedExpr],
+        stack: &mut Vec<String>,
+        depth: usize,
+    ) -> Result<Vec<SpannedExpr>, CompileError> {
+        let mut output = Vec::<ExpandedSegment>::new();
+
+        for expr in exprs {
+            if matches!(&expr.expr, Expr::Symbol(word) if word == "macro_call") {
+                self.expand_macro_call(expr.span, &mut output, stack, depth)?;
+            } else {
+                output.push(ExpandedSegment::single(
+                    self.expand_spanned_expr(expr, stack, depth)?,
+                ));
+            }
+        }
+
+        Ok(flatten_segments(output))
+    }
+
+    fn expand_macro_call(
+        &mut self,
+        call_span: Span,
+        output: &mut Vec<ExpandedSegment>,
+        stack: &mut Vec<String>,
+        depth: usize,
+    ) -> Result<(), CompileError> {
+        let Some(name_segment) = output.last() else {
+            return Err(CompileError::Unsupported {
+                feature: "macro_call requires a literal macro name immediately before it"
+                    .to_string(),
+                span: call_span,
+                help: Some("use MacroOperand* \"name\" macro_call".to_string()),
+            });
+        };
+
+        let Some((name, name_span)) = name_segment.string_literal() else {
+            return Err(CompileError::Unsupported {
+                feature: "nonliteral compile-time macro names are not supported".to_string(),
+                span: name_segment.span,
+                help: Some("use a string literal macro name before macro_call".to_string()),
+            });
+        };
+
+        let Some(macro_def) = self.macros.get(name).cloned() else {
+            return Err(CompileError::Unsupported {
+                feature: format!("unknown compile-time macro {name:?}"),
+                span: name_span,
+                help: Some(
+                    "declare a local top-level macro with \"name\" Macro before invoking macro_call"
+                        .to_string(),
+                ),
+            });
+        };
+
+        if depth >= MAX_MACRO_EXPANSION_DEPTH {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "macro expansion depth limit {MAX_MACRO_EXPANSION_DEPTH} exceeded while expanding {:?}",
+                    macro_def.name
+                ),
+                span: name_span,
+                help: Some("shorten the macro expansion chain or remove recursive expansion".to_string()),
+            });
+        }
+
+        let same_macro_depth = stack
+            .iter()
+            .filter(|macro_name| macro_name.as_str() == macro_def.name)
+            .count();
+        if same_macro_depth >= MAX_SAME_MACRO_RECURSION {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "same-macro recursion limit {MAX_SAME_MACRO_RECURSION} exceeded while expanding {:?}",
+                    macro_def.name
+                ),
+                span: name_span,
+                help: Some("make the macro expansion terminate before recursively invoking itself".to_string()),
+            });
+        }
+
+        let arg_count = macro_def.inputs.len();
+        if output.len() < arg_count + 1 {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macro {:?} expected {arg_count} operand(s), but invocation has fewer",
+                    macro_def.name
+                ),
+                span: name_span,
+                help: Some("place the macro operands immediately before the literal macro name".to_string()),
+            });
+        }
+
+        let operand_start = output.len() - 1 - arg_count;
+        let operands = output[operand_start..output.len() - 1]
+            .iter()
+            .map(ExpandedSegment::as_operand)
+            .collect::<Vec<_>>();
+        output.truncate(operand_start);
+
+        let mut bindings = HashMap::new();
+        for (name, operand) in macro_def.inputs.iter().zip(operands) {
+            bindings.insert(name.clone(), operand);
+        }
+
+        stack.push(macro_def.name.clone());
+        let mut evaluator = MacroEvaluator::new(&bindings);
+        let expansion = evaluator.evaluate(&macro_def)?;
+        self.record_generated_nodes(&expansion, name_span)?;
+        let expansion = self.expand_exprs(&expansion, stack, depth + 1)?;
+        stack.pop();
+
+        output.push(ExpandedSegment::new(expansion, name_span));
+        Ok(())
+    }
+
+    fn record_generated_nodes(
+        &mut self,
+        exprs: &[SpannedExpr],
+        span: Span,
+    ) -> Result<(), CompileError> {
+        self.generated_ast_nodes += count_spanned_exprs(exprs);
+        if self.generated_ast_nodes > MAX_GENERATED_AST_NODES {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "generated macro AST node limit {MAX_GENERATED_AST_NODES} exceeded"
+                ),
+                span,
+                help: Some("reduce macro expansion output for this source file".to_string()),
+            });
+        }
+        Ok(())
+    }
+}
+
+impl MacroDefinition {
+    fn from_decl(macro_decl: &MacroDecl) -> Self {
+        Self {
+            name: macro_decl.name.clone(),
+            inputs: macro_decl
+                .args
+                .as_ref()
+                .map(|args| args.inputs.clone())
+                .unwrap_or_default(),
+            body: macro_decl.body.clone(),
+            span: macro_decl.span,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum MacroValue {
+    Ast(SpannedExpr),
+    AstList(Vec<SpannedExpr>),
+    QuotedBlock(Vec<SpannedExpr>),
+    String,
+    Number,
+    Float,
+    Bool,
+    Nil,
+}
+
+struct MacroEvaluator<'a> {
+    bindings: &'a HashMap<String, SpannedExpr>,
+    stack: Vec<MacroValue>,
+    steps: usize,
+}
+
+impl<'a> MacroEvaluator<'a> {
+    fn new(bindings: &'a HashMap<String, SpannedExpr>) -> Self {
+        Self {
+            bindings,
+            stack: Vec::new(),
+            steps: 0,
+        }
+    }
+
+    fn evaluate(&mut self, macro_def: &MacroDefinition) -> Result<Vec<SpannedExpr>, CompileError> {
+        self.eval_exprs(&macro_def.body, macro_def.span)?;
+        let Some(value) = self.stack.pop() else {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macro {:?} did not produce quoted AST",
+                    macro_def.name
+                ),
+                span: macro_def.span,
+                help: Some(
+                    "end the macro body with a quoted block followed by quote_ast".to_string(),
+                ),
+            });
+        };
+        if !self.stack.is_empty() {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macro {:?} left extra values on the evaluator stack",
+                    macro_def.name
+                ),
+                span: macro_def.span,
+                help: Some("return exactly one quoted AST value from the macro body".to_string()),
+            });
+        }
+
+        match value {
+            MacroValue::AstList(exprs) => Ok(exprs),
+            MacroValue::Ast(expr) => Ok(vec![expr]),
+            _ => Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macro {:?} returned a scalar instead of quoted AST",
+                    macro_def.name
+                ),
+                span: macro_def.span,
+                help: Some("use quote_ast to turn a quoted block into expansion AST".to_string()),
+            }),
+        }
+    }
+
+    fn eval_exprs(
+        &mut self,
+        exprs: &[SpannedExpr],
+        default_span: Span,
+    ) -> Result<(), CompileError> {
+        for expr in exprs {
+            self.eval_spanned_expr(expr, default_span)?;
+        }
+        Ok(())
+    }
+
+    fn eval_spanned_expr(
+        &mut self,
+        expr: &SpannedExpr,
+        default_span: Span,
+    ) -> Result<(), CompileError> {
+        self.bump(expr.span)?;
+        match &expr.expr {
+            Expr::Sequence(exprs) => self.eval_exprs(exprs, expr.span),
+            Expr::Block(body) => {
+                self.stack.push(MacroValue::QuotedBlock(body.clone()));
+                Ok(())
+            }
+            Expr::Reference(name) => {
+                let Some(value) = self.bindings.get(name) else {
+                    return Err(CompileError::Unsupported {
+                        feature: format!("unknown compile-time macro argument ${name}"),
+                        span: expr.span,
+                        help: Some(
+                            "macro bodies can read only declared macro arguments in this slice"
+                                .to_string(),
+                        ),
+                    });
+                };
+                self.stack.push(MacroValue::Ast(value.clone()));
+                Ok(())
+            }
+            Expr::String(_) => {
+                self.stack.push(MacroValue::String);
+                Ok(())
+            }
+            Expr::Number(_) => {
+                self.stack.push(MacroValue::Number);
+                Ok(())
+            }
+            Expr::Float(_) => {
+                self.stack.push(MacroValue::Float);
+                Ok(())
+            }
+            Expr::Symbol(word) => self.eval_symbol(word, expr.span),
+            Expr::BangWord(word) => self.fail_unallowlisted(word, expr.span),
+            Expr::DotWord(word) => self.fail_unallowlisted(word, expr.span),
+            Expr::Args(_) => Err(CompileError::Unsupported {
+                feature: "argument declarations are not supported inside compile-time macro bodies"
+                    .to_string(),
+                span: expr.span,
+                help: None,
+            }),
+            Expr::If { .. } | Expr::While { .. } => Err(CompileError::Unsupported {
+                feature:
+                    "control flow is not supported inside compile-time macro bodies in this slice"
+                        .to_string(),
+                span: if expr.span.start == expr.span.end {
+                    default_span
+                } else {
+                    expr.span
+                },
+                help: Some("use quote_ast to emit runtime control flow instead".to_string()),
+            }),
+        }
+    }
+
+    fn eval_symbol(&mut self, word: &str, span: Span) -> Result<(), CompileError> {
+        match word {
+            "quote_ast" => self.eval_quote_ast(span),
+            "true" | "false" => {
+                self.stack.push(MacroValue::Bool);
+                Ok(())
+            }
+            "nil" => {
+                self.stack.push(MacroValue::Nil);
+                Ok(())
+            }
+            _ => self.fail_unallowlisted(word, span),
+        }
+    }
+
+    fn eval_quote_ast(&mut self, span: Span) -> Result<(), CompileError> {
+        let Some(value) = self.stack.pop() else {
+            return Err(CompileError::Unsupported {
+                feature: "quote_ast requires a quoted block".to_string(),
+                span,
+                help: Some("place a block literal immediately before quote_ast".to_string()),
+            });
+        };
+        let MacroValue::QuotedBlock(body) = value else {
+            return Err(CompileError::Unsupported {
+                feature: "quote_ast can only convert quoted block literals".to_string(),
+                span,
+                help: Some("place a block literal immediately before quote_ast".to_string()),
+            });
+        };
+
+        let quoted = self.quote_ast_body(&body)?;
+        self.stack
+            .push(MacroValue::AstList(flatten_quoted_block(quoted)));
+        Ok(())
+    }
+
+    fn quote_ast_body(&mut self, body: &[SpannedExpr]) -> Result<Vec<SpannedExpr>, CompileError> {
+        self.quote_ast_exprs(body)
+    }
+
+    fn quote_ast_exprs(&mut self, exprs: &[SpannedExpr]) -> Result<Vec<SpannedExpr>, CompileError> {
+        let mut output = Vec::new();
+        let mut index = 0;
+
+        while index < exprs.len() {
+            if let Some(next) = exprs.get(index + 1) {
+                if matches!(&next.expr, Expr::Symbol(word) if word == "ast_splice") {
+                    let Expr::Reference(name) = &exprs[index].expr else {
+                        return Err(CompileError::Unsupported {
+                            feature: "ast_splice requires a macro argument reference immediately before it"
+                                .to_string(),
+                            span: next.span,
+                            help: Some("use $arg ast_splice inside quote_ast output".to_string()),
+                        });
+                    };
+                    let Some(value) = self.bindings.get(name) else {
+                        return Err(CompileError::Unsupported {
+                            feature: format!("unknown compile-time macro argument ${name}"),
+                            span: exprs[index].span,
+                            help: Some(
+                                "declare the argument in the macro Args input list before splicing it"
+                                    .to_string(),
+                            ),
+                        });
+                    };
+                    self.bump(next.span)?;
+                    output.push(value.clone());
+                    index += 2;
+                    continue;
+                }
+            }
+
+            output.push(self.quote_ast_expr(&exprs[index])?);
+            index += 1;
+        }
+
+        Ok(output)
+    }
+
+    fn quote_ast_expr(&mut self, expr: &SpannedExpr) -> Result<SpannedExpr, CompileError> {
+        self.bump(expr.span)?;
+        let quoted = match &expr.expr {
+            Expr::Block(body) => Expr::Block(self.quote_ast_body(body)?),
+            Expr::Sequence(exprs) => Expr::Sequence(self.quote_ast_exprs(exprs)?),
+            Expr::If {
+                then_body,
+                else_body,
+            } => Expr::If {
+                then_body: self.quote_ast_body(then_body)?,
+                else_body: self.quote_ast_body(else_body)?,
+            },
+            Expr::While { condition, body } => Expr::While {
+                condition: self.quote_ast_body(condition)?,
+                body: self.quote_ast_body(body)?,
+            },
+            Expr::Symbol(word) if word == "ast_splice" => {
+                return Err(CompileError::Unsupported {
+                    feature: "ast_splice requires a macro argument reference immediately before it"
+                        .to_string(),
+                    span: expr.span,
+                    help: Some("use $arg ast_splice inside quote_ast output".to_string()),
+                });
+            }
+            _ => expr.expr.clone(),
+        };
+        Ok(SpannedExpr {
+            expr: quoted,
+            span: expr.span,
+        })
+    }
+
+    fn bump(&mut self, span: Span) -> Result<(), CompileError> {
+        self.steps += 1;
+        if self.steps > MAX_MACRO_EVALUATOR_STEPS {
+            return Err(CompileError::Unsupported {
+                feature: format!("macro evaluator step limit {MAX_MACRO_EVALUATOR_STEPS} exceeded"),
+                span,
+                help: Some("simplify the compile-time macro body".to_string()),
+            });
+        }
+        Ok(())
+    }
+
+    fn fail_unallowlisted(&self, word: &str, span: Span) -> Result<(), CompileError> {
+        Err(CompileError::Unsupported {
+            feature: format!("compile-time macro body used unallowlisted word {word:?}"),
+            span,
+            help: Some(
+                "macro bodies are fail-closed and cannot call runtime words or host capabilities"
+                    .to_string(),
+            ),
+        })
+    }
+}
+
+fn flatten_quoted_block(mut exprs: Vec<SpannedExpr>) -> Vec<SpannedExpr> {
+    if exprs.len() == 1 {
+        if let Expr::Sequence(sequence) = exprs.remove(0).expr {
+            return sequence;
+        }
+    }
+    exprs
+}
+
+fn flatten_segments(segments: Vec<ExpandedSegment>) -> Vec<SpannedExpr> {
+    segments
+        .into_iter()
+        .flat_map(|segment| segment.exprs)
+        .collect()
+}
+
+fn exprs_span(exprs: &[SpannedExpr]) -> Option<Span> {
+    Some(Span {
+        start: exprs.first()?.span.start,
+        end: exprs.last()?.span.end,
+    })
+}
+
+fn count_spanned_exprs(exprs: &[SpannedExpr]) -> usize {
+    exprs.iter().map(count_spanned_expr).sum()
+}
+
+fn count_spanned_expr(expr: &SpannedExpr) -> usize {
+    1 + match &expr.expr {
+        Expr::Block(body) | Expr::Sequence(body) => count_spanned_exprs(body),
+        Expr::If {
+            then_body,
+            else_body,
+        } => count_spanned_exprs(then_body) + count_spanned_exprs(else_body),
+        Expr::While { condition, body } => {
+            count_spanned_exprs(condition) + count_spanned_exprs(body)
+        }
+        _ => 0,
     }
 }
 
@@ -1063,7 +1763,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_macro_declaration_until_expansion_lands() {
+    fn compiles_macro_declaration_to_empty_runtime_chunk() {
         let source = r#"
           "unless" Macro
             [
@@ -1071,20 +1771,14 @@ mod tests {
             ]
           end
         "#;
-        let err = compile_source("test.rco", source).expect_err("compile fails");
+        let chunk = compile_source("test.rco", source).expect("compile succeeds");
 
-        match &err {
-            CompileError::Unsupported { feature, .. } => {
-                assert!(feature.contains("compile-time macros are not implemented yet"));
-            }
-            other => panic!("expected unsupported macro declaration, got {other:?}"),
-        }
-        let diagnostic = format_compile_error("test.rco", source, &err);
-        assert!(diagnostic.contains("compile-time macros are not implemented yet"));
+        assert!(chunk.ops().next().is_none());
+        assert!(chunk.blocks.is_empty());
     }
 
     #[test]
-    fn rejects_class_body_macro_declaration_until_expansion_lands() {
+    fn rejects_class_body_macro_declaration_for_local_only_slice() {
         let source = r#"
           User Model Subclass
             "displayName" Macro
@@ -1102,29 +1796,187 @@ mod tests {
                 span,
                 help,
             } => {
-                assert!(feature.contains("compile-time macros are not implemented yet"));
+                assert!(feature.contains("macro declarations are only supported at top level"));
                 assert_eq!(span.start, source.find("\"displayName\"").unwrap());
                 assert!(help
                     .as_deref()
-                    .is_some_and(|help| help.contains("inside class bodies")));
+                    .is_some_and(|help| help.contains("move the macro declaration")));
             }
             other => panic!("expected unsupported class-body macro declaration, got {other:?}"),
         }
         let diagnostic = format_compile_error("test.rco", source, &err);
-        assert!(diagnostic.contains("compile-time macros are not implemented yet"));
+        assert!(diagnostic.contains("macro declarations are only supported at top level"));
     }
 
     #[test]
-    fn compiles_macro_call_as_ordinary_runtime_words_for_now() {
-        let chunk = compile_source("test.rco", r#""unless" macro_call"#).expect("compile succeeds");
+    fn expands_simple_local_macro_into_runtime_ops() {
+        let source = r#"
+          "say_ok" Macro
+            [
+              [ "ok" println ] quote_ast
+            ]
+          end
+
+          "say_ok" macro_call
+        "#;
+        let chunk = compile_source("test.rco", source).expect("compile succeeds");
 
         assert_eq!(
             chunk.ops().cloned().collect::<Vec<_>>(),
             vec![
-                Op::PushString("unless".to_string()),
-                Op::CallWord("macro_call".to_string()),
+                Op::PushString("ok".to_string()),
+                Op::CallWord("println".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn macro_args_splice_caller_operands_into_expanded_runtime_code() {
+        let source = r#"
+          "double" Macro
+            ( value -> expansion )
+            [
+              [ $value ast_splice $value ast_splice + ] quote_ast
+            ]
+          end
+
+          $total "double" macro_call
+        "#;
+        let chunk = compile_source("test.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("total".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::PushString("total".to_string()),
+                Op::CallWord("get".to_string()),
+                Op::CallWord("+".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_macro_expansion_can_be_used_as_an_operand() {
+        let source = r#"
+          "inner" Macro
+            [
+              [ 2 3 + ] quote_ast
+            ]
+          end
+
+          "wrap" Macro
+            ( value -> expansion )
+            [
+              [ $value ast_splice 4 * ] quote_ast
+            ]
+          end
+
+          "inner" macro_call "wrap" macro_call
+        "#;
+        let chunk = compile_source("test.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushNumber(2),
+                Op::PushNumber(3),
+                Op::CallWord("+".to_string()),
+                Op::PushNumber(4),
+                Op::CallWord("*".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_compile_time_macro_call_fails_instead_of_runtime_fallback() {
+        let source = r#""missing" macro_call"#;
+        let err = compile_source("test.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, span, .. } => {
+                assert!(feature.contains("unknown compile-time macro"));
+                assert_eq!(span.start, source.find("\"missing\"").unwrap());
+            }
+            other => panic!("expected unknown macro unsupported error, got {other:?}"),
+        }
+        let diagnostic = format_compile_error("test.rco", source, &err);
+        assert!(diagnostic.contains("unknown compile-time macro"));
+    }
+
+    #[test]
+    fn unallowlisted_macro_body_word_fails_closed() {
+        let source = r#"
+          "bad" Macro
+            [
+              fs_read_text
+            ]
+          end
+
+          "bad" macro_call
+        "#;
+        let err = compile_source("test.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("compile-time macro body used unallowlisted word"));
+                assert!(feature.contains("fs_read_text"));
+            }
+            other => panic!("expected fail-closed macro evaluator error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn same_macro_recursion_limit_fails_clearly() {
+        let source = r#"
+          "loop" Macro
+            [
+              [ "loop" macro_call ] quote_ast
+            ]
+          end
+
+          "loop" macro_call
+        "#;
+        let err = compile_source("test.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("same-macro recursion limit"));
+                assert!(feature.contains("loop"));
+            }
+            other => panic!("expected macro recursion limit error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn macro_expansion_depth_limit_fails_clearly() {
+        let mut source = String::new();
+        for index in 0..34 {
+            let expansion = if index == 33 {
+                r#""done""#.to_string()
+            } else {
+                format!(r#""m{}" macro_call"#, index + 1)
+            };
+            source.push_str(&format!(
+                r#"
+                  "m{index}" Macro
+                    [
+                      [ {expansion} ] quote_ast
+                    ]
+                  end
+                "#
+            ));
+        }
+        source.push_str(r#""m0" macro_call"#);
+
+        let err = compile_source("test.rco", &source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("macro expansion depth limit"));
+            }
+            other => panic!("expected macro depth limit error, got {other:?}"),
+        }
     }
 
     #[test]
