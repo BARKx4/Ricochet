@@ -15,6 +15,7 @@ use argon2::{
     },
     Argon2,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{
     DateTime, Datelike, Duration as ChronoDuration, FixedOffset, NaiveDate, SecondsFormat,
     TimeZone, Timelike, Utc,
@@ -47,6 +48,7 @@ use crate::socket_runtime::{
     TcpListenerSnapshot, TcpSocketRead, TcpSocketSnapshot, WebSocketConnectRequest,
     WebSocketListenRequest, WebSocketListenerSnapshot, WebSocketRead, WebSocketSnapshot,
 };
+use crate::upload_runtime::{UploadStreamRead, UploadStreamRuntimeError, UploadStreamSnapshot};
 use crate::vm::{
     arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
 };
@@ -69,6 +71,8 @@ const TCP_DEFAULT_READ_MAX_BYTES: usize = 64 * 1024;
 const TCP_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WEBSOCKET_DEFAULT_READ_MAX_BYTES: usize = 1_048_576;
 const WEBSOCKET_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
+const UPLOAD_DEFAULT_READ_MAX_BYTES: usize = 64 * 1024;
+const UPLOAD_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_READ_BYTES: usize = 1_048_576;
 const WORKSPACE_MAX_READ_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_DEFAULT_MAX_LIST_ENTRIES: usize = 1_000;
@@ -2213,6 +2217,64 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_upload_streams(&mut self) -> Result<(), VmError> {
+        let streams = self
+            .upload_stream_registry()
+            .streams()
+            .iter()
+            .map(upload_stream_snapshot_value)
+            .collect::<Vec<_>>();
+        self.stack.push(Value::Array(streams.into()));
+        Ok(())
+    }
+
+    pub(super) fn call_upload_stream(&mut self, word: &str) -> Result<(), VmError> {
+        let id = self.pop_upload_stream_id(word)?;
+        let result = self
+            .upload_stream_registry()
+            .stream(id)
+            .map(|snapshot| Value::result_ok(upload_stream_snapshot_value(&snapshot)))
+            .unwrap_or_else(|| unknown_upload_stream_value(id));
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_upload_release(&mut self, word: &str) -> Result<(), VmError> {
+        let id = self.pop_upload_stream_id(word)?;
+        let released = self.upload_stream_registry().release(id);
+        self.stack.push(Value::result_ok(Value::Bool(released)));
+        Ok(())
+    }
+
+    pub(super) fn call_upload_read(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let id = match self.pop_upload_stream_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let options = match upload_read_options(options) {
+            Ok(options) => options,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = match self
+            .upload_stream_registry()
+            .read(id, options.offset, options.max_bytes)
+        {
+            Ok(Some(read)) => Value::result_ok(upload_stream_read_value(&read)),
+            Ok(None) => unknown_upload_stream_value(id),
+            Err(error) => upload_stream_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_tcp_listen(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_socket_enabled(word)?;
         let stack_before = self.stack.clone();
@@ -3727,6 +3789,19 @@ impl Vm {
             value => Err(VmError::InvalidArgument {
                 word: word.to_string(),
                 message: format!("HTTP stream id cannot be negative: {value}"),
+            }),
+        }
+    }
+
+    fn pop_upload_stream_id(&mut self, word: &str) -> Result<u64, VmError> {
+        match self.pop_number(word)? {
+            value if value >= 0 => u64::try_from(value).map_err(|_| VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "upload stream id is too large".to_string(),
+            }),
+            value => Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: format!("upload stream id cannot be negative: {value}"),
             }),
         }
     }
@@ -6034,6 +6109,82 @@ fn http_stream_read_offset(options: Value) -> Result<usize, Value> {
     Ok(offset)
 }
 
+struct UploadReadOptions {
+    offset: u64,
+    max_bytes: usize,
+}
+
+fn upload_read_options(options: Value) -> Result<UploadReadOptions, Value> {
+    let Value::Map(options) = options else {
+        return Err(Value::result_err(
+            "UploadReadError",
+            format!(
+                "upload_read options must be a map, got {}",
+                value_kind(&options)
+            ),
+        ));
+    };
+    let mut options = options.snapshot();
+    let offset = match options.remove("offset") {
+        Some(Value::Number(value)) if value >= 0 => u64::try_from(value).map_err(|_| {
+            Value::result_err("UploadReadError", "upload_read option offset is too large")
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "UploadReadError",
+                format!("upload_read option offset cannot be negative: {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => 0,
+        Some(value) => {
+            return Err(Value::result_err(
+                "UploadReadError",
+                format!(
+                    "upload_read option offset must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    let max_bytes = match options.remove("max_bytes") {
+        Some(Value::Number(value)) if value > 0 => usize::try_from(value).map_err(|_| {
+            Value::result_err(
+                "UploadReadError",
+                "upload_read option max_bytes is too large",
+            )
+        })?,
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "UploadReadError",
+                format!("upload_read option max_bytes must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => UPLOAD_DEFAULT_READ_MAX_BYTES,
+        Some(value) => {
+            return Err(Value::result_err(
+                "UploadReadError",
+                format!(
+                    "upload_read option max_bytes must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if max_bytes > UPLOAD_MAX_READ_MAX_BYTES {
+        return Err(Value::result_err(
+            "UploadReadError",
+            format!("upload_read option max_bytes must be at most {UPLOAD_MAX_READ_MAX_BYTES}"),
+        ));
+    }
+    if let Some(key) = options.keys().next() {
+        return Err(Value::result_err(
+            "UploadReadError",
+            format!("unknown upload_read option: {key}"),
+        ));
+    }
+    Ok(UploadReadOptions { offset, max_bytes })
+}
+
 struct TcpReadOptions {
     max_bytes: usize,
     timeout: Duration,
@@ -6712,6 +6863,68 @@ fn http_stream_runtime_error_value(error: HttpStreamRuntimeError) -> Value {
 
 fn unknown_http_stream_value(id: u64) -> Value {
     Value::result_err("UnknownHttpStream", format!("unknown HTTP stream: {id}"))
+}
+
+fn upload_stream_snapshot_value(snapshot: &UploadStreamSnapshot) -> Value {
+    let filename = snapshot
+        .filename
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let content_type = snapshot
+        .content_type
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    Value::Map(
+        BTreeMap::from([
+            ("id".to_string(), Value::Number(snapshot.id as i64)),
+            ("field".to_string(), Value::String(snapshot.field.clone())),
+            ("filename".to_string(), filename),
+            ("content_type".to_string(), content_type),
+            ("size_known".to_string(), Value::Bool(snapshot.size_known)),
+            ("size".to_string(), Value::Number(snapshot.size as i64)),
+        ])
+        .into(),
+    )
+}
+
+fn upload_stream_read_value(read: &UploadStreamRead) -> Value {
+    let mut values = match upload_stream_snapshot_value(&read.snapshot) {
+        Value::Map(map) => map.snapshot(),
+        _ => BTreeMap::new(),
+    };
+    let text = std::str::from_utf8(&read.bytes)
+        .ok()
+        .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Nil);
+    values.insert("offset".to_string(), Value::Number(read.offset as i64));
+    values.insert(
+        "next_offset".to_string(),
+        Value::Number(read.next_offset as i64),
+    );
+    values.insert("eof".to_string(), Value::Bool(read.eof));
+    values.insert(
+        "bytes_len".to_string(),
+        Value::Number(read.bytes.len() as i64),
+    );
+    values.insert(
+        "data_base64".to_string(),
+        Value::String(BASE64_STANDARD.encode(&read.bytes)),
+    );
+    values.insert("text".to_string(), text);
+    Value::Map(values.into())
+}
+
+fn upload_stream_runtime_error_value(error: UploadStreamRuntimeError) -> Value {
+    Value::result_err(error.kind, error.message)
+}
+
+fn unknown_upload_stream_value(id: u64) -> Value {
+    Value::result_err(
+        "UnknownUploadStream",
+        format!("unknown upload stream: {id}"),
+    )
 }
 
 fn tcp_socket_snapshot_value(snapshot: &TcpSocketSnapshot) -> Value {

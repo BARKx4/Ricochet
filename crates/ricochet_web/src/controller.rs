@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_source;
-use ricochet_vm::{Value, Vm};
+use ricochet_vm::{UploadStreamRegistry, Value, Vm};
 use serde_json::Value as JsonValue;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RequestContext {
     pub method: String,
     pub path: String,
@@ -18,6 +18,7 @@ pub struct RequestContext {
     pub json: Option<Value>,
     pub uploads: BTreeMap<String, Value>,
     pub files: Vec<Value>,
+    pub upload_streams: UploadStreamRegistry,
     pub headers: BTreeMap<String, String>,
     pub cookies: BTreeMap<String, String>,
     pub session: BTreeMap<String, Value>,
@@ -106,6 +107,7 @@ impl ControllerRegistry {
         self.register_static(controller, action, move |ctx| {
             let mut vm = Vm::default();
             vm.set_instruction_limit(WEB_CONTROLLER_INSTRUCTION_LIMIT);
+            vm.set_upload_stream_registry(ctx.upload_streams.clone());
             let capabilities = match &vm_setup {
                 Some(setup) => setup(&mut vm)?,
                 None => BTreeMap::new(),

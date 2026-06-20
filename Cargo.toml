@@ -35,6 +35,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 regex = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
+multer = "3.1.0"
 portable-pty = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 sha2 = "0.10"

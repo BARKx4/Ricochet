@@ -87,6 +87,10 @@ $liveServerSmoke = Join-Path $Root "scripts\live-server-smoke.ps1"
 Write-Host "==> live server smoke"
 & $liveServerSmoke -Rco $Rco -Project $project
 
+$uploadStreamSmoke = Join-Path $Root "scripts\upload-stream-smoke.ps1"
+Write-Host "==> upload stream smoke"
+& $uploadStreamSmoke -Rco $Rco -TempRoot $TempRoot
+
 $sqliteProject = Join-Path $TempRoot "sqlite_app"
 Invoke-Rco "scaffold SQLite beta app" @("new", "--with-sqlite", $sqliteProject)
 Invoke-Rco "check SQLite beta app" @("check", $sqliteProject)

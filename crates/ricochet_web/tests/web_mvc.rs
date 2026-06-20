@@ -1200,7 +1200,10 @@ UploadController Controller Subclass
     response get "title" title get put! drop
     response get "form_title" ctx get "request" at "form" at "title" at put! drop
     response get "filename" file get "filename" at put! drop
+    response get "field" file get "field" at put! drop
+    response get "stream_id" file get "stream_id" at put! drop
     response get "content_type" file get "content_type" at put! drop
+    response get "size_known" file get "size_known" at put! drop
     response get "size" file get "size" at put! drop
     response get "text" file get "text" at put! drop
     response get "data_base64" file get "data_base64" at put! drop
@@ -1245,12 +1248,216 @@ end
     assert_eq!(body["title"], "Agent Harness");
     assert_eq!(body["form_title"], "Agent Harness");
     assert_eq!(body["filename"], "plan.txt");
+    assert_eq!(body["field"], "file");
+    assert!(body["stream_id"].as_i64().is_some());
     assert_eq!(body["content_type"], "text/plain");
+    assert_eq!(body["size_known"], true);
     assert_eq!(body["size"], 13);
     assert_eq!(body["text"], "Hello uploads");
     assert_eq!(body["data_base64"], "SGVsbG8gdXBsb2Fkcw==");
     assert_eq!(body["ctx_upload_text"], "Hello uploads");
     assert_eq!(body["files_count"], 1);
+}
+
+#[tokio::test]
+async fn multipart_large_file_exposes_temp_backed_stream_read_and_release() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "large_upload_streams"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.uploads]
+max_request_bytes = 20971520
+max_file_bytes = 18874368
+memory_threshold_bytes = 65536
+max_retained_streams = 4
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/upload" UploadController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/UploadController.rco"),
+        r#"
+UploadController Controller Subclass
+  ( file ctx ) [
+    ctx var
+    file var
+
+    map readOptions var
+    readOptions get "max_bytes" 16 put! drop
+    file get "stream_id" at readOptions get upload_read value readResult var
+    file get "stream_id" at upload_stream value detail var
+
+    map response var
+    response get "stream_count_before_release" upload_streams count put! drop
+    response get "stream_id" file get "stream_id" at put! drop
+    response get "filename" file get "filename" at put! drop
+    response get "field" file get "field" at put! drop
+    response get "size_known" file get "size_known" at put! drop
+    response get "size" file get "size" at put! drop
+    response get "text_is_nil" file get "text" at nil? put! drop
+    response get "data_base64_is_nil" file get "data_base64" at nil? put! drop
+    response get "read_text" readResult get "text" at put! drop
+    response get "read_len" readResult get "bytes_len" at put! drop
+    response get "read_next_offset" readResult get "next_offset" at put! drop
+    response get "detail_size" detail get "size" at put! drop
+    file get "stream_id" at upload_release value released var
+    response get "released" released get put! drop
+    response get "stream_count_after_release" upload_streams count put! drop
+    response get json
+  ] "create" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let boundary = "----ricochet-large-upload-boundary";
+    let file_size = 17 * 1024 * 1024;
+    let mut body = Vec::with_capacity(file_size + 512);
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend(std::iter::repeat_n(b'a', file_size));
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/upload")
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "large upload should succeed, got:\n{}",
+        String::from_utf8_lossy(&body)
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+
+    assert_eq!(body["stream_count_before_release"], 1);
+    assert!(body["stream_id"].as_i64().is_some());
+    assert_eq!(body["filename"], "large.txt");
+    assert_eq!(body["field"], "file");
+    assert_eq!(body["size_known"], true);
+    assert_eq!(body["size"], file_size as i64);
+    assert_eq!(body["text_is_nil"], true);
+    assert_eq!(body["data_base64_is_nil"], true);
+    assert_eq!(body["read_text"], "aaaaaaaaaaaaaaaa");
+    assert_eq!(body["read_len"], 16);
+    assert_eq!(body["read_next_offset"], 16);
+    assert_eq!(body["detail_size"], file_size as i64);
+    assert_eq!(body["released"], true);
+    assert_eq!(body["stream_count_after_release"], 0);
+}
+
+#[tokio::test]
+async fn multipart_file_over_manifest_limit_returns_bad_request() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "upload_limit"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.uploads]
+max_request_bytes = 1024
+max_file_bytes = 8
+memory_threshold_bytes = 8
+max_retained_streams = 2
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"POST "/upload" UploadController "create" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/UploadController.rco"),
+        r#"
+UploadController Controller Subclass
+  [
+    "unreachable" text
+  ] "create" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let boundary = "----ricochet-limit-boundary";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"too-large.txt\"\r\nContent-Type: text/plain\r\n\r\n123456789\r\n--{boundary}--\r\n"
+    );
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/upload")
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        body.contains("max_file_bytes"),
+        "bad request should explain file upload limit, got:\n{body}"
+    );
 }
 
 #[tokio::test]

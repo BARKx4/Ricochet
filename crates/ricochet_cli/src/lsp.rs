@@ -262,6 +262,26 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "http",
         "Release a completed retained HTTP stream job.",
     ),
+    WordDoc::new(
+        "upload_streams",
+        "uploads",
+        "List retained MVC upload streams for the current request.",
+    ),
+    WordDoc::new(
+        "upload_stream",
+        "uploads",
+        "Inspect a retained MVC upload stream.",
+    ),
+    WordDoc::new(
+        "upload_read",
+        "uploads",
+        "Read a bounded chunk from a retained MVC upload stream.",
+    ),
+    WordDoc::new(
+        "upload_release",
+        "uploads",
+        "Release a retained MVC upload stream.",
+    ),
     WordDoc::new("tcp_listen", "sockets", "Bind a retained TCP listener."),
     WordDoc::new("tcp_listeners", "sockets", "List retained TCP listeners."),
     WordDoc::new(

@@ -2152,6 +2152,38 @@ const WORDS = [
     "example": "$stream \"id\" at http_stream_release value"
   },
   {
+    "word": "upload_streams",
+    "aliases": ["MVC", "upload", "stream"],
+    "group": "system",
+    "stack": "-> array",
+    "body": "Returns retained MVC upload stream snapshots for the current request VM. Each snapshot includes `id`, `field`, `filename`, `content_type`, `size_known`, and `size`. Release streams when finished with `upload_release`.",
+    "example": "upload_streams count"
+  },
+  {
+    "word": "upload_stream",
+    "aliases": ["MVC", "upload", "stream"],
+    "group": "system",
+    "stack": "id:number -> result(map)",
+    "body": "Returns metadata for a retained MVC upload stream by id. Unknown ids return `UnknownUploadStream` as a Result error.",
+    "example": "$file \"stream_id\" at upload_stream value"
+  },
+  {
+    "word": "upload_read",
+    "aliases": ["MVC", "upload", "stream"],
+    "group": "system",
+    "stack": "id:number options:map -> result(map)",
+    "body": "Reads a bounded chunk from a retained MVC upload stream. Options may include `offset` and `max_bytes`; the result includes upload metadata plus `offset`, `next_offset`, `eof`, `bytes_len`, `data_base64`, and UTF-8 `text` when available.",
+    "example": "options map\noptions \"max_bytes\" 4096 put! drop\n$file \"stream_id\" at $options upload_read value"
+  },
+  {
+    "word": "upload_release",
+    "aliases": ["MVC", "upload", "stream"],
+    "group": "system",
+    "stack": "id:number -> result(bool)",
+    "body": "Releases a retained MVC upload stream and removes its temporary file. Returns `ok(true)` when a stream was released and `ok(false)` for an already-missing id.",
+    "example": "$file \"stream_id\" at upload_release value"
+  },
+  {
     "word": "tcp_listen",
     "aliases": ["socket", "TCP", "server"],
     "group": "system",

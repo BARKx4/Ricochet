@@ -97,6 +97,19 @@ fields, upload fields, query params, and finally context values. The same data
 is available through `$ctx "request" at`: `form` holds text fields, `json` and
 `body` hold parsed JSON values, `uploads` is keyed by multipart file field
 name, and `files` contains every uploaded file. Upload values include `name`,
-`filename`, `content_type`, `size`, `text` when the bytes are UTF-8, and
-`data_base64` for arbitrary file bytes. Request body parsing is in-memory with a
-16 MiB beta limit.
+`field`, `stream_id`, `filename`, `content_type`, `size_known`, `size`, `text`
+when the bytes stay under the configured memory threshold and are UTF-8, and
+`data_base64` for small arbitrary file bytes. Larger files are retained as
+temporary upload streams and can be consumed with `upload_read`, inspected with
+`upload_stream`, listed with `upload_streams`, and released with
+`upload_release`.
+
+Configure upload bounds in `ricochet.toml`:
+
+```toml
+[web.uploads]
+max_request_bytes = 20971520
+max_file_bytes = 18874368
+memory_threshold_bytes = 65536
+max_retained_streams = 4
+```

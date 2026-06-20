@@ -26,6 +26,8 @@ pub struct Web {
     pub mode: String,
     pub routes: String,
     pub views: Views,
+    #[serde(default)]
+    pub uploads: Uploads,
     #[serde(default, rename = "static")]
     pub static_files: StaticFiles,
     #[serde(default)]
@@ -47,6 +49,29 @@ impl Default for StaticFiles {
         Self {
             dir: default_static_dir(),
             mount: default_static_mount(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Uploads {
+    #[serde(default = "default_upload_max_request_bytes")]
+    pub max_request_bytes: usize,
+    #[serde(default = "default_upload_max_file_bytes")]
+    pub max_file_bytes: usize,
+    #[serde(default = "default_upload_memory_threshold_bytes")]
+    pub memory_threshold_bytes: usize,
+    #[serde(default = "default_upload_max_retained_streams")]
+    pub max_retained_streams: usize,
+}
+
+impl Default for Uploads {
+    fn default() -> Self {
+        Self {
+            max_request_bytes: default_upload_max_request_bytes(),
+            max_file_bytes: default_upload_max_file_bytes(),
+            memory_threshold_bytes: default_upload_memory_threshold_bytes(),
+            max_retained_streams: default_upload_max_retained_streams(),
         }
     }
 }
@@ -92,6 +117,22 @@ fn default_static_dir() -> String {
 
 fn default_static_mount() -> String {
     "/assets".to_string()
+}
+
+fn default_upload_max_request_bytes() -> usize {
+    16 * 1024 * 1024
+}
+
+fn default_upload_max_file_bytes() -> usize {
+    16 * 1024 * 1024
+}
+
+fn default_upload_memory_threshold_bytes() -> usize {
+    1024 * 1024
+}
+
+fn default_upload_max_retained_streams() -> usize {
+    64
 }
 
 impl Session {
@@ -295,6 +336,7 @@ api_key = "${RICOCHET_TEST_OPENAI_API_KEY}"
         assert_eq!(manifest.web.mode, "mvc");
         assert_eq!(manifest.web.routes, "config/routes.rco");
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::Html);
+        assert_eq!(manifest.web.uploads, Uploads::default());
         assert_eq!(manifest.web.static_files, StaticFiles::default());
         assert_eq!(
             manifest.web.session.signing_secret_env.as_deref(),
@@ -340,6 +382,7 @@ escape = "none"
         assert!(manifest.database.default.is_none());
         assert!(manifest.ai.default.is_none());
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::None);
+        assert_eq!(manifest.web.uploads, Uploads::default());
         assert_eq!(manifest.web.static_files.dir, "public");
         assert_eq!(manifest.web.static_files.mount, "/assets");
         assert_eq!(manifest.web.session, Session::default());
@@ -367,6 +410,39 @@ mount = "/static"
 
         assert_eq!(manifest.web.static_files.dir, "frontend/dist");
         assert_eq!(manifest.web.static_files.mount, "/static");
+    }
+
+    #[test]
+    fn manifest_parses_upload_limits() {
+        let source = r#"
+[package]
+name = "upload_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.uploads]
+max_request_bytes = 8388608
+max_file_bytes = 4194304
+memory_threshold_bytes = 4096
+max_retained_streams = 8
+"#;
+
+        let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+
+        assert_eq!(
+            manifest.web.uploads,
+            Uploads {
+                max_request_bytes: 8_388_608,
+                max_file_bytes: 4_194_304,
+                memory_threshold_bytes: 4096,
+                max_retained_streams: 8,
+            }
+        );
     }
 
     #[test]

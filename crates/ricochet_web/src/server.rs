@@ -1,13 +1,14 @@
 use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{anyhow, bail, Context, Result};
 use axum::{
     body::{to_bytes, Body},
-    extract::{Path as AxumPath, Query as AxumQuery, State},
+    extract::{DefaultBodyLimit, Path as AxumPath, Query as AxumQuery, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
     routing::{any, delete, get, patch, post, put},
@@ -19,7 +20,10 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_file_with_imports;
-use ricochet_vm::{ApprovalRegistry, Capability, ProcessRegistry, PtyRegistry, Value, Vm};
+use ricochet_vm::{
+    ApprovalRegistry, Capability, ProcessRegistry, PtyRegistry, UploadStreamMetadata,
+    UploadStreamRegistry, Value, Vm,
+};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
@@ -28,7 +32,7 @@ use crate::ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 use crate::controller::{ActionResult, ControllerRegistry, RequestContext};
 use crate::database_capability::{install_database_capability, DatabaseBackend};
 use crate::manifest::{
-    AiDefault, DatabaseDefault, Manifest, SessionSecure, StaticFiles, WebCapabilities,
+    AiDefault, DatabaseDefault, Manifest, SessionSecure, StaticFiles, Uploads, WebCapabilities,
 };
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
@@ -44,6 +48,7 @@ struct AppRuntime {
     root: PathBuf,
     escape: EscapeMode,
     static_files: StaticFileConfig,
+    uploads: Uploads,
     config: BTreeMap<String, Value>,
     session_signing_key: Option<SessionSigningKey>,
     session_encryption_key: Option<SessionEncryptionKey>,
@@ -58,7 +63,7 @@ struct StaticFileConfig {
     dir: PathBuf,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct WebRequest {
     method: String,
     path: String,
@@ -70,6 +75,7 @@ struct WebRequest {
     json: Option<Value>,
     uploads: BTreeMap<String, Value>,
     files: Vec<Value>,
+    upload_streams: UploadStreamRegistry,
 }
 
 #[derive(Clone)]
@@ -88,7 +94,6 @@ struct WatchedRuntime {
 
 type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
 pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
-const REQUEST_BODY_LIMIT: usize = 16 * 1024 * 1024;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
 const SIGNED_SESSION_PREFIX: &str = "v1";
 const ENCRYPTED_SESSION_PREFIX: &str = "v2";
@@ -589,12 +594,14 @@ fn build_runtime_from_dir_internal_with_options(
         (None, true) => None,
         (None, false) => Some(SessionSigningKey::random()?),
     };
+    validate_upload_config(&manifest.web.uploads)?;
     let static_files = static_file_config(project_root, &manifest.web.static_files)?;
 
     Ok(AppRuntime {
         root: project_root.to_path_buf(),
         escape: manifest.web.views.escape,
         static_files,
+        uploads: manifest.web.uploads.clone(),
         config: manifest_config(&manifest),
         session_signing_key,
         session_encryption_key,
@@ -626,6 +633,7 @@ fn build_watched_app_from_runtime_builder(
 
     Ok(Router::new()
         .fallback(any(render_watched_route))
+        .layer(DefaultBodyLimit::disable())
         .with_state(state))
 }
 
@@ -779,6 +787,7 @@ fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
 
     Ok(app
         .fallback(any(render_static_asset_or_not_found))
+        .layer(DefaultBodyLimit::disable())
         .with_state(state))
 }
 
@@ -788,6 +797,25 @@ fn load_manifest(project_root: &Path) -> Result<Manifest> {
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
     toml::from_str(&manifest_source)
         .with_context(|| format!("failed to parse {}", manifest_path.display()))
+}
+
+fn validate_upload_config(config: &Uploads) -> Result<()> {
+    if config.max_request_bytes == 0 {
+        bail!("web.uploads.max_request_bytes must be greater than 0");
+    }
+    if config.max_file_bytes == 0 {
+        bail!("web.uploads.max_file_bytes must be greater than 0");
+    }
+    if config.max_file_bytes > i64::MAX as usize {
+        bail!("web.uploads.max_file_bytes must fit in a Ricochet integer");
+    }
+    if config.memory_threshold_bytes > config.max_file_bytes {
+        bail!("web.uploads.memory_threshold_bytes must be less than or equal to max_file_bytes");
+    }
+    if config.max_retained_streams == 0 {
+        bail!("web.uploads.max_retained_streams must be greater than 0");
+    }
+    Ok(())
 }
 
 fn static_file_config(project_root: &Path, config: &StaticFiles) -> Result<StaticFileConfig> {
@@ -1390,10 +1418,17 @@ async fn render_static_route_request(
     let headers = headers_to_map(&parts.headers);
     let query_params = parse_urlencoded_params(parts.uri.query().unwrap_or(""));
     let path_params = route_path_params(&route_path, &path).unwrap_or_default();
-    let request_body = match request_body_from_body(&method, &parts.headers, body).await {
-        Ok(params) => params,
-        Err(err) => return mvc_bad_request_response(err),
+
+    let (runtime, _revision) = match state.runtime.snapshot(&state.revisions) {
+        Ok(snapshot) => snapshot,
+        Err(err) => return mvc_error_response(err),
     };
+
+    let request_body =
+        match request_body_from_body(&method, &parts.headers, body, &runtime.uploads).await {
+            Ok(params) => params,
+            Err(err) => return mvc_bad_request_response(err),
+        };
 
     render_route(
         state,
@@ -1410,6 +1445,7 @@ async fn render_static_route_request(
             json: request_body.json,
             uploads: request_body.uploads,
             files: request_body.files,
+            upload_streams: request_body.upload_streams,
         },
     )
     .await
@@ -1454,10 +1490,11 @@ async fn render_watched_route(
         Err(err) => return mvc_error_response(err),
     }
 
-    let request_body = match request_body_from_body(&method, &parts.headers, body).await {
-        Ok(params) => params,
-        Err(err) => return mvc_bad_request_response(err),
-    };
+    let request_body =
+        match request_body_from_body(&method, &parts.headers, body, &runtime.uploads).await {
+            Ok(params) => params,
+            Err(err) => return mvc_bad_request_response(err),
+        };
 
     let Some((route, path_params)) = matching_route(&runtime.routes, method.as_str(), &path) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -1479,6 +1516,7 @@ async fn render_watched_route(
             json: request_body.json,
             uploads: request_body.uploads,
             files: request_body.files,
+            upload_streams: request_body.upload_streams,
         },
     ) {
         Ok(action) => action.into_response().unwrap_or_else(mvc_error_response),
@@ -1525,6 +1563,7 @@ fn render_action(
         json: request.json,
         uploads: request.uploads,
         files: request.files,
+        upload_streams: request.upload_streams,
         headers: request.headers,
         cookies,
         session: initial_session.clone(),
@@ -2025,19 +2064,21 @@ fn session_value_to_json(value: &Value) -> Result<JsonValue> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct ParsedRequestBody {
     form_params: BTreeMap<String, String>,
     body: Option<Value>,
     json: Option<Value>,
     uploads: BTreeMap<String, Value>,
     files: Vec<Value>,
+    upload_streams: UploadStreamRegistry,
 }
 
 async fn request_body_from_body(
     method: &Method,
     headers: &axum::http::HeaderMap,
     body: Body,
+    uploads_config: &Uploads,
 ) -> Result<ParsedRequestBody> {
     let mut parsed = ParsedRequestBody::default();
     if !matches!(
@@ -2054,7 +2095,7 @@ async fn request_body_from_body(
     let normalized_content_type = content_type.to_ascii_lowercase();
 
     if normalized_content_type.starts_with("application/x-www-form-urlencoded") {
-        let body = to_bytes(body, REQUEST_BODY_LIMIT)
+        let body = to_bytes(body, uploads_config.max_request_bytes)
             .await
             .map_err(|err| anyhow!("failed to read request body: {err}"))?;
         let body = std::str::from_utf8(&body).context("form body is not valid UTF-8")?;
@@ -2064,7 +2105,7 @@ async fn request_body_from_body(
     }
 
     if normalized_content_type.starts_with("application/json") {
-        let body = to_bytes(body, REQUEST_BODY_LIMIT)
+        let body = to_bytes(body, uploads_config.max_request_bytes)
             .await
             .map_err(|err| anyhow!("failed to read request body: {err}"))?;
         let json = serde_json::from_slice::<JsonValue>(&body)
@@ -2076,12 +2117,7 @@ async fn request_body_from_body(
     }
 
     if normalized_content_type.starts_with("multipart/form-data") {
-        let boundary = multipart_boundary(content_type)
-            .context("multipart/form-data request is missing boundary")?;
-        let body = to_bytes(body, REQUEST_BODY_LIMIT)
-            .await
-            .map_err(|err| anyhow!("failed to read request body: {err}"))?;
-        parse_multipart_body(&body, &boundary, &mut parsed)?;
+        parse_multipart_body(content_type, body, uploads_config, &mut parsed).await?;
         parsed.body = Some(multipart_body_value(&parsed));
         return Ok(parsed);
     }
@@ -2139,6 +2175,100 @@ fn json_to_request_value(value: JsonValue) -> Value {
     }
 }
 
+async fn parse_multipart_body(
+    content_type: &str,
+    body: Body,
+    config: &Uploads,
+    parsed: &mut ParsedRequestBody,
+) -> Result<()> {
+    parsed.upload_streams = UploadStreamRegistry::with_max_retained(config.max_retained_streams);
+    let boundary = multipart_boundary(content_type)
+        .context("multipart/form-data request is missing boundary")?;
+    let mut multipart = multer::Multipart::new(body.into_data_stream(), boundary);
+    let mut request_bytes = 0usize;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| anyhow!("failed to read multipart field: {err}"))?
+    {
+        let name = field
+            .name()
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .context("multipart form-data part is missing name")?;
+        let filename = field.file_name().map(str::to_string);
+        let content_type = field.content_type().map(ToString::to_string);
+
+        if filename.is_some() {
+            let mut temp =
+                tempfile::NamedTempFile::new().context("failed to create temporary upload file")?;
+            let mut file_bytes = 0usize;
+            let mut memory = Some(Vec::new());
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|err| anyhow!("failed to read multipart file {name}: {err}"))?
+            {
+                add_multipart_request_bytes(&mut request_bytes, chunk.len(), config)?;
+                file_bytes = file_bytes
+                    .checked_add(chunk.len())
+                    .context("multipart file size overflow")?;
+                if file_bytes > config.max_file_bytes {
+                    bail!(
+                        "multipart file {name} exceeds web.uploads.max_file_bytes of {} bytes",
+                        config.max_file_bytes
+                    );
+                }
+                temp.write_all(&chunk)
+                    .context("failed to write temporary upload file")?;
+                if let Some(buffer) = &mut memory {
+                    match buffer.len().checked_add(chunk.len()) {
+                        Some(next_len) if next_len <= config.memory_threshold_bytes => {
+                            buffer.extend_from_slice(&chunk);
+                        }
+                        _ => {
+                            memory = None;
+                        }
+                    }
+                }
+            }
+            temp.flush()
+                .context("failed to flush temporary upload file")?;
+            let snapshot = parsed
+                .upload_streams
+                .retain_temp_file(
+                    UploadStreamMetadata {
+                        field: name.clone(),
+                        filename,
+                        content_type,
+                        size: file_bytes as u64,
+                    },
+                    temp.into_temp_path(),
+                )
+                .map_err(|err| anyhow!("{}", err.message))?;
+            let upload = upload_value_from_snapshot(&snapshot, memory.as_deref());
+            parsed.files.push(upload.clone());
+            insert_upload(&mut parsed.uploads, name, upload);
+        } else {
+            let mut data = Vec::new();
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|err| anyhow!("failed to read multipart field {name}: {err}"))?
+            {
+                add_multipart_request_bytes(&mut request_bytes, chunk.len(), config)?;
+                data.extend_from_slice(&chunk);
+            }
+            let value = String::from_utf8(data)
+                .with_context(|| format!("multipart field {name} is not valid UTF-8"))?;
+            parsed.form_params.insert(name, value);
+        }
+    }
+
+    Ok(())
+}
+
 fn multipart_boundary(content_type: &str) -> Option<String> {
     content_type.split(';').skip(1).find_map(|part| {
         let (name, value) = part.trim().split_once('=')?;
@@ -2158,138 +2288,50 @@ fn multipart_boundary(content_type: &str) -> Option<String> {
     })
 }
 
-fn parse_multipart_body(body: &[u8], boundary: &str, parsed: &mut ParsedRequestBody) -> Result<()> {
-    let delimiter = format!("--{boundary}").into_bytes();
-    let mut cursor = find_subslice(body, &delimiter).context("multipart boundary was not found")?;
-    cursor += delimiter.len();
-
-    loop {
-        if body.get(cursor..cursor + 2) == Some(b"--") {
-            break;
-        }
-        if body.get(cursor..cursor + 2) == Some(b"\r\n") {
-            cursor += 2;
-        }
-
-        let Some(next_boundary) = find_subslice_from(body, &delimiter, cursor) else {
-            bail!("multipart body is missing closing boundary");
-        };
-        let mut part = &body[cursor..next_boundary];
-        if part.ends_with(b"\r\n") {
-            part = &part[..part.len() - 2];
-        }
-        parse_multipart_part(part, parsed)?;
-
-        cursor = next_boundary + delimiter.len();
-    }
-
-    Ok(())
-}
-
-fn parse_multipart_part(part: &[u8], parsed: &mut ParsedRequestBody) -> Result<()> {
-    let header_end =
-        find_subslice(part, b"\r\n\r\n").context("multipart part is missing header separator")?;
-    let headers = std::str::from_utf8(&part[..header_end])
-        .context("multipart part headers are not valid UTF-8")?;
-    let data = &part[header_end + 4..];
-    let headers = parse_multipart_headers(headers);
-    let disposition = headers
-        .get("content-disposition")
-        .context("multipart part is missing Content-Disposition")?;
-    let disposition = parse_header_params(disposition);
-    let name = disposition
-        .get("name")
-        .filter(|name| !name.is_empty())
-        .cloned()
-        .context("multipart form-data part is missing name")?;
-    let filename = disposition.get("filename").cloned();
-
-    if filename.is_some() {
-        let upload = upload_value(
-            &name,
-            filename.as_deref(),
-            headers.get("content-type").map(String::as_str),
-            data,
+fn add_multipart_request_bytes(total: &mut usize, bytes: usize, config: &Uploads) -> Result<()> {
+    *total = total
+        .checked_add(bytes)
+        .context("multipart request size overflow")?;
+    if *total > config.max_request_bytes {
+        bail!(
+            "multipart request exceeds web.uploads.max_request_bytes of {} bytes",
+            config.max_request_bytes
         );
-        parsed.files.push(upload.clone());
-        insert_upload(&mut parsed.uploads, name, upload);
-    } else {
-        let value = std::str::from_utf8(data)
-            .with_context(|| format!("multipart field {name} is not valid UTF-8"))?;
-        parsed.form_params.insert(name, value.to_string());
     }
-
     Ok(())
 }
 
-fn parse_multipart_headers(headers: &str) -> BTreeMap<String, String> {
-    headers
-        .split("\r\n")
-        .filter_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
-        })
-        .collect()
-}
-
-fn parse_header_params(value: &str) -> BTreeMap<String, String> {
-    value
-        .split(';')
-        .filter_map(|part| {
-            let part = part.trim();
-            if let Some((name, value)) = part.split_once('=') {
-                Some((
-                    name.trim().to_ascii_lowercase(),
-                    unquote_header_value(value),
-                ))
-            } else if part.is_empty() {
-                None
-            } else {
-                Some((part.to_ascii_lowercase(), String::new()))
-            }
-        })
-        .collect()
-}
-
-fn unquote_header_value(value: &str) -> String {
-    let value = value.trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .unwrap_or(value);
-    value.replace("\\\"", "\"").replace("\\\\", "\\")
-}
-
-fn upload_value(
-    name: &str,
-    filename: Option<&str>,
-    content_type: Option<&str>,
-    data: &[u8],
+fn upload_value_from_snapshot(
+    snapshot: &ricochet_vm::upload_runtime::UploadStreamSnapshot,
+    data: Option<&[u8]>,
 ) -> Value {
-    let text = std::str::from_utf8(data)
-        .ok()
+    let text = data
+        .and_then(|data| std::str::from_utf8(data).ok())
         .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Nil);
+    let data_base64 = data
+        .map(|data| Value::String(BASE64_STANDARD.encode(data)))
+        .unwrap_or(Value::Nil);
+    let filename = snapshot
+        .filename
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Nil);
+    let content_type = snapshot
+        .content_type
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
         .unwrap_or(Value::Nil);
     Value::Map(
         BTreeMap::from([
-            ("name".to_string(), Value::String(name.to_string())),
-            (
-                "filename".to_string(),
-                filename
-                    .map(|value| Value::String(value.to_string()))
-                    .unwrap_or(Value::Nil),
-            ),
-            (
-                "content_type".to_string(),
-                content_type
-                    .map(|value| Value::String(value.to_string()))
-                    .unwrap_or(Value::Nil),
-            ),
-            ("size".to_string(), Value::Number(data.len() as i64)),
-            (
-                "data_base64".to_string(),
-                Value::String(BASE64_STANDARD.encode(data)),
-            ),
+            ("name".to_string(), Value::String(snapshot.field.clone())),
+            ("field".to_string(), Value::String(snapshot.field.clone())),
+            ("stream_id".to_string(), Value::Number(snapshot.id as i64)),
+            ("filename".to_string(), filename),
+            ("content_type".to_string(), content_type),
+            ("size_known".to_string(), Value::Bool(snapshot.size_known)),
+            ("size".to_string(), Value::Number(snapshot.size as i64)),
+            ("data_base64".to_string(), data_base64),
             ("text".to_string(), text),
         ])
         .into(),
@@ -2310,20 +2352,6 @@ fn insert_upload(uploads: &mut BTreeMap<String, Value>, name: String, upload: Va
             uploads.insert(name, Value::Array(vec![existing, upload].into()));
         }
     }
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    find_subslice_from(haystack, needle, 0)
-}
-
-fn find_subslice_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
-    if needle.is_empty() || start > haystack.len() {
-        return None;
-    }
-    haystack[start..]
-        .windows(needle.len())
-        .position(|window| window == needle)
-        .map(|position| start + position)
 }
 
 fn parse_urlencoded_params(source: &str) -> BTreeMap<String, String> {

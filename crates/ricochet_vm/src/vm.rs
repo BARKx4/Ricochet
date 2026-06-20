@@ -23,6 +23,7 @@ use crate::result::RicochetResult;
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
+use crate::upload_runtime::UploadStreamRegistry;
 use crate::value::Value;
 
 const DEFAULT_MAX_RUNNING_TASKS: usize = 64;
@@ -128,6 +129,7 @@ pub struct Vm {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_stream_registry: HttpStreamRegistry,
+    upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
     socket_allowed_hosts: Option<BTreeSet<String>>,
     tcp_socket_registry: TcpSocketRegistry,
@@ -185,6 +187,7 @@ impl Default for Vm {
             http_enabled: false,
             http_allowed_hosts: None,
             http_stream_registry: HttpStreamRegistry::default(),
+            upload_stream_registry: UploadStreamRegistry::default(),
             socket_enabled: false,
             socket_allowed_hosts: None,
             tcp_socket_registry: TcpSocketRegistry::default(),
@@ -238,6 +241,7 @@ struct Task {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_stream_registry: HttpStreamRegistry,
+    upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
     socket_allowed_hosts: Option<BTreeSet<String>>,
     tcp_socket_registry: TcpSocketRegistry,
@@ -442,6 +446,7 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         http_enabled: task.http_enabled,
         http_allowed_hosts: task.http_allowed_hosts,
         http_stream_registry: task.http_stream_registry,
+        upload_stream_registry: task.upload_stream_registry,
         socket_enabled: task.socket_enabled,
         socket_allowed_hosts: task.socket_allowed_hosts,
         tcp_socket_registry: task.tcp_socket_registry,
@@ -559,6 +564,10 @@ impl Vm {
 
     pub fn set_http_stream_registry(&mut self, registry: HttpStreamRegistry) {
         self.http_stream_registry = registry;
+    }
+
+    pub fn set_upload_stream_registry(&mut self, registry: UploadStreamRegistry) {
+        self.upload_stream_registry = registry;
     }
 
     pub fn set_socket_enabled(&mut self, enabled: bool) {
@@ -1452,6 +1461,10 @@ impl Vm {
             "http_stream_read" => self.call_http_stream_read(word),
             "http_stream_cancel" => self.call_http_stream_cancel(word),
             "http_stream_release" => self.call_http_stream_release(word),
+            "upload_streams" => self.call_upload_streams(),
+            "upload_stream" => self.call_upload_stream(word),
+            "upload_read" => self.call_upload_read(word),
+            "upload_release" => self.call_upload_release(word),
             "tcp_listen" => self.call_tcp_listen(word),
             "tcp_listeners" => self.call_tcp_listeners(word),
             "tcp_listener" => self.call_tcp_listener(word),
@@ -2074,6 +2087,7 @@ impl Vm {
             http_enabled: self.http_enabled,
             http_allowed_hosts: self.http_allowed_hosts.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
+            upload_stream_registry: self.upload_stream_registry.clone(),
             socket_enabled: self.socket_enabled,
             socket_allowed_hosts: self.socket_allowed_hosts.clone(),
             tcp_socket_registry: self.tcp_socket_registry.clone(),
@@ -2344,6 +2358,10 @@ impl Vm {
         self.http_stream_registry.clone()
     }
 
+    pub(super) fn upload_stream_registry(&self) -> UploadStreamRegistry {
+        self.upload_stream_registry.clone()
+    }
+
     pub(super) fn tcp_socket_registry(&self) -> TcpSocketRegistry {
         self.tcp_socket_registry.clone()
     }
@@ -2474,6 +2492,16 @@ impl Vm {
                                 Value::Number(self.http_stream_registry.len() as i64),
                             ),
                         ])
+                        .into(),
+                    ),
+                ),
+                (
+                    "uploads".to_string(),
+                    Value::Map(
+                        BTreeMap::from([(
+                            "streams".to_string(),
+                            Value::Number(self.upload_stream_registry.len() as i64),
+                        )])
                         .into(),
                     ),
                 ),

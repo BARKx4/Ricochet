@@ -11,6 +11,7 @@ pub mod pty_runtime;
 pub mod regex_value;
 pub mod result;
 pub mod socket_runtime;
+pub mod upload_runtime;
 pub mod value;
 pub mod vm;
 
@@ -28,6 +29,7 @@ pub use result::{RicochetError, RicochetResult};
 pub use socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
+pub use upload_runtime::{UploadStreamMetadata, UploadStreamRegistry};
 pub use value::{TruthinessError, Value};
 pub use vm::{Vm, VmError};
 

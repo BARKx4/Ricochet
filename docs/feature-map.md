@@ -247,6 +247,8 @@ Implemented:
   listen/accept/connect/read/write-or-send/close/release, explicit
   `--allow-sockets`, and optional `--socket-allow-host` bind/destination
   allowlists.
+- MVC upload stream words cover retained temporary upload files with
+  `upload_streams`, `upload_stream`, `upload_read`, and `upload_release`.
 - Process words cover blocking spawn, task spawn, retained process jobs, reads,
   cancellation, release, and env option maps.
 - PTY words cover retained terminal sessions, write/read/resize/stop/release,
@@ -265,6 +267,7 @@ Evidence:
 - `crates/ricochet_vm/src/process_runtime.rs`
 - `crates/ricochet_vm/src/pty_runtime.rs`
 - `crates/ricochet_vm/src/http_stream_runtime.rs`
+- `crates/ricochet_vm/src/upload_runtime.rs`
 - `crates/ricochet_vm/src/socket_runtime.rs`
 - `crates/ricochet_vm/src/approval_runtime.rs`
 - `crates/ricochet_cli/src/lib.rs`
@@ -327,8 +330,11 @@ Evidence:
 
 Remaining:
 
-- MVC request body parsing is in-memory with a 16 MiB beta limit.
-- Streaming upload APIs are future work.
+- MVC multipart uploads preserve small-file `text`/`data_base64` compatibility
+  and expose large files through bounded temporary upload streams with explicit
+  read/release words.
+- Upload limits are configured through `[web.uploads] max_request_bytes`,
+  `max_file_bytes`, `memory_threshold_bytes`, and `max_retained_streams`.
 - Template embedded script blocks beyond interpolation are future work.
 
 Do not assume:
@@ -572,7 +578,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Streaming upload APIs.
 - Migration rollback, schema dumps, seed command, and optional Ricochet
   migration DSL.
 - Template embedded script blocks beyond interpolation.
