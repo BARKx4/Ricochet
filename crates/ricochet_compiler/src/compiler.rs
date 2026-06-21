@@ -374,6 +374,19 @@ struct MacroScope {
     imported_macros: Vec<ImportedMacroTable>,
 }
 
+enum MacroExpansionOutput {
+    Exprs(Vec<SpannedExpr>),
+    Items(Vec<SpannedExpr>),
+}
+
+impl MacroExpansionOutput {
+    fn exprs(&self) -> &[SpannedExpr] {
+        match self {
+            MacroExpansionOutput::Exprs(exprs) | MacroExpansionOutput::Items(exprs) => exprs,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ExpandedSegment {
     exprs: Vec<SpannedExpr>,
@@ -477,9 +490,7 @@ impl MacroExpander {
         let mut items = Vec::new();
         let mut stack = Vec::new();
         for item in &module.items {
-            if let Some(item) = self.expand_top_level_item(item, &mut stack, &scope)? {
-                items.push(item);
-            }
+            items.extend(self.expand_top_level_item(item, &mut stack, &scope)?);
         }
         Ok(Module { items })
     }
@@ -489,25 +500,23 @@ impl MacroExpander {
         item: &Item,
         stack: &mut Vec<String>,
         scope: &MacroScope,
-    ) -> Result<Option<Item>, CompileError> {
+    ) -> Result<Vec<Item>, CompileError> {
         match item {
-            Item::Macro(_) => Ok(None),
-            Item::Class(class) => Ok(Some(Item::Class(self.expand_class(class, stack, scope)?))),
-            Item::Method(method) => Ok(Some(Item::Method(
+            Item::Macro(_) => Ok(Vec::new()),
+            Item::Class(class) => Ok(vec![Item::Class(self.expand_class(class, stack, scope)?)]),
+            Item::Method(method) => Ok(vec![Item::Method(
                 self.expand_method(method, stack, scope)?,
-            ))),
-            Item::Function(function) => Ok(Some(Item::Function(ricochet_syntax::FunctionDecl {
+            )]),
+            Item::Function(function) => Ok(vec![Item::Function(ricochet_syntax::FunctionDecl {
                 name: function.name.clone(),
                 args: function.args.clone(),
                 body: self.expand_exprs(&function.body, stack, 0, scope)?,
                 docs: function.docs.clone(),
                 span: function.span,
-            }))),
-            Item::Expr { expr, span, docs } => Ok(Some(Item::Expr {
-                expr: self.expand_expr(expr, stack, 0, scope)?,
-                span: *span,
-                docs: docs.clone(),
-            })),
+            })]),
+            Item::Expr { expr, span, docs } => {
+                self.expand_expr_item(expr, *span, docs, stack, scope)
+            }
         }
     }
 
@@ -519,7 +528,7 @@ impl MacroExpander {
     ) -> Result<ClassDecl, CompileError> {
         let mut body = Vec::new();
         for item in &class.body {
-            body.push(self.expand_class_body_item(item, stack, scope)?);
+            body.extend(self.expand_class_body_item(item, stack, scope)?);
         }
         Ok(ClassDecl {
             name: class.name.clone(),
@@ -535,7 +544,7 @@ impl MacroExpander {
         item: &Item,
         stack: &mut Vec<String>,
         scope: &MacroScope,
-    ) -> Result<Item, CompileError> {
+    ) -> Result<Vec<Item>, CompileError> {
         match item {
             Item::Macro(macro_decl) => Err(CompileError::Unsupported {
                 feature: "macro declarations are only supported at top level in this local macro slice"
@@ -546,20 +555,20 @@ impl MacroExpander {
                         .to_string(),
                 ),
             }),
-            Item::Class(class) => Ok(Item::Class(self.expand_class(class, stack, scope)?)),
-            Item::Method(method) => Ok(Item::Method(self.expand_method(method, stack, scope)?)),
-            Item::Function(function) => Ok(Item::Function(ricochet_syntax::FunctionDecl {
+            Item::Class(class) => Ok(vec![Item::Class(self.expand_class(class, stack, scope)?)]),
+            Item::Method(method) => Ok(vec![Item::Method(
+                self.expand_method(method, stack, scope)?,
+            )]),
+            Item::Function(function) => Ok(vec![Item::Function(ricochet_syntax::FunctionDecl {
                 name: function.name.clone(),
                 args: function.args.clone(),
                 body: self.expand_exprs(&function.body, stack, 0, scope)?,
                 docs: function.docs.clone(),
                 span: function.span,
-            })),
-            Item::Expr { expr, span, docs } => Ok(Item::Expr {
-                expr: self.expand_expr(expr, stack, 0, scope)?,
-                span: *span,
-                docs: docs.clone(),
-            }),
+            })]),
+            Item::Expr { expr, span, docs } => {
+                self.expand_expr_item(expr, *span, docs, stack, scope)
+            }
         }
     }
 
@@ -576,6 +585,74 @@ impl MacroExpander {
             docs: method.docs.clone(),
             span: method.span,
         })
+    }
+
+    fn expand_expr_item(
+        &mut self,
+        expr: &Expr,
+        span: Span,
+        docs: &[String],
+        stack: &mut Vec<String>,
+        scope: &MacroScope,
+    ) -> Result<Vec<Item>, CompileError> {
+        let exprs = expr_as_spanned_exprs(expr, span);
+        let mut output = Vec::<ExpandedSegment>::new();
+
+        for (index, expr) in exprs.iter().enumerate() {
+            if matches!(&expr.expr, Expr::Symbol(word) if word == "macro_call") {
+                let expansion =
+                    self.evaluate_macro_call(expr.span, &mut output, stack, 0, scope)?;
+                match expansion {
+                    MacroExpansionOutput::Exprs(exprs) => {
+                        output.push(ExpandedSegment::new(exprs, expr.span));
+                    }
+                    MacroExpansionOutput::Items(rows) => {
+                        if index + 1 != exprs.len() || !output.is_empty() {
+                            return Err(CompileError::Unsupported {
+                                feature:
+                                    "quote_items macros must be the entire expression item"
+                                        .to_string(),
+                                span: expr.span,
+                                help: Some(
+                                    "place operands, the macro name, and macro_call in one item with no surrounding expressions"
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        return Ok(item_rows_to_items(rows, docs));
+                    }
+                }
+            } else {
+                output.push(ExpandedSegment::single(
+                    self.expand_spanned_expr(expr, stack, 0, scope)?,
+                ));
+            }
+        }
+
+        Ok(vec![Item::Expr {
+            expr: expr_from_spanned_exprs(flatten_segments(output)),
+            span,
+            docs: docs.to_vec(),
+        }])
+    }
+
+    fn expand_item_rows(
+        &mut self,
+        rows: &[SpannedExpr],
+        stack: &mut Vec<String>,
+        depth: usize,
+        scope: &MacroScope,
+    ) -> Result<Vec<SpannedExpr>, CompileError> {
+        let mut expanded = Vec::new();
+        for row in rows {
+            let row_exprs = expr_as_spanned_exprs(&row.expr, row.span);
+            let row_exprs = self.expand_exprs(&row_exprs, stack, depth, scope)?;
+            expanded.push(SpannedExpr {
+                expr: expr_from_spanned_exprs(row_exprs),
+                span: row.span,
+            });
+        }
+        Ok(expanded)
     }
 
     fn expand_expr(
@@ -648,6 +725,28 @@ impl MacroExpander {
         depth: usize,
         scope: &MacroScope,
     ) -> Result<(), CompileError> {
+        let expansion = self.evaluate_macro_call(call_span, output, stack, depth, scope)?;
+        match expansion {
+            MacroExpansionOutput::Exprs(exprs) => {
+                output.push(ExpandedSegment::new(exprs, call_span));
+                Ok(())
+            }
+            MacroExpansionOutput::Items(_) => Err(CompileError::Unsupported {
+                feature: "quote_items macros can expand only as whole items".to_string(),
+                span: call_span,
+                help: Some("use quote_ast for expression-position macro expansion".to_string()),
+            }),
+        }
+    }
+
+    fn evaluate_macro_call(
+        &mut self,
+        call_span: Span,
+        output: &mut Vec<ExpandedSegment>,
+        stack: &mut Vec<String>,
+        depth: usize,
+        scope: &MacroScope,
+    ) -> Result<MacroExpansionOutput, CompileError> {
         let Some(name_segment) = output.last() else {
             return Err(CompileError::Unsupported {
                 feature: "macro_call requires a literal macro name immediately before it"
@@ -721,10 +820,18 @@ impl MacroExpander {
         stack.push(stack_key);
         let mut evaluator = MacroEvaluator::new(&bindings);
         let expansion = evaluator.evaluate(&macro_def)?;
-        self.record_generated_nodes(&expansion, name_span)?;
+        self.record_generated_nodes(expansion.exprs(), name_span)?;
         let expansion_scope = self.scope_for_macro_definition(&macro_def, scope)?;
-        let expansion = self.expand_exprs(&expansion, stack, depth + 1, &expansion_scope)?;
-        let output_node_count = count_spanned_exprs(&expansion);
+        let expansion =
+            match expansion {
+                MacroExpansionOutput::Exprs(exprs) => MacroExpansionOutput::Exprs(
+                    self.expand_exprs(&exprs, stack, depth + 1, &expansion_scope)?,
+                ),
+                MacroExpansionOutput::Items(rows) => MacroExpansionOutput::Items(
+                    self.expand_item_rows(&rows, stack, depth + 1, &expansion_scope)?,
+                ),
+            };
+        let output_node_count = count_spanned_exprs(expansion.exprs());
         self.trace.push(MacroExpansionTraceEntry {
             id: trace_id(&macro_def, call_span, depth),
             module_id: macro_def.module_id.clone(),
@@ -739,8 +846,7 @@ impl MacroExpander {
         });
         stack.pop();
 
-        output.push(ExpandedSegment::new(expansion, name_span));
-        Ok(())
+        Ok(expansion)
     }
 
     fn scope_for_macro_definition(
@@ -983,6 +1089,7 @@ impl MacroDefinition {
 enum MacroValue {
     Ast(SpannedExpr),
     AstList(Vec<SpannedExpr>),
+    ItemList(Vec<SpannedExpr>),
     QuotedBlock(Vec<SpannedExpr>),
     String,
     Number,
@@ -1006,7 +1113,10 @@ impl<'a> MacroEvaluator<'a> {
         }
     }
 
-    fn evaluate(&mut self, macro_def: &MacroDefinition) -> Result<Vec<SpannedExpr>, CompileError> {
+    fn evaluate(
+        &mut self,
+        macro_def: &MacroDefinition,
+    ) -> Result<MacroExpansionOutput, CompileError> {
         self.eval_exprs(&macro_def.body, macro_def.span)?;
         let Some(value) = self.stack.pop() else {
             return Err(CompileError::Unsupported {
@@ -1032,8 +1142,9 @@ impl<'a> MacroEvaluator<'a> {
         }
 
         match value {
-            MacroValue::AstList(exprs) => Ok(exprs),
-            MacroValue::Ast(expr) => Ok(vec![expr]),
+            MacroValue::AstList(exprs) => Ok(MacroExpansionOutput::Exprs(exprs)),
+            MacroValue::Ast(expr) => Ok(MacroExpansionOutput::Exprs(vec![expr])),
+            MacroValue::ItemList(rows) => Ok(MacroExpansionOutput::Items(rows)),
             _ => Err(CompileError::Unsupported {
                 feature: format!(
                     "compile-time macro {:?} returned a scalar instead of quoted AST",
@@ -1120,6 +1231,7 @@ impl<'a> MacroEvaluator<'a> {
     fn eval_symbol(&mut self, word: &str, span: Span) -> Result<(), CompileError> {
         match word {
             "quote_ast" => self.eval_quote_ast(span),
+            "quote_items" => self.eval_quote_items(span),
             "true" | "false" => {
                 self.stack.push(MacroValue::Bool);
                 Ok(())
@@ -1151,6 +1263,27 @@ impl<'a> MacroEvaluator<'a> {
         let quoted = self.quote_ast_body(&body)?;
         self.stack
             .push(MacroValue::AstList(flatten_quoted_block(quoted)));
+        Ok(())
+    }
+
+    fn eval_quote_items(&mut self, span: Span) -> Result<(), CompileError> {
+        let Some(value) = self.stack.pop() else {
+            return Err(CompileError::Unsupported {
+                feature: "quote_items requires a quoted block".to_string(),
+                span,
+                help: Some("place a block literal immediately before quote_items".to_string()),
+            });
+        };
+        let MacroValue::QuotedBlock(body) = value else {
+            return Err(CompileError::Unsupported {
+                feature: "quote_items can only convert quoted block literals".to_string(),
+                span,
+                help: Some("place a block literal immediately before quote_items".to_string()),
+            });
+        };
+
+        let quoted = self.quote_ast_body(&body)?;
+        self.stack.push(MacroValue::ItemList(quoted));
         Ok(())
     }
 
@@ -1266,6 +1399,39 @@ fn flatten_segments(segments: Vec<ExpandedSegment>) -> Vec<SpannedExpr> {
     segments
         .into_iter()
         .flat_map(|segment| segment.exprs)
+        .collect()
+}
+
+fn expr_as_spanned_exprs(expr: &Expr, span: Span) -> Vec<SpannedExpr> {
+    match expr {
+        Expr::Sequence(exprs) => exprs.clone(),
+        _ => vec![SpannedExpr {
+            expr: expr.clone(),
+            span,
+        }],
+    }
+}
+
+fn expr_from_spanned_exprs(mut exprs: Vec<SpannedExpr>) -> Expr {
+    if exprs.len() == 1 {
+        exprs.remove(0).expr
+    } else {
+        Expr::Sequence(exprs)
+    }
+}
+
+fn item_rows_to_items(rows: Vec<SpannedExpr>, docs: &[String]) -> Vec<Item> {
+    rows.into_iter()
+        .enumerate()
+        .map(|(index, row)| Item::Expr {
+            expr: row.expr,
+            span: row.span,
+            docs: if index == 0 {
+                docs.to_vec()
+            } else {
+                Vec::new()
+            },
+        })
         .collect()
 }
 
@@ -2512,6 +2678,89 @@ mod tests {
                 Op::CallWord("*".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn item_macro_expands_multiple_class_body_declarations() {
+        let source = r#"
+          "model_accessors" Macro
+            [
+              [
+                "email" Accessor
+                "name" Accessor
+              ] quote_items
+            ]
+          end
+
+          User Model Subclass
+            "model_accessors" macro_call
+          end
+        "#;
+        let chunk = compile_source("models/user.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "User".to_string(),
+                    superclass: "Model".to_string(),
+                },
+                Op::AddAccessor("email".to_string()),
+                Op::AddAccessor("name".to_string()),
+                Op::EndClass,
+            ]
+        );
+    }
+
+    #[test]
+    fn item_macro_expands_top_level_expression_items() {
+        let source = r#"
+          "two_prints" Macro
+            [
+              [
+                "a" println
+                "b" println
+              ] quote_items
+            ]
+          end
+
+          "two_prints" macro_call
+        "#;
+        let expansion = expand_source("main.rco", source).expect("expansion succeeds");
+
+        assert_eq!(expansion.module.items.len(), 2);
+        assert!(
+            matches!(&expansion.module.items[0], Item::Expr { expr: Expr::Sequence(exprs), .. } if matches!(&exprs[0].expr, Expr::String(value) if value == "a"))
+        );
+        assert!(
+            matches!(&expansion.module.items[1], Item::Expr { expr: Expr::Sequence(exprs), .. } if matches!(&exprs[0].expr, Expr::String(value) if value == "b"))
+        );
+    }
+
+    #[test]
+    fn quote_items_macro_fails_inside_larger_expression() {
+        let source = r#"
+          "items" Macro
+            [
+              [
+                1
+              ] quote_items
+            ]
+          end
+
+          0 "items" macro_call +
+        "#;
+        let err = compile_source("main.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, help, .. } => {
+                assert!(feature.contains("quote_items macros must be the entire expression item"));
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("macro_call in one item")));
+            }
+            other => panic!("expected quote_items expression error, got {other:?}"),
+        }
     }
 
     #[test]

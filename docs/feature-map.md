@@ -120,9 +120,10 @@ Evidence:
 
 Remaining:
 
-- Compile-time macros still need item-generation support, a fully stable JSON
-  schema/cache contract, package lockfile canonical IDs, public examples, and
-  reference documentation before being treated as stable for package authors.
+- Compile-time macros still need true declaration-item generation beyond
+  expression-item rows, a fully stable JSON schema/cache contract, package
+  lockfile canonical IDs, public examples, and reference documentation before
+  being treated as stable for package authors.
 - Persistent REPL images and source emission are future work.
 
 Do not assume:
@@ -609,8 +610,9 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Compile-time macro stabilization: item generation, full source-map/cache
-  schema, package lockfile canonical IDs, public examples, and reference docs.
+- Compile-time macro stabilization: true declaration-item generation beyond
+  expression-item rows, full source-map/cache schema, package lockfile
+  canonical IDs, public examples, and reference docs.
 - Persistent REPL images and source emission.
 - Central hosted package registry.
 - Dynamic runtime imports.
