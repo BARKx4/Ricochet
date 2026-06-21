@@ -49,10 +49,16 @@
         <article class="guide-content">
           <p>The hosted registry protocol is the Epic 8 implementation target. It extends Ricochet beyond local and static registries without replacing the current <code>ricochet-static-registry-v1</code> workflow.</p>
           <p>Hosted registry base URLs use HTTPS outside local fake-server tests. Static mirrors continue to use <code>file://</code> or <code>https://</code> index URLs.</p>
+          <p>Ricochet currently implements read-only hosted client operations for discovery, search, metadata fetch, archive fetch, install, and lockfile verification. Publish, yank, authentication, a real hosted server/reference implementation, and mirror export remain future work.</p>
 
           <h2 id="identity">Identity</h2>
           <p>The protocol name is Ricochet Hosted Registry Protocol and the version string is <code>ricochet-hosted-registry-v1</code>. Canonical JSON responses use vendor media types such as <code>application/vnd.ricochet.registry.package.v1+json</code>, and package archives use <code>application/vnd.ricochet.package.archive.v1+gzip</code>.</p>
           <p>Package identities match the static registry rules. Unscoped names use ASCII letters, numbers, <code>_</code>, and <code>-</code>. Scoped names use <code>@scope/name</code> with the same segment rules, as in <code>@ricochet/forms</code>. Endpoint paths encode the full package identity as one percent-encoded segment.</p>
+          <p>Hosted clients fetch discovery before search or install. A discovery response includes the protocol and registry base URL used for later endpoints and artifact resolution.</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>{
+  "protocol": "ricochet-hosted-registry-v1",
+  "base_url": "https://registry.example"
+}</code></pre>
 
           <h2 id="metadata">Metadata</h2>
           <p>Version records are immutable once published. A registry rejects any publish for an existing package/version pair, even if the uploaded bytes match the original. Yanking marks a version unavailable without deleting the historical metadata or artifacts.</p>
@@ -85,6 +91,16 @@
 
           <h2 id="endpoints">Endpoints</h2>
           <p>The required endpoint set is intentionally small: <code>GET /v1</code> for discovery, <code>GET /v1/search</code> for search, <code>GET /v1/packages/{package}</code> for package metadata, <code>GET /v1/packages/{package}/versions/{version}</code> for one immutable record, <code>PUT /v1/packages/{package}/versions/{version}</code> for publish, and <code>POST /v1/packages/{package}/versions/{version}/yank</code> for yanking.</p>
+          <p>The read client accepts compact search responses with <code>protocol</code> and a <code>packages</code> array. Each result includes a package <code>name</code> and latest non-yanked semver <code>latest</code>; <code>results</code> is accepted as a beta compatibility alias. Hosted search prints the same simple <code>name version</code> style as static search.</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>{
+  "protocol": "ricochet-hosted-registry-v1",
+  "packages": [
+    {
+      "name": "@ricochet/forms",
+      "latest": "0.1.0"
+    }
+  ]
+}</code></pre>
           <p>Artifact paths are registry-relative. Clients resolve them against the registry base URL discovered from <code>GET /v1</code>, not against the package metadata URL, reject absolute paths, leading slashes, backslashes, <code>.</code> or <code>..</code> segments, and any resolved URL outside the registry origin, then hash the archive bytes, unpack safely, confirm package name/version, and recompute the unpacked package tree <code>sha256:</code>.</p>
           <p>Error responses use an envelope with <code>error.code</code>, <code>error.message</code>, optional <code>details</code>, and <code>request_id</code>. Duplicate publishes return <code>409 Conflict</code> with a stable code such as <code>version_exists</code>. Rate limits use <code>429</code> with <code>Retry-After</code>.</p>
 
@@ -103,7 +119,7 @@ format = "ricochet-static-registry-v1"
 "@ricochet/forms" = "packages/@ricochet/forms.toml"</code></pre>
 
           <h2 id="sequence">Sequence</h2>
-          <p>Implementation should land in slices: hosted read client, publish/yank client with secret-reference bearer tokens, local fake hosted registry or reference implementation, mirror command, and same-version replacement tests against hosted metadata.</p>
+          <p>The hosted read client slice is implemented. Remaining slices are publish/yank client support with secret-reference bearer tokens, a real hosted server/reference implementation beyond the local fake-server client tests, mirror export to static registry format, and same-version replacement tests against the real server/reference path.</p>
         </article>
       </section>
     </main>

@@ -40,6 +40,7 @@ use sha2::{Digest, Sha256};
 use toml_edit::{value, DocumentMut, Item, Table};
 use tower::ServiceExt;
 
+mod hosted_registry;
 mod lsp;
 mod migration_dsl;
 mod static_registry;
@@ -238,7 +239,7 @@ enum Command {
         #[arg(
             long = "registry-url",
             value_name = "URL",
-            help = "Use a static package registry index URL for registry:name dependencies"
+            help = "Use a static registry index URL or hosted registry base URL for registry:name dependencies"
         )]
         registry_url: Option<String>,
         #[arg(
@@ -290,7 +291,7 @@ enum Command {
         #[arg(
             long = "registry-url",
             value_name = "URL",
-            help = "Search a static package registry index URL"
+            help = "Search a static registry index URL or hosted registry base URL"
         )]
         registry_url: Option<String>,
     },
@@ -925,7 +926,7 @@ pub async fn run_cli() -> Result<()> {
             query,
             registry,
             registry_url,
-        } => static_registry::search(&query, registry.as_deref(), registry_url.as_deref())?,
+        } => search_registry(&query, registry.as_deref(), registry_url.as_deref())?,
         Command::Install => install_dependencies()?,
         Command::Verify { path } => verify_dependencies(path.as_deref())?,
         Command::Audit { path, json } => audit_dependencies(path.as_deref(), json)?,
@@ -4649,6 +4650,7 @@ struct DependencySpec {
     registry: Option<String>,
     version_req: Option<String>,
     package_version: Option<String>,
+    archive_integrity: Option<String>,
     integrity: Option<String>,
     provenance: Option<String>,
     signature: Option<String>,
@@ -4673,6 +4675,7 @@ struct LockedPackage {
     registry: Option<String>,
     version_req: Option<String>,
     package_version: Option<String>,
+    archive_integrity: Option<String>,
     integrity: Option<String>,
     provenance: Option<String>,
     signature: Option<String>,
@@ -5014,6 +5017,7 @@ fn install_dependencies() -> Result<()> {
             .get("registry")
             .and_then(Item::as_str)
             .map(str::to_string);
+        let registry = normalize_manifest_registry_value(registry)?;
         let package = table
             .get("package")
             .and_then(Item::as_str)
@@ -5060,6 +5064,7 @@ fn install_dependencies() -> Result<()> {
             registry: registry.clone(),
             version_req,
             package_version: None,
+            archive_integrity: None,
             integrity: None,
             provenance: None,
             signature: None,
@@ -5345,6 +5350,7 @@ fn dependency_spec_from_manifest_table(
         .get("registry")
         .and_then(Item::as_str)
         .map(str::to_string);
+    let registry = normalize_manifest_registry_value(registry)?;
     let package = table
         .get("package")
         .and_then(Item::as_str)
@@ -5385,6 +5391,7 @@ fn dependency_spec_from_manifest_table(
         registry,
         version_req,
         package_version: None,
+        archive_integrity: None,
         integrity: None,
         provenance: None,
         signature: None,
@@ -5401,6 +5408,21 @@ fn dependency_kind(spec: &DependencySpec) -> &'static str {
     } else {
         "path"
     }
+}
+
+fn normalize_manifest_registry_value(registry: Option<String>) -> Result<Option<String>> {
+    let Some(registry) = registry else {
+        return Ok(None);
+    };
+    if static_registry::is_static_source(&registry) {
+        return static_registry::validate_url(&registry)
+            .map(str::to_string)
+            .map(Some);
+    }
+    if hosted_registry::is_hosted_source(&registry) {
+        return hosted_registry::validate_base_url(&registry).map(Some);
+    }
+    Ok(Some(registry))
 }
 
 fn verify_dependency(
@@ -5628,6 +5650,13 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
     if let Some(package_version) = package_version.as_deref() {
         validate_package_version(package_version)?;
     }
+    let archive_integrity = table
+        .get("archive_integrity")
+        .and_then(Item::as_str)
+        .map(str::to_string);
+    if let Some(archive_integrity) = archive_integrity.as_deref() {
+        validate_package_integrity(archive_integrity)?;
+    }
     let integrity = table
         .get("integrity")
         .and_then(Item::as_str)
@@ -5670,6 +5699,7 @@ fn locked_package(lock_doc: Option<&DocumentMut>, name: &str) -> Result<Option<L
         registry,
         version_req,
         package_version,
+        archive_integrity,
         integrity,
         provenance,
         signature,
@@ -5724,7 +5754,10 @@ fn parse_dependency_source(
             validate_package_version(version)?;
         }
         let registry = match registry_url {
-            Some(registry_url) => static_registry::validate_url(registry_url)?.to_string(),
+            Some(registry_url) if static_registry::is_static_source(registry_url) => {
+                static_registry::validate_url(registry_url)?.to_string()
+            }
+            Some(registry_url) => hosted_registry::validate_base_url(registry_url)?,
             None => registry_path_value(registry_source_path(registry)?.as_path(), false)?,
         };
         return Ok(DependencySource::Registry {
@@ -5892,6 +5925,7 @@ fn dependency_spec(
                 registry: None,
                 version_req,
                 package_version: metadata.version,
+                archive_integrity: None,
                 integrity: Some(package_tree_integrity(&absolute_path)?),
                 provenance: None,
                 signature: None,
@@ -5916,6 +5950,7 @@ fn dependency_spec(
                 registry: None,
                 version_req,
                 package_version: None,
+                archive_integrity: None,
                 integrity: None,
                 provenance: None,
                 signature: None,
@@ -5959,6 +5994,7 @@ fn dependency_spec(
                 registry: Some(registry.clone()),
                 version_req,
                 package_version: None,
+                archive_integrity: None,
                 integrity: None,
                 provenance: None,
                 signature: None,
@@ -6156,6 +6192,24 @@ fn resolve_local_dependency_dir(project_root: &Path, path: &str) -> Result<PathB
     Ok(dependency_dir)
 }
 
+fn search_registry(query: &str, registry: Option<&Path>, registry_url: Option<&str>) -> Result<()> {
+    if registry.is_some() && registry_url.is_some() {
+        bail!("use either --registry or --registry-url, not both");
+    }
+    if let Some(registry_url) = registry_url {
+        if static_registry::is_static_source(registry_url) {
+            return static_registry::search(query, None, Some(registry_url));
+        }
+        if hosted_registry::is_hosted_source(registry_url) {
+            return hosted_registry::search(query, registry_url);
+        }
+        bail!(
+            "registry URL {registry_url:?} must be a static index URL or hosted registry base URL"
+        );
+    }
+    static_registry::search(query, registry, None)
+}
+
 fn install_registry_dependency(
     project_root: &Path,
     spec: &mut DependencySpec,
@@ -6167,6 +6221,9 @@ fn install_registry_dependency(
         .expect("install_registry_dependency only handles registry dependencies");
     if static_registry::is_static_source(registry) {
         return static_registry::install_dependency(project_root, spec, locked);
+    }
+    if hosted_registry::is_hosted_source(registry) {
+        return hosted_registry::install_dependency(project_root, spec, locked);
     }
 
     let package = resolve_registry_package(project_root, spec, locked)?;
@@ -6883,6 +6940,10 @@ fn write_lockfile(lock_path: &Path, spec: &DependencySpec) -> Result<()> {
     if let Some(package_version) = &spec.package_version {
         validate_package_version(package_version)?;
         package["version"] = value(package_version.clone());
+    }
+    if let Some(archive_integrity) = &spec.archive_integrity {
+        validate_package_integrity(archive_integrity)?;
+        package["archive_integrity"] = value(archive_integrity.clone());
     }
     if let Some(integrity) = &spec.integrity {
         validate_package_integrity(integrity)?;

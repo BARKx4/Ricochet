@@ -475,8 +475,8 @@ Do not assume:
 
 ## Packages And Registries
 
-Status: implemented beta for local/static registries; hosted registry protocol
-specified for future implementation.
+Status: implemented beta for local/static registries and hosted registry read
+client operations; hosted mutation/server/mirror work remains future.
 
 Implemented:
 
@@ -489,6 +489,11 @@ Implemented:
 - Static registry workflows include publish, rebuild, check, search, provenance
   and signature metadata, `sha256:` archive verification, semver requirements,
   aliases, scoped package names, and lock hardening against same-version
+  replacement.
+- Hosted registry read client workflows include discovery, search, package
+  metadata fetch, archive fetch, HTTPS enforcement with loopback HTTP tests,
+  semver/yank-aware install resolution, archive and package tree verification,
+  and same-version lock hardening against hosted metadata or archive
   replacement.
 - The hosted registry protocol spec defines immutable hosted version metadata,
   publish/search/fetch/yank endpoints, bearer-token handling by secret
@@ -516,9 +521,9 @@ Evidence:
 
 Remaining:
 
-- Hosted registry read client, publish/yank client, fake server/reference
-  implementation, hosted same-version replacement tests, and mirror command are
-  future work.
+- Hosted publish/yank client, authentication and bearer-token resolution, real
+  server/reference implementation, hosted same-version replacement tests beyond
+  the local fake-server client tests, and mirror command are future work.
 
 Do not assume:
 

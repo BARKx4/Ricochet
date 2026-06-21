@@ -325,9 +325,19 @@ pub(super) fn install_dependency(
 }
 
 pub(super) fn is_static_source(registry: &str) -> bool {
-    registry.starts_with("http://")
-        || registry.starts_with("https://")
-        || registry.starts_with("file://")
+    if registry.starts_with("file://") {
+        return true;
+    }
+    if !(registry.starts_with("http://") || registry.starts_with("https://")) {
+        return false;
+    }
+    reqwest::Url::parse(registry)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.next_back().map(str::to_string))
+        })
+        .is_some_and(|leaf| leaf == "index.toml")
 }
 
 pub(super) fn validate_url(registry_url: &str) -> Result<&str> {
@@ -878,7 +888,7 @@ fn file_url_to_path(source: &str) -> Option<PathBuf> {
     Some(PathBuf::from(path))
 }
 
-fn extract_package_archive(bytes: &[u8], destination: &Path) -> Result<()> {
+pub(super) fn extract_package_archive(bytes: &[u8], destination: &Path) -> Result<()> {
     if destination.exists() {
         bail!(
             "package archive destination already exists: {}",

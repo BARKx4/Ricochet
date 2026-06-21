@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -13,6 +15,11 @@ use flate2::Compression;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tar::{Builder, EntryType, Header};
+
+const HOSTED_DISCOVERY_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.v1+json";
+const HOSTED_SEARCH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.search.v1+json";
+const HOSTED_PACKAGE_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.package.v1+json";
+const HOSTED_ARCHIVE_MEDIA_TYPE: &str = "application/vnd.ricochet.package.archive.v1+gzip";
 
 #[test]
 fn new_creates_mvc_project_skeleton() {
@@ -4308,6 +4315,498 @@ fn static_registry_rejects_plain_http_registry_urls() {
     assert!(
         stderr.contains("must start with https:// or file://"),
         "stderr should explain rejected HTTP registry URL, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_searches_loopback_server() {
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/search",
+        "application/vnd.ricochet.registry.search.v1+json; charset=utf-8",
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "packages": [
+                {
+                    "name": "greeter",
+                    "latest": "0.2.3"
+                }
+            ]
+        }),
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch");
+
+    assert_run_success_for("rco search", "hosted registry", &search);
+    let stdout = String::from_utf8_lossy(&search.stdout);
+    assert!(
+        stdout.contains("greeter 0.2.3"),
+        "hosted search should print package and latest version, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_wrong_search_media_type() {
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/search",
+        "text/plain",
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "packages": []
+        }),
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should reject hosted search responses with the wrong media type"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("Content-Type") && stderr.contains(HOSTED_SEARCH_MEDIA_TYPE),
+        "stderr should explain the rejected hosted search media type, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_missing_search_results_array() {
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/search",
+        HOSTED_SEARCH_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1"
+        }),
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should reject hosted search responses without packages or results"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("must include packages or results array"),
+        "stderr should explain the missing hosted search result array, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_search_accepts_empty_results_array() {
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/search",
+        HOSTED_SEARCH_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "results": []
+        }),
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("missing")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch");
+
+    assert_run_success_for("rco search", "empty hosted registry results", &search);
+    let stdout = String::from_utf8_lossy(&search.stdout);
+    assert!(
+        stdout.contains("no packages found"),
+        "empty hosted search results should print no packages found, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn hosted_registry_add_installs_package_and_imports_it() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let archive = build_hosted_archive_fixture(
+        base,
+        "hosted_greeter_pkg",
+        "hosted_static_registry",
+        "greeter",
+        "0.2.3",
+        "hello from hosted registry",
+    );
+    let server = HostedRegistryTestServer::start();
+    install_hosted_fixture_routes(&server, &archive);
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--version")
+        .arg("^0.2.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "hosted registry dependency", &add);
+
+    let manifest = fs::read_to_string(app.join("ricochet.toml")).expect("manifest should exist");
+    assert!(manifest.contains("[dependencies.greeter]"));
+    assert!(manifest.contains("path = \".ricochet/packages/greeter\""));
+    assert!(manifest.contains(&format!(
+        "registry = \"{}\"",
+        escape_toml_string(&server.base_url())
+    )));
+    assert!(manifest.contains("version = \"^0.2.0\""));
+
+    let lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(lock.contains("[package.greeter]"));
+    assert!(lock.contains(&format!(
+        "source = \"registry+{}#greeter\"",
+        server.base_url()
+    )));
+    assert!(lock.contains(&format!("registry = \"{}\"", server.base_url())));
+    assert!(lock.contains("version_req = \"^0.2.0\""));
+    assert!(lock.contains("version = \"0.2.3\""));
+    assert!(lock.contains(&format!(
+        "archive_integrity = \"{}\"",
+        archive.archive_integrity
+    )));
+    assert!(lock.contains(&format!("integrity = \"{}\"", archive.package_integrity)));
+
+    let normalized_manifest = manifest.replace(
+        &format!("registry = \"{}\"", server.base_url()),
+        &format!("registry = \"{}/\"", server.base_url()),
+    );
+    fs::write(app.join("ricochet.toml"), normalized_manifest)
+        .expect("manifest should be rewritable for registry URL normalization check");
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("verify")
+        .current_dir(&app)
+        .output()
+        .expect("rco verify should launch");
+    assert_run_success_for("rco verify", "hosted registry dependency", &verify);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("String(\"hello from hosted registry\")"),
+        "stdout should show imported hosted package result, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_package_metadata_redirect_status() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let archive = build_hosted_archive_fixture(
+        base,
+        "hosted_redirect_greeter_pkg",
+        "hosted_redirect_static_registry",
+        "greeter",
+        "0.2.3",
+        "redirect hosted registry version",
+    );
+    let server = HostedRegistryTestServer::start();
+    install_hosted_fixture_routes(&server, &archive);
+    server.set_json_status(
+        "/v1/packages/greeter",
+        302,
+        HOSTED_PACKAGE_MEDIA_TYPE,
+        hosted_package_fixture_json(&archive),
+    );
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+
+    assert!(
+        !add.status.success(),
+        "rco add should reject hosted package metadata redirects"
+    );
+    let stderr = String::from_utf8_lossy(&add.stderr);
+    assert!(
+        stderr.contains("non-success HTTP status") && stderr.contains("302"),
+        "stderr should explain the hosted metadata redirect rejection, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_archive_wrong_media_type() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let archive = build_hosted_archive_fixture(
+        base,
+        "hosted_bad_archive_type_greeter_pkg",
+        "hosted_bad_archive_type_static_registry",
+        "greeter",
+        "0.2.3",
+        "bad archive media type hosted registry version",
+    );
+    let server = HostedRegistryTestServer::start();
+    install_hosted_fixture_routes(&server, &archive);
+    server.set_bytes(
+        &format!("/{}", archive.archive_path),
+        "application/octet-stream",
+        archive.archive_bytes.clone(),
+    );
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+
+    assert!(
+        !add.status.success(),
+        "rco add should reject hosted archives served with the wrong media type"
+    );
+    let stderr = String::from_utf8_lossy(&add.stderr);
+    assert!(
+        stderr.contains("Content-Type") && stderr.contains(HOSTED_ARCHIVE_MEDIA_TYPE),
+        "stderr should explain the rejected hosted archive media type, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_bad_manifest_identity_left_in_cache() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let archive = build_hosted_archive_fixture_with_manifest_package(
+        base,
+        "hosted_bad_identity_greeter_pkg",
+        "hosted_bad_identity_static_registry",
+        "greeter",
+        "impostor",
+        "0.2.3",
+        "bad manifest identity hosted registry version",
+    );
+    let server = HostedRegistryTestServer::start();
+    install_hosted_fixture_routes(&server, &archive);
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    let cache = app.join(".ricochet").join("packages").join("greeter");
+
+    let first_add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+
+    assert!(
+        !first_add.status.success(),
+        "first hosted install should reject the freshly extracted bad manifest identity"
+    );
+    let first_stderr = String::from_utf8_lossy(&first_add.stderr);
+    assert!(
+        first_stderr.contains("manifest package name"),
+        "first failure should explain the manifest identity mismatch, got:\n{first_stderr}"
+    );
+    assert!(
+        cache.is_dir(),
+        "failed extraction should leave the generated cache behind for the regression"
+    );
+
+    let manifest = format!(
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \".ricochet/packages/greeter\"\nregistry = \"{}\"\nversion = \"^0.2.0\"\n",
+        escape_toml_string(&server.base_url())
+    );
+    fs::write(app.join("ricochet.toml"), manifest).expect("manifest should be writable");
+
+    let second_install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !second_install.status.success(),
+        "second hosted install should reject the existing cache by manifest identity"
+    );
+    let second_stderr = String::from_utf8_lossy(&second_install.stderr);
+    assert!(
+        second_stderr.contains("hosted registry package cache for greeter 0.2.3 has manifest package name")
+            && second_stderr.contains("impostor"),
+        "second failure should explain the cached manifest identity mismatch, got:\n{second_stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_rejects_non_loopback_http_urls() {
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greeter")
+        .arg("--registry-url")
+        .arg("http://registry.example.test")
+        .output()
+        .expect("rco search should launch");
+
+    assert!(
+        !search.status.success(),
+        "rco search should reject non-loopback plain HTTP hosted registries"
+    );
+    let stderr = String::from_utf8_lossy(&search.stderr);
+    assert!(
+        stderr.contains("must use https:// outside loopback tests"),
+        "stderr should explain rejected hosted HTTP URL, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_install_rejects_same_version_metadata_replacement() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let archive = build_hosted_archive_fixture(
+        base,
+        "hosted_locked_greeter_pkg",
+        "hosted_locked_static_registry",
+        "greeter",
+        "0.2.3",
+        "locked hosted registry version",
+    );
+    let replacement = build_hosted_archive_fixture(
+        base,
+        "hosted_replacement_greeter_pkg",
+        "hosted_replacement_static_registry",
+        "greeter",
+        "0.2.3",
+        "replacement hosted registry version",
+    );
+    let server = HostedRegistryTestServer::start();
+    install_hosted_fixture_routes(&server, &archive);
+
+    let app = base.join("app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"app\"\n");
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--version")
+        .arg("^0.2.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "first hosted registry install", &add);
+    let first_lock = fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should exist");
+    assert!(first_lock.contains(&format!(
+        "archive_integrity = \"{}\"",
+        archive.archive_integrity
+    )));
+
+    install_hosted_fixture_routes(&server, &replacement);
+    fs::remove_dir_all(app.join(".ricochet").join("packages").join("greeter"))
+        .expect("generated package cache should be removable for reinstall");
+
+    let reinstall = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(&app)
+        .output()
+        .expect("rco install should launch");
+
+    assert!(
+        !reinstall.status.success(),
+        "ordinary install should reject same-version hosted registry replacement"
+    );
+    let stderr = String::from_utf8_lossy(&reinstall.stderr);
+    assert!(
+        stderr.contains("hosted registry package greeter 0.2.3 archive_integrity changed")
+            || stderr.contains("hosted registry package greeter 0.2.3 integrity changed"),
+        "stderr should explain the locked hosted package mismatch, got:\n{stderr}"
+    );
+    let second_lock =
+        fs::read_to_string(app.join("ricochet.lock")).expect("lockfile should still exist");
+    assert_eq!(
+        first_lock, second_lock,
+        "failed hosted registry reinstall must leave the lockfile unchanged"
     );
 }
 
@@ -10299,6 +10798,331 @@ fn escape_toml_string(value: &str) -> String {
 
 fn file_url_for_test(path: &Path) -> String {
     format!("file:///{}", path_to_slash_for_test(path))
+}
+
+#[derive(Clone)]
+struct HostedTestResponse {
+    status: u16,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+struct HostedRegistryTestServer {
+    address: std::net::SocketAddr,
+    routes: Arc<Mutex<BTreeMap<String, HostedTestResponse>>>,
+    shutdown: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl HostedRegistryTestServer {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("local HTTP listener should bind");
+        listener
+            .set_nonblocking(true)
+            .expect("test server should become nonblocking");
+        let address = listener.local_addr().expect("listener should have address");
+        let routes = Arc::new(Mutex::new(BTreeMap::<String, HostedTestResponse>::new()));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let routes_for_thread = Arc::clone(&routes);
+        let shutdown_for_thread = Arc::clone(&shutdown);
+        let handle = thread::spawn(move || {
+            while !shutdown_for_thread.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let response = read_hosted_test_request(&mut stream)
+                            .and_then(|target| {
+                                let path = target.split('?').next().unwrap_or(&target);
+                                routes_for_thread
+                                    .lock()
+                                    .expect("routes lock should not be poisoned")
+                                    .get(path)
+                                    .cloned()
+                            })
+                            .unwrap_or_else(|| HostedTestResponse {
+                                status: 404,
+                                content_type: "text/plain",
+                                body: b"not found".to_vec(),
+                            });
+                        write_hosted_test_response(&mut stream, response);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        Self {
+            address,
+            routes,
+            shutdown,
+            handle: Some(handle),
+        }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+
+    fn set_json(&self, path: &str, content_type: &'static str, body: serde_json::Value) {
+        self.set_json_status(path, 200, content_type, body);
+    }
+
+    fn set_json_status(
+        &self,
+        path: &str,
+        status: u16,
+        content_type: &'static str,
+        body: serde_json::Value,
+    ) {
+        self.set_response(path, status, content_type, body.to_string());
+    }
+
+    fn set_bytes(&self, path: &str, content_type: &'static str, body: Vec<u8>) {
+        self.set_bytes_status(path, 200, content_type, body);
+    }
+
+    fn set_bytes_status(&self, path: &str, status: u16, content_type: &'static str, body: Vec<u8>) {
+        self.routes
+            .lock()
+            .expect("routes lock should not be poisoned")
+            .insert(
+                path.to_string(),
+                HostedTestResponse {
+                    status,
+                    content_type,
+                    body,
+                },
+            );
+    }
+
+    fn set_response(&self, path: &str, status: u16, content_type: &'static str, body: String) {
+        self.set_bytes_status(path, status, content_type, body.into_bytes());
+    }
+}
+
+impl Drop for HostedRegistryTestServer {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        let _ = std::net::TcpStream::connect(self.address);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+struct HostedArchiveFixture {
+    package: String,
+    version: String,
+    archive_path: String,
+    archive_integrity: String,
+    package_integrity: String,
+    archive_bytes: Vec<u8>,
+}
+
+fn install_hosted_fixture_routes(
+    server: &HostedRegistryTestServer,
+    fixture: &HostedArchiveFixture,
+) {
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/search",
+        HOSTED_SEARCH_MEDIA_TYPE,
+        hosted_search_fixture_json(fixture),
+    );
+    server.set_json(
+        &format!("/v1/packages/{}", fixture.package),
+        HOSTED_PACKAGE_MEDIA_TYPE,
+        hosted_package_fixture_json(fixture),
+    );
+    server.set_bytes(
+        &format!("/{}", fixture.archive_path),
+        HOSTED_ARCHIVE_MEDIA_TYPE,
+        fixture.archive_bytes.clone(),
+    );
+}
+
+fn hosted_search_fixture_json(fixture: &HostedArchiveFixture) -> serde_json::Value {
+    json!({
+        "protocol": "ricochet-hosted-registry-v1",
+        "packages": [
+            {
+                "name": fixture.package,
+                "latest": fixture.version
+            }
+        ]
+    })
+}
+
+fn hosted_package_fixture_json(fixture: &HostedArchiveFixture) -> serde_json::Value {
+    json!({
+        "protocol": "ricochet-hosted-registry-v1",
+        "package": {
+            "name": fixture.package,
+            "latest": fixture.version
+        },
+        "versions": [
+            {
+                "version": fixture.version,
+                "published_at": "2026-06-21T00:00:00Z",
+                "yanked": false,
+                "archive": {
+                    "path": fixture.archive_path,
+                    "integrity": fixture.archive_integrity,
+                    "media_type": "application/vnd.ricochet.package.archive.v1+gzip"
+                },
+                "package_integrity": fixture.package_integrity
+            }
+        ]
+    })
+}
+
+fn build_hosted_archive_fixture(
+    base: &Path,
+    package_dir_name: &str,
+    registry_dir_name: &str,
+    package: &str,
+    version: &str,
+    message: &str,
+) -> HostedArchiveFixture {
+    build_hosted_archive_fixture_with_manifest_package(
+        base,
+        package_dir_name,
+        registry_dir_name,
+        package,
+        package,
+        version,
+        message,
+    )
+}
+
+fn build_hosted_archive_fixture_with_manifest_package(
+    base: &Path,
+    package_dir_name: &str,
+    registry_dir_name: &str,
+    hosted_package: &str,
+    manifest_package: &str,
+    version: &str,
+    message: &str,
+) -> HostedArchiveFixture {
+    let package_dir = base.join(package_dir_name);
+    let registry = base.join(registry_dir_name);
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        &format!("[package]\nname = \"{manifest_package}\"\nversion = \"{version}\"\n"),
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        &format!("\"packageHello\" function\n  \"{message}\"\nend\n"),
+    );
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry")
+        .arg(&registry)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "hosted fixture package", &publish);
+    let rebuild = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("rebuild")
+        .arg(&registry)
+        .output()
+        .expect("rco registry rebuild should launch");
+    assert_run_success_for("rco registry rebuild", "hosted fixture registry", &rebuild);
+
+    let metadata = fs::read_to_string(
+        registry
+            .join("packages")
+            .join(format!("{manifest_package}.toml")),
+    )
+    .expect("static package metadata should exist");
+    let archive_path = toml_string_value(&metadata, "archive");
+    let archive_integrity = toml_string_value(&metadata, "archive_integrity");
+    let package_integrity = toml_string_value(&metadata, "package_integrity");
+    let archive_bytes =
+        fs::read(registry.join(&archive_path)).expect("static archive bytes should exist");
+
+    HostedArchiveFixture {
+        package: hosted_package.to_string(),
+        version: version.to_string(),
+        archive_path,
+        archive_integrity,
+        package_integrity,
+        archive_bytes,
+    }
+}
+
+fn toml_string_value(source: &str, key: &str) -> String {
+    let prefix = format!("{key} = \"");
+    let line = source
+        .lines()
+        .find(|line| line.starts_with(&prefix))
+        .unwrap_or_else(|| panic!("TOML fixture should contain {key}"));
+    line[prefix.len()..]
+        .strip_suffix('"')
+        .unwrap_or_else(|| panic!("TOML fixture {key} should be quoted"))
+        .to_string()
+}
+
+fn read_hosted_test_request(stream: &mut std::net::TcpStream) -> Option<String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test stream should accept read timeout");
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    loop {
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..read]);
+        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+        if request.len() > 16 * 1024 {
+            return None;
+        }
+    }
+    let request = String::from_utf8_lossy(&request);
+    let mut parts = request.lines().next()?.split_whitespace();
+    let method = parts.next()?;
+    let target = parts.next()?;
+    if method != "GET" {
+        return None;
+    }
+    Some(target.to_string())
+}
+
+fn write_hosted_test_response(stream: &mut std::net::TcpStream, response: HostedTestResponse) {
+    let reason = match response.status {
+        200 => "OK",
+        302 => "Found",
+        404 => "Not Found",
+        _ => "Error",
+    };
+    let headers = format!(
+        "HTTP/1.1 {} {reason}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        response.status,
+        response.content_type,
+        response.body.len()
+    );
+    if stream.write_all(headers.as_bytes()).is_err() {
+        return;
+    }
+    let _ = stream.write_all(&response.body);
+    let _ = stream.shutdown(Shutdown::Both);
 }
 
 fn write_static_registry_fixture(

@@ -7,6 +7,11 @@ static registry behavior. Existing `rco publish PACKAGE --registry PATH`,
 `rco search QUERY --registry-url URL`, and static
 `ricochet-static-registry-v1` indexes remain supported.
 
+Ricochet currently implements read-only hosted client operations for discovery,
+search, metadata fetch, archive fetch, install, and lockfile verification.
+Publish, yank, authentication, a real hosted server/reference implementation,
+and mirror export remain future work.
+
 ## Protocol Identity
 
 - Protocol name: Ricochet Hosted Registry Protocol.
@@ -27,6 +32,20 @@ Canonical media types:
 | Error envelope | `application/vnd.ricochet.registry.error.v1+json` |
 | Package archive | `application/vnd.ricochet.package.archive.v1+gzip` |
 | Static export | `application/toml; profile="ricochet-static-registry-v1"` |
+
+Discovery responses have this shape:
+
+```json
+{
+  "protocol": "ricochet-hosted-registry-v1",
+  "base_url": "https://registry.example"
+}
+```
+
+The read client fetches `GET /v1` before hosted search or install operations.
+`base_url` is the registry base used to resolve later endpoints and artifacts.
+For beta/local fake registries the client also accepts discovery without
+`base_url` and uses the requested base URL.
 
 Package archives are gzip-compressed tar files with the same archive safety
 rules as static registry archives: relative entries only, no `..`, no absolute
@@ -115,6 +134,26 @@ All JSON endpoints use UTF-8.
 Search responses exclude yanked versions from default "latest" selection.
 Package metadata includes yanked versions so lockfile verification, audits, and
 mirrors can see historical state.
+
+The beta read client accepts compact search responses with this shape:
+
+```json
+{
+  "protocol": "ricochet-hosted-registry-v1",
+  "packages": [
+    {
+      "name": "@ricochet/forms",
+      "latest": "0.1.0"
+    }
+  ]
+}
+```
+
+For each result, `name` is a hosted package identity and `latest` is the latest
+non-yanked semver version selected by the registry. The client validates the
+protocol, package name, and version, then prints results in the same simple
+`name version` style as static registry search. `results` is accepted as a
+compatibility alias for `packages` during this beta slice.
 
 Artifact paths in metadata are registry-relative paths, not absolute URLs.
 Clients resolve them against the registry base URL discovered from `GET /v1`,
@@ -308,12 +347,13 @@ projects pinned to a static mirror should continue using the existing
 Later Epic 8 slices should implement the protocol in this order:
 
 1. Hosted read client: discovery, search, package metadata fetch, archive fetch,
-   verification order, lockfile invariants, and HTTPS enforcement.
+   verification order, lockfile invariants, and HTTPS enforcement. Implemented.
 2. Publish and yank client: secret-reference bearer tokens, package/scoped
    authorization errors, duplicate-version rejection, provenance/signature
    upload, and yanking.
-3. Local fake hosted registry and reference implementation for smoke tests.
+3. Hosted server/reference implementation for operational smoke tests beyond
+   the local fake-server client tests.
 4. Mirror command that exports hosted metadata and artifacts to
    `ricochet-static-registry-v1`.
-5. Hosted same-version replacement tests and documentation updates for
-   operational deployment.
+5. Hosted same-version replacement tests against a real server/reference
+   implementation and documentation updates for operational deployment.
