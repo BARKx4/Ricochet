@@ -57,6 +57,7 @@ const HTTP_DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const HTTP_MAX_TIMEOUT_MS: u64 = 300_000;
 const HTTP_DEFAULT_MAX_RESPONSE_BYTES: usize = 1_048_576;
 const HTTP_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const HTTP_STREAM_MAX_READ_MAX_BYTES: usize = 16 * 1024 * 1024;
 const PROCESS_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const PROCESS_MAX_TIMEOUT_MS: u64 = 300_000;
 const PROCESS_DEFAULT_OUTPUT_MAX_BYTES: usize = 1_048_576;
@@ -2201,8 +2202,8 @@ impl Vm {
                 return Err(error);
             }
         };
-        let offset = match http_stream_read_offset(options) {
-            Ok(offset) => offset,
+        let read_options = match http_stream_read_options(options) {
+            Ok(read_options) => read_options,
             Err(error) => {
                 self.stack.push(error);
                 return Ok(());
@@ -2210,7 +2211,7 @@ impl Vm {
         };
         let result = self
             .http_stream_registry()
-            .read(id, offset)
+            .read(id, read_options.offset, read_options.max_bytes)
             .map(|read| Value::result_ok(http_stream_read_value(&read)))
             .unwrap_or_else(|| unknown_http_stream_value(id));
         self.stack.push(result);
@@ -6065,7 +6066,12 @@ fn pty_read_offset(options: Value) -> Result<usize, Value> {
     Ok(offset)
 }
 
-fn http_stream_read_offset(options: Value) -> Result<usize, Value> {
+struct HttpStreamReadOptions {
+    offset: usize,
+    max_bytes: Option<usize>,
+}
+
+fn http_stream_read_options(options: Value) -> Result<HttpStreamReadOptions, Value> {
     let Value::Map(options) = options else {
         return Err(Value::result_err(
             "HttpStreamRequestError",
@@ -6100,13 +6106,48 @@ fn http_stream_read_offset(options: Value) -> Result<usize, Value> {
             ));
         }
     };
+    let max_bytes = match options.remove("max_bytes") {
+        Some(Value::Number(value)) if value > 0 => {
+            let value = usize::try_from(value).map_err(|_| {
+                Value::result_err(
+                    "HttpStreamRequestError",
+                    "HTTP stream read option max_bytes is too large",
+                )
+            })?;
+            if value > HTTP_STREAM_MAX_READ_MAX_BYTES {
+                return Err(Value::result_err(
+                    "HttpStreamRequestError",
+                    format!(
+                        "HTTP stream read option max_bytes must be at most {HTTP_STREAM_MAX_READ_MAX_BYTES}"
+                    ),
+                ));
+            }
+            Some(value)
+        }
+        Some(Value::Number(value)) => {
+            return Err(Value::result_err(
+                "HttpStreamRequestError",
+                format!("HTTP stream read option max_bytes must be positive, got {value}"),
+            ));
+        }
+        Some(Value::Nil) | None => None,
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpStreamRequestError",
+                format!(
+                    "HTTP stream read option max_bytes must be a number, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
     if let Some(key) = options.keys().next() {
         return Err(Value::result_err(
             "HttpStreamRequestError",
             format!("unknown HTTP stream read option: {key}"),
         ));
     }
-    Ok(offset)
+    Ok(HttpStreamReadOptions { offset, max_bytes })
 }
 
 struct UploadReadOptions {
@@ -6853,7 +6894,20 @@ fn http_stream_read_value(read: &HttpStreamRead) -> Value {
         _ => BTreeMap::new(),
     };
     values.insert("body".to_string(), Value::String(read.body.clone()));
+    values.insert(
+        "from_offset".to_string(),
+        Value::Number(read.from_offset as i64),
+    );
+    values.insert(
+        "next_offset".to_string(),
+        Value::Number(read.next_offset as i64),
+    );
     values.insert("offset".to_string(), Value::Number(read.offset as i64));
+    values.insert(
+        "bytes_len".to_string(),
+        Value::Number(read.bytes_len as i64),
+    );
+    values.insert("done".to_string(), Value::Bool(read.done));
     Value::Map(values.into())
 }
 

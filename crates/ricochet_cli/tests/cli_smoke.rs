@@ -11277,6 +11277,97 @@ runtime_capabilities "http" at "streams" at
 }
 
 #[test]
+fn run_http_stream_read_supports_max_bytes_metadata_and_done() {
+    let (address, server) =
+        spawn_chunked_http_server(vec![(b"abcdef".to_vec(), Duration::from_millis(0))]);
+    let output = run_source(&format!(
+        r#"
+request map
+request get "url" "http://{address}/stream" put! drop
+request get "timeout_ms" 10000 put! drop
+request get "max_response_bytes" 1024 put! drop
+request get http_stream_start value stream var
+stream get "id" at id var
+nil detail var
+0 attempts var
+attempts get 50 < while
+  id get http_stream value detail set
+  detail get "status" at "completed" = if
+    break
+  end
+  20 sleep
+  attempts get 1 + attempts set
+end
+detail get "status" at "completed" = assert
+
+boundedOptions map
+boundedOptions get "max_bytes" 3 put! drop
+id get boundedOptions get http_stream_read value bounded var
+bounded get "body" at "abc" = assert
+bounded get "from_offset" at 0 = assert
+bounded get "next_offset" at 3 = assert
+bounded get "offset" at 3 = assert
+bounded get "bytes_len" at 3 = assert
+bounded get "done" at false = assert
+
+finalOptions map
+finalOptions get "offset" bounded get "next_offset" at put! drop
+id get finalOptions get http_stream_read value final var
+final get "body" at "def" = assert
+final get "from_offset" at 3 = assert
+final get "next_offset" at 6 = assert
+final get "offset" at 6 = assert
+final get "bytes_len" at 3 = assert
+final get "done" at true = assert
+
+nilOptions map
+nilOptions get "max_bytes" nil put! drop
+id get nilOptions get http_stream_read value nilRead var
+nilRead get "body" at "abcdef" = assert
+nilRead get "from_offset" at 0 = assert
+nilRead get "next_offset" at 6 = assert
+nilRead get "bytes_len" at 6 = assert
+nilRead get "done" at true = assert
+
+zeroOptions map
+zeroOptions get "max_bytes" 0 put! drop
+id get zeroOptions get http_stream_read error zeroError var
+zeroError get "kind" at "HttpStreamRequestError" = assert
+
+negativeOptions map
+negativeOptions get "max_bytes" -1 put! drop
+id get negativeOptions get http_stream_read error negativeError var
+negativeError get "kind" at "HttpStreamRequestError" = assert
+
+hugeOptions map
+hugeOptions get "max_bytes" 16777217 put! drop
+id get hugeOptions get http_stream_read error hugeError var
+hugeError get "kind" at "HttpStreamRequestError" = assert
+
+textOptions map
+textOptions get "max_bytes" "many" put! drop
+id get textOptions get http_stream_read error textError var
+textError get "kind" at "HttpStreamRequestError" = assert
+
+unknownOptions map
+unknownOptions get "mystery" true put! drop
+id get unknownOptions get http_stream_read error unknownError var
+unknownError get "kind" at "HttpStreamRequestError" = assert
+
+"http-stream-read-metadata-ok"
+"#
+    ));
+    server.join().expect("HTTP streaming server should finish");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"http-stream-read-metadata-ok\")"),
+        "stdout should contain stream read metadata success marker, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_http_stream_release_drops_completed_stream() {
     let (address, server) =
         spawn_chunked_http_server(vec![(b"data: done\n\n".to_vec(), Duration::from_millis(0))]);

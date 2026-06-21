@@ -254,7 +254,8 @@ Implemented:
   `workspace_write_text`, `workspace_mkdir`, `workspace_delete`,
   `workspace_copy`, `workspace_move`.
 - HTTP words cover simple calls, structured request maps, bearer/JSON/timeout
-  helpers, task-returning requests, and retained streams with read/cancel/release.
+  helpers, task-returning requests, and retained streams with bounded offset
+  reads, read metadata, done signaling, cancel, and release.
 - Socket words cover retained raw TCP and WebSocket clients/listeners with
   listen/accept/connect/read/write-or-send/close/release, explicit
   `--allow-sockets`, and optional `--socket-allow-host` bind/destination
@@ -442,6 +443,9 @@ Implemented:
   error contracts, retry policy maps, tool call/result maps, schema validation,
   OpenAI-compatible request builders, secret reference helpers, SSE parsing,
   and stream text extraction.
+- Retained HTTP stream reads expose bounded `max_bytes` consumption,
+  `from_offset`, `next_offset`, backward-compatible `offset`, `bytes_len`, and
+  `done` metadata for incremental consumers.
 - `@ricochet/test_helpers` provides assertion, fixture, HTTP response, and
   temporary workspace helpers.
 
@@ -462,8 +466,9 @@ Evidence:
 
 Remaining:
 
-- Richer provider packages, actual retry/tool execution, and AI streaming
-  integration remain future package/core work.
+- Richer provider packages, actual retry/tool execution, fake-provider
+  integration tests, and provider-level AI streaming integration remain future
+  package/core work.
 
 Do not assume:
 
@@ -658,7 +663,8 @@ Implemented foundations that should not be listed as missing:
 - Signed and optionally encrypted sessions.
 - MVC AI capability and first-party AI helpers.
 - Package add/install/verify/audit/publish/static registry/search workflows.
-- Retained process, PTY, HTTP stream cleanup/release.
+- Retained process, PTY, HTTP stream cleanup/release, and HTTP stream read
+  ergonomics.
 - Date/time/duration words.
 - Beta compile-time expression macros, including local/static-import/package
   path lookup and `rco expand` inspection.
@@ -668,8 +674,8 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Richer AI provider packages, actual retry/tool execution, and streaming
-  integration.
+- Richer AI provider packages, actual retry/tool execution, fake-provider
+  integration tests, and provider-level streaming integration.
 - Production app distribution polish: signing, notarization, metadata, store or
   updater workflows.
 

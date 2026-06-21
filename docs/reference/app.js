@@ -2140,8 +2140,8 @@ const WORDS = [
     "aliases": ["HTTP", "stream"],
     "group": "system",
     "stack": "id:number options:map -> result(map)",
-    "body": "Reads retained HTTP stream body text from `offset` and returns the same snapshot fields plus `body` and the next `offset`. Options may include `offset`; omitted offset defaults to 0.",
-    "example": "options map\n$stream \"id\" at $options http_stream_read value"
+    "body": "Reads retained HTTP stream body text from `offset`, optionally bounded by `max_bytes`, and returns the same snapshot fields plus `body`, `from_offset`, `next_offset`, backward-compatible `offset` as the next offset, `bytes_len`, and `done`. Missing or nil `offset` starts at 0; missing or nil `max_bytes` reads all currently retained bytes from that offset. `done` is true only when the stream is no longer running and the read consumed all retained bytes.",
+    "example": "options map\n$options \"max_bytes\" 4096 put! drop\n$stream \"id\" at $options http_stream_read value"
   },
   {
     "word": "http_stream_cancel",

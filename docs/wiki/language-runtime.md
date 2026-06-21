@@ -106,7 +106,13 @@ $request await value response var
 $response "status" at println
 ```
 
-Long-running HTTP responses can be retained and read incrementally by offset:
+Long-running HTTP responses can be retained and read incrementally by offset.
+`http_stream_read` accepts `offset` and optional `max_bytes`; missing or nil
+`max_bytes` reads all currently retained bytes from the offset. Read results
+include the stream snapshot fields plus `body`, `from_offset`, `next_offset`,
+backward-compatible `offset` as the next offset, `bytes_len`, and `done`.
+`done` becomes true only after the stream stops and the read has consumed all
+currently retained bytes:
 
 ```forth
 "GET" "https://api.example/v1/events" http_request_new value request var
@@ -114,9 +120,14 @@ $request 60000 http_timeout value request set
 $request http_stream_start value stream var
 
 options map
-$stream "id" at $options http_stream_read value chunk var
-$chunk "body" at println
-$chunk "offset" at nextOffset var
+$options "max_bytes" 4096 put! drop
+false done var
+$done false = while
+  $stream "id" at $options http_stream_read value chunk var
+  $chunk "body" at println
+  $options "offset" $chunk "next_offset" at put! drop
+  $chunk "done" at done set
+end
 ```
 
 ## Date, Time, And Duration

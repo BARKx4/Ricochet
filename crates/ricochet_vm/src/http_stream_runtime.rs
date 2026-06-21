@@ -88,7 +88,11 @@ pub struct HttpStreamSnapshot {
 pub struct HttpStreamRead {
     pub snapshot: HttpStreamSnapshot,
     pub body: String,
+    pub from_offset: usize,
+    pub next_offset: usize,
     pub offset: usize,
+    pub bytes_len: usize,
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,9 +183,9 @@ impl HttpStreamRegistry {
         self.stream_arc(id).map(|job| job.snapshot())
     }
 
-    pub fn read(&self, id: u64, offset: usize) -> Option<HttpStreamRead> {
+    pub fn read(&self, id: u64, offset: usize, max_bytes: Option<usize>) -> Option<HttpStreamRead> {
         let job = self.stream_arc(id)?;
-        Some(job.read(offset))
+        Some(job.read(offset, max_bytes))
     }
 
     pub fn cancel(&self, id: u64) -> Option<HttpStreamSnapshot> {
@@ -245,6 +249,10 @@ impl HttpStreamJob {
             .state
             .lock()
             .expect("HTTP stream job lock should not be poisoned");
+        Self::snapshot_from_state(&state)
+    }
+
+    fn snapshot_from_state(state: &HttpStreamJobState) -> HttpStreamSnapshot {
         HttpStreamSnapshot {
             id: state.id,
             method: state.method.clone(),
@@ -265,17 +273,30 @@ impl HttpStreamJob {
         }
     }
 
-    fn read(&self, offset: usize) -> HttpStreamRead {
-        let snapshot = self.snapshot();
+    fn read(&self, offset: usize, max_bytes: Option<usize>) -> HttpStreamRead {
         let state = self
             .state
             .lock()
             .expect("HTTP stream job lock should not be poisoned");
-        let offset = offset.min(state.body.len());
+        let snapshot = Self::snapshot_from_state(&state);
+        let from_offset = offset.min(state.body.len());
+        let available_bytes = state.body.len() - from_offset;
+        let bytes_len = max_bytes
+            .map(|max_bytes| available_bytes.min(max_bytes))
+            .unwrap_or(available_bytes);
+        let next_offset = from_offset + bytes_len;
+        let done = !matches!(
+            state.status,
+            HttpStreamStatus::Connecting | HttpStreamStatus::Running
+        ) && next_offset >= state.body.len();
         HttpStreamRead {
             snapshot,
-            body: String::from_utf8_lossy(&state.body[offset..]).into_owned(),
-            offset: state.body.len(),
+            body: String::from_utf8_lossy(&state.body[from_offset..next_offset]).into_owned(),
+            from_offset,
+            next_offset,
+            offset: next_offset,
+            bytes_len,
+            done,
         }
     }
 

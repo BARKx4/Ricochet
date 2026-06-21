@@ -678,7 +678,8 @@ remain future work.
 - [x] Add package-local schema validation helpers in `@ricochet/ai` using the same field/rule shape as `@ricochet/forms`.
 - [x] Add retry policy maps and normalized error maps in `@ricochet/ai`.
 - [ ] Add actual provider retry/backoff execution.
-- [ ] Add true incremental stream consumption over `http_stream_read`, including offset handling and done events.
+- [x] Add true incremental stream consumption ergonomics over
+  `http_stream_read`, including bounded offset reads and done events.
 - [ ] Add fake provider integration tests for streaming chunks, tool calls, malformed events, and schema failures.
 - [ ] Add provider examples for OpenAI-compatible and local model endpoints.
 - [x] Add docs that keep secret values in env-backed references.
@@ -689,6 +690,12 @@ provider-neutral provider, message, chat request/stream, retry policy, response,
 error, stream-event, tool-call, tool-result, and schema validation map helpers
 in `@ricochet/ai`. It deliberately does not change core HTTP streaming,
 MVC `[ai.default]`, or provider runtime execution.
+
+**Progress Note (2026-06-21):** The core HTTP stream-read ergonomics slice adds
+`http_stream_read` `max_bytes`, `from_offset`, `next_offset`,
+backward-compatible `offset`, `bytes_len`, and `done` metadata. Provider
+runtime execution, fake-provider integration tests, provider examples, and
+actual AI package retry/tool execution remain open.
 
 **Verification Gate:**
 
