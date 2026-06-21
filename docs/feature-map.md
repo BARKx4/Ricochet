@@ -124,11 +124,8 @@ Evidence:
 - `crates/ricochet_syntax/src/parser.rs`
 - `crates/ricochet_compiler/src/compiler.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
-
-Remaining:
-
-- Compile-time macros still need public examples and broader package tests
-  before being treated as stable for package authors.
+- `examples/macro_release_scorecard.rco`
+- `examples/showcase/package_macro_queue_report`
 
 Do not assume:
 
@@ -627,7 +624,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Compile-time macro stabilization: public examples and broader package tests.
 - Central hosted package registry.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.

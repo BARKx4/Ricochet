@@ -1,0 +1,8 @@
+[package]
+
+[package.queue_macros]
+source = "path+./packages/queue_report_macros"
+path = "./packages/queue_report_macros"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "sha256:e02cc1afb0cf499df450671e2d6fb586aad16111dd38aa87bed6a723a19e383c"

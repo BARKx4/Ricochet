@@ -1,0 +1,26 @@
+"_count_line" Macro
+  ( label jobs -> expansion )
+  [
+    [
+      $label ast_splice println
+      $jobs ast_splice count println
+    ] quote_ast
+  ]
+end
+
+"install_queue_report" Macro
+  [
+    [
+      [
+        "Morning queue report" println
+        "Queued jobs" $queued "_count_line" macro_call
+        "Failed jobs" $failed "_count_line" macro_call
+        $failed count 0 = if
+          "Green light" println
+        else
+          "Investigate retries" println
+        end
+      ] "print_queue_report" function
+    ] quote_items
+  ]
+end

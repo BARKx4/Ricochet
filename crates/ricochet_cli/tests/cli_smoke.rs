@@ -2746,6 +2746,91 @@ end
 }
 
 #[test]
+fn showcase_package_macro_example_exports_public_macro_surface_and_package_expand_metadata() {
+    let repo = repo_root_for_test();
+    let showcase = repo.join("examples").join("showcase");
+    let app = showcase.join("package_macro_queue_report");
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(app.join("main.rco"))
+        .output()
+        .expect("rco run should launch for package macro showcase");
+    assert_run_success_for(
+        "rco run",
+        "showcase package_macro_queue_report",
+        &run_output,
+    );
+
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    for expected in [
+        "Morning queue report",
+        "Queued jobs",
+        "Failed jobs",
+        "3",
+        "1",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "showcase package macro example should print {expected}, got:\n{stdout}"
+        );
+    }
+
+    let expand_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("expand")
+        .arg("main.rco")
+        .arg("--json")
+        .current_dir(&app)
+        .output()
+        .expect("rco expand should launch for package macro showcase");
+    assert_run_success_for(
+        "rco expand",
+        "showcase package_macro_queue_report",
+        &expand_output,
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_slice(&expand_output.stdout).expect("expand stdout should be JSON");
+    let imported = &payload["imports"][0];
+    let module_id = imported["module_id"]
+        .as_str()
+        .expect("package import module id");
+    let exported_macros = payload["macro_tables"][1]["macros"]
+        .as_array()
+        .expect("package macro table should list exported macros");
+
+    assert_eq!(imported["kind"], "package");
+    assert_eq!(imported["specifier"], "queue_macros/macros");
+    assert_eq!(imported["package"]["name"], "queue_macros");
+    assert_eq!(
+        imported["package"]["package"],
+        "@showcase/queue_report_macros"
+    );
+    assert_eq!(imported["package"]["module_path"], "macros");
+    assert_eq!(imported["package"]["source_kind"], "path");
+    assert_eq!(imported["package"]["version"], "0.1.0");
+    assert!(
+        module_id.starts_with("queue_macros@sha256:"),
+        "package macro module id should use canonical integrity labeling, got {module_id}"
+    );
+    assert!(
+        module_id.ends_with("/macros"),
+        "package macro module id should use the package-relative module path, got {module_id}"
+    );
+    assert_eq!(
+        exported_macros.len(),
+        1,
+        "private helper macros should stay out of the package export table, got:\n{exported_macros:?}"
+    );
+    assert_eq!(exported_macros[0]["name"], "install_queue_report");
+    assert!(payload["expanded_source"]
+        .as_str()
+        .is_some_and(|source| source.contains("\"Queued jobs\" println")
+            && source.contains("\"Failed jobs\" println")
+            && source.contains("\"Morning queue report\" println")));
+}
+
+#[test]
 fn expand_json_includes_imported_macro_table_imports_and_trace() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -7110,6 +7195,7 @@ fn examples_are_runnable_acceptance_suite() {
         "basic-oop.rco",
         "collections.rco",
         "loop_control.rco",
+        "macro_release_scorecard.rco",
         "turing_complete.rco",
         "unary_counter.rco",
     ] {
@@ -7150,6 +7236,7 @@ fn showcase_examples_are_runnable_acceptance_suite() {
 
     for script in [
         showcase.join("package_auth_forms").join("main.rco"),
+        showcase.join("package_macro_queue_report").join("main.rco"),
         showcase.join("ai_provider_probe").join("main.rco"),
         showcase.join("debugger_demo.rco"),
     ] {

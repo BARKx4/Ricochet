@@ -42,6 +42,7 @@
           <a href="#expression-macros">Expression Macros</a>
           <a href="#item-row-macros">Item Row Macros</a>
           <a href="#imports">Imports</a>
+          <a href="#examples">Examples</a>
           <a href="#inspection">Inspection</a>
           <a href="#current-limits">Current Limits</a>
         </aside>
@@ -127,6 +128,14 @@ end</code></pre>
 &quot;self#local_macro&quot; macro_call</code></pre>
           <p>Package path imports use the same manifest and containment rules as ordinary static imports. <code>rco expand --json</code> now reports canonical package-aware macro module IDs with safe lock metadata when <code>ricochet.lock</code> is present, so package macros can be traced without exposing local cache paths.</p>
 
+          <h2 id="examples">Examples</h2>
+          <p>Use the public examples to see both local and package-authored macro workflows:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco run examples/macro_release_scorecard.rco
+rco run examples/showcase/package_macro_queue_report/main.rco
+Push-Location examples/showcase/package_macro_queue_report
+rco expand main.rco --json</code></pre>
+          <p><code>examples/macro_release_scorecard.rco</code> shows a local declaration macro building a release scorecard function with a private helper macro for repeated count lines. <code>examples/showcase/package_macro_queue_report</code> shows a package-style macro module exporting a public <code>install_queue_report</code> macro, keeping <code>_count_line</code> private, and producing package-aware expansion metadata for the locked dependency.</p>
+
           <h2 id="inspection">Inspection</h2>
           <p><code>rco expand</code> prints expanded source without executing runtime code:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco expand app.rco
@@ -140,7 +149,6 @@ rco expand app.rco --json</code></pre>
             <li>Macro bodies are fail-closed and can use only the compile-time helper surface.</li>
             <li>Expansion depth, same-macro recursion, evaluator steps, and generated AST nodes are bounded.</li>
             <li><code>quote_items</code> declaration rows are supported only where a whole declaration item is valid.</li>
-            <li>Public package examples and broader package tests remain stabilization work.</li>
           </ul>
         </article>
       </section>

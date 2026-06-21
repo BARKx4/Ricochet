@@ -1,0 +1,41 @@
+(( Run with: rco run examples/macro_release_scorecard.rco ))
+
+"_count_line" Macro
+  ( label items -> expansion )
+  [
+    [
+      $label ast_splice println
+      $items ast_splice count println
+    ] quote_ast
+  ]
+end
+
+"build_release_scorecard" Macro
+  [
+    [
+      [
+        "Release scorecard" println
+        "Passed checks" $passed_checks "_count_line" macro_call
+        "Failed checks" $failed_checks "_count_line" macro_call
+        $failed_checks count 0 = if
+          "Ready to ship" println
+        else
+          "Needs attention" println
+        end
+      ] "print_release_scorecard" function
+    ] quote_items
+  ]
+end
+
+"build_release_scorecard" macro_call
+
+passed_checks list
+$passed_checks "fmt" push! drop
+$passed_checks "cli_smoke" push! drop
+$passed_checks "docs" push! drop
+
+failed_checks list
+$failed_checks "registry" push! drop
+
+print_release_scorecard
+clear

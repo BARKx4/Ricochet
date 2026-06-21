@@ -131,6 +131,24 @@ static imports. `rco expand --json` now reports canonical package-aware macro
 module IDs with safe lock metadata when `ricochet.lock` is present, so package
 macros can be traced without exposing local cache paths.
 
+## Examples
+
+Use the public examples to see both local and package-authored macro workflows:
+
+```powershell
+rco run examples/macro_release_scorecard.rco
+rco run examples/showcase/package_macro_queue_report/main.rco
+Push-Location examples/showcase/package_macro_queue_report
+rco expand main.rco --json
+```
+
+`examples/macro_release_scorecard.rco` shows a local declaration macro building
+a release scorecard function with a private helper macro for repeated count
+lines. `examples/showcase/package_macro_queue_report` shows a package-style
+macro module exporting a public `install_queue_report` macro, keeping
+`_count_line` private, and producing package-aware expansion metadata for the
+locked dependency.
+
 ## Inspection
 
 `rco expand` prints expanded source without executing runtime code:
@@ -153,4 +171,3 @@ tables, imports, traces, diagnostics, and output hash.
   nodes are bounded.
 - `quote_items` declaration rows are supported only where a whole declaration
   item is valid.
-- Public package examples and broader package tests remain stabilization work.

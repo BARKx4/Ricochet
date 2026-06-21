@@ -1,0 +1,7 @@
+[package]
+name = "showcase_package_macro_queue_report"
+version = "0.1.0"
+
+[dependencies.queue_macros]
+path = "./packages/queue_report_macros"
+version = "^0.1.0"

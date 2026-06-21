@@ -1,0 +1,16 @@
+(( Run with: rco run examples/showcase/package_macro_queue_report/main.rco ))
+
+"queue_macros/macros" import
+
+"install_queue_report" macro_call
+
+queued list
+$queued "build-101" push! drop
+$queued "build-102" push! drop
+$queued "build-103" push! drop
+
+failed list
+$failed "build-087" push! drop
+
+print_queue_report
+clear

@@ -24,6 +24,20 @@ rco run examples/showcase/package_auth_forms/main.rco
 This script consumes the repo-local `@ricochet/auth` and `@ricochet/forms`
 packages by local aliases.
 
+## Package Macro Queue Report
+
+```powershell
+rco run examples/showcase/package_macro_queue_report/main.rco
+Push-Location examples/showcase/package_macro_queue_report
+rco expand main.rco --json
+```
+
+This showcase keeps the app postfix-shaped while importing a local package
+macro module through a manifest dependency. The package exports the public
+`install_queue_report` macro, keeps `_count_line` private, and leaves
+`rco expand --json` with canonical package-aware module metadata for the locked
+dependency.
+
 ## AI Provider Probe
 
 ```powershell

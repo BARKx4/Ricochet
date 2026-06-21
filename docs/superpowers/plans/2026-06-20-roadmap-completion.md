@@ -359,8 +359,11 @@ The exact syntax must be designed before implementation. It must avoid leading-d
   classes.
 - [x] Stabilize the `rco expand --json` schema, source maps, cache hashes, and
   package lockfile canonical module IDs.
-- [ ] Add public examples and broader package tests.
-- [ ] Commit as `feat: add compile-time macros`.
+- [x] Add public examples and broader package tests.
+- [x] Land the macro stabilization follow-up as `test: add macro package examples`.
+
+Epic 5 macro stabilization is now fully covered. Continue roadmap execution
+with Epics 6 and 7 next, then return to Epic 8 central hosted package registry.
 
 **Verification Gate:**
 
