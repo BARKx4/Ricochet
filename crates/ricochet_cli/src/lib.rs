@@ -18,7 +18,9 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
-use ricochet_compiler::{compile_file_with_imports, compile_source, expand_source, CompileError};
+use ricochet_compiler::{
+    compile_file_with_imports, compile_source, expand_file_with_imports, CompileError,
+};
 use ricochet_syntax::formatter::format_module;
 use ricochet_syntax::{
     format_source, lex, line_column, line_starts, parse_module, utf16_range_for_span, ArgsDecl,
@@ -10114,65 +10116,76 @@ fn embedded_app_from_bytes_with_marker(
 
 fn expand_path(path: &str, json_output: bool) -> Result<()> {
     let path = Path::new(path);
-    let source =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let module_id = module_id_for_path(path);
 
     if json_output {
-        match expand_json_payload(&module_id, &source) {
-            Ok(payload) => {
+        match expand_file_with_imports(path) {
+            Ok(file_expansion) => {
+                let payload = expand_json_payload_from_expansion(
+                    &file_expansion.source,
+                    &file_expansion.expansion,
+                );
                 println!("{}", serde_json::to_string_pretty(&payload)?);
                 Ok(())
             }
             Err(error) => {
-                let payload = expand_json_error_payload(&module_id, &source, &error);
+                let source = fs::read_to_string(path).unwrap_or_default();
+                let payload = expand_json_error_message_payload(&module_id, &source, &error);
                 println!("{}", serde_json::to_string_pretty(&payload)?);
                 bail!("expand failed")
             }
         }
     } else {
-        match expand_source(&module_id, &source) {
-            Ok(expansion) => {
-                print!("{}", format_module(&expansion.module));
+        match expand_file_with_imports(path) {
+            Ok(file_expansion) => {
+                print!("{}", format_module(&file_expansion.expansion.module));
                 Ok(())
             }
-            Err(error) => {
-                bail!(
-                    "{}",
-                    ricochet_compiler::format_compile_error(&module_id, &source, &error)
-                )
-            }
+            Err(error) => bail!("{error}"),
         }
     }
 }
 
+#[cfg(test)]
 fn expand_json_payload(
     module_id: &str,
     source: &str,
 ) -> std::result::Result<serde_json::Value, CompileError> {
-    let expansion = expand_source(module_id, source)?;
+    let expansion = ricochet_compiler::expand_source(module_id, source)?;
+    Ok(expand_json_payload_from_expansion(source, &expansion))
+}
+
+fn expand_json_payload_from_expansion(
+    source: &str,
+    expansion: &ricochet_compiler::MacroExpansion,
+) -> serde_json::Value {
     let expanded_source = format_module(&expansion.module);
     let source_line_starts = line_starts(source);
-    Ok(json!({
+    json!({
         "schema_version": EXPAND_JSON_SCHEMA_VERSION,
         "module_id": &expansion.module_id,
         "source_hash": sha256_text(source),
         "compiler_version": ricochet_compiler::crate_version(),
         "formatter_version": ricochet_syntax::crate_version(),
-        "imports": [],
-        "macro_tables": macro_tables_json(source, &source_line_starts, &expansion.macro_tables),
+        "imports": imports_json(&expansion.imports),
+        "macro_tables": macro_tables_json(&expansion.macro_tables),
         "expanded_ast": module_ast_json(source, &source_line_starts, &expansion.module),
         "expanded_source": &expanded_source,
-        "trace": trace_json(source, &source_line_starts, &expansion.trace),
+        "trace": trace_json(
+            source,
+            &source_line_starts,
+            &expansion.macro_tables,
+            &expansion.trace,
+        ),
         "diagnostics": [],
         "output_hash": sha256_text(&expanded_source),
-    }))
+    })
 }
 
-fn expand_json_error_payload(
+fn expand_json_error_message_payload(
     module_id: &str,
     source: &str,
-    error: &CompileError,
+    error: &anyhow::Error,
 ) -> serde_json::Value {
     json!({
         "schema_version": EXPAND_JSON_SCHEMA_VERSION,
@@ -10185,16 +10198,27 @@ fn expand_json_error_payload(
         "expanded_ast": serde_json::Value::Null,
         "expanded_source": serde_json::Value::Null,
         "trace": [],
-        "diagnostics": [compile_error_lsp_diagnostic(module_id, source, error)],
+        "diagnostics": [{
+            "severity": "error",
+            "message": error.to_string(),
+        }],
         "output_hash": serde_json::Value::Null,
     })
 }
 
-fn macro_tables_json(
-    source: &str,
-    source_line_starts: &[usize],
-    tables: &[ricochet_compiler::MacroTableSummary],
-) -> Vec<serde_json::Value> {
+fn imports_json(imports: &[ricochet_compiler::MacroImportSummary]) -> Vec<serde_json::Value> {
+    imports
+        .iter()
+        .map(|import| {
+            json!({
+                "specifier": &import.specifier,
+                "module_id": &import.module_id,
+            })
+        })
+        .collect()
+}
+
+fn macro_tables_json(tables: &[ricochet_compiler::MacroTableSummary]) -> Vec<serde_json::Value> {
     tables
         .iter()
         .map(|table| {
@@ -10209,16 +10233,25 @@ fn macro_tables_json(
                             "outputs": &macro_summary.outputs,
                         },
                         "docs": &macro_summary.docs,
-                        "span": span_json(source, source_line_starts, macro_summary.span),
+                        "span": span_json_from_source_map(
+                            table.source_len,
+                            &table.line_starts,
+                            macro_summary.span,
+                        ),
                         "body_span": macro_summary
                             .body_span
-                            .map(|span| span_json(source, source_line_starts, span)),
+                            .map(|span| span_json_from_source_map(
+                                table.source_len,
+                                &table.line_starts,
+                                span,
+                            )),
                     })
                 })
                 .collect::<Vec<_>>();
             json!({
                 "module_id": &table.module_id,
-                "scope": "local",
+                "scope": if table.import_specifier.is_some() { "import" } else { "local" },
+                "import_specifier": &table.import_specifier,
                 "macros": macros,
             })
         })
@@ -10228,24 +10261,47 @@ fn macro_tables_json(
 fn trace_json(
     source: &str,
     source_line_starts: &[usize],
+    macro_tables: &[ricochet_compiler::MacroTableSummary],
     trace: &[ricochet_compiler::MacroExpansionTraceEntry],
 ) -> Vec<serde_json::Value> {
     trace
         .iter()
         .map(|entry| {
+            let (definition_source_len, definition_line_starts) =
+                trace_definition_source_map(source, source_line_starts, macro_tables, entry);
             json!({
                 "id": &entry.id,
                 "module_id": &entry.module_id,
+                "import_specifier": &entry.import_specifier,
                 "macro_name": &entry.macro_name,
                 "depth": entry.depth,
                 "argument_count": entry.argument_count,
                 "output_node_count": entry.output_node_count,
                 "invocation_span": span_json(source, source_line_starts, entry.invocation_span),
                 "name_span": span_json(source, source_line_starts, entry.name_span),
-                "definition_span": span_json(source, source_line_starts, entry.definition_span),
+                "definition_span": span_json_from_source_map(
+                    definition_source_len,
+                    definition_line_starts,
+                    entry.definition_span,
+                ),
             })
         })
         .collect()
+}
+
+fn trace_definition_source_map<'a>(
+    source: &'a str,
+    source_line_starts: &'a [usize],
+    macro_tables: &'a [ricochet_compiler::MacroTableSummary],
+    entry: &ricochet_compiler::MacroExpansionTraceEntry,
+) -> (usize, &'a [usize]) {
+    macro_tables
+        .iter()
+        .find(|table| {
+            table.module_id == entry.module_id && table.import_specifier == entry.import_specifier
+        })
+        .map(|table| (table.source_len, table.line_starts.as_slice()))
+        .unwrap_or((source.len(), source_line_starts))
 }
 
 fn module_ast_json(
@@ -10386,8 +10442,16 @@ fn args_json(args: Option<&ArgsDecl>) -> serde_json::Value {
 }
 
 fn span_json(source: &str, source_line_starts: &[usize], span: Span) -> serde_json::Value {
-    let bounded_start = span.start.min(source.len());
-    let bounded_end = span.end.min(source.len());
+    span_json_from_source_map(source.len(), source_line_starts, span)
+}
+
+fn span_json_from_source_map(
+    source_len: usize,
+    source_line_starts: &[usize],
+    span: Span,
+) -> serde_json::Value {
+    let bounded_start = span.start.min(source_len);
+    let bounded_end = span.end.min(source_len);
     let (start_line, start_column) = line_column(source_line_starts, bounded_start);
     let (end_line, end_column) = line_column(source_line_starts, bounded_end);
     json!({

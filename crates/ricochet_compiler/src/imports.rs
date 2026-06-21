@@ -1,67 +1,226 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::{Chunk, Op};
 
-use crate::{compile_source, format_compile_error};
+use crate::{
+    compile_source_with_imported_macros_and_module_id, expand_source_with_imported_macros,
+    exported_macro_table_from_source_with_imports, format_compile_error, ImportedMacroTable,
+    MacroExpansion,
+};
 
 pub fn compile_file_with_imports(source_path: impl AsRef<Path>) -> Result<Chunk> {
-    SourceResolver::default().compile_file(source_path.as_ref())
+    SourceResolver::default()
+        .compile_file(source_path.as_ref())
+        .map(|compiled| compiled.chunk)
+}
+
+pub struct FileMacroExpansion {
+    pub source: String,
+    pub expansion: MacroExpansion,
+}
+
+pub fn expand_file_with_imports(source_path: impl AsRef<Path>) -> Result<FileMacroExpansion> {
+    SourceResolver::default()
+        .expand_file(source_path.as_ref())
+        .map(|resolved| FileMacroExpansion {
+            source: resolved.original_source,
+            expansion: resolved.expansion,
+        })
 }
 
 #[derive(Default)]
 struct SourceResolver {
     loaded: BTreeSet<PathBuf>,
     visiting: BTreeSet<PathBuf>,
+    exported_macros: HashMap<PathBuf, ImportedMacroTable>,
+    root: Option<PathBuf>,
+}
+
+struct CompiledFile {
+    chunk: Chunk,
+    exported_macros: ImportedMacroTable,
+}
+
+struct ResolvedExpansion {
+    original_source: String,
+    expansion: MacroExpansion,
+    exported_macros: ImportedMacroTable,
 }
 
 impl SourceResolver {
-    fn compile_file(&mut self, source_path: &Path) -> Result<Chunk> {
+    fn compile_file(&mut self, source_path: &Path) -> Result<CompiledFile> {
         let canonical = fs::canonicalize(source_path)
             .with_context(|| format!("failed to resolve {}", source_path.display()))?;
+        let root = self.root_for(&canonical)?;
+        let diagnostic_file = source_path.to_string_lossy().into_owned();
         if self.loaded.contains(&canonical) {
-            return Ok(Chunk::new(source_path.to_string_lossy()));
+            let exported_macros =
+                self.exported_macros
+                    .get(&canonical)
+                    .cloned()
+                    .with_context(|| {
+                        format!(
+                            "missing cached macro table for already loaded import {}",
+                            source_path.display()
+                        )
+                    })?;
+            return Ok(CompiledFile {
+                chunk: Chunk::new(diagnostic_file),
+                exported_macros,
+            });
         }
         if !self.visiting.insert(canonical.clone()) {
             bail!("cyclic Ricochet import involving {}", source_path.display());
         }
 
-        let (file, source) = read_source_path(source_path)?;
+        let source = read_source_path(source_path)?;
+        let module_id = logical_module_id(&canonical, &root);
         let imports = static_imports(&source)
             .with_context(|| format!("failed to scan imports in {}", source_path.display()))?;
         let source_without_imports = strip_static_imports(&source)?;
-        let mut combined = Chunk::new(file.clone());
-        let parent = source_path
+        let mut combined = Chunk::new(diagnostic_file.clone());
+        let mut imported_macro_tables = Vec::new();
+        let parent = canonical
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
 
-        for import in imports {
-            let import_path = resolve_import(parent, &import)?;
-            let chunk = self.compile_file(&import_path).with_context(|| {
+        for import in unique_imports(&imports) {
+            let import_path = resolve_import(parent, import)?;
+            let compiled_import = self.compile_file(&import_path).with_context(|| {
                 format!("failed to import {import:?} from {}", source_path.display())
             })?;
-            append_chunk(&mut combined, chunk);
+            imported_macro_tables.push(
+                compiled_import
+                    .exported_macros
+                    .with_import_specifier(import),
+            );
+            append_chunk(&mut combined, compiled_import.chunk);
         }
 
-        let own_chunk = compile_source(&file, &source_without_imports).map_err(|error| {
-            anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
+        let exported_macros = exported_macro_table_from_source_with_imports(
+            &module_id,
+            &source_without_imports,
+            &imported_macro_tables,
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(format_compile_error(
+                &diagnostic_file,
+                &source_without_imports,
+                &error
+            ))
+        })?;
+
+        let own_chunk = compile_source_with_imported_macros_and_module_id(
+            &diagnostic_file,
+            &module_id,
+            &source_without_imports,
+            &imported_macro_tables,
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(format_compile_error(
+                &diagnostic_file,
+                &source_without_imports,
+                &error
+            ))
         })?;
         append_chunk(&mut combined, own_chunk);
         self.visiting.remove(&canonical);
-        self.loaded.insert(canonical);
-        Ok(combined)
+        self.loaded.insert(canonical.clone());
+        self.exported_macros
+            .insert(canonical, exported_macros.clone());
+        Ok(CompiledFile {
+            chunk: combined,
+            exported_macros,
+        })
+    }
+
+    fn expand_file(&mut self, source_path: &Path) -> Result<ResolvedExpansion> {
+        let canonical = fs::canonicalize(source_path)
+            .with_context(|| format!("failed to resolve {}", source_path.display()))?;
+        let root = self.root_for(&canonical)?;
+        if !self.visiting.insert(canonical.clone()) {
+            bail!("cyclic Ricochet import involving {}", source_path.display());
+        }
+
+        let source = read_source_path(source_path)?;
+        let file = logical_module_id(&canonical, &root);
+        let imports = static_imports(&source)
+            .with_context(|| format!("failed to scan imports in {}", source_path.display()))?;
+        let source_without_imports = strip_static_imports(&source)?;
+        let mut imported_macro_tables = Vec::new();
+        let parent = canonical
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+
+        for import in unique_imports(&imports) {
+            let import_path = resolve_import(parent, import)?;
+            let imported = self.expand_file(&import_path).with_context(|| {
+                format!("failed to import {import:?} from {}", source_path.display())
+            })?;
+            imported_macro_tables.push(imported.exported_macros.with_import_specifier(import));
+        }
+
+        let exported_macros = exported_macro_table_from_source_with_imports(
+            &file,
+            &source_without_imports,
+            &imported_macro_tables,
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
+        })?;
+
+        let expansion = expand_source_with_imported_macros(
+            &file,
+            &source_without_imports,
+            &imported_macro_tables,
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
+        })?;
+        self.visiting.remove(&canonical);
+        Ok(ResolvedExpansion {
+            original_source: source,
+            expansion,
+            exported_macros,
+        })
+    }
+
+    fn root_for(&mut self, canonical_source_path: &Path) -> Result<PathBuf> {
+        if let Some(root) = &self.root {
+            return Ok(root.clone());
+        }
+        let parent = canonical_source_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let root = import_root_for_parent(parent)?;
+        self.root = Some(root.clone());
+        Ok(root)
     }
 }
 
-fn read_source_path(source_path: &Path) -> Result<(String, String)> {
+fn read_source_path(source_path: &Path) -> Result<String> {
     let source = fs::read_to_string(source_path)
         .with_context(|| format!("failed to read {}", source_path.display()))?;
-    let file = source_path.to_string_lossy();
 
-    Ok((file.into_owned(), source))
+    Ok(source)
+}
+
+fn logical_module_id(canonical_source_path: &Path, root: &Path) -> String {
+    let path = canonical_source_path
+        .strip_prefix(root)
+        .unwrap_or(canonical_source_path);
+    let module_id = path.to_string_lossy().replace('\\', "/");
+    if module_id.is_empty() {
+        ".".to_string()
+    } else {
+        module_id
+    }
 }
 
 fn static_imports(source: &str) -> Result<Vec<String>> {
@@ -71,14 +230,40 @@ fn static_imports(source: &str) -> Result<Vec<String>> {
         .collect()
 }
 
+fn unique_imports(imports: &[String]) -> Vec<&str> {
+    let mut seen = BTreeSet::new();
+    imports
+        .iter()
+        .filter_map(|import| {
+            if seen.insert(import.as_str()) {
+                Some(import.as_str())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn strip_static_imports(source: &str) -> Result<String> {
     let mut stripped = String::new();
-    for line in source.lines() {
-        if parse_static_import_line(line.trim()).transpose()?.is_some() {
-            stripped.push('\n');
+    for segment in source.split_inclusive('\n') {
+        let (line, newline) = segment
+            .strip_suffix('\n')
+            .map(|line| (line, "\n"))
+            .unwrap_or((segment, ""));
+        let (content, carriage_return) = line
+            .strip_suffix('\r')
+            .map(|line| (line, "\r"))
+            .unwrap_or((line, ""));
+        if parse_static_import_line(content.trim())
+            .transpose()?
+            .is_some()
+        {
+            stripped.push_str(&" ".repeat(content.len()));
+            stripped.push_str(carriage_return);
+            stripped.push_str(newline);
         } else {
-            stripped.push_str(line);
-            stripped.push('\n');
+            stripped.push_str(segment);
         }
     }
     Ok(stripped)
@@ -290,6 +475,9 @@ fn package_import_candidates(base_path: &Path, module: &str) -> Vec<PathBuf> {
 fn validate_import_path(import: &str) -> Result<()> {
     if import.is_empty() {
         bail!("import path must not be empty");
+    }
+    if import.contains('#') {
+        bail!("import path must not contain #: {import:?}");
     }
     if import.contains('\\') {
         bail!("import path must use forward slashes: {import:?}");

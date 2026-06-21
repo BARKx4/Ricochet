@@ -342,13 +342,18 @@ The exact syntax must be designed before implementation. It must avoid leading-d
 **Implementation Path:**
 
 - [x] Write a dedicated macro design spec before code.
-- [ ] Decide expansion target: token stream, AST, or compiler IR. Prefer AST if it gives better source spans.
-- [ ] Add parser support for macro declarations and invocations behind tests.
-- [ ] Add compiler expansion pass with recursion/depth limits.
-- [ ] Add hygiene model for local names, generated symbols, and imported macros.
-- [ ] Add deterministic expansion cache or trace output for debugging.
-- [ ] Add `rco expand` to show expanded Ricochet source or an annotated expansion tree.
-- [ ] Update LSP diagnostics to parse macro declarations and report unsupported macro expansion in editor if full expansion is too expensive.
+- [x] Decide expansion target: AST expansion before bytecode lowering.
+- [x] Add parser support for macro declarations and invocations behind tests.
+- [x] Add compiler expansion pass with recursion/depth limits.
+- [x] Add hygiene model for local and imported macros, including private
+  helper macros expanding in the definition module's scope.
+- [x] Add deterministic trace output for debugging.
+- [x] Add `rco expand` to show expanded Ricochet source or JSON inspection data.
+- [x] Update LSP diagnostics to parse macro declarations and report macro
+  declarations without advertising bare macro completions.
+- [ ] Add item-generation macros for declarations/class-body expansion.
+- [ ] Stabilize the `rco expand --json` schema, source maps, cache hashes, and
+  package lockfile canonical module IDs.
 - [ ] Add docs, examples, and package tests.
 - [ ] Commit as `feat: add compile-time macros`.
 

@@ -2216,6 +2216,347 @@ fn run_loads_static_string_imports_before_main_source() {
 }
 
 #[test]
+fn run_expands_macro_from_static_string_import() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "ok" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/macros\" import\n\"say_ok\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ok"),
+        "stdout should show imported macro expansion, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_deduplicates_identical_static_macro_imports() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "ok" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/macros\" import\n\"lib/macros\" import\n\"say_ok\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ok"),
+        "stdout should show imported macro expansion once, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn imported_macro_expands_private_helper_without_caller_capture() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""_helper" Macro
+  [
+    [ "imported helper" println ] quote_ast
+  ]
+end
+
+"say_ok" Macro
+  [
+    [ "_helper" macro_call ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        r#""lib/macros" import
+"_helper" Macro
+  [
+    [ "caller helper" println ] quote_ast
+  ]
+end
+
+"say_ok" macro_call
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("imported helper") && !stdout.contains("caller helper"),
+        "imported macro should expand private helper in definition scope, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_prefers_local_macro_over_imported_macro_with_same_name() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "imported" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        r#""lib/macros" import
+"say_ok" Macro
+  [
+    [ "local" println ] quote_ast
+  ]
+end
+
+"say_ok" macro_call
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("local") && !stdout.contains("imported"),
+        "stdout should show local macro override, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_expands_qualified_macro_from_static_string_import() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "ok" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/macros\" import\n\"lib/macros#say_ok\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ok"),
+        "stdout should show qualified imported macro expansion, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_rejects_ambiguous_unqualified_imported_macro() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/one.rco",
+        r#""say_ok" Macro
+  [
+    [ "one" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "lib/two.rco",
+        r#""say_ok" Macro
+  [
+    [ "two" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/one\" import\n\"lib/two\" import\n\"say_ok\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject ambiguous imported macros"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous imported compile-time macro")
+            && stderr.contains("lib/one")
+            && stderr.contains("lib/two"),
+        "stderr should explain ambiguous imported macro, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_expands_macro_from_path_package_import() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/macros.rco",
+        r#""say_pkg" Macro
+  [
+    [ "hello from package macro" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"greeter/macros\" import\n\"say_pkg\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("hello from package macro"),
+        "stdout should show package imported macro expansion, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn expand_json_includes_imported_macro_table_imports_and_trace() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "ok" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/macros\" import\n\"say_ok\" macro_call\n",
+    );
+    let original_source =
+        fs::read_to_string(root.join("main.rco")).expect("main source should be readable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("expand")
+        .arg(&main_path)
+        .arg("--json")
+        .output()
+        .expect("rco expand should launch");
+
+    assert_run_success_for("rco expand", "main.rco", &output);
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expand stdout should be JSON");
+    assert_eq!(payload["module_id"], "main.rco");
+    assert_eq!(
+        payload["source_hash"],
+        sha256_integrity_for_bytes(original_source.as_bytes())
+    );
+    assert_eq!(payload["imports"][0]["specifier"], "lib/macros");
+    assert_eq!(payload["imports"][0]["module_id"], "lib/macros.rco");
+    assert_eq!(payload["macro_tables"][0]["scope"], "local");
+    assert_eq!(payload["macro_tables"][0]["module_id"], "main.rco");
+    assert_eq!(payload["macro_tables"][1]["scope"], "import");
+    assert_eq!(payload["macro_tables"][1]["import_specifier"], "lib/macros");
+    assert_eq!(payload["macro_tables"][1]["module_id"], "lib/macros.rco");
+    assert_eq!(payload["macro_tables"][1]["macros"][0]["name"], "say_ok");
+    assert_eq!(
+        payload["trace"][0]["module_id"],
+        payload["imports"][0]["module_id"]
+    );
+    assert_eq!(payload["trace"][0]["import_specifier"], "lib/macros");
+    assert!(payload["expanded_source"]
+        .as_str()
+        .is_some_and(|source| source.contains("\"ok\" println")));
+    let serialized = serde_json::to_string(&payload).expect("payload should serialize");
+    assert!(
+        !serialized.contains(&root.to_string_lossy().replace('\\', "/")),
+        "expand JSON should not expose temp-root absolute paths:\n{serialized}"
+    );
+}
+
+#[test]
 fn run_rejects_static_imports_with_invalid_string_escapes() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -2235,6 +2576,29 @@ fn run_rejects_static_imports_with_invalid_string_escapes() {
     assert!(
         stderr.contains("invalid import string escape \\q"),
         "stderr should explain invalid import escape, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn run_rejects_static_imports_with_macro_qualifier_delimiter() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "\"lib#macros\" import\n7\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "rco run should reject # in static imports"
+    );
+    assert!(
+        stderr.contains("import path must not contain #"),
+        "stderr should explain # import rejection, got:\n{stderr}"
     );
 }
 

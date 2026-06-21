@@ -98,6 +98,10 @@ Implemented:
 - Blocks use `[ ... ]`; optional args metadata uses `( in -> out )`.
 - Control flow includes `if`/`else`/`end`, `while`, `break`, `continue`,
   `return`, first-class blocks, and `call`.
+- Compile-time expression macros use string-named `"name" Macro` declarations,
+  explicit `"name" macro_call` invocation, AST quoting/splicing through
+  `quote_ast` and `ast_splice`, local and static-import lookup, and
+  `rco expand` inspection.
 - Lexer/parser/compiler support comments, doc comments, strings with validated
   escapes, signed integer literals, finite float literals with decimals or
   exponents, `$` references, dot selectors, and diagnostics for legacy
@@ -116,7 +120,9 @@ Evidence:
 
 Remaining:
 
-- Compile-time macros are future work.
+- Compile-time macros still need item-generation support, a fully stable JSON
+  schema/cache contract, package lockfile canonical IDs, public examples, and
+  reference documentation before being treated as stable for package authors.
 - Persistent REPL images and source emission are future work.
 
 Do not assume:
@@ -598,10 +604,13 @@ Implemented foundations that should not be listed as missing:
 - Package add/install/verify/audit/publish/static registry/search workflows.
 - Retained process, PTY, HTTP stream cleanup/release.
 - Date/time/duration words.
+- Beta compile-time expression macros, including local/static-import/package
+  path lookup and `rco expand` inspection.
 
 Still real remaining work:
 
-- Compile-time macros.
+- Compile-time macro stabilization: item generation, full source-map/cache
+  schema, package lockfile canonical IDs, public examples, and reference docs.
 - Persistent REPL images and source emission.
 - Central hosted package registry.
 - Dynamic runtime imports.

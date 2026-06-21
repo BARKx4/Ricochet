@@ -29,14 +29,24 @@ pub enum CompileError {
 pub struct MacroExpansion {
     pub module_id: String,
     pub module: Module,
+    pub imports: Vec<MacroImportSummary>,
     pub macro_tables: Vec<MacroTableSummary>,
     pub trace: Vec<MacroExpansionTraceEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MacroImportSummary {
+    pub specifier: String,
+    pub module_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MacroTableSummary {
     pub module_id: String,
+    pub import_specifier: Option<String>,
     pub macros: Vec<MacroSummary>,
+    pub source_len: usize,
+    pub line_starts: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +63,7 @@ pub struct MacroSummary {
 pub struct MacroExpansionTraceEntry {
     pub id: String,
     pub module_id: String,
+    pub import_specifier: Option<String>,
     pub macro_name: String,
     pub invocation_span: Span,
     pub name_span: Span,
@@ -63,22 +74,176 @@ pub struct MacroExpansionTraceEntry {
 }
 
 pub fn compile_source(file: &str, source: &str) -> Result<Chunk, CompileError> {
-    let expansion = expand_source(file, source)?;
+    compile_source_with_imported_macros(file, source, &[])
+}
+
+pub fn compile_source_with_imported_macros(
+    file: &str,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<Chunk, CompileError> {
+    compile_source_with_imported_macros_and_module_id(file, file, source, imported_macros)
+}
+
+pub fn compile_source_with_imported_macros_and_module_id(
+    file: &str,
+    module_id: &str,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<Chunk, CompileError> {
+    let expansion = expand_source_with_imported_macros(module_id, source, imported_macros)?;
     let mut compiler = Compiler::from_source(file, source);
     compiler.compile_module(&expansion.module)?;
     Ok(compiler.finish())
 }
 
 pub fn expand_source(module_id: &str, source: &str) -> Result<MacroExpansion, CompileError> {
+    expand_source_with_imported_macros(module_id, source, &[])
+}
+
+pub fn expand_source_with_imported_macros(
+    module_id: &str,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<MacroExpansion, CompileError> {
     let module = parse_module(source)?;
-    expand_module(module_id, &module)
+    expand_module_with_imported_macros(module_id, &module, source, imported_macros)
 }
 
 pub fn expand_module(module_id: &str, module: &Module) -> Result<MacroExpansion, CompileError> {
+    expand_module_with_imported_macros(module_id, module, "", &[])
+}
+
+pub fn expand_module_with_imported_macros(
+    module_id: &str,
+    module: &Module,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<MacroExpansion, CompileError> {
     let module_id = normalize_module_id(module_id);
-    let mut expander = MacroExpander::new(&module_id, module)?;
+    let mut expander = MacroExpander::new(&module_id, module, source, imported_macros)?;
     let module = expander.expand_module(module)?;
     Ok(expander.finish(module))
+}
+
+pub fn exported_macro_table_from_source(
+    module_id: &str,
+    source: &str,
+) -> Result<ImportedMacroTable, CompileError> {
+    exported_macro_table_from_source_with_imports(module_id, source, &[])
+}
+
+pub fn exported_macro_table_from_source_with_imports(
+    module_id: &str,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<ImportedMacroTable, CompileError> {
+    let module = parse_module(source)?;
+    exported_macro_table_from_module(module_id, &module, source, imported_macros)
+}
+
+fn exported_macro_table_from_module(
+    module_id: &str,
+    module: &Module,
+    source: &str,
+    imported_macros: &[ImportedMacroTable],
+) -> Result<ImportedMacroTable, CompileError> {
+    let module_id = normalize_module_id(module_id);
+    let local_macros = collect_macro_definitions(&module_id, module)?;
+    let exported_macros = exported_macro_subset(&local_macros);
+    Ok(ImportedMacroTable {
+        import_specifier: String::new(),
+        module_id: module_id.clone(),
+        exported_macros,
+        local_macros,
+        imported_macros: imported_macros.to_vec(),
+        source_len: source.len(),
+        line_starts: line_starts(source),
+    })
+}
+
+fn collect_macro_definitions(
+    module_id: &str,
+    module: &Module,
+) -> Result<HashMap<String, MacroDefinition>, CompileError> {
+    let mut macros = HashMap::new();
+    for item in &module.items {
+        let Item::Macro(macro_decl) = item else {
+            continue;
+        };
+
+        if macro_decl.name.contains('#') {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "compile-time macro name {:?} cannot contain #",
+                    macro_decl.name
+                ),
+                span: macro_decl.span,
+                help: Some(
+                    "# is reserved for qualified macro calls like \"module#macro\" macro_call"
+                        .to_string(),
+                ),
+            });
+        }
+
+        if macros.contains_key(&macro_decl.name) {
+            return Err(CompileError::Unsupported {
+                feature: format!(
+                    "ambiguous compile-time macro {:?}: duplicate local declarations",
+                    macro_decl.name
+                ),
+                span: macro_decl.span,
+                help: Some(
+                    "keep one local macro declaration for each macro name in this file".to_string(),
+                ),
+            });
+        }
+
+        macros.insert(
+            macro_decl.name.clone(),
+            MacroDefinition::from_decl(module_id, macro_decl),
+        );
+    }
+
+    Ok(macros)
+}
+
+fn exported_macro_subset(
+    macros: &HashMap<String, MacroDefinition>,
+) -> HashMap<String, MacroDefinition> {
+    macros
+        .iter()
+        .filter(|(name, _)| !name.starts_with('_'))
+        .map(|(name, macro_def)| (name.clone(), macro_def.clone()))
+        .collect()
+}
+
+fn macro_table_summary(
+    module_id: &str,
+    import_specifier: Option<String>,
+    macros: &HashMap<String, MacroDefinition>,
+    source_len: usize,
+    line_starts: Vec<usize>,
+) -> MacroTableSummary {
+    let mut macros = macros
+        .values()
+        .map(|macro_def| MacroSummary {
+            name: macro_def.name.clone(),
+            inputs: macro_def.inputs.clone(),
+            outputs: macro_def.outputs.clone(),
+            docs: macro_def.docs.clone(),
+            span: macro_def.span,
+            body_span: exprs_span(&macro_def.body),
+        })
+        .collect::<Vec<_>>();
+    macros.sort_by(|left, right| left.name.cmp(&right.name));
+    MacroTableSummary {
+        module_id: module_id.to_string(),
+        import_specifier,
+        macros,
+        source_len,
+        line_starts,
+    }
 }
 
 pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> String {
@@ -108,8 +273,83 @@ pub fn format_compile_error(file: &str, source: &str, error: &CompileError) -> S
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedMacroTable {
+    import_specifier: String,
+    module_id: String,
+    exported_macros: HashMap<String, MacroDefinition>,
+    local_macros: HashMap<String, MacroDefinition>,
+    imported_macros: Vec<ImportedMacroTable>,
+    source_len: usize,
+    line_starts: Vec<usize>,
+}
+
+impl ImportedMacroTable {
+    pub fn with_import_specifier(&self, import_specifier: impl Into<String>) -> Self {
+        let import_specifier = import_specifier.into();
+        Self {
+            import_specifier: import_specifier.clone(),
+            module_id: self.module_id.clone(),
+            exported_macros: self
+                .exported_macros
+                .iter()
+                .map(|(name, macro_def)| {
+                    (
+                        name.clone(),
+                        macro_def.with_import_specifier(&import_specifier),
+                    )
+                })
+                .collect(),
+            local_macros: self
+                .local_macros
+                .iter()
+                .map(|(name, macro_def)| {
+                    (
+                        name.clone(),
+                        macro_def.with_import_specifier(&import_specifier),
+                    )
+                })
+                .collect(),
+            imported_macros: self.imported_macros.clone(),
+            source_len: self.source_len,
+            line_starts: self.line_starts.clone(),
+        }
+    }
+
+    pub fn import_specifier(&self) -> &str {
+        &self.import_specifier
+    }
+
+    pub fn module_id(&self) -> &str {
+        &self.module_id
+    }
+
+    fn summary(&self) -> MacroTableSummary {
+        macro_table_summary(
+            &self.module_id,
+            Some(self.import_specifier.clone()),
+            &self.exported_macros,
+            self.source_len,
+            self.line_starts.clone(),
+        )
+    }
+
+    fn get(&self, name: &str) -> Option<&MacroDefinition> {
+        self.exported_macros.get(name)
+    }
+
+    fn definition_scope(&self) -> MacroScope {
+        MacroScope {
+            local_macros: self.local_macros.clone(),
+            imported_macros: self.imported_macros.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct MacroDefinition {
+    module_id: String,
+    import_specifier: Option<String>,
     name: String,
     inputs: Vec<String>,
     outputs: Vec<String>,
@@ -120,9 +360,18 @@ struct MacroDefinition {
 
 struct MacroExpander {
     module_id: String,
-    macros: HashMap<String, MacroDefinition>,
+    source_len: usize,
+    line_starts: Vec<usize>,
+    local_macros: HashMap<String, MacroDefinition>,
+    imported_macros: Vec<ImportedMacroTable>,
     generated_ast_nodes: usize,
     trace: Vec<MacroExpansionTraceEntry>,
+}
+
+#[derive(Clone)]
+struct MacroScope {
+    local_macros: HashMap<String, MacroDefinition>,
+    imported_macros: Vec<ImportedMacroTable>,
 }
 
 #[derive(Clone)]
@@ -166,36 +415,19 @@ impl ExpandedSegment {
 }
 
 impl MacroExpander {
-    fn new(module_id: &str, module: &Module) -> Result<Self, CompileError> {
-        let mut macros = HashMap::new();
-        for item in &module.items {
-            let Item::Macro(macro_decl) = item else {
-                continue;
-            };
-
-            if macros.contains_key(&macro_decl.name) {
-                return Err(CompileError::Unsupported {
-                    feature: format!(
-                        "ambiguous compile-time macro {:?}: duplicate local declarations",
-                        macro_decl.name
-                    ),
-                    span: macro_decl.span,
-                    help: Some(
-                        "keep one local macro declaration for each macro name in this file"
-                            .to_string(),
-                    ),
-                });
-            }
-
-            macros.insert(
-                macro_decl.name.clone(),
-                MacroDefinition::from_decl(macro_decl),
-            );
-        }
-
+    fn new(
+        module_id: &str,
+        module: &Module,
+        source: &str,
+        imported_macros: &[ImportedMacroTable],
+    ) -> Result<Self, CompileError> {
+        let local_macros = collect_macro_definitions(module_id, module)?;
         Ok(Self {
             module_id: module_id.to_string(),
-            macros,
+            source_len: source.len(),
+            line_starts: line_starts(source),
+            local_macros,
+            imported_macros: imported_macros.to_vec(),
             generated_ast_nodes: 0,
             trace: Vec::new(),
         })
@@ -205,36 +437,47 @@ impl MacroExpander {
         MacroExpansion {
             module_id: self.module_id.clone(),
             module,
-            macro_tables: vec![self.macro_table_summary()],
+            imports: self.import_summaries(),
+            macro_tables: self.macro_table_summaries(),
             trace: self.trace,
         }
     }
 
-    fn macro_table_summary(&self) -> MacroTableSummary {
-        let mut macros = self
-            .macros
-            .values()
-            .map(|macro_def| MacroSummary {
-                name: macro_def.name.clone(),
-                inputs: macro_def.inputs.clone(),
-                outputs: macro_def.outputs.clone(),
-                docs: macro_def.docs.clone(),
-                span: macro_def.span,
-                body_span: exprs_span(&macro_def.body),
+    fn import_summaries(&self) -> Vec<MacroImportSummary> {
+        self.imported_macros
+            .iter()
+            .map(|table| MacroImportSummary {
+                specifier: table.import_specifier.clone(),
+                module_id: table.module_id.clone(),
             })
-            .collect::<Vec<_>>();
-        macros.sort_by(|left, right| left.name.cmp(&right.name));
-        MacroTableSummary {
-            module_id: self.module_id.clone(),
-            macros,
+            .collect()
+    }
+
+    fn macro_table_summaries(&self) -> Vec<MacroTableSummary> {
+        let mut summaries = vec![macro_table_summary(
+            &self.module_id,
+            None,
+            &self.local_macros,
+            self.source_len,
+            self.line_starts.clone(),
+        )];
+        summaries.extend(self.imported_macros.iter().map(ImportedMacroTable::summary));
+        summaries
+    }
+
+    fn root_scope(&self) -> MacroScope {
+        MacroScope {
+            local_macros: self.local_macros.clone(),
+            imported_macros: self.imported_macros.clone(),
         }
     }
 
     fn expand_module(&mut self, module: &Module) -> Result<Module, CompileError> {
+        let scope = self.root_scope();
         let mut items = Vec::new();
         let mut stack = Vec::new();
         for item in &module.items {
-            if let Some(item) = self.expand_top_level_item(item, &mut stack)? {
+            if let Some(item) = self.expand_top_level_item(item, &mut stack, &scope)? {
                 items.push(item);
             }
         }
@@ -245,20 +488,23 @@ impl MacroExpander {
         &mut self,
         item: &Item,
         stack: &mut Vec<String>,
+        scope: &MacroScope,
     ) -> Result<Option<Item>, CompileError> {
         match item {
             Item::Macro(_) => Ok(None),
-            Item::Class(class) => Ok(Some(Item::Class(self.expand_class(class, stack)?))),
-            Item::Method(method) => Ok(Some(Item::Method(self.expand_method(method, stack)?))),
+            Item::Class(class) => Ok(Some(Item::Class(self.expand_class(class, stack, scope)?))),
+            Item::Method(method) => Ok(Some(Item::Method(
+                self.expand_method(method, stack, scope)?,
+            ))),
             Item::Function(function) => Ok(Some(Item::Function(ricochet_syntax::FunctionDecl {
                 name: function.name.clone(),
                 args: function.args.clone(),
-                body: self.expand_exprs(&function.body, stack, 0)?,
+                body: self.expand_exprs(&function.body, stack, 0, scope)?,
                 docs: function.docs.clone(),
                 span: function.span,
             }))),
             Item::Expr { expr, span, docs } => Ok(Some(Item::Expr {
-                expr: self.expand_expr(expr, stack, 0)?,
+                expr: self.expand_expr(expr, stack, 0, scope)?,
                 span: *span,
                 docs: docs.clone(),
             })),
@@ -269,10 +515,11 @@ impl MacroExpander {
         &mut self,
         class: &ClassDecl,
         stack: &mut Vec<String>,
+        scope: &MacroScope,
     ) -> Result<ClassDecl, CompileError> {
         let mut body = Vec::new();
         for item in &class.body {
-            body.push(self.expand_class_body_item(item, stack)?);
+            body.push(self.expand_class_body_item(item, stack, scope)?);
         }
         Ok(ClassDecl {
             name: class.name.clone(),
@@ -287,6 +534,7 @@ impl MacroExpander {
         &mut self,
         item: &Item,
         stack: &mut Vec<String>,
+        scope: &MacroScope,
     ) -> Result<Item, CompileError> {
         match item {
             Item::Macro(macro_decl) => Err(CompileError::Unsupported {
@@ -298,17 +546,17 @@ impl MacroExpander {
                         .to_string(),
                 ),
             }),
-            Item::Class(class) => Ok(Item::Class(self.expand_class(class, stack)?)),
-            Item::Method(method) => Ok(Item::Method(self.expand_method(method, stack)?)),
+            Item::Class(class) => Ok(Item::Class(self.expand_class(class, stack, scope)?)),
+            Item::Method(method) => Ok(Item::Method(self.expand_method(method, stack, scope)?)),
             Item::Function(function) => Ok(Item::Function(ricochet_syntax::FunctionDecl {
                 name: function.name.clone(),
                 args: function.args.clone(),
-                body: self.expand_exprs(&function.body, stack, 0)?,
+                body: self.expand_exprs(&function.body, stack, 0, scope)?,
                 docs: function.docs.clone(),
                 span: function.span,
             })),
             Item::Expr { expr, span, docs } => Ok(Item::Expr {
-                expr: self.expand_expr(expr, stack, 0)?,
+                expr: self.expand_expr(expr, stack, 0, scope)?,
                 span: *span,
                 docs: docs.clone(),
             }),
@@ -319,11 +567,12 @@ impl MacroExpander {
         &mut self,
         method: &MethodDecl,
         stack: &mut Vec<String>,
+        scope: &MacroScope,
     ) -> Result<MethodDecl, CompileError> {
         Ok(MethodDecl {
             name: method.name.clone(),
             args: method.args.clone(),
-            body: self.expand_exprs(&method.body, stack, 0)?,
+            body: self.expand_exprs(&method.body, stack, 0, scope)?,
             docs: method.docs.clone(),
             span: method.span,
         })
@@ -334,20 +583,23 @@ impl MacroExpander {
         expr: &Expr,
         stack: &mut Vec<String>,
         depth: usize,
+        scope: &MacroScope,
     ) -> Result<Expr, CompileError> {
         match expr {
-            Expr::Block(body) => Ok(Expr::Block(self.expand_exprs(body, stack, depth)?)),
-            Expr::Sequence(exprs) => Ok(Expr::Sequence(self.expand_exprs(exprs, stack, depth)?)),
+            Expr::Block(body) => Ok(Expr::Block(self.expand_exprs(body, stack, depth, scope)?)),
+            Expr::Sequence(exprs) => Ok(Expr::Sequence(
+                self.expand_exprs(exprs, stack, depth, scope)?,
+            )),
             Expr::If {
                 then_body,
                 else_body,
             } => Ok(Expr::If {
-                then_body: self.expand_exprs(then_body, stack, depth)?,
-                else_body: self.expand_exprs(else_body, stack, depth)?,
+                then_body: self.expand_exprs(then_body, stack, depth, scope)?,
+                else_body: self.expand_exprs(else_body, stack, depth, scope)?,
             }),
             Expr::While { condition, body } => Ok(Expr::While {
-                condition: self.expand_exprs(condition, stack, depth)?,
-                body: self.expand_exprs(body, stack, depth)?,
+                condition: self.expand_exprs(condition, stack, depth, scope)?,
+                body: self.expand_exprs(body, stack, depth, scope)?,
             }),
             _ => Ok(expr.clone()),
         }
@@ -358,9 +610,10 @@ impl MacroExpander {
         expr: &SpannedExpr,
         stack: &mut Vec<String>,
         depth: usize,
+        scope: &MacroScope,
     ) -> Result<SpannedExpr, CompileError> {
         Ok(SpannedExpr {
-            expr: self.expand_expr(&expr.expr, stack, depth)?,
+            expr: self.expand_expr(&expr.expr, stack, depth, scope)?,
             span: expr.span,
         })
     }
@@ -370,15 +623,16 @@ impl MacroExpander {
         exprs: &[SpannedExpr],
         stack: &mut Vec<String>,
         depth: usize,
+        scope: &MacroScope,
     ) -> Result<Vec<SpannedExpr>, CompileError> {
         let mut output = Vec::<ExpandedSegment>::new();
 
         for expr in exprs {
             if matches!(&expr.expr, Expr::Symbol(word) if word == "macro_call") {
-                self.expand_macro_call(expr.span, &mut output, stack, depth)?;
+                self.expand_macro_call(expr.span, &mut output, stack, depth, scope)?;
             } else {
                 output.push(ExpandedSegment::single(
-                    self.expand_spanned_expr(expr, stack, depth)?,
+                    self.expand_spanned_expr(expr, stack, depth, scope)?,
                 ));
             }
         }
@@ -392,6 +646,7 @@ impl MacroExpander {
         output: &mut Vec<ExpandedSegment>,
         stack: &mut Vec<String>,
         depth: usize,
+        scope: &MacroScope,
     ) -> Result<(), CompileError> {
         let Some(name_segment) = output.last() else {
             return Err(CompileError::Unsupported {
@@ -410,16 +665,7 @@ impl MacroExpander {
             });
         };
 
-        let Some(macro_def) = self.macros.get(name).cloned() else {
-            return Err(CompileError::Unsupported {
-                feature: format!("unknown compile-time macro {name:?}"),
-                span: name_span,
-                help: Some(
-                    "declare a local top-level macro with \"name\" Macro before invoking macro_call"
-                        .to_string(),
-                ),
-            });
-        };
+        let macro_def = self.resolve_macro(scope, name, name_span)?;
 
         if depth >= MAX_MACRO_EXPANSION_DEPTH {
             return Err(CompileError::Unsupported {
@@ -432,9 +678,10 @@ impl MacroExpander {
             });
         }
 
+        let stack_key = macro_def.stack_key();
         let same_macro_depth = stack
             .iter()
-            .filter(|macro_name| macro_name.as_str() == macro_def.name)
+            .filter(|macro_name| macro_name.as_str() == stack_key)
             .count();
         if same_macro_depth >= MAX_SAME_MACRO_RECURSION {
             return Err(CompileError::Unsupported {
@@ -471,15 +718,17 @@ impl MacroExpander {
             bindings.insert(name.clone(), operand);
         }
 
-        stack.push(macro_def.name.clone());
+        stack.push(stack_key);
         let mut evaluator = MacroEvaluator::new(&bindings);
         let expansion = evaluator.evaluate(&macro_def)?;
         self.record_generated_nodes(&expansion, name_span)?;
-        let expansion = self.expand_exprs(&expansion, stack, depth + 1)?;
+        let expansion_scope = self.scope_for_macro_definition(&macro_def, scope)?;
+        let expansion = self.expand_exprs(&expansion, stack, depth + 1, &expansion_scope)?;
         let output_node_count = count_spanned_exprs(&expansion);
         self.trace.push(MacroExpansionTraceEntry {
-            id: trace_id(self.trace.len(), &macro_def.name, call_span),
-            module_id: self.module_id.clone(),
+            id: trace_id(&macro_def, call_span, depth),
+            module_id: macro_def.module_id.clone(),
+            import_specifier: macro_def.import_specifier.clone(),
             macro_name: macro_def.name.clone(),
             invocation_span: call_span,
             name_span,
@@ -492,6 +741,189 @@ impl MacroExpander {
 
         output.push(ExpandedSegment::new(expansion, name_span));
         Ok(())
+    }
+
+    fn scope_for_macro_definition(
+        &self,
+        macro_def: &MacroDefinition,
+        current_scope: &MacroScope,
+    ) -> Result<MacroScope, CompileError> {
+        let Some(import_specifier) = macro_def.import_specifier.as_deref() else {
+            return Ok(self.root_scope());
+        };
+
+        if current_scope
+            .local_macros
+            .get(&macro_def.name)
+            .is_some_and(|candidate| {
+                candidate.module_id == macro_def.module_id
+                    && candidate.import_specifier == macro_def.import_specifier
+            })
+        {
+            return Ok(current_scope.clone());
+        }
+
+        current_scope
+            .imported_macros
+            .iter()
+            .find(|table| {
+                table.import_specifier == import_specifier && table.module_id == macro_def.module_id
+            })
+            .map(ImportedMacroTable::definition_scope)
+            .ok_or_else(|| CompileError::Unsupported {
+                feature: format!(
+                    "missing compile-time macro definition scope for {import_specifier:?}#{}",
+                    macro_def.name
+                ),
+                span: macro_def.span,
+                help: Some("rebuild the macro import table for this source file".to_string()),
+            })
+    }
+
+    fn resolve_macro(
+        &self,
+        scope: &MacroScope,
+        name: &str,
+        name_span: Span,
+    ) -> Result<MacroDefinition, CompileError> {
+        if let Some((qualifier, macro_name)) = name.rsplit_once('#') {
+            return self.resolve_qualified_macro(scope, qualifier, macro_name, name_span);
+        }
+
+        if let Some(macro_def) = scope.local_macros.get(name) {
+            return Ok(macro_def.clone());
+        }
+
+        let imported_matches = scope
+            .imported_macros
+            .iter()
+            .filter_map(|table| table.get(name).map(|macro_def| (table, macro_def)))
+            .collect::<Vec<_>>();
+        match imported_matches.as_slice() {
+            [] => Err(CompileError::Unsupported {
+                feature: format!("unknown compile-time macro {name:?}"),
+                span: name_span,
+                help: Some(
+                    "declare a local top-level macro or import exactly one module exporting that macro"
+                        .to_string(),
+                ),
+            }),
+            [(_, macro_def)] => Ok((*macro_def).clone()),
+            matches => {
+                let candidates = matches
+                    .iter()
+                    .map(|(table, _)| {
+                        format!("{:?} from {}", table.import_specifier, table.module_id)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Err(CompileError::Unsupported {
+                    feature: format!(
+                        "ambiguous imported compile-time macro {name:?}: exported by {candidates}"
+                    ),
+                    span: name_span,
+                    help: Some(format!(
+                        "use \"<import-specifier>#{name}\" macro_call or declare a local macro named {name:?}"
+                    )),
+                })
+            }
+        }
+    }
+
+    fn resolve_qualified_macro(
+        &self,
+        scope: &MacroScope,
+        qualifier: &str,
+        macro_name: &str,
+        name_span: Span,
+    ) -> Result<MacroDefinition, CompileError> {
+        if qualifier.is_empty() || macro_name.is_empty() {
+            return Err(CompileError::Unsupported {
+                feature:
+                    "qualified compile-time macro calls must use <import-specifier>#<macro-name>"
+                        .to_string(),
+                span: name_span,
+                help: Some(
+                    "use \"self#name\" or \"import/specifier#name\" before macro_call".to_string(),
+                ),
+            });
+        }
+
+        if qualifier == "self" {
+            return scope.local_macros.get(macro_name).cloned().ok_or_else(|| {
+                CompileError::Unsupported {
+                    feature: format!(
+                        "unknown local compile-time macro {:?} in qualified macro call",
+                        macro_name
+                    ),
+                    span: name_span,
+                    help: Some(
+                        "declare a local top-level macro with that name before using \"self#name\""
+                            .to_string(),
+                    ),
+                }
+            });
+        }
+
+        let matching_tables = scope
+            .imported_macros
+            .iter()
+            .filter(|table| table.import_specifier == qualifier)
+            .collect::<Vec<_>>();
+        match matching_tables.as_slice() {
+            [] => {
+                let available = self.available_import_specifiers(scope);
+                Err(CompileError::Unsupported {
+                    feature: format!(
+                        "unknown macro import specifier {qualifier:?} in qualified macro call"
+                    ),
+                    span: name_span,
+                    help: Some(if available.is_empty() {
+                        "add a static import before invoking an imported macro".to_string()
+                    } else {
+                        format!("available macro import specifiers: {available}")
+                    }),
+                })
+            }
+            [table] => table
+                .get(macro_name)
+                .cloned()
+                .ok_or_else(|| CompileError::Unsupported {
+                    feature: format!(
+                        "import {qualifier:?} does not export compile-time macro {:?}",
+                        macro_name
+                    ),
+                    span: name_span,
+                    help: Some(format!(
+                        "check the top-level Macro declarations exported by {qualifier:?}"
+                    )),
+                }),
+            tables => {
+                let modules = tables
+                    .iter()
+                    .map(|table| table.module_id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Err(CompileError::Unsupported {
+                    feature: format!(
+                        "ambiguous macro import specifier {qualifier:?}: it resolves to {modules}"
+                    ),
+                    span: name_span,
+                    help: Some(
+                        "keep one static import for each qualified macro specifier".to_string(),
+                    ),
+                })
+            }
+        }
+    }
+
+    fn available_import_specifiers(&self, scope: &MacroScope) -> String {
+        scope
+            .imported_macros
+            .iter()
+            .map(|table| format!("{:?}", table.import_specifier))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     fn record_generated_nodes(
@@ -514,8 +946,10 @@ impl MacroExpander {
 }
 
 impl MacroDefinition {
-    fn from_decl(macro_decl: &MacroDecl) -> Self {
+    fn from_decl(module_id: &str, macro_decl: &MacroDecl) -> Self {
         Self {
+            module_id: module_id.to_string(),
+            import_specifier: None,
             name: macro_decl.name.clone(),
             inputs: macro_decl
                 .args
@@ -531,6 +965,17 @@ impl MacroDefinition {
             body: macro_decl.body.clone(),
             span: macro_decl.span,
         }
+    }
+
+    fn with_import_specifier(&self, import_specifier: &str) -> Self {
+        Self {
+            import_specifier: Some(import_specifier.to_string()),
+            ..self.clone()
+        }
+    }
+
+    fn stack_key(&self) -> String {
+        format!("{}#{}", self.module_id, self.name)
     }
 }
 
@@ -858,8 +1303,17 @@ fn normalize_module_id(module_id: &str) -> String {
     }
 }
 
-fn trace_id(index: usize, macro_name: &str, span: Span) -> String {
-    let safe_name = macro_name
+fn trace_id(macro_def: &MacroDefinition, span: Span, depth: usize) -> String {
+    let safe_module = trace_component(&macro_def.module_id);
+    let safe_name = trace_component(&macro_def.name);
+    format!(
+        "macro:{safe_module}:{safe_name}:depth{depth}:{}-{}",
+        span.start, span.end
+    )
+}
+
+fn trace_component(value: &str) -> String {
+    value
         .chars()
         .map(|character| {
             if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
@@ -868,8 +1322,7 @@ fn trace_id(index: usize, macro_name: &str, span: Span) -> String {
                 '_'
             }
         })
-        .collect::<String>();
-    format!("local:{index}:{safe_name}:{}-{}", span.start, span.end)
+        .collect::<String>()
 }
 
 struct Compiler {
@@ -2059,6 +2512,248 @@ mod tests {
                 Op::CallWord("*".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn imported_macro_expands_when_unqualified_name_is_unique() {
+        let imported_source = r#"
+          "say_ok" Macro
+            [
+              [ "ok" println ] quote_ast
+            ]
+          end
+        "#;
+        let imported = exported_macro_table_from_source("lib/macros.rco", imported_source)
+            .expect("imported macro table")
+            .with_import_specifier("lib/macros");
+        let chunk =
+            compile_source_with_imported_macros("main.rco", r#""say_ok" macro_call"#, &[imported])
+                .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("ok".to_string()),
+                Op::CallWord("println".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn local_macro_overrides_imported_macro_with_same_name() {
+        let imported_source = r#"
+          "say_ok" Macro
+            [
+              [ "imported" println ] quote_ast
+            ]
+          end
+        "#;
+        let imported = exported_macro_table_from_source("lib/macros.rco", imported_source)
+            .expect("imported macro table")
+            .with_import_specifier("lib/macros");
+        let source = r#"
+          "say_ok" Macro
+            [
+              [ "local" println ] quote_ast
+            ]
+          end
+
+          "say_ok" macro_call
+        "#;
+        let chunk = compile_source_with_imported_macros("main.rco", source, &[imported])
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("local".to_string()),
+                Op::CallWord("println".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn qualified_imported_macro_uses_exact_import_specifier() {
+        let imported_source = r#"
+          "say_ok" Macro
+            [
+              [ "ok" println ] quote_ast
+            ]
+          end
+        "#;
+        let imported = exported_macro_table_from_source("lib/macros.rco", imported_source)
+            .expect("imported macro table")
+            .with_import_specifier("lib/macros");
+        let expansion = expand_source_with_imported_macros(
+            "main.rco",
+            r#""lib/macros#say_ok" macro_call"#,
+            &[imported],
+        )
+        .expect("expansion succeeds");
+
+        assert_eq!(expansion.imports.len(), 1);
+        assert_eq!(expansion.imports[0].specifier, "lib/macros");
+        assert_eq!(expansion.macro_tables.len(), 2);
+        assert_eq!(expansion.macro_tables[1].module_id, "lib/macros.rco");
+        assert_eq!(
+            expansion.macro_tables[1].import_specifier.as_deref(),
+            Some("lib/macros")
+        );
+        assert_eq!(expansion.trace.len(), 1);
+        assert_eq!(expansion.trace[0].module_id, "lib/macros.rco");
+        assert_eq!(
+            expansion.trace[0].import_specifier.as_deref(),
+            Some("lib/macros")
+        );
+    }
+
+    #[test]
+    fn self_qualified_macro_uses_local_macro_table() {
+        let source = r#"
+          "say_ok" Macro
+            [
+              [ "local" println ] quote_ast
+            ]
+          end
+
+          "self#say_ok" macro_call
+        "#;
+        let chunk = compile_source("main.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("local".to_string()),
+                Op::CallWord("println".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn ambiguous_unqualified_imported_macro_fails_clearly() {
+        let first = exported_macro_table_from_source(
+            "lib/one.rco",
+            r#""say_ok" Macro [ [ "one" ] quote_ast ] end"#,
+        )
+        .expect("first table")
+        .with_import_specifier("lib/one");
+        let second = exported_macro_table_from_source(
+            "lib/two.rco",
+            r#""say_ok" Macro [ [ "two" ] quote_ast ] end"#,
+        )
+        .expect("second table")
+        .with_import_specifier("lib/two");
+
+        let err = compile_source_with_imported_macros(
+            "main.rco",
+            r#""say_ok" macro_call"#,
+            &[first, second],
+        )
+        .expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, help, .. } => {
+                assert!(feature.contains("ambiguous imported compile-time macro"));
+                assert!(feature.contains("lib/one"));
+                assert!(feature.contains("lib/two"));
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("<import-specifier>#say_ok")));
+            }
+            other => panic!("expected ambiguous imported macro error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn leading_underscore_macros_are_not_exported_to_importers() {
+        let imported = exported_macro_table_from_source(
+            "lib/macros.rco",
+            r#""_private" Macro [ [ "private" ] quote_ast ] end"#,
+        )
+        .expect("imported macro table")
+        .with_import_specifier("lib/macros");
+
+        assert!(
+            imported.get("_private").is_none(),
+            "private macro should not be exported"
+        );
+
+        let err = compile_source_with_imported_macros(
+            "main.rco",
+            r#""_private" macro_call"#,
+            &[imported],
+        )
+        .expect_err("private imported macro is not visible");
+
+        match &err {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("unknown compile-time macro"));
+                assert!(feature.contains("_private"));
+            }
+            other => panic!("expected unknown private imported macro error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn macro_names_reject_qualified_delimiter() {
+        let source = r#"
+          "bad#name" Macro
+            [
+              [ "bad" ] quote_ast
+            ]
+          end
+        "#;
+        let err = compile_source("main.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, help, .. } => {
+                assert!(feature.contains("cannot contain #"));
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("qualified macro calls")));
+            }
+            other => panic!("expected macro name delimiter error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_qualified_import_or_macro_fails_clearly() {
+        let imported = exported_macro_table_from_source(
+            "lib/macros.rco",
+            r#""say_ok" Macro [ [ "ok" ] quote_ast ] end"#,
+        )
+        .expect("imported macro table")
+        .with_import_specifier("lib/macros");
+
+        let unknown_import = compile_source_with_imported_macros(
+            "main.rco",
+            r#""missing#say_ok" macro_call"#,
+            std::slice::from_ref(&imported),
+        )
+        .expect_err("unknown import fails");
+        match &unknown_import {
+            CompileError::Unsupported { feature, help, .. } => {
+                assert!(feature.contains("unknown macro import specifier"));
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("lib/macros")));
+            }
+            other => panic!("expected unknown import error, got {other:?}"),
+        }
+
+        let unknown_macro = compile_source_with_imported_macros(
+            "main.rco",
+            r#""lib/macros#missing" macro_call"#,
+            &[imported],
+        )
+        .expect_err("unknown macro fails");
+        match &unknown_macro {
+            CompileError::Unsupported { feature, .. } => {
+                assert!(feature.contains("does not export compile-time macro"));
+                assert!(feature.contains("missing"));
+            }
+            other => panic!("expected unknown imported macro error, got {other:?}"),
+        }
     }
 
     #[test]
