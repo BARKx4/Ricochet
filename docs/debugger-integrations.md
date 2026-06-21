@@ -10,6 +10,7 @@ rco run --debug --step app.rco
 rco run --breakpoint 12 app.rco
 rco debug --json app.rco
 rco debug-tui --smoke app.rco
+rco debug-tui --command step --command continue app.rco
 rco debug-web --smoke app.rco
 rco debug-web app.rco
 rco debug-adapter
@@ -104,8 +105,12 @@ Editor integration guidance:
 - Other IDEs should consume the same event contract through either saved traces,
   `rco debug --json`, or `rco debug-adapter`.
 - `rco debug-tui --smoke` renders a deterministic read-only terminal snapshot
-  of the first debugger pause. The interactive full-screen TUI is still tracked
-  as debugger UI polish.
+  of the first debugger pause. Without `--smoke`, `rco debug-tui` opens a
+  command-driven text session that renders a fresh pause snapshot and accepts
+  `step`, `next`, `out`, `continue`, or `abort` from stdin; repeat
+  `--command ACTION` for deterministic scripted sessions. Runtime breakpoint
+  editing and a richer full-screen layout are still tracked as debugger UI
+  polish.
 - `rco debug-web --smoke` writes the same first-pause snapshot as standalone
   HTML. Without `--smoke`, `rco debug-web` serves that snapshot from a local
   loopback-only Axum server; live controls and event streaming remain future

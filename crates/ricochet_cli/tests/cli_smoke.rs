@@ -7357,22 +7357,193 @@ fn debug_tui_smoke_without_breakpoint_steps_first_instruction() {
 }
 
 #[test]
-fn debug_tui_without_smoke_fails_loudly_until_interactive_ui_exists() {
-    let source_path = write_source("2\n");
+fn debug_tui_scripted_commands_step_and_continue() {
+    let source_path = write_source("2\n3\n+\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("debug-tui")
+        .arg("--command")
+        .arg("step")
+        .arg("--command")
+        .arg("continue")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --command", "source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Ricochet Debug TUI").count() >= 2,
+        "scripted debug-tui should render each pause, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("source line: 2")
+            && stdout.contains("source line: 3")
+            && stdout.contains("debug-tui command: step")
+            && stdout.contains("debug-tui command: continue")
+            && stdout.contains("debug-tui: program completed after 2 pause(s)"),
+        "scripted debug-tui should step once, continue, and complete, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_scripted_next_steps_over_function_body() {
+    let source_path = write_source(
+        r#"work function
+  40
+  2
+  +
+end
+work
+"done"
+"#,
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--breakpoint")
+        .arg("6")
+        .arg("--command")
+        .arg("next")
+        .arg("--command")
+        .arg("continue")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --command next", "function source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Ricochet Debug TUI").count() >= 2,
+        "next should produce multiple pause snapshots, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("status: paused (breakpoint)")
+            && stdout.contains("source line: work")
+            && stdout.contains("source line: \"done\"")
+            && !stdout.contains("frame: work"),
+        "next should step over the function body and pause back in the caller, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_scripted_out_steps_to_caller() {
+    let source_path = write_source(
+        r#"work function
+  40
+  2
+  +
+end
+work
+"done"
+"#,
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--breakpoint")
+        .arg("2")
+        .arg("--command")
+        .arg("out")
+        .arg("--command")
+        .arg("continue")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --command out", "function source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("frame: work") && stdout.contains("source line: \"done\""),
+        "out should pause inside the function, then return to the caller, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_scripted_abort_is_successful_session_abort() {
+    let source_path = write_source("2\n3\n+\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--command")
+        .arg("abort")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --command abort", "source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("debug-tui command: abort")
+            && stdout.contains("debug-tui: session aborted after 1 pause(s)"),
+        "abort should stop the session with an explicit success message, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_rejects_script_that_runs_out_before_completion() {
+    let source_path = write_source("2\n3\n+\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--command")
+        .arg("step")
         .arg(&source_path)
         .output()
         .expect("rco debug-tui should launch");
 
     assert!(
         !output.status.success(),
-        "debug-tui without --smoke should fail until the interactive TUI is implemented"
+        "debug-tui should reject scripts that run out of commands before completion"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("interactive debug-tui is not implemented yet"),
-        "stderr should explain the temporary smoke-only contract, got:\n{stderr}"
+        stderr.contains("debug-tui command script ended while the VM was still paused"),
+        "stderr should explain the exhausted script, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn debug_tui_interactive_reads_stdin_command() {
+    let source_path = write_source("2\n");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco debug-tui should launch");
+    child
+        .stdin
+        .as_mut()
+        .expect("debug-tui stdin should be open")
+        .write_all(b"continue\n")
+        .expect("debug-tui command should write");
+    let output = child.wait_with_output().expect("debug-tui should finish");
+    assert_run_success_for("rco debug-tui stdin", "source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("debug-tui> ") && stdout.contains("debug-tui: program completed"),
+        "interactive debug-tui should prompt and complete, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_rejects_unknown_scripted_command() {
+    let source_path = write_source("2\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--command")
+        .arg("sideways")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+
+    assert!(
+        !output.status.success(),
+        "debug-tui should reject unknown scripted commands"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown debug-tui command"),
+        "stderr should explain the invalid command, got:\n{stderr}"
     );
 }
 

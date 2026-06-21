@@ -551,7 +551,9 @@ Implemented:
 - `rco debug --json` streams JSON Lines events.
 - `rco debug-adapter` speaks Debug Adapter Protocol over stdio.
 - `rco debug-tui --smoke` renders a read-only first-pause debugger snapshot for
-  terminal UI prototyping.
+  terminal UI prototyping, and non-smoke `rco debug-tui` runs a
+  command-driven text session with per-pause snapshots plus `step`, `next`,
+  `out`, `continue`, and `abort` controls.
 - `rco debug-web --smoke` renders the same snapshot as standalone HTML, and
   `rco debug-web` serves it from a loopback-only local server.
 - DAP supports launch, source breakpoints, continue, pause, step into/over/out,
@@ -585,13 +587,14 @@ Evidence:
 
 Remaining:
 
-- Interactive stepping, breakpoint controls, and live event streaming in the
-  dedicated TUI/browser debugger UIs are future polish.
+- Runtime breakpoint editing, richer full-screen TUI layout, and live browser
+  event/control streaming are future polish.
 - Source breakpoints are line-based until stable instruction IDs exist.
 
 Do not assume:
 
-- Debugger UI is broadly missing; first-pause TUI and browser previews exist.
+- Debugger UI is broadly missing; first-pause TUI/browser previews and a
+  command-driven text TUI control loop exist.
 - DAP or VS Code debugger surfaces are missing.
 
 ## Build, Packaging, Release, And CI

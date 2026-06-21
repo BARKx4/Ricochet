@@ -581,7 +581,8 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 
 - [ ] Extract debugger session protocol into a reusable internal module.
 - [x] Build a read-only TUI prototype that attaches to a debug session and renders current source, stack, locals, globals, and tasks.
-- [ ] Add stepping/breakpoint commands to the TUI.
+- [x] Add stepping controls to the TUI command loop.
+- [ ] Add runtime breakpoint editing controls to the TUI.
 - [x] Build browser UI server bound to `127.0.0.1` by default.
 - [ ] Add websocket or SSE event stream for browser UI updates.
 - [x] Add smoke tests for snapshot rendering and loopback bind safety.
@@ -595,8 +596,15 @@ Automated smoke tests cover startup and protocol behavior; manual verification c
 
 **Progress Note (2026-06-21):** First preview slice adds `rco debug-tui --smoke`
 and `rco debug-web --smoke` first-pause snapshot renderers. `rco debug-web`
-can serve that read-only snapshot from a loopback-only local server. Interactive
-stepping controls, protocol extraction, and live browser events remain open.
+can serve that read-only snapshot from a loopback-only local server. Runtime
+breakpoint editing, protocol extraction, and live browser events remain open.
+
+**Progress Note (2026-06-21):** The TUI control slice adds non-smoke
+`rco debug-tui` sessions that render a text snapshot at each pause and accept
+`step`, `next`, `out`, `continue`, or `abort` from stdin, plus repeatable
+`--command ACTION` flags for deterministic scripted sessions. Runtime
+breakpoint editing, protocol extraction, richer full-screen layout, and live
+browser event/control streaming remain open.
 
 ---
 

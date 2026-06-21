@@ -1,5 +1,5 @@
-use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
@@ -135,6 +135,12 @@ enum Command {
     DebugTui {
         #[arg(long, help = "Render one read-only debugger snapshot and exit")]
         smoke: bool,
+        #[arg(
+            long = "command",
+            value_name = "ACTION",
+            help = "Run a scripted debugger action; repeat for step, next, out, continue, or abort"
+        )]
+        commands: Vec<String>,
         #[arg(long)]
         step: bool,
         #[arg(long = "breakpoint", value_name = "LINE")]
@@ -941,12 +947,23 @@ pub async fn run_cli() -> Result<()> {
         )?,
         Command::DebugTui {
             smoke,
+            commands,
             step,
             breakpoints,
             capabilities,
             path,
             args,
-        } => run_debug_tui(&path, smoke, step, &breakpoints, args, capabilities)?,
+        } => run_debug_tui(
+            &path,
+            DebugTuiOptions {
+                smoke,
+                commands,
+                step,
+                breakpoints: &breakpoints,
+            },
+            args,
+            capabilities,
+        )?,
         Command::DebugWeb {
             smoke,
             host,
@@ -7972,6 +7989,19 @@ struct DebugUiSnapshot {
     stderr: String,
 }
 
+#[derive(Clone, Copy)]
+enum DebugUiRenderMode {
+    Preview,
+    Interactive,
+}
+
+struct DebugTuiOptions<'a> {
+    smoke: bool,
+    commands: Vec<String>,
+    step: bool,
+    breakpoints: &'a [usize],
+}
+
 struct DebugWebOptions<'a> {
     smoke: bool,
     host: &'a str,
@@ -7982,18 +8012,21 @@ struct DebugWebOptions<'a> {
 
 fn run_debug_tui(
     path: &str,
-    smoke: bool,
-    step: bool,
-    breakpoints: &[usize],
+    options: DebugTuiOptions<'_>,
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
-    if !smoke {
-        bail!("interactive debug-tui is not implemented yet; use --smoke for a read-only debugger snapshot");
+    if options.smoke {
+        let snapshot =
+            collect_debug_ui_snapshot(path, options.step, options.breakpoints, args, capabilities)?;
+        print!(
+            "{}",
+            render_debug_tui_snapshot(&snapshot, DebugUiRenderMode::Preview)
+        );
+        return Ok(());
     }
-    let snapshot = collect_debug_ui_snapshot(path, step, breakpoints, args, capabilities)?;
-    print!("{}", render_debug_tui_snapshot(&snapshot));
-    Ok(())
+
+    run_debug_tui_session(path, options, args, capabilities)
 }
 
 async fn run_debug_web(
@@ -8061,20 +8094,8 @@ fn collect_debug_ui_snapshot(
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<DebugUiSnapshot> {
-    let source_path = Path::new(path);
-    let chunk = compile_source_file(source_path)?;
-    let mut vm = cli_vm(args, &capabilities)?;
-    install_dynamic_module_loader(&mut vm, dynamic_import_parent_for_source(source_path)?);
-    vm.enable_debug();
-    if step || breakpoints.is_empty() {
-        vm.enable_step_debugging();
-    }
-    for &line in breakpoints {
-        if line == 0 {
-            bail!("breakpoint lines are 1-based");
-        }
-        vm.add_line_breakpoint(chunk.file.clone(), line);
-    }
+    let (source_path, chunk, mut vm) =
+        prepare_debug_ui_run(path, step, breakpoints, args, capabilities)?;
 
     let first_pause = Rc::new(RefCell::new(None::<DebugPause>));
     let pause_slot = Rc::clone(&first_pause);
@@ -8096,13 +8117,134 @@ fn collect_debug_ui_snapshot(
         .borrow_mut()
         .take()
         .context("debug UI did not observe a debugger pause")?;
+    Ok(debug_ui_snapshot_for_pause(
+        &source_path,
+        pause,
+        vm.stdout().to_string(),
+        vm.stderr().to_string(),
+    ))
+}
+
+fn run_debug_tui_session(
+    path: &str,
+    options: DebugTuiOptions<'_>,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
+    let (source_path, chunk, mut vm) =
+        prepare_debug_ui_run(path, options.step, options.breakpoints, args, capabilities)?;
+    let scripted = !options.commands.is_empty();
+    let commands = Rc::new(RefCell::new(VecDeque::from(options.commands)));
+    let command_error = Rc::new(RefCell::new(None::<String>));
+    let pause_count = Rc::new(Cell::new(0_usize));
+    let controller_source_path = source_path.clone();
+    let controller_commands = Rc::clone(&commands);
+    let controller_error = Rc::clone(&command_error);
+    let controller_pause_count = Rc::clone(&pause_count);
+    vm.set_debug_controller(move |pause| {
+        controller_pause_count.set(controller_pause_count.get() + 1);
+        let snapshot = debug_ui_snapshot_for_pause(
+            &controller_source_path,
+            pause.clone(),
+            String::new(),
+            String::new(),
+        );
+        print!(
+            "{}",
+            render_debug_tui_snapshot(&snapshot, DebugUiRenderMode::Interactive)
+        );
+        if io::stdout().flush().is_err() {
+            *controller_error.borrow_mut() = Some("failed to flush debug-tui output".to_string());
+            return DebugAction::Abort;
+        }
+
+        if scripted {
+            let Some(command) = controller_commands.borrow_mut().pop_front() else {
+                *controller_error.borrow_mut() = Some(
+                    "debug-tui command script ended while the VM was still paused; add another --command"
+                        .to_string(),
+                );
+                return DebugAction::Abort;
+            };
+            match debug_action_from_command(&command) {
+                Some(action) => {
+                    println!("debug-tui command: {}", command.trim());
+                    action
+                }
+                None => {
+                    *controller_error.borrow_mut() = Some(format!(
+                        "unknown debug-tui command {:?}; expected step, next, out, continue, or abort",
+                        command.trim()
+                    ));
+                    DebugAction::Abort
+                }
+            }
+        } else {
+            read_debug_tui_action_from_stdin()
+        }
+    });
+
+    let result = vm.run_chunk(&chunk);
+    if let Some(error) = command_error.borrow_mut().take() {
+        bail!("{error}");
+    }
+    print_debug_tui_program_output(&vm);
+    match result {
+        Ok(()) => {
+            println!(
+                "debug-tui: program completed after {} pause(s)",
+                pause_count.get()
+            );
+            Ok(())
+        }
+        Err(ricochet_vm::VmError::ExecutionAborted { .. }) => {
+            println!(
+                "debug-tui: session aborted after {} pause(s)",
+                pause_count.get()
+            );
+            Ok(())
+        }
+        Err(error) => bail!("{}", runtime_error_message(&vm, &error)),
+    }
+}
+
+fn prepare_debug_ui_run(
+    path: &str,
+    step: bool,
+    breakpoints: &[usize],
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<(PathBuf, Chunk, Vm)> {
+    let source_path = Path::new(path).to_path_buf();
+    let chunk = compile_source_file(&source_path)?;
+    let mut vm = cli_vm(args, &capabilities)?;
+    install_dynamic_module_loader(&mut vm, dynamic_import_parent_for_source(&source_path)?);
+    vm.enable_debug();
+    if step || breakpoints.is_empty() {
+        vm.enable_step_debugging();
+    }
+    for &line in breakpoints {
+        if line == 0 {
+            bail!("breakpoint lines are 1-based");
+        }
+        vm.add_line_breakpoint(chunk.file.clone(), line);
+    }
+    Ok((source_path, chunk, vm))
+}
+
+fn debug_ui_snapshot_for_pause(
+    source_path: &Path,
+    pause: DebugPause,
+    stdout: String,
+    stderr: String,
+) -> DebugUiSnapshot {
     let source_line = debug_source_line(source_path, &pause);
-    Ok(DebugUiSnapshot {
+    DebugUiSnapshot {
         pause,
         source_line,
-        stdout: vm.stdout().to_string(),
-        stderr: vm.stderr().to_string(),
-    })
+        stdout,
+        stderr,
+    }
 }
 
 fn debug_source_line(source_path: &Path, pause: &DebugPause) -> Option<String> {
@@ -8115,7 +8257,7 @@ fn debug_source_line(source_path: &Path, pause: &DebugPause) -> Option<String> {
         .map(str::to_string)
 }
 
-fn render_debug_tui_snapshot(snapshot: &DebugUiSnapshot) -> String {
+fn render_debug_tui_snapshot(snapshot: &DebugUiSnapshot, mode: DebugUiRenderMode) -> String {
     let pause = &snapshot.pause;
     let mut output = String::new();
     let reason = match pause.reason {
@@ -8143,11 +8285,22 @@ fn render_debug_tui_snapshot(snapshot: &DebugUiSnapshot) -> String {
     if !snapshot.stderr.is_empty() {
         writeln!(&mut output, "stderr:\n{}", snapshot.stderr).expect("write to string");
     }
-    writeln!(
-        &mut output,
-        "preview: read-only snapshot; interactive stepping is the next debugger UI slice"
-    )
-    .expect("write to string");
+    match mode {
+        DebugUiRenderMode::Preview => {
+            writeln!(
+                &mut output,
+                "preview: read-only snapshot; run without --smoke for interactive controls"
+            )
+            .expect("write to string");
+        }
+        DebugUiRenderMode::Interactive => {
+            writeln!(
+                &mut output,
+                "controls: step | next | out | continue | abort (s/n/o/c/q)"
+            )
+            .expect("write to string");
+        }
+    }
     output
 }
 
@@ -8359,6 +8512,45 @@ fn debug_value_label(value: &Value) -> String {
         .and_then(|value| value.as_str())
         .map(str::to_string)
         .unwrap_or_else(|| format!("{value:?}"))
+}
+
+fn debug_action_from_command(command: &str) -> Option<DebugAction> {
+    match command.trim().to_ascii_lowercase().as_str() {
+        "" | "s" | "step" => Some(DebugAction::Step),
+        "n" | "next" | "over" | "step-over" => Some(DebugAction::StepOver),
+        "o" | "out" | "step-out" => Some(DebugAction::StepOut),
+        "c" | "continue" => Some(DebugAction::Continue),
+        "a" | "abort" | "q" | "quit" => Some(DebugAction::Abort),
+        _ => None,
+    }
+}
+
+fn read_debug_tui_action_from_stdin() -> DebugAction {
+    loop {
+        print!("debug-tui> ");
+        if io::stdout().flush().is_err() {
+            return DebugAction::Abort;
+        }
+        let mut command = String::new();
+        match io::stdin().read_line(&mut command) {
+            Ok(0) | Err(_) => return DebugAction::Abort,
+            Ok(_) => match debug_action_from_command(&command) {
+                Some(action) => return action,
+                None => {
+                    println!("commands: step, next, out, continue, abort (aliases: s, n, o, c, q)")
+                }
+            },
+        }
+    }
+}
+
+fn print_debug_tui_program_output(vm: &Vm) {
+    if !vm.stdout().is_empty() {
+        print!("stdout:\n{}", vm.stdout());
+    }
+    if !vm.stderr().is_empty() {
+        eprint!("stderr:\n{}", vm.stderr());
+    }
 }
 
 fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
