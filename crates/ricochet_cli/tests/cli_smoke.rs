@@ -13173,6 +13173,9 @@ fn spawn_tcp_echo_server() -> (std::net::SocketAddr, thread::JoinHandle<()>) {
             return;
         };
         stream
+            .set_nonblocking(false)
+            .expect("accepted TCP stream should become blocking");
+        stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .expect("accepted TCP stream should set read timeout");
         let mut buffer = [0_u8; 64];
