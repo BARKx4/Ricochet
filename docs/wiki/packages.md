@@ -16,6 +16,7 @@ rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-regi
 rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"
 rco publish ./packages/ricochet_forms --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
 rco registry yank @ricochet/forms 0.1.0 --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry mirror http://127.0.0.1:3001 ./ricochet-static-mirror
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -72,7 +73,12 @@ all-package publisher token or repeated `--publisher PACKAGE=ENV` policies for
 exact packages and `@scope/*` scopes. It verifies uploaded archive integrity,
 package tree integrity, package identity, provenance/signature digests, rejects
 same-version replacement with `version_exists`, and preserves yanked records.
-Static mirror export remains future work.
+
+`rco registry mirror REGISTRY_URL PATH` exports hosted metadata and artifacts
+into a static `ricochet-static-registry-v1` mirror. It preserves yanked records,
+registry-relative archive paths, archive/package integrity, provenance and
+signature digests, then writes an `index.toml` that existing static
+`--registry-url file://.../index.toml` installs can use.
 
 Static imports load dependencies at compile time and remain the preferred
 default for ordinary module sharing:

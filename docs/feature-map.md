@@ -477,7 +477,7 @@ Do not assume:
 
 Status: implemented beta for local/static registries, hosted registry client
 read/publish/yank operations, and the local hosted registry reference server;
-hosted mirror export remains future.
+hosted mirror export to static registry format is implemented.
 
 Implemented:
 
@@ -505,6 +505,11 @@ Implemented:
   package tree integrity, preserves provenance/signature metadata, rejects
   duplicate same-version publish attempts, and keeps literal bearer tokens out
   of client metadata and output.
+- `rco registry mirror REGISTRY_URL PATH` exports hosted registry metadata and
+  artifacts into `ricochet-static-registry-v1` format, preserving yanked
+  records, registry-relative archive paths, archive/package integrity, and
+  provenance/signature digests so existing static registry search/install flows
+  can use the mirror.
 - The hosted registry protocol spec defines immutable hosted version metadata,
   publish/search/fetch/yank endpoints, bearer-token handling by secret
   reference, registry-relative artifact paths, verification order, and static
@@ -531,7 +536,7 @@ Evidence:
 
 Remaining:
 
-- Hosted mirror export to static registry format remains future work.
+- None for the v1 beta package and registry workflow.
 
 Do not assume:
 
@@ -645,7 +650,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Hosted registry mirror export to static registry format.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.

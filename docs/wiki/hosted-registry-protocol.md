@@ -12,7 +12,7 @@ static registry behavior. Existing `rco publish PACKAGE --registry PATH`,
 Ricochet currently implements hosted client operations for discovery, search,
 metadata fetch, archive fetch, install, lockfile verification, publish, and
 yank, plus a local hosted registry reference server through
-`rco registry serve`. Mirror export remains future work.
+`rco registry serve` and static mirror export through `rco registry mirror`.
 
 ## Protocol Identity
 
@@ -341,12 +341,13 @@ signature = "sha256:<64 hex>"
 signature_kind = "minisign"
 ```
 
-A future mirror command should fetch hosted package metadata and artifacts,
-write registry-relative archive/provenance/signature paths, preserve yanked
-records, and emit `ricochet-static-registry-v1` indexes that existing static
-registry clients can search and install from. If a hosted registry is offline,
-projects pinned to a static mirror should continue using the existing
-`--registry-url file://.../index.toml` or `https://.../index.toml` behavior.
+`rco registry mirror REGISTRY_URL PATH` fetches hosted package metadata and
+artifacts, writes registry-relative archive/provenance/signature paths,
+preserves yanked records, and emits `ricochet-static-registry-v1` indexes that
+existing static registry clients can search and install from. If a hosted
+registry is offline, projects pinned to a static mirror should continue using
+the existing `--registry-url file://.../index.toml` or
+`https://.../index.toml` behavior.
 
 ## Security Model
 
@@ -385,7 +386,7 @@ Later Epic 8 slices should implement the protocol in this order:
    the local fake-server client tests. Implemented through
    `rco registry serve`.
 4. Mirror command that exports hosted metadata and artifacts to
-   `ricochet-static-registry-v1`.
+   `ricochet-static-registry-v1`. Implemented through `rco registry mirror`.
 5. Hosted same-version replacement tests against a real server/reference
    implementation and documentation updates for operational deployment.
    Implemented for the reference server publish path.

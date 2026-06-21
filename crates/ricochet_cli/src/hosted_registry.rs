@@ -1,8 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
@@ -14,9 +14,10 @@ use reqwest::Url;
 use semver::{Version, VersionReq};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use toml_edit::{value, DocumentMut, Item, Table};
 
 use super::{
-    bytes_integrity, hex_digest, package_tree_integrity, package_version_satisfies,
+    bytes_integrity, hex_digest, package_tree_integrity, package_version_satisfies, path_to_slash,
     project_dependency_path, read_package_metadata, static_registry, validate_package_integrity,
     validate_package_version, validate_registry_package_name, validate_signature_kind,
     DependencySpec, LockedPackage, PublishArtifact,
@@ -53,7 +54,7 @@ struct HostedSearchResponse {
     results: Option<Vec<HostedSearchPackage>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct HostedSearchPackage {
     name: String,
     latest: String,
@@ -342,22 +343,7 @@ pub(super) fn yank(
 
 pub(super) fn search(query: &str, registry_url: &str) -> Result<()> {
     let discovery = discover(registry_url)?;
-    let mut search_url = endpoint_url(&discovery.base_url, &["v1", "search"])?;
-    search_url
-        .query_pairs_mut()
-        .append_pair("q", query)
-        .append_pair("limit", "50")
-        .append_pair("offset", "0");
-    let response: HostedSearchResponse = read_json(
-        search_url,
-        MAX_METADATA_BYTES,
-        SEARCH_MEDIA_TYPE,
-        "hosted registry search response",
-    )?;
-    ensure_protocol(&response.protocol, "hosted registry search response")?;
-    let packages = response.packages.or(response.results).with_context(|| {
-        "hosted registry search response must include packages or results array"
-    })?;
+    let packages = search_packages(&discovery, query, 50, 0)?;
 
     let mut found = 0usize;
     for package in packages {
@@ -369,6 +355,48 @@ pub(super) fn search(query: &str, registry_url: &str) -> Result<()> {
     if found == 0 {
         println!("no packages found");
     }
+    Ok(())
+}
+
+pub(super) fn mirror(registry_url: &str, output_path: &Path) -> Result<()> {
+    let discovery = discover(registry_url)?;
+    let output_root = super::absolute_path_from_current(output_path)?;
+    fs::create_dir_all(&output_root)
+        .with_context(|| format!("failed to create {}", output_root.display()))?;
+
+    let mut package_names = BTreeSet::new();
+    let mut offset = 0usize;
+    let limit = 100usize;
+    loop {
+        let packages = search_packages(&discovery, "", limit, offset)?;
+        let count = packages.len();
+        for package in packages {
+            validate_registry_package_name(&package.name)?;
+            package_names.insert(package.name);
+        }
+        if count < limit {
+            break;
+        }
+        offset += limit;
+    }
+
+    let mut index_packages = BTreeMap::new();
+    let mut mirrored_versions = 0usize;
+    for package in &package_names {
+        let metadata = load_package(&discovery, package)?;
+        let metadata_relative = mirror_metadata_relative_path(package);
+        write_mirror_package_metadata(&discovery, &output_root, &metadata, &metadata_relative)?;
+        index_packages.insert(package.clone(), path_to_slash(&metadata_relative));
+        mirrored_versions += metadata.versions.len();
+    }
+    write_mirror_index(&output_root, &index_packages)?;
+    println!(
+        "mirrored {} hosted registry packages ({} versions) from {} to {}",
+        package_names.len(),
+        mirrored_versions,
+        discovery.base_url,
+        output_root.display()
+    );
     Ok(())
 }
 
@@ -522,6 +550,31 @@ fn discover(registry_url: &str) -> Result<HostedRegistryDiscovery> {
     Ok(HostedRegistryDiscovery { base_url })
 }
 
+fn search_packages(
+    discovery: &HostedRegistryDiscovery,
+    query: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<HostedSearchPackage>> {
+    let mut search_url = endpoint_url(&discovery.base_url, &["v1", "search"])?;
+    search_url
+        .query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("limit", &limit.to_string())
+        .append_pair("offset", &offset.to_string());
+    let response: HostedSearchResponse = read_json(
+        search_url,
+        MAX_METADATA_BYTES,
+        SEARCH_MEDIA_TYPE,
+        "hosted registry search response",
+    )?;
+    ensure_protocol(&response.protocol, "hosted registry search response")?;
+    response
+        .packages
+        .or(response.results)
+        .with_context(|| "hosted registry search response must include packages or results array")
+}
+
 fn load_package(
     discovery: &HostedRegistryDiscovery,
     expected_package: &str,
@@ -604,6 +657,156 @@ fn validate_package_metadata(
         }
     }
     Ok(metadata)
+}
+
+fn write_mirror_index(root: &Path, packages: &BTreeMap<String, String>) -> Result<()> {
+    let mut doc = DocumentMut::new();
+    let mut registry_table = Table::new();
+    registry_table["format"] = value("ricochet-static-registry-v1");
+    doc.as_table_mut()
+        .insert("registry", Item::Table(registry_table));
+    let mut packages_table = Table::new();
+    for (package, metadata_path) in packages {
+        packages_table[package] = value(metadata_path.clone());
+    }
+    doc.as_table_mut()
+        .insert("packages", Item::Table(packages_table));
+    fs::write(root.join("index.toml"), doc.to_string())
+        .with_context(|| format!("failed to write {}", root.join("index.toml").display()))
+}
+
+fn write_mirror_package_metadata(
+    discovery: &HostedRegistryDiscovery,
+    root: &Path,
+    metadata: &HostedPackageMetadata,
+    metadata_relative: &Path,
+) -> Result<()> {
+    let metadata_path = root.join(metadata_relative);
+    if let Some(parent) = metadata_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let mut doc = DocumentMut::new();
+    let mut package_table = Table::new();
+    package_table["name"] = value(metadata.package.name.clone());
+    doc.as_table_mut()
+        .insert("package", Item::Table(package_table));
+
+    let versions_array = doc["versions"].or_insert(Item::ArrayOfTables(Default::default()));
+    let versions_array = versions_array
+        .as_array_of_tables_mut()
+        .expect("versions should be an array of tables");
+    for version in &metadata.versions {
+        mirror_artifact(
+            discovery,
+            root,
+            &version.archive.path,
+            &version.archive.integrity,
+            ARCHIVE_MEDIA_TYPE,
+            "hosted registry package archive",
+        )?;
+        let mut table = Table::new();
+        table["version"] = value(version.version.clone());
+        table["archive"] = value(version.archive.path.clone());
+        table["archive_integrity"] = value(version.archive.integrity.clone());
+        table["package_integrity"] = value(version.package_integrity.clone());
+        table["yanked"] = value(version.yanked);
+        if let Some(provenance) = &version.provenance {
+            if let (Some(path), Some(integrity)) = (
+                provenance.attestation_path.as_deref(),
+                provenance.attestation_integrity.as_deref(),
+            ) {
+                mirror_artifact(
+                    discovery,
+                    root,
+                    path,
+                    integrity,
+                    "application/octet-stream",
+                    "hosted registry provenance artifact",
+                )?;
+                table["provenance"] = value(integrity.to_string());
+            }
+            if let (Some(path), Some(integrity)) = (
+                provenance.signature_path.as_deref(),
+                provenance.signature_integrity.as_deref(),
+            ) {
+                mirror_artifact(
+                    discovery,
+                    root,
+                    path,
+                    integrity,
+                    "application/octet-stream",
+                    "hosted registry signature artifact",
+                )?;
+                table["signature"] = value(integrity.to_string());
+            }
+            if let Some(signature_kind) = provenance.signature_kind.as_deref() {
+                table["signature_kind"] = value(signature_kind.to_string());
+            }
+        }
+        versions_array.push(table);
+    }
+
+    fs::write(&metadata_path, doc.to_string())
+        .with_context(|| format!("failed to write {}", metadata_path.display()))
+}
+
+fn mirror_artifact(
+    discovery: &HostedRegistryDiscovery,
+    root: &Path,
+    relative_path: &str,
+    expected_integrity: &str,
+    expected_media_type: &'static str,
+    label: &'static str,
+) -> Result<()> {
+    validate_registry_relative_path(relative_path, label)?;
+    validate_package_integrity(expected_integrity)?;
+    let destination = root.join(relative_path);
+    if destination.exists() {
+        let bytes = fs::read(&destination)
+            .with_context(|| format!("failed to read {}", destination.display()))?;
+        let actual = bytes_integrity(&bytes);
+        if actual != expected_integrity {
+            bail!(
+                "static mirror artifact {} already exists with integrity {}, expected {}",
+                destination.display(),
+                actual,
+                expected_integrity
+            );
+        }
+        return Ok(());
+    }
+    let url = resolve_archive_url(&discovery.base_url, relative_path)?;
+    let bytes = if expected_media_type == ARCHIVE_MEDIA_TYPE {
+        read_bytes(url, MAX_ARCHIVE_BYTES, ARCHIVE_MEDIA_TYPE, label)?
+    } else {
+        read_bytes_any_media(url, MAX_ARCHIVE_BYTES, label)?
+    };
+    let actual = bytes_integrity(&bytes);
+    if actual != expected_integrity {
+        bail!(
+            "{label} {relative_path:?} has integrity {}, expected {}",
+            actual,
+            expected_integrity
+        );
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(&destination, bytes)
+        .with_context(|| format!("failed to write {}", destination.display()))
+}
+
+fn mirror_metadata_relative_path(package: &str) -> PathBuf {
+    PathBuf::from("packages")
+        .join(registry_package_relative_path(package))
+        .with_extension("toml")
+}
+
+fn registry_package_relative_path(package: &str) -> PathBuf {
+    package.split('/').collect()
 }
 
 fn validate_optional_artifact_pair(
@@ -1060,6 +1263,29 @@ fn read_bytes(
             bail!("{label} {url_text_for_thread} returned non-success HTTP status {status}");
         }
         validate_response_content_type(&response, accept, label, &url_text_for_thread)?;
+        read_limited_response(response, limit, label, &url_text_for_thread)
+    })
+    .join();
+
+    match result {
+        Ok(result) => result,
+        Err(_) => bail!("hosted registry fetch worker panicked for {url_text}"),
+    }
+}
+
+fn read_bytes_any_media(url: Url, limit: usize, label: &'static str) -> Result<Vec<u8>> {
+    let url_text = url.to_string();
+    let url_text_for_thread = url_text.clone();
+    let result = thread::spawn(move || -> Result<Vec<u8>> {
+        let client = http_client()?;
+        let response = client
+            .get(url)
+            .send()
+            .with_context(|| format!("failed to fetch {label} {url_text_for_thread}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("{label} {url_text_for_thread} returned non-success HTTP status {status}");
+        }
         read_limited_response(response, limit, label, &url_text_for_thread)
     })
     .join();

@@ -502,9 +502,9 @@ Tests prove dynamic imports respect lockfile integrity, aliases, local path cont
 - [x] Add publish flow with auth token references through `secret_env`.
 - [x] Add server or reference implementation only after protocol/client is stable.
 - [x] Add same-version replacement tests against hosted metadata.
-- [ ] Add mirror command to export hosted registry metadata into static index format.
+- [x] Add mirror command to export hosted registry metadata into static index format.
 - [x] Add docs for publisher auth, yanking, provenance, and mirrors.
-- [ ] Commit in slices: client read, publish, server/reference implementation, docs.
+- [x] Commit in slices: client read, publish, server/reference implementation, docs.
 
 **Verification Gate:**
 

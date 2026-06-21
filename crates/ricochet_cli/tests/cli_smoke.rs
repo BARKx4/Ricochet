@@ -4943,6 +4943,175 @@ fn hosted_registry_reference_server_enforces_package_publisher_policy() {
 }
 
 #[test]
+fn hosted_registry_mirror_exports_reference_server_to_static_registry() {
+    const TOKEN_ENV: &str = "RICOCHET_TEST_REGISTRY_TOKEN";
+    const TOKEN: &str = "reference-server-token";
+
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let registry = base.join("hosted_reference_mirror_registry");
+    let server = ReferenceHostedRegistryServer::start(&registry, &[("greeter", TOKEN_ENV)], TOKEN);
+
+    let package_v1 =
+        write_hosted_publish_package(base, "hosted_reference_mirror_pkg_v1", "greeter", "0.5.0");
+    let provenance = base.join("provenance.json");
+    let signature = base.join("greeter.sig");
+    fs::write(&provenance, b"{\"builder\":\"ci\"}").expect("provenance should be written");
+    fs::write(&signature, b"signature bytes").expect("signature should be written");
+    let publish_v1 = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_v1)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .arg("--provenance-file")
+        .arg(&provenance)
+        .arg("--signature-file")
+        .arg(&signature)
+        .arg("--signature-kind")
+        .arg("minisign")
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco publish v1 should launch");
+    assert_run_success_for(
+        "rco publish",
+        "reference hosted registry mirror fixture v1",
+        &publish_v1,
+    );
+
+    let yank_v1 = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("yank")
+        .arg("greeter")
+        .arg("0.5.0")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco registry yank v1 should launch");
+    assert_run_success_for(
+        "rco registry yank",
+        "reference hosted registry mirror fixture yank",
+        &yank_v1,
+    );
+
+    let package_v2 =
+        write_hosted_publish_package(base, "hosted_reference_mirror_pkg_v2", "greeter", "0.6.0");
+    let publish_v2 = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_v2)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco publish v2 should launch");
+    assert_run_success_for(
+        "rco publish",
+        "reference hosted registry mirror fixture v2",
+        &publish_v2,
+    );
+
+    let mirror = base.join("hosted_static_mirror");
+    let mirror_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("mirror")
+        .arg(server.base_url())
+        .arg(&mirror)
+        .output()
+        .expect("rco registry mirror should launch");
+    assert_run_success_for(
+        "rco registry mirror",
+        "reference hosted registry static mirror",
+        &mirror_output,
+    );
+
+    let index = fs::read_to_string(mirror.join("index.toml")).expect("mirror index should exist");
+    assert!(
+        index.contains("ricochet-static-registry-v1") && index.contains("greeter"),
+        "mirror index should be a static registry index, got:\n{index}"
+    );
+    let metadata =
+        fs::read_to_string(mirror.join("packages").join("greeter.toml")).expect("metadata exists");
+    assert!(
+        metadata.contains("version = \"0.5.0\"")
+            && metadata.contains("yanked = true")
+            && metadata.contains("version = \"0.6.0\"")
+            && metadata.contains("yanked = false")
+            && metadata.contains("signature_kind = \"minisign\""),
+        "mirror metadata should preserve versions, yank state, and signature metadata, got:\n{metadata}"
+    );
+    assert!(
+        mirror
+            .join("artifacts")
+            .join("greeter")
+            .join("0.5.0")
+            .join("provenance.attestation")
+            .is_file(),
+        "mirror should copy provenance artifact"
+    );
+    assert!(
+        mirror
+            .join("artifacts")
+            .join("greeter")
+            .join("0.5.0")
+            .join("signature.sig")
+            .is_file(),
+        "mirror should copy signature artifact"
+    );
+
+    let mirror_index = file_url_for_test(&mirror.join("index.toml"));
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(&mirror_index)
+        .output()
+        .expect("rco search mirror should launch");
+    assert_run_success_for("rco search", "static mirror search", &search);
+    let search_stdout = String::from_utf8_lossy(&search.stdout);
+    assert!(
+        search_stdout.contains("greeter 0.6.0"),
+        "static mirror should expose latest non-yanked version, got:\n{search_stdout}"
+    );
+
+    let app = base.join("mirror_app");
+    write_source_at(&app, "ricochet.toml", "[package]\nname = \"mirror_app\"\n");
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(&mirror_index)
+        .arg("--version")
+        .arg("^0.6.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add mirror should launch");
+    assert_run_success_for("rco add", "static mirror dependency", &add);
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run mirror dependency should launch");
+    assert_run_success(&run);
+    let run_stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run_stdout.contains("String(\"hello from hosted publish\")"),
+        "static mirror dependency should import and run, got:\n{run_stdout}"
+    );
+}
+
+#[test]
 fn hosted_registry_add_installs_package_and_imports_it() {
     let main_path = temp_source_path();
     let base = main_path.parent().expect("source path has parent");

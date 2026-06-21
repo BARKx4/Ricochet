@@ -502,6 +502,12 @@ enum RegistryCommand {
     Check {
         path: PathBuf,
     },
+    Mirror {
+        #[arg(value_name = "REGISTRY_URL")]
+        registry_url: String,
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
     Serve {
         path: PathBuf,
         #[arg(long, default_value = "127.0.0.1")]
@@ -1003,6 +1009,9 @@ pub async fn run_cli() -> Result<()> {
         Command::Registry { command } => match command {
             RegistryCommand::Rebuild { path } => static_registry::rebuild(&path)?,
             RegistryCommand::Check { path } => static_registry::check(&path)?,
+            RegistryCommand::Mirror { registry_url, path } => {
+                hosted_registry::mirror(&registry_url, &path)?
+            }
             RegistryCommand::Serve {
                 path,
                 host,

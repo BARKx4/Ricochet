@@ -49,7 +49,7 @@
         <article class="guide-content">
           <p>The hosted registry protocol is the Epic 8 implementation target. It extends Ricochet beyond local and static registries without replacing the current <code>ricochet-static-registry-v1</code> workflow.</p>
           <p>Hosted registry base URLs use HTTPS outside local fake-server tests. Static mirrors continue to use <code>file://</code> or <code>https://</code> index URLs.</p>
-          <p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank, plus a local hosted registry reference server through <code>rco registry serve</code>. Mirror export remains future work.</p>
+          <p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank, plus a local hosted registry reference server through <code>rco registry serve</code> and static mirror export through <code>rco registry mirror</code>.</p>
 
           <h2 id="identity">Identity</h2>
           <p>The protocol name is Ricochet Hosted Registry Protocol and the version string is <code>ricochet-hosted-registry-v1</code>. Canonical JSON responses use vendor media types such as <code>application/vnd.ricochet.registry.package.v1+json</code>, and package archives use <code>application/vnd.ricochet.package.archive.v1+gzip</code>.</p>
@@ -113,7 +113,7 @@
           <p>The reference server runs locally with <code>rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"</code>. It binds to <code>127.0.0.1:3001</code> by default, prints the discovered base URL on startup, stores metadata in <code>registry.json</code>, and stores package, provenance, and signature artifacts below <code>artifacts/</code>. <code>--token-env NAME</code> grants one all-package publisher token for local beta workflows; repeated <code>--publisher PACKAGE=ENV</code> policies grant exact packages or <code>@scope/*</code> scopes. The reference server verifies uploaded archive bytes, package tree integrity, manifest package identity/version, provenance/signature digests, idempotency keys, and duplicate-version rejection before persisting metadata.</p>
 
           <h2 id="mirror">Mirror Fallback</h2>
-          <p>Hosted metadata must export to the current static format. A future mirror command writes <code>ricochet-static-registry-v1</code> indexes, package metadata, registry-relative archive paths, yanked records, and provenance/signature fields so existing static registry clients can keep using <code>--registry-url file://.../index.toml</code> or <code>--registry-url https://.../index.toml</code>.</p>
+          <p>Hosted metadata exports to the current static format through <code>rco registry mirror REGISTRY_URL PATH</code>. The command writes <code>ricochet-static-registry-v1</code> indexes, package metadata, registry-relative archive paths, yanked records, and provenance/signature fields so existing static registry clients can keep using <code>--registry-url file://.../index.toml</code> or <code>--registry-url https://.../index.toml</code>.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[registry]
 format = "ricochet-static-registry-v1"
 
@@ -121,7 +121,7 @@ format = "ricochet-static-registry-v1"
 "@ricochet/forms" = "packages/@ricochet/forms.toml"</code></pre>
 
           <h2 id="sequence">Sequence</h2>
-          <p>The hosted read client, publish/yank client, reference server, and real-server duplicate publish rejection slices are implemented. The remaining hosted registry slice is mirror export to static registry format.</p>
+          <p>The hosted read client, publish/yank client, reference server, real-server duplicate publish rejection, and static mirror export slices are implemented.</p>
         </article>
       </section>
     </main>
