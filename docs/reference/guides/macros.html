@@ -68,7 +68,7 @@ $ready [
           <p><code>quote_ast</code> converts a quoted block into expression AST. Inside quoted output, <code>$arg ast_splice</code> inserts the caller's parsed operand instead of generating a runtime <code>$arg</code> read.</p>
 
           <h2 id="item-row-macros">Item Row Macros</h2>
-          <p>Use <code>quote_items</code> when a macro call owns a whole expression item and should emit one or more expression-item rows. This is useful for class-body declaration rows such as <code>Accessor</code>, <code>Field</code>, <code>Table</code>, and <code>Method</code>:</p>
+          <p>Use <code>quote_items</code> when a macro call owns a whole item and should emit one or more item rows. Rows that do not match a declaration encoding stay ordinary expression items, so class-body declaration rows such as <code>Accessor</code>, <code>Field</code>, <code>Table</code>, and <code>Method</code> keep the same shape as handwritten class bodies:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;accessors&quot; Macro
   [
     [
@@ -82,6 +82,28 @@ User Model Subclass
   &quot;accessors&quot; macro_call
 end</code></pre>
           <p><code>quote_items</code> is intentionally rejected inside larger expressions. Use <code>quote_ast</code> for expression-position expansion.</p>
+          <p>At top level, <code>quote_items</code> can also emit real declaration items with the macro-only row encodings below:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;function_rows&quot; Macro
+  [
+    [
+      [ &quot;hello from generated function&quot; println ] &quot;greet&quot; function
+      ( name -&gt; String ) [ &quot;hello &quot; name + ] &quot;greeting&quot; function
+    ] quote_items
+  ]
+end
+
+&quot;model_row&quot; Macro
+  [
+    [
+      [
+        &quot;users&quot; Table
+        &quot;email&quot; Accessor
+        [ self email.get ] &quot;label&quot; Method
+      ] User Model Subclass
+    ] quote_items
+  ]
+end</code></pre>
+          <p>Generated declaration bodies expand in the macro definition scope. If an imported public macro emits a function body that calls a private helper macro from the imported module, that private helper resolves from the imported module rather than from the caller.</p>
 
           <h2 id="imports">Imports</h2>
           <p>Static imports expose public macros from the imported module during compilation. Macro declarations whose names start with <code>_</code> are private to their defining module but can still be used by public macros from that module:</p>
@@ -117,7 +139,8 @@ rco expand app.rco --json</code></pre>
             <li>Runtime imports do not load macros.</li>
             <li>Macro bodies are fail-closed and can use only the compile-time helper surface.</li>
             <li>Expansion depth, same-macro recursion, evaluator steps, and generated AST nodes are bounded.</li>
-            <li>True declaration-item output for top-level <code>function</code> or <code>Subclass</code> AST items is still future work; <code>quote_items</code> currently emits expression-item rows.</li>
+            <li><code>quote_items</code> declaration rows are supported only where a whole declaration item is valid.</li>
+            <li>Stable <code>rco expand --json</code> source maps/cache metadata, package lockfile canonical macro module IDs, and public package examples remain stabilization work.</li>
           </ul>
         </article>
       </section>

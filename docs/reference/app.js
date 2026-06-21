@@ -380,8 +380,8 @@ const WORDS = [
     "aliases": [],
     "group": "control",
     "stack": "declaration",
-    "body": "Declares a beta compile-time macro. Macro names are string literals, macro bodies run in a restricted evaluator, static imports can expose public macros, `quote_ast` emits expression AST, and `quote_items` emits whole expression-item rows.",
-    "example": "\"accessors\" Macro\n  [\n    [\n      \"email\" Accessor\n      \"name\" Accessor\n    ] quote_items\n  ]\nend\n\nUser Model Subclass\n  \"accessors\" macro_call\nend"
+    "body": "Declares a beta compile-time macro. Macro names are string literals, macro bodies run in a restricted evaluator, static imports can expose public macros, `quote_ast` emits expression AST, and `quote_items` emits whole item rows including expression rows, class-body rows, and top-level declaration rows such as `[ body ] \"name\" function` or `[ body-items ] Name Superclass Subclass`.",
+    "example": "\"accessors\" Macro\n  [\n    [\n      \"email\" Accessor\n      \"name\" Accessor\n    ] quote_items\n  ]\nend\n\nUser Model Subclass\n  \"accessors\" macro_call\nend\n\n\"make_greet\" Macro\n  [\n    [\n      [ \"hi\" println ] \"greet\" function\n    ] quote_items\n  ]\nend"
   },
   {
     "word": "return",

@@ -100,8 +100,13 @@ Implemented:
   `return`, first-class blocks, and `call`.
 - Compile-time expression macros use string-named `"name" Macro` declarations,
   explicit `"name" macro_call` invocation, AST quoting/splicing through
-  `quote_ast` and `ast_splice`, local and static-import lookup, and
-  `rco expand` inspection.
+  `quote_ast` and `ast_splice`, whole-item row generation through
+  `quote_items`, local and static-import lookup, and `rco expand` inspection.
+- `quote_items` supports ordinary expression-item rows, class-body rows such as
+  `Accessor`, `Field`, `Table`, and `Method`, and top-level declaration rows
+  encoded as `[ body ] "name" function`,
+  `( args -> outputs ) [ body ] "name" function`, or
+  `[ body-items ] Name Superclass Subclass`.
 - Lexer/parser/compiler support comments, doc comments, strings with validated
   escapes, signed integer literals, finite float literals with decimals or
   exponents, `$` references, dot selectors, and diagnostics for legacy
@@ -120,9 +125,8 @@ Evidence:
 
 Remaining:
 
-- Compile-time macros still need true declaration-item generation beyond
-  expression-item rows, a fully stable JSON schema/cache contract, package
-  lockfile canonical IDs, public examples, and reference documentation before
+- Compile-time macros still need a fully stable JSON schema/cache contract,
+  package lockfile canonical IDs, public examples, and package tests before
   being treated as stable for package authors.
 
 Do not assume:
@@ -622,9 +626,8 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Compile-time macro stabilization: true declaration-item generation beyond
-  expression-item rows, full source-map/cache schema, package lockfile
-  canonical IDs, public examples, and reference docs.
+- Compile-time macro stabilization: full source-map/cache schema, package
+  lockfile canonical IDs, public examples, and package tests.
 - Central hosted package registry.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.

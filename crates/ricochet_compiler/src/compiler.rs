@@ -1,7 +1,8 @@
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_syntax::{
     line_column, line_starts, parse_error_diagnostic, parse_module, ArgsDecl, ClassDecl, Expr,
-    Item, MacroDecl, MethodDecl, Module, ParseError, SourceDiagnostic, Span, SpannedExpr,
+    FunctionDecl, Item, MacroDecl, MethodDecl, Module, ParseError, SourceDiagnostic, Span,
+    SpannedExpr,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -387,6 +388,12 @@ impl MacroExpansionOutput {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ItemRowContext {
+    TopLevel,
+    ClassBody,
+}
+
 #[derive(Clone)]
 struct ExpandedSegment {
     exprs: Vec<SpannedExpr>,
@@ -515,7 +522,7 @@ impl MacroExpander {
                 span: function.span,
             })]),
             Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, scope)
+                self.expand_expr_item(expr, *span, docs, stack, scope, ItemRowContext::TopLevel)
             }
         }
     }
@@ -567,7 +574,7 @@ impl MacroExpander {
                 span: function.span,
             })]),
             Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, scope)
+                self.expand_expr_item(expr, *span, docs, stack, scope, ItemRowContext::ClassBody)
             }
         }
     }
@@ -594,6 +601,7 @@ impl MacroExpander {
         docs: &[String],
         stack: &mut Vec<String>,
         scope: &MacroScope,
+        item_context: ItemRowContext,
     ) -> Result<Vec<Item>, CompileError> {
         let exprs = expr_as_spanned_exprs(expr, span);
         let mut output = Vec::<ExpandedSegment>::new();
@@ -608,6 +616,9 @@ impl MacroExpander {
                     }
                     MacroExpansionOutput::Items(rows) => {
                         if index + 1 != exprs.len() || !output.is_empty() {
+                            if has_declaration_item_rows(&rows) {
+                                return Err(declaration_item_macro_output_error(expr.span));
+                            }
                             return Err(CompileError::Unsupported {
                                 feature:
                                     "quote_items macros must be the entire expression item"
@@ -619,7 +630,7 @@ impl MacroExpander {
                                 ),
                             });
                         }
-                        return Ok(item_rows_to_items(rows, docs));
+                        return item_rows_to_items(rows, docs, item_context);
                     }
                 }
             } else {
@@ -731,11 +742,16 @@ impl MacroExpander {
                 output.push(ExpandedSegment::new(exprs, call_span));
                 Ok(())
             }
-            MacroExpansionOutput::Items(_) => Err(CompileError::Unsupported {
-                feature: "quote_items macros can expand only as whole items".to_string(),
-                span: call_span,
-                help: Some("use quote_ast for expression-position macro expansion".to_string()),
-            }),
+            MacroExpansionOutput::Items(rows) => {
+                if has_declaration_item_rows(&rows) {
+                    return Err(declaration_item_macro_output_error(call_span));
+                }
+                Err(CompileError::Unsupported {
+                    feature: "quote_items macros can expand only as whole items".to_string(),
+                    span: call_span,
+                    help: Some("use quote_ast for expression-position macro expansion".to_string()),
+                })
+            }
         }
     }
 
@@ -1420,19 +1436,140 @@ fn expr_from_spanned_exprs(mut exprs: Vec<SpannedExpr>) -> Expr {
     }
 }
 
-fn item_rows_to_items(rows: Vec<SpannedExpr>, docs: &[String]) -> Vec<Item> {
+fn item_rows_to_items(
+    rows: Vec<SpannedExpr>,
+    docs: &[String],
+    context: ItemRowContext,
+) -> Result<Vec<Item>, CompileError> {
     rows.into_iter()
         .enumerate()
-        .map(|(index, row)| Item::Expr {
-            expr: row.expr,
-            span: row.span,
-            docs: if index == 0 {
+        .map(|(index, row)| {
+            let docs = if index == 0 {
                 docs.to_vec()
             } else {
                 Vec::new()
-            },
+            };
+            item_row_to_item(row, docs, context)
         })
         .collect()
+}
+
+fn item_row_to_item(
+    row: SpannedExpr,
+    docs: Vec<String>,
+    context: ItemRowContext,
+) -> Result<Item, CompileError> {
+    let row_exprs = expr_as_spanned_exprs(&row.expr, row.span);
+
+    if let Some(function) = function_declaration_row(&row_exprs, row.span, docs.clone()) {
+        return match context {
+            ItemRowContext::TopLevel => Ok(Item::Function(function)),
+            ItemRowContext::ClassBody => Err(declaration_item_macro_output_error(row.span)),
+        };
+    }
+
+    if let Some(class) = class_declaration_row(&row_exprs, row.span, docs.clone())? {
+        return match context {
+            ItemRowContext::TopLevel => Ok(Item::Class(class)),
+            ItemRowContext::ClassBody => Err(declaration_item_macro_output_error(row.span)),
+        };
+    }
+
+    Ok(Item::Expr {
+        expr: row.expr,
+        span: row.span,
+        docs,
+    })
+}
+
+fn function_declaration_row(
+    exprs: &[SpannedExpr],
+    span: Span,
+    docs: Vec<String>,
+) -> Option<FunctionDecl> {
+    match exprs {
+        [body, name, operator] => match (&body.expr, &operator.expr) {
+            (Expr::Block(body), Expr::Symbol(word)) if word == "function" => Some(FunctionDecl {
+                name: declaration_name(name)?,
+                args: None,
+                body: body.clone(),
+                docs,
+                span,
+            }),
+            _ => None,
+        },
+        [args, body, name, operator] => match (&args.expr, &body.expr, &operator.expr) {
+            (Expr::Args(args), Expr::Block(body), Expr::Symbol(word)) if word == "function" => {
+                Some(FunctionDecl {
+                    name: declaration_name(name)?,
+                    args: Some(args.clone()),
+                    body: body.clone(),
+                    docs,
+                    span,
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn class_declaration_row(
+    exprs: &[SpannedExpr],
+    span: Span,
+    docs: Vec<String>,
+) -> Result<Option<ClassDecl>, CompileError> {
+    let [body, name, superclass, operator] = exprs else {
+        return Ok(None);
+    };
+    let (Expr::Block(body), Expr::Symbol(word)) = (&body.expr, &operator.expr) else {
+        return Ok(None);
+    };
+    if word != "Subclass" {
+        return Ok(None);
+    }
+
+    let Some(name) = declaration_name(name) else {
+        return Ok(None);
+    };
+    let Some(superclass) = declaration_name(superclass) else {
+        return Ok(None);
+    };
+
+    Ok(Some(ClassDecl {
+        name,
+        superclass,
+        body: item_rows_to_items(body.clone(), &[], ItemRowContext::ClassBody)?,
+        docs,
+        span,
+    }))
+}
+
+fn has_declaration_item_rows(rows: &[SpannedExpr]) -> bool {
+    rows.iter().any(|row| {
+        let row_exprs = expr_as_spanned_exprs(&row.expr, row.span);
+        function_declaration_row(&row_exprs, row.span, Vec::new()).is_some()
+            || is_class_declaration_row(&row_exprs)
+    })
+}
+
+fn is_class_declaration_row(exprs: &[SpannedExpr]) -> bool {
+    let [body, name, superclass, operator] = exprs else {
+        return false;
+    };
+    matches!((&body.expr, &operator.expr), (Expr::Block(_), Expr::Symbol(word)) if word == "Subclass")
+        && declaration_name(name).is_some()
+        && declaration_name(superclass).is_some()
+}
+
+fn declaration_item_macro_output_error(span: Span) -> CompileError {
+    CompileError::Unsupported {
+        feature: "declaration-item macro output can expand only as a whole item".to_string(),
+        span,
+        help: Some(
+            "place the declaration-generating macro call where it owns a whole item".to_string(),
+        ),
+    }
 }
 
 fn exprs_span(exprs: &[SpannedExpr]) -> Option<Span> {
@@ -2734,6 +2871,156 @@ mod tests {
         );
         assert!(
             matches!(&expansion.module.items[1], Item::Expr { expr: Expr::Sequence(exprs), .. } if matches!(&exprs[0].expr, Expr::String(value) if value == "b"))
+        );
+    }
+
+    #[test]
+    fn declaration_macro_expands_top_level_function_declaration() {
+        let source = r#"
+          "make_greet" Macro
+            [
+              [
+                [ "hello from macro" ] "greet" function
+              ] quote_items
+            ]
+          end
+
+          "make_greet" macro_call
+          greet
+        "#;
+        let chunk = compile_source("main.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::AddFunction {
+                    name: "greet".to_string(),
+                    block: 0,
+                    args: None,
+                },
+                Op::CallWord("greet".to_string()),
+            ]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![Op::PushString("hello from macro".to_string()), Op::Return]
+        );
+    }
+
+    #[test]
+    fn declaration_macro_expands_top_level_class_declaration() {
+        let source = r#"
+          "make_user" Macro
+            [
+              [
+                [
+                  "email" Accessor
+                  [ self email.get ] "label" Method
+                ] User Model Subclass
+              ] quote_items
+            ]
+          end
+
+          "make_user" macro_call
+        "#;
+        let chunk = compile_source("models/user.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "User".to_string(),
+                    superclass: "Model".to_string(),
+                },
+                Op::AddAccessor("email".to_string()),
+                Op::AddMethod {
+                    name: "label".to_string(),
+                    block: 0,
+                    args: None,
+                },
+                Op::EndClass,
+            ]
+        );
+    }
+
+    #[test]
+    fn declaration_macro_fails_inside_larger_expression() {
+        let source = r#"
+          "make_greet" Macro
+            [
+              [
+                [ "hello" ] "greet" function
+              ] quote_items
+            ]
+          end
+
+          0 "make_greet" macro_call +
+        "#;
+        let err = compile_source("main.rco", source).expect_err("compile fails");
+
+        match &err {
+            CompileError::Unsupported { feature, help, .. } => {
+                assert!(feature.contains("declaration-item macro output"));
+                assert!(help
+                    .as_deref()
+                    .is_some_and(|help| help.contains("whole item")));
+            }
+            other => panic!("expected declaration item expression error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn imported_declaration_macro_expands_private_helper_in_generated_function_body() {
+        let imported_source = r#"
+          "_body" Macro
+            [
+              [ "imported body" println ] quote_ast
+            ]
+          end
+
+          "make_greet" Macro
+            [
+              [
+                [ "_body" macro_call ] "greet" function
+              ] quote_items
+            ]
+          end
+        "#;
+        let imported = exported_macro_table_from_source("lib/macros.rco", imported_source)
+            .expect("imported macro table")
+            .with_import_specifier("lib/macros");
+        let source = r#"
+          "_body" Macro
+            [
+              [ "caller body" println ] quote_ast
+            ]
+          end
+
+          "make_greet" macro_call
+          greet
+        "#;
+
+        let chunk = compile_source_with_imported_macros("main.rco", source, &[imported])
+            .expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::AddFunction {
+                    name: "greet".to_string(),
+                    block: 0,
+                    args: None,
+                },
+                Op::CallWord("greet".to_string()),
+            ]
+        );
+        assert_eq!(
+            chunk.blocks[0].ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::PushString("imported body".to_string()),
+                Op::CallWord("println".to_string()),
+                Op::Return,
+            ]
         );
     }
 

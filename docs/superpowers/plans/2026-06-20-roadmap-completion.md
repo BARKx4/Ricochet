@@ -354,9 +354,9 @@ The exact syntax must be designed before implementation. It must avoid leading-d
 - [x] Add `quote_items` item-generation macros for expression-item rows,
   including class-body declaration rows such as `Accessor`, `Field`, `Table`,
   and `Method`.
-- [ ] Add true declaration-item macro output for top-level `function`, `Subclass`,
-  and nested declaration AST items if package authors need more than
-  expression-item rows.
+- [x] Add declaration-item macro output for top-level `function` and
+  `Subclass` rows, including class-body declaration rows inside generated
+  classes.
 - [ ] Stabilize the `rco expand --json` schema, source maps, cache hashes, and
   package lockfile canonical module IDs.
 - [ ] Add docs, examples, and package tests.

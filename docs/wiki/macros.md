@@ -36,9 +36,10 @@ runtime `$arg` read.
 
 ## Item Row Macros
 
-Use `quote_items` when a macro call owns a whole expression item and should emit
-one or more expression-item rows. This is useful for class-body declaration rows
-such as `Accessor`, `Field`, `Table`, and `Method`:
+Use `quote_items` when a macro call owns a whole item and should emit one or
+more item rows. Rows that do not match a declaration encoding stay ordinary
+expression items, so class-body declaration rows such as `Accessor`, `Field`,
+`Table`, and `Method` keep the same shape as handwritten class bodies:
 
 ```forth
 "accessors" Macro
@@ -57,6 +58,37 @@ end
 
 `quote_items` is intentionally rejected inside larger expressions. Use
 `quote_ast` for expression-position expansion.
+
+At top level, `quote_items` can also emit real declaration items with the
+macro-only row encodings below:
+
+```forth
+"function_rows" Macro
+  [
+    [
+      [ "hello from generated function" println ] "greet" function
+      ( name -> String ) [ "hello " name + ] "greeting" function
+    ] quote_items
+  ]
+end
+
+"model_row" Macro
+  [
+    [
+      [
+        "users" Table
+        "email" Accessor
+        [ self email.get ] "label" Method
+      ] User Model Subclass
+    ] quote_items
+  ]
+end
+```
+
+Generated declaration bodies expand in the macro definition scope. If an
+imported public macro emits a function body that calls a private helper macro
+from the imported module, that private helper resolves from the imported module
+rather than from the caller.
 
 ## Imports
 
@@ -119,5 +151,8 @@ schema is still beta and may change before macro stabilization.
 - Macro bodies are fail-closed and can use only the compile-time helper surface.
 - Expansion depth, same-macro recursion, evaluator steps, and generated AST
   nodes are bounded.
-- True declaration-item output for top-level `function` or `Subclass` AST items
-  is still future work; `quote_items` currently emits expression-item rows.
+- `quote_items` declaration rows are supported only where a whole declaration
+  item is valid.
+- Stable `rco expand --json` source maps/cache metadata, package lockfile
+  canonical macro module IDs, and public package examples remain stabilization
+  work.

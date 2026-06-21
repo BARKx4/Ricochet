@@ -2465,6 +2465,40 @@ end
 }
 
 #[test]
+fn run_expands_declaration_macro_that_generates_callable_function() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#""make_greet" Macro
+  [
+    [
+      [ "hello from macro" println ] "greet" function
+    ] quote_items
+  ]
+end
+
+"make_greet" macro_call
+greet
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&main_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("hello from macro"),
+        "stdout should show generated function call, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_deduplicates_identical_static_macro_imports() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
