@@ -836,7 +836,8 @@ The first milestone is a thin but complete Web MVC slice in Rust:
 - Migration rollback, schema dump/seed workflows, and a Ricochet migration DSL.
 - Template embedded script blocks beyond interpolation.
 - General compile-time macros.
-- Persistent REPL images and source emission.
+- Persistent REPL images and source-like bytecode emission are implemented
+  beta runtime surfaces.
 - Dedicated TUI/browser debugger UI beyond the terminal, DAP, and VS Code
   integration.
 - First-party AI package implementation, unless it proves small enough to include after the main MVC slice.

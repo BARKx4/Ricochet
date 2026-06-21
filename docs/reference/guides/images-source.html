@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Images And Source Emission - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Runtime persistence</p>
+          <h1>Images And Source Emission</h1>
+          <p class="lede">Resume REPL state, save and inspect versioned VM images, and emit readable Ricochet-like views from source or bytecode.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>rco repl --image session.rci</code>
+            <code>rco image inspect session.rci --json</code>
+            <code>rco emit-source build/app.rcob</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Images And Source Emission content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#repl-images">REPL Images</a>
+          <a href="#image-files">Image Files</a>
+          <a href="#safety-boundaries">Safety Boundaries</a>
+          <a href="#source-emission">Source Emission</a>
+          <a href="#current-limits">Current Limits</a>
+        </aside>
+        <article class="guide-content">
+          <p>Persistent images snapshot safe Ricochet language state. They are useful for long interactive sessions, build tools that want a warm runtime state, and diagnostics that need to inspect what a VM knew without keeping the original process alive.</p>
+          <p>Image files are versioned. Ricochet refuses unsupported image formats or incompatible format versions loudly instead of guessing at state layout.</p>
+
+          <h2 id="repl-images">REPL Images</h2>
+          <p>Start a REPL with an image path to load that image when it already exists and save it again when the session exits cleanly:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy command" title="Copy">copy</button><code>rco repl --image session.rci</code></pre>
+          <p>Inside the REPL, colon commands manage checkpoints:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy commands" title="Copy">copy</button><code>:bindings
+:save
+:save checkpoint.rci
+:load checkpoint.rci</code></pre>
+          <p><code>:bindings</code> prints counts and names for preserved stack values, globals, functions, and classes. <code>:save</code> and <code>:load</code> default to the startup <code>--image</code> path; pass a path to write or read a separate checkpoint.</p>
+
+          <h2 id="image-files">Image Files</h2>
+          <p>Use the image command group for non-interactive workflows:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy commands" title="Copy">copy</button><code>rco image save session.rci
+rco image save session.rci --source main.rco
+rco image inspect session.rci
+rco image inspect session.rci --json</code></pre>
+          <p><code>rco image save --source</code> runs the source file first, then writes the resulting safe VM state. The JSON inspect form exposes the format, format version, Ricochet version, stack length, and preserved binding/function/class names for tools.</p>
+
+          <h2 id="safety-boundaries">Safety Boundaries</h2>
+          <p>Images preserve ordinary language state: nil, booleans, numbers, floats including special values, strings, arrays, lists, maps, sets, classes, instances, member selectors, blocks, functions, and results.</p>
+          <p>Images intentionally reject process-local or sensitive state instead of silently dropping it. Tasks, capabilities, regex internals, retained HTTP streams, upload streams, processes, PTYs, TCP sockets and listeners, WebSocket sockets and listeners, active approvals, native-only class methods, and literal secret references are not serialized.</p>
+
+          <h2 id="source-emission">Source Emission</h2>
+          <p><code>rco emit-source</code> prints a readable Ricochet-like view from either source or compiled bytecode:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy commands" title="Copy">copy</button><code>rco emit-source main.rco
+rco emit-source build/app.rcob</code></pre>
+          <p>The emitted view keeps useful declarations, literals, calls, block structure, class bodies, accessors, methods, functions, returns, and irreducible bytecode jump notes. It is designed for inspection, generated artifacts, and recovery work.</p>
+
+          <h2 id="current-limits">Current Limits</h2>
+          <ul>
+            <li>Images are VM-state snapshots, not operating-system process snapshots.</li>
+            <li>Host capabilities and retained external resources stay process-local and must be recreated by the next run.</li>
+            <li>Source emission is source-like and readable, but it is not a stable byte-for-byte source reconstruction contract.</li>
+            <li>Native-only class behavior is rejected unless it is a generated accessor that Ricochet can rebuild from class field metadata.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

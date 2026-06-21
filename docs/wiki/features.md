@@ -5,8 +5,9 @@ foundation that developers can scaffold, run, inspect, and extend.
 
 ## Current Features
 
-- Language runtime: Rust bytecode VM, dynamic OOP, stack/debug tracing, regular
-  expressions, collections, and postfix control flow.
+- Language runtime: Rust bytecode VM, dynamic OOP, persistent REPL images,
+  source-like bytecode emission, stack/debug tracing, regular expressions,
+  collections, and postfix control flow.
 - Task model: first-class task values with `spawn`, `await`, `await_all`,
   retained completed/failed status, explicit `release_task` cleanup, eager
   background execution, task inspection, and task-returning HTTP helpers.
@@ -28,8 +29,9 @@ foundation that developers can scaffold, run, inspect, and extend.
   alternate-screen terminal apps with drawing, cursor movement, flushing, size
   checks, and key polling/reading through `rco tui` or `rco package --tui`.
 - CLI workflow: run `.rco` scripts, format source, build and run bytecode,
-  package standalone executables, generate Markdown docs, run Ricochet tests,
-  and serve local web apps.
+  save/inspect VM images, emit readable source-like bytecode views, package
+  standalone executables, generate Markdown docs, run Ricochet tests, and serve
+  local web apps.
 - Debugging workflow: trace instruction execution, pause on source breakpoints,
   step into/over/out of calls, inspect stack/locals/globals at pauses, and
   inspect task snapshots at pauses; write JSON runtime traces with `rco run

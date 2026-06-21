@@ -11,7 +11,8 @@ reference: [Reference Guides](../reference/guides/index.html).
 - [Feature Overview](features.md) - current beta surface area and project scope.
 - [Getting Started](getting-started.md) - common `rco` workflows after install.
 - [Language And Runtime](language-runtime.md) - postfix syntax, runtime values,
-  tasks, HTTP helpers, date/time, secrets, and UI document examples.
+  persistent images, source emission, tasks, HTTP helpers, date/time, secrets,
+  and UI document examples.
 - [Compile-Time Macros](macros.md) - beta expression macros, item-row macros,
   static imports, expansion inspection, and current stabilization limits.
 - [Web And Data](web-and-data.md) - MVC apps, hot reload, databases, Active

@@ -16,6 +16,9 @@ use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
 use crate::http_stream_runtime::HttpStreamRegistry;
+use crate::image::{
+    class_to_image, value_from_image, value_to_image, ImageClass, ImageError, VmImage,
+};
 use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
@@ -431,6 +434,20 @@ impl TaskCompletion {
     }
 }
 
+fn ensure_no_retained_resources(kind: &'static str, count: usize) -> Result<(), ImageError> {
+    if count == 0 {
+        Ok(())
+    } else {
+        Err(ImageError::RetainedResource { kind, count })
+    }
+}
+
+fn image_restore_error(error: VmError) -> ImageError {
+    ImageError::InvalidImage {
+        message: error.to_string(),
+    }
+}
+
 fn run_task_to_completion(task: Task) -> TaskCompletion {
     let mut task_vm = Vm {
         variables: task.variables,
@@ -510,6 +527,116 @@ impl Vm {
 
     pub fn variables(&self) -> &BTreeMap<String, Value> {
         &self.variables
+    }
+
+    pub fn to_image(&self) -> Result<VmImage, ImageError> {
+        self.ensure_image_has_no_retained_resources()?;
+
+        Ok(VmImage {
+            format: crate::image::VM_IMAGE_FORMAT.to_string(),
+            format_version: crate::image::VM_IMAGE_FORMAT_VERSION,
+            ricochet_version: crate::crate_version().to_string(),
+            stack: self
+                .stack
+                .iter()
+                .enumerate()
+                .map(|(index, value)| value_to_image(value, &format!("stack[{index}]")))
+                .collect::<Result<Vec<_>, _>>()?,
+            variables: self
+                .variables
+                .iter()
+                .map(|(name, value)| {
+                    value_to_image(value, &format!("variable {name}"))
+                        .map(|value| (name.clone(), value))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?,
+            functions: self
+                .functions
+                .iter()
+                .map(|(name, callable)| (name.clone(), callable.into()))
+                .collect(),
+            classes: self
+                .classes
+                .iter()
+                .map(|(name, class)| class_to_image(class).map(|class| (name.clone(), class)))
+                .collect::<Result<BTreeMap<_, _>, _>>()?,
+        })
+    }
+
+    pub fn restore_image(&mut self, image: VmImage) -> Result<(), ImageError> {
+        image.validate_format()?;
+        self.ensure_image_has_no_retained_resources()?;
+
+        let stack = image
+            .stack
+            .into_iter()
+            .map(value_from_image)
+            .collect::<Result<Vec<_>, _>>()?;
+        let variables = image
+            .variables
+            .into_iter()
+            .map(|(name, value)| value_from_image(value).map(|value| (name, value)))
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let functions = image
+            .functions
+            .into_iter()
+            .map(|(name, callable)| (name, callable.into()))
+            .collect::<BTreeMap<_, _>>();
+        let classes = image.classes.into_values().collect::<Vec<_>>();
+
+        self.stack = stack;
+        self.variables = variables;
+        self.local_variables.clear();
+        self.last_call_variables.clear();
+        self.functions = functions;
+        self.classes.clear();
+        self.current_class = None;
+        self.self_stack.clear();
+
+        for class in classes {
+            self.restore_image_class(class)?;
+        }
+        self.current_class = None;
+
+        Ok(())
+    }
+
+    fn restore_image_class(&mut self, class: ImageClass) -> Result<(), ImageError> {
+        let accessors = class.accessors.into_iter().collect::<BTreeSet<_>>();
+        self.define_class(class.name.clone(), class.superclass)
+            .map_err(image_restore_error)?;
+        for field in class.fields {
+            if accessors.contains(&field) {
+                self.add_accessor(field).map_err(image_restore_error)?;
+            } else {
+                self.add_field(field).map_err(image_restore_error)?;
+            }
+        }
+        if let Some(table_name) = class.table_name {
+            self.current_class_mut("restore_image")
+                .map_err(image_restore_error)?
+                .set_table(table_name);
+        }
+        for (method_name, method) in class.bytecode_methods {
+            self.add_bytecode_method(method_name, method.chunk, method.args)
+                .map_err(image_restore_error)?;
+        }
+        self.end_class();
+        Ok(())
+    }
+
+    fn ensure_image_has_no_retained_resources(&self) -> Result<(), ImageError> {
+        ensure_no_retained_resources("task", self.tasks.len())?;
+        ensure_no_retained_resources("HTTP stream", self.http_stream_registry.len())?;
+        ensure_no_retained_resources("upload stream", self.upload_stream_registry.len())?;
+        ensure_no_retained_resources("TCP socket", self.tcp_socket_registry.len())?;
+        ensure_no_retained_resources("TCP listener", self.tcp_listener_registry.len())?;
+        ensure_no_retained_resources("WebSocket", self.websocket_registry.len())?;
+        ensure_no_retained_resources("WebSocket listener", self.websocket_listener_registry.len())?;
+        ensure_no_retained_resources("process", self.process_registry.len())?;
+        ensure_no_retained_resources("PTY", self.pty_registry.len())?;
+        ensure_no_retained_resources("approval", self.approval_registry.len())?;
+        Ok(())
     }
 
     pub fn last_call_variables(&self) -> &BTreeMap<String, Value> {

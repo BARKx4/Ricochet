@@ -12,6 +12,7 @@ rco debug --json app.rco
 rco debug-adapter
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
+rco emit-source build/app.rcob
 ```
 
 Trace files are JSON arrays. `rco debug --json` streams the same event objects
@@ -92,3 +93,10 @@ Editor integration guidance:
 - Live debugger integrations should keep the RPN mental model visible: current
   stack, current instruction, current frame locals, globals, `self`, and the
   current task snapshot.
+- `rco emit-source` can provide a readable source-like bytecode view for
+  debugger tooling and recovery workflows, but it is not a stable byte-for-byte
+  source reconstruction contract.
+- Persistent VM images preserve safe language state for REPL and tooling
+  workflows. They are not debugger pause snapshots and they refuse retained
+  host resources such as tasks, streams, processes, PTYs, sockets, approvals,
+  capabilities, regex internals, and literal secret references.

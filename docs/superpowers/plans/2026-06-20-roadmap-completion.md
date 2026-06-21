@@ -400,13 +400,13 @@ Compiler tests prove deterministic expansion, recursion limits, hygiene, source-
 
 **Implementation Path:**
 
-- [ ] Define a versioned image schema for bytecode chunks, globals, classes, functions, and safe serializable values.
-- [ ] Mark non-serializable values explicitly: tasks, capabilities, regex internals if needed, process/PTY/socket/upload handles, secret references with literal values.
-- [ ] Add image serialize/deserialize tests for ordinary values, classes, functions, and imports.
-- [ ] Add REPL commands for save/load/list bindings.
-- [ ] Add source emission for bytecode chunks using stored spans and debug metadata.
-- [ ] Add safety tests proving secrets and host handles are rejected or redacted.
-- [ ] Add docs and examples.
+- [x] Define a versioned image schema for bytecode chunks, globals, classes, functions, and safe serializable values.
+- [x] Mark non-serializable values explicitly: tasks, capabilities, regex internals, process/PTY/socket/upload handles, active approvals, native-only methods, and secret references with literal values.
+- [x] Add image serialize/deserialize coverage for ordinary values, classes, functions, and restored REPL sessions; imports do not carry extra runtime image state after compilation.
+- [x] Add REPL commands for save/load/list bindings.
+- [x] Add source emission for bytecode chunks using stored bytecode/debug metadata as a readable source-like view.
+- [x] Add safety tests proving retained host handles fail with clear errors.
+- [x] Add docs and examples.
 - [ ] Commit as `feat: add persistent repl images`.
 
 **Verification Gate:**

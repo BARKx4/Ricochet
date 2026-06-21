@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
 use std::hint::black_box;
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use axum::{body::Body, http::Request};
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -29,7 +30,7 @@ use ricochet_syntax::{
 };
 use ricochet_vm::{
     DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, MapValue, RicochetResult,
-    Value, Vm,
+    Value, Vm, VmImage,
 };
 use ricochet_web::{
     install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
@@ -450,6 +451,18 @@ enum Command {
     },
 }
 
+#[derive(Debug)]
+enum ImageCommand {
+    Save {
+        path: PathBuf,
+        source: Option<PathBuf>,
+    },
+    Inspect {
+        path: PathBuf,
+        json: bool,
+    },
+}
+
 #[derive(Debug, Subcommand)]
 enum MigrateCommand {
     New {
@@ -756,6 +769,10 @@ pub async fn run_cli() -> Result<()> {
         return Ok(());
     }
 
+    if dispatch_manual_command()? {
+        return Ok(());
+    }
+
     let cli = Cli::parse();
     match cli.command {
         Command::New { path, with_sqlite } => {
@@ -775,6 +792,7 @@ pub async fn run_cli() -> Result<()> {
                 stdout.lock(),
                 debug,
                 interactive,
+                None,
                 capabilities,
             )?;
         }
@@ -1012,15 +1030,283 @@ pub async fn run_gui_launcher() -> Result<()> {
     }
 }
 
+fn dispatch_manual_command() -> Result<bool> {
+    let mut args = std::env::args_os();
+    let executable = args.next().unwrap_or_else(|| OsString::from("rco"));
+    let Some(command) = args.next() else {
+        return Ok(false);
+    };
+
+    if is_help_arg(&command) {
+        print_root_help_with_manual_commands()?;
+        return Ok(true);
+    }
+
+    if command == OsStr::new("help") {
+        let rest = args.collect::<Vec<_>>();
+        if rest.is_empty() {
+            print_root_help_with_manual_commands()?;
+            return Ok(true);
+        }
+        if rest.len() == 1 && rest[0] == OsStr::new("image") {
+            print_image_help();
+            return Ok(true);
+        }
+        if rest.len() == 1 && rest[0] == OsStr::new("emit-source") {
+            print_emit_source_help();
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+
+    if command == OsStr::new("repl") {
+        return dispatch_repl_with_image(executable, args.collect());
+    }
+
+    if command == OsStr::new("image") {
+        dispatch_image_command(args.collect())?;
+        return Ok(true);
+    }
+
+    if command == OsStr::new("emit-source") {
+        dispatch_emit_source_command(args.collect())?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn dispatch_repl_with_image(executable: OsString, args: Vec<OsString>) -> Result<bool> {
+    if !args
+        .iter()
+        .any(|arg| arg == OsStr::new("--image") || arg.to_string_lossy().starts_with("--image="))
+    {
+        return Ok(false);
+    }
+
+    let mut image_path = None;
+    let mut filtered = Vec::new();
+    let mut index = 0usize;
+    while index < args.len() {
+        let argument = &args[index];
+        if argument == OsStr::new("--image") {
+            if image_path.is_some() {
+                bail!("--image can only be provided once");
+            }
+            index += 1;
+            let Some(value) = args.get(index) else {
+                bail!("--image requires a path");
+            };
+            image_path = Some(PathBuf::from(value));
+            index += 1;
+            continue;
+        }
+        if let Some(value) = argument.to_string_lossy().strip_prefix("--image=") {
+            if image_path.is_some() {
+                bail!("--image can only be provided once");
+            }
+            image_path = Some(PathBuf::from(value));
+            index += 1;
+            continue;
+        }
+        filtered.push(argument.clone());
+        index += 1;
+    }
+
+    let cli = Cli::parse_from(
+        std::iter::once(executable)
+            .chain(std::iter::once(OsString::from("repl")))
+            .chain(filtered),
+    );
+    let Command::Repl {
+        debug,
+        capabilities,
+    } = cli.command
+    else {
+        unreachable!("manual repl dispatch must parse as repl");
+    };
+    let image_path = image_path.expect("--image presence was checked");
+    let stdin = io::stdin();
+    let interactive = stdin.is_terminal();
+    let stdout = io::stdout();
+    run_repl(
+        stdin.lock(),
+        stdout.lock(),
+        debug,
+        interactive,
+        Some(&image_path),
+        capabilities,
+    )?;
+    Ok(true)
+}
+
+fn dispatch_image_command(args: Vec<OsString>) -> Result<()> {
+    let Some(command) = args.first() else {
+        print_image_help();
+        return Ok(());
+    };
+    if is_help_arg(command) {
+        print_image_help();
+        return Ok(());
+    }
+
+    match command.to_string_lossy().as_ref() {
+        "save" => dispatch_image_save(args[1..].to_vec()),
+        "inspect" => dispatch_image_inspect(args[1..].to_vec()),
+        "help" => {
+            print_image_help();
+            Ok(())
+        }
+        other => bail!("unknown image command: {other}"),
+    }
+}
+
+fn dispatch_image_save(args: Vec<OsString>) -> Result<()> {
+    if args.iter().any(is_help_arg) {
+        print_image_save_help();
+        return Ok(());
+    }
+    let Some(path) = args.first() else {
+        bail!("usage: rco image save <PATH> [--source <FILE>]");
+    };
+    if is_flag(path) {
+        bail!("image save path is required before options");
+    }
+    let mut source = None;
+    let mut index = 1;
+    while index < args.len() {
+        if args[index] == OsStr::new("--source") {
+            index += 1;
+            let Some(value) = args.get(index) else {
+                bail!("--source requires a file path");
+            };
+            source = Some(PathBuf::from(value));
+            index += 1;
+        } else {
+            bail!(
+                "unknown image save option: {}",
+                args[index].to_string_lossy()
+            );
+        }
+    }
+    image_command(ImageCommand::Save {
+        path: PathBuf::from(path),
+        source,
+    })
+}
+
+fn dispatch_image_inspect(args: Vec<OsString>) -> Result<()> {
+    if args.iter().any(is_help_arg) {
+        print_image_inspect_help();
+        return Ok(());
+    }
+    let Some(path) = args.first() else {
+        bail!("usage: rco image inspect <PATH> [--json]");
+    };
+    if is_flag(path) {
+        bail!("image inspect path is required before options");
+    }
+    let mut json = false;
+    for option in &args[1..] {
+        if option == OsStr::new("--json") {
+            json = true;
+        } else {
+            bail!("unknown image inspect option: {}", option.to_string_lossy());
+        }
+    }
+    image_command(ImageCommand::Inspect {
+        path: PathBuf::from(path),
+        json,
+    })
+}
+
+fn dispatch_emit_source_command(args: Vec<OsString>) -> Result<()> {
+    if args.is_empty() || args.iter().any(is_help_arg) {
+        print_emit_source_help();
+        return Ok(());
+    }
+    if args.len() != 1 {
+        bail!("usage: rco emit-source <FILE_OR_BYTECODE>");
+    }
+    emit_source(Path::new(&args[0]))
+}
+
+fn is_help_arg(value: &OsString) -> bool {
+    value == OsStr::new("-h") || value == OsStr::new("--help")
+}
+
+fn is_flag(value: &OsString) -> bool {
+    value.to_string_lossy().starts_with('-')
+}
+
+fn print_root_help_with_manual_commands() -> Result<()> {
+    let mut bytes = Vec::new();
+    Cli::command()
+        .write_help(&mut bytes)
+        .context("failed to render CLI help")?;
+    let mut help = String::from_utf8(bytes).context("CLI help was not valid UTF-8")?;
+    let manual_commands =
+        "  image            Save and inspect persistent Ricochet VM images\n  emit-source      Emit readable Ricochet-like source from source or bytecode\n";
+
+    if let Some(index) = help.find("  help             Print this message") {
+        help.insert_str(index, manual_commands);
+    } else if let Some(index) = help.find("\nOptions:") {
+        help.insert_str(index, manual_commands);
+    } else {
+        help.push_str(manual_commands);
+    }
+
+    print!("{help}");
+    Ok(())
+}
+
+fn print_image_help() {
+    println!("Save and inspect persistent Ricochet VM images");
+    println!();
+    println!("Usage: rco image <COMMAND>");
+    println!();
+    println!("Commands:");
+    println!("  save <PATH> [--source <FILE>]");
+    println!("  inspect <PATH> [--json]");
+}
+
+fn print_image_save_help() {
+    println!("Save a persistent Ricochet VM image");
+    println!();
+    println!("Usage: rco image save <PATH> [--source <FILE>]");
+}
+
+fn print_image_inspect_help() {
+    println!("Inspect a persistent Ricochet VM image");
+    println!();
+    println!("Usage: rco image inspect <PATH> [--json]");
+}
+
+fn print_emit_source_help() {
+    println!("Emit readable Ricochet-like source from source or bytecode");
+    println!();
+    println!("Usage: rco emit-source <FILE_OR_BYTECODE>");
+}
+
 fn run_repl<R: BufRead, W: Write>(
     mut input: R,
     mut output: W,
     debug: bool,
     interactive: bool,
+    image_path: Option<&Path>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
     let mut vm = Vm::default();
     capabilities.apply_to(&mut vm)?;
+    if let Some(path) = image_path {
+        if path.is_file() {
+            let image = read_vm_image(path)?;
+            vm.restore_image(image)
+                .with_context(|| format!("failed to load REPL image {}", path.display()))?;
+        } else if path.exists() {
+            bail!("REPL image path is not a file: {}", path.display());
+        }
+    }
     if debug {
         vm.enable_debug();
         vm.set_debug_sink(print_debug_event);
@@ -1041,6 +1327,7 @@ fn run_repl<R: BufRead, W: Write>(
         let bytes_read = input.read_line(&mut line)?;
         if bytes_read == 0 {
             if source.trim().is_empty() {
+                save_repl_image_if_requested(&vm, image_path)?;
                 return Ok(());
             }
 
@@ -1052,12 +1339,19 @@ fn run_repl<R: BufRead, W: Write>(
                 Ok(chunk) => {
                     vm.run_chunk(&chunk)?;
                     write_repl_result(&vm, &mut output, &mut output_cursor)?;
+                    save_repl_image_if_requested(&vm, image_path)?;
                     Ok(())
                 }
             };
         }
 
         source.push_str(&line);
+        if source.trim_start().starts_with(':')
+            && handle_repl_command(&source, &mut vm, image_path, &mut output)?
+        {
+            source.clear();
+            continue;
+        }
         if source.trim().is_empty() {
             source.clear();
             continue;
@@ -1077,6 +1371,375 @@ fn run_repl<R: BufRead, W: Write>(
                 source.clear();
             }
         }
+    }
+}
+
+fn handle_repl_command<W: Write>(
+    source: &str,
+    vm: &mut Vm,
+    image_path: Option<&Path>,
+    output: &mut W,
+) -> Result<bool> {
+    let command = source.trim();
+    let Some(command) = command.strip_prefix(':') else {
+        return Ok(false);
+    };
+    let mut parts = command.split_whitespace();
+    let Some(name) = parts.next() else {
+        return Ok(false);
+    };
+
+    match name {
+        "save" => {
+            let path = repl_command_image_path(parts.next(), image_path, ":save")?;
+            if parts.next().is_some() {
+                bail!(":save accepts at most one image path");
+            }
+            write_vm_image(&path, &vm.to_image()?)?;
+            writeln!(output, "saved image {}", path.display())?;
+            output.flush()?;
+            Ok(true)
+        }
+        "load" => {
+            let path = repl_command_image_path(parts.next(), image_path, ":load")?;
+            if parts.next().is_some() {
+                bail!(":load accepts at most one image path");
+            }
+            let image = read_vm_image(&path)?;
+            vm.restore_image(image)
+                .with_context(|| format!("failed to load REPL image {}", path.display()))?;
+            writeln!(output, "loaded image {}", path.display())?;
+            output.flush()?;
+            Ok(true)
+        }
+        "bindings" => {
+            let image = vm.to_image()?;
+            writeln!(
+                output,
+                "stack={} variables=[{}] functions=[{}] classes=[{}]",
+                image.stack.len(),
+                image
+                    .variables
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                image
+                    .functions
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                image.classes.keys().cloned().collect::<Vec<_>>().join(", ")
+            )?;
+            output.flush()?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn repl_command_image_path(
+    explicit: Option<&str>,
+    image_path: Option<&Path>,
+    command: &str,
+) -> Result<PathBuf> {
+    explicit
+        .map(PathBuf::from)
+        .or_else(|| image_path.map(Path::to_path_buf))
+        .with_context(|| {
+            format!("{command} requires a path when the REPL was not started with --image")
+        })
+}
+
+fn save_repl_image_if_requested(vm: &Vm, image_path: Option<&Path>) -> Result<()> {
+    if let Some(path) = image_path {
+        write_vm_image(path, &vm.to_image()?)?;
+    }
+    Ok(())
+}
+
+fn read_vm_image(path: &Path) -> Result<VmImage> {
+    let bytes =
+        fs::read(path).with_context(|| format!("failed to read image {}", path.display()))?;
+    let image: VmImage = serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to decode image {}", path.display()))?;
+    image
+        .validate_format()
+        .with_context(|| format!("unsupported image {}", path.display()))?;
+    Ok(image)
+}
+
+fn write_vm_image(path: &Path, image: &VmImage) -> Result<()> {
+    image
+        .validate_format()
+        .context("refusing to write unsupported Ricochet image format")?;
+    let bytes = serde_json::to_vec_pretty(image).context("failed to encode Ricochet image")?;
+    fs::write(path, bytes).with_context(|| format!("failed to write image {}", path.display()))
+}
+
+fn image_command(command: ImageCommand) -> Result<()> {
+    match command {
+        ImageCommand::Save { path, source } => {
+            let mut vm = Vm::default();
+            CapabilityOptions::default().apply_to(&mut vm)?;
+            if let Some(source) = source {
+                let chunk = compile_source_file(&source)?;
+                vm.run_chunk(&chunk)
+                    .with_context(|| format!("failed to run {}", source.display()))?;
+            }
+            let image = vm.to_image()?;
+            write_vm_image(&path, &image)?;
+            println!(
+                "saved image {} ({} bindings, {} functions, {} classes)",
+                path.display(),
+                image.variables.len(),
+                image.functions.len(),
+                image.classes.len()
+            );
+            Ok(())
+        }
+        ImageCommand::Inspect { path, json } => {
+            let image = read_vm_image(&path)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&image_summary_json(&image))?
+                );
+            } else {
+                println!("format {}", image.format);
+                println!("format_version {}", image.format_version);
+                println!("ricochet_version {}", image.ricochet_version);
+                println!("stack {}", image.stack.len());
+                println!(
+                    "variables {}",
+                    image
+                        .variables
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                println!(
+                    "functions {}",
+                    image
+                        .functions
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                println!(
+                    "classes {}",
+                    image.classes.keys().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn image_summary_json(image: &VmImage) -> serde_json::Value {
+    json!({
+        "format": image.format,
+        "format_version": image.format_version,
+        "ricochet_version": image.ricochet_version,
+        "stack_len": image.stack.len(),
+        "variables": image.variables.keys().cloned().collect::<Vec<_>>(),
+        "functions": image.functions.keys().cloned().collect::<Vec<_>>(),
+        "classes": image.classes.keys().cloned().collect::<Vec<_>>(),
+    })
+}
+
+fn emit_source(path: &Path) -> Result<()> {
+    let chunk = load_chunk_for_source_emission(path)?;
+    print!("{}", emit_chunk_source_like(&chunk));
+    Ok(())
+}
+
+fn load_chunk_for_source_emission(path: &Path) -> Result<Chunk> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    if is_bytecode_path(path) {
+        return Chunk::from_bytes(&bytes)
+            .with_context(|| format!("failed to decode bytecode {}", path.display()));
+    }
+
+    match Chunk::from_bytes(&bytes) {
+        Ok(chunk) => Ok(chunk),
+        Err(_) => compile_source_file(path),
+    }
+}
+
+fn is_bytecode_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("rcob"))
+}
+
+fn emit_chunk_source_like(chunk: &Chunk) -> String {
+    let mut lines = vec![format!(
+        "(( emitted from bytecode chunk {} ))",
+        ricochet_string_literal(&chunk.file)
+    )];
+    emit_chunk_body(chunk, 0, &mut lines);
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn emit_chunk_body(chunk: &Chunk, indent: usize, lines: &mut Vec<String>) {
+    for instruction in &chunk.instructions {
+        emit_instruction_source_like(&instruction.op, chunk, indent, lines);
+    }
+}
+
+fn emit_instruction_source_like(op: &Op, chunk: &Chunk, indent: usize, lines: &mut Vec<String>) {
+    match op {
+        Op::PushNil => push_source_line(lines, indent, "nil"),
+        Op::PushBool(value) => {
+            push_source_line(lines, indent, if *value { "true" } else { "false" })
+        }
+        Op::PushNumber(value) => push_source_line(lines, indent, value.to_string()),
+        Op::PushFloat(value) => push_source_line(lines, indent, format_float_literal(*value)),
+        Op::PushString(value) => push_source_line(lines, indent, ricochet_string_literal(value)),
+        Op::PushBlock(index) => {
+            push_source_line(lines, indent, "[");
+            if let Some(block) = chunk.blocks.get(*index) {
+                emit_chunk_body(block, indent + 1, lines);
+            } else {
+                push_source_line(lines, indent + 1, format!("(( invalid block {index} ))"));
+            }
+            push_source_line(lines, indent, "]");
+        }
+        Op::CallWord(word) => push_source_line(lines, indent, word),
+        Op::CallMethod(method) => push_source_line(lines, indent, method),
+        Op::Send => push_source_line(lines, indent, "send"),
+        Op::GetVar(name) => push_source_line(lines, indent, format!("${name}")),
+        Op::SetVar(name) => push_source_line(
+            lines,
+            indent,
+            format!("(( set_var {} ))", source_name(name)),
+        ),
+        Op::DeclareVar(name) => {
+            push_source_line(lines, indent, format!("{} var", source_name(name)))
+        }
+        Op::BeginClass { name, superclass } => push_source_line(
+            lines,
+            indent,
+            format!("{} {} Subclass", source_name(name), source_name(superclass)),
+        ),
+        Op::EndClass => push_source_line(lines, indent, "end"),
+        Op::AddField(name) => push_source_line(
+            lines,
+            indent,
+            format!("{} Field", ricochet_string_literal(name)),
+        ),
+        Op::AddAccessor(name) => push_source_line(
+            lines,
+            indent,
+            format!("{} Accessor", ricochet_string_literal(name)),
+        ),
+        Op::AddMethod { name, block, args } => {
+            let prefix = args
+                .as_ref()
+                .map(|args| format!("{} ", format_args_spec(args)))
+                .unwrap_or_default();
+            push_source_line(lines, indent, format!("{prefix}["));
+            if let Some(block) = chunk.blocks.get(*block) {
+                emit_chunk_body(block, indent + 1, lines);
+            } else {
+                push_source_line(lines, indent + 1, format!("(( invalid block {block} ))"));
+            }
+            push_source_line(
+                lines,
+                indent,
+                format!("] {} Method", ricochet_string_literal(name)),
+            );
+        }
+        Op::AddFunction { name, block, args } => {
+            let prefix = args
+                .as_ref()
+                .map(|args| format!("{} ", format_args_spec(args)))
+                .unwrap_or_default();
+            push_source_line(
+                lines,
+                indent,
+                format!("{prefix}{} function", source_name(name)),
+            );
+            if let Some(block) = chunk.blocks.get(*block) {
+                emit_chunk_body(block, indent + 1, lines);
+            } else {
+                push_source_line(lines, indent + 1, format!("(( invalid block {block} ))"));
+            }
+            push_source_line(lines, indent, "end");
+        }
+        Op::Return => push_source_line(lines, indent, "return"),
+        Op::JumpIfFalse(target) => {
+            push_source_line(lines, indent, format!("(( jump_if_false {target} ))"))
+        }
+        Op::Jump(target) => push_source_line(lines, indent, format!("(( jump {target} ))")),
+        Op::Pop => push_source_line(lines, indent, "drop"),
+    }
+}
+
+fn push_source_line(lines: &mut Vec<String>, indent: usize, line: impl AsRef<str>) {
+    lines.push(format!("{}{}", "  ".repeat(indent), line.as_ref()));
+}
+
+fn format_args_spec(args: &ricochet_bytecode::ArgsSpec) -> String {
+    let inputs = args.inputs.join(" ");
+    let outputs = args.outputs.join(" ");
+    format!("( {inputs} -> {outputs} )")
+}
+
+fn source_name(name: &str) -> String {
+    if is_plain_source_name(name) {
+        name.to_string()
+    } else {
+        ricochet_string_literal(name)
+    }
+}
+
+fn is_plain_source_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.chars().any(char::is_whitespace)
+        && !name.contains('"')
+        && !name.contains('\\')
+        && !name.starts_with('$')
+}
+
+fn ricochet_string_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
+}
+
+fn format_float_literal(value: f64) -> String {
+    if value.is_nan() {
+        return "(( float NaN ))".to_string();
+    }
+    if value == f64::INFINITY {
+        return "(( float Infinity ))".to_string();
+    }
+    if value == f64::NEG_INFINITY {
+        return "(( float -Infinity ))".to_string();
+    }
+
+    let literal = value.to_string();
+    if literal.contains(['.', 'e', 'E']) {
+        literal
+    } else {
+        format!("{literal}.0")
     }
 }
 

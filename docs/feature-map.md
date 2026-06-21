@@ -49,7 +49,7 @@ graph TD
 | Family | Status | Surfaces | Evidence |
 | --- | --- | --- | --- |
 | Project and MVC | implemented beta | `rco new`, `routes`, `serve`, `migrate`, `doctor` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_web`, `README.md`, `docs/reference/index.html` |
-| Runtime | implemented beta | `repl`, `run`, `debug`, `run-bytecode`, `build`, `test` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_vm/src/vm.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
+| Runtime | implemented beta | `repl`, `run`, `debug`, `run-bytecode`, `build`, `test`, `image`, `emit-source` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_vm/src/vm.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
 | Dependencies | implemented beta | `add`, `install`, `verify`, `audit` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Registries | implemented beta | `publish`, `registry rebuild`, `registry check`, `search` | `crates/ricochet_cli/src/lib.rs`, `README.md`, `docs/reference/index.html` |
@@ -124,7 +124,6 @@ Remaining:
   expression-item rows, a fully stable JSON schema/cache contract, package
   lockfile canonical IDs, public examples, and reference documentation before
   being treated as stable for package authors.
-- Persistent REPL images and source emission are future work.
 
 Do not assume:
 
@@ -145,6 +144,10 @@ Implemented:
 - Runtime values include nil, bool, signed i64 `Number`, finite f64 `Float`,
   string, array, list, map, set, class, instance, member selector, block, task,
   result, regex, and capability.
+- Versioned VM images preserve safe language state for stacks, globals,
+  functions, classes, instances, blocks, and results. `rco repl --image PATH`
+  resumes interactive bindings/classes/functions; `:save`, `:load`, and
+  `:bindings` inspect or move image state during a REPL session.
 - Plain integer literals stay `Number`; decimal or exponent literals produce
   `Float`; mixed numeric arithmetic promotes to `Float`.
 - Numeric conversion words such as `to_integer`, `to_tinyint`,
@@ -160,12 +163,17 @@ Evidence:
 - `crates/ricochet_bytecode/src/op.rs`
 - `crates/ricochet_bytecode/src/chunk.rs`
 - `crates/ricochet_vm/src/value.rs`
+- `crates/ricochet_vm/src/image.rs`
 - `crates/ricochet_vm/src/vm.rs`
 - `crates/ricochet_vm/src/builtins.rs`
+- `crates/ricochet_cli/src/lib.rs`
+- `crates/ricochet_cli/tests/cli_smoke.rs`
 
 Remaining:
 
 - Richer suspended-task debugger views are still polish.
+- Source emission is a readable source-like bytecode view; do not treat it as a
+  stable byte-for-byte source reconstruction contract.
 
 Do not assume:
 
@@ -607,13 +615,13 @@ Implemented foundations that should not be listed as missing:
 - Date/time/duration words.
 - Beta compile-time expression macros, including local/static-import/package
   path lookup and `rco expand` inspection.
+- Persistent REPL images, image inspection, and source-like bytecode emission.
 
 Still real remaining work:
 
 - Compile-time macro stabilization: true declaration-item generation beyond
   expression-item rows, full source-map/cache schema, package lockfile
   canonical IDs, public examples, and reference docs.
-- Persistent REPL images and source emission.
 - Central hosted package registry.
 - Dynamic runtime imports.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP

@@ -16,6 +16,54 @@ fresh local declaration scopes, so helper locals declared with `var`, `array`,
 `map`, `list`, or `Set` refresh within the active call and do not leak into
 later calls.
 
+## Persistent Images And Source Emission
+
+Use a persistent image when an interactive session should survive process
+restart. The image stores safe language state such as the stack, global
+bindings, functions, classes, instances, blocks, and results:
+
+```powershell
+rco repl --image session.rci
+```
+
+Inside the REPL, image commands use a colon prefix:
+
+```text
+:bindings
+:save
+:save checkpoint.rci
+:load checkpoint.rci
+```
+
+`--image` loads the file at startup when it already exists and saves it again
+when the REPL exits cleanly. `:save` and `:load` default to the `--image` path;
+pass an explicit path to checkpoint or switch images during a session.
+
+For non-interactive workflows, create and inspect image files directly:
+
+```powershell
+rco image save session.rci --source main.rco
+rco image inspect session.rci
+rco image inspect session.rci --json
+```
+
+Images intentionally reject process-local or sensitive runtime state: tasks,
+capabilities, regex internals, retained HTTP/upload/process/PTY/TCP/WebSocket
+handles, active approvals, native-only class methods, and literal secret
+references are not serialized.
+
+Source emission prints a readable Ricochet-like view of source or compiled
+bytecode:
+
+```powershell
+rco emit-source main.rco
+rco emit-source build/app.rcob
+```
+
+Treat emitted source as an inspection and portability aid. It preserves useful
+declarations, literals, calls, and block structure, but it is not a stable
+byte-for-byte source reconstruction contract.
+
 ## Numbers
 
 Ricochet has two numeric runtime values: `Number` is signed 64-bit integer

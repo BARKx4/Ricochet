@@ -1851,6 +1851,221 @@ fn repl_debug_streams_instruction_events() {
 }
 
 #[test]
+fn root_help_lists_persistent_image_commands() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("--help")
+        .output()
+        .expect("rco --help should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco --help failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("image") && stdout.contains("emit-source"),
+        "root help should list manual image/source commands\nstdout:\n{stdout}"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .args(["help", "image"])
+        .output()
+        .expect("rco help image should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco help image failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("rco image <COMMAND>"),
+        "image help should describe image command group\nstdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn repl_image_resumes_bindings_classes_and_functions() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let image_path = root.join("session.rci");
+
+    let mut first = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("repl")
+        .arg("--image")
+        .arg(&image_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco repl should launch");
+    first
+        .stdin
+        .take()
+        .expect("repl stdin should be piped")
+        .write_all(
+            br#"41 answer var
+double function
+  $answer 2 *
+end
+User Model Subclass
+  "email" Accessor
+  [
+    self email.get
+  ] "label" Method
+end
+"#,
+        )
+        .expect("first repl input should write");
+    let first_output = first.wait_with_output().expect("first repl should finish");
+    assert_run_success_for("rco repl --image", "initial image session", &first_output);
+    assert!(
+        image_path.is_file(),
+        "REPL image should be saved on clean exit"
+    );
+
+    let mut second = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("repl")
+        .arg("--image")
+        .arg(&image_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco repl should launch with image");
+    second
+        .stdin
+        .take()
+        .expect("repl stdin should be piped")
+        .write_all(
+            br#""User" new user var
+"ada@example.com" $user email.set label
+double
+:bindings
+"#,
+        )
+        .expect("second repl input should write");
+    let second_output = second
+        .wait_with_output()
+        .expect("second repl should finish");
+    assert_run_success_for("rco repl --image", "resumed image session", &second_output);
+    let stdout = String::from_utf8_lossy(&second_output.stdout);
+    assert!(
+        stdout.contains("String(\"ada@example.com\")"),
+        "resumed class accessor/method should run, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(82)"),
+        "resumed function should read preserved binding, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("variables=[answer, user]")
+            && stdout.contains("functions=[double]")
+            && stdout.contains("classes=[User]"),
+        ":bindings should list resumed state, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn image_save_source_inspects_json_summary() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"10 base var
+triple function
+  $base 3 *
+end
+Note Model Subclass
+  "title" Accessor
+end
+"#,
+    );
+    let image_path = root.join("program.rci");
+
+    let save = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("image")
+        .arg("save")
+        .arg(&image_path)
+        .arg("--source")
+        .arg(root.join("main.rco"))
+        .output()
+        .expect("rco image save should launch");
+    assert_run_success_for("rco image save", "source image", &save);
+
+    let inspect = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("image")
+        .arg("inspect")
+        .arg(&image_path)
+        .arg("--json")
+        .output()
+        .expect("rco image inspect should launch");
+    assert_run_success_for("rco image inspect", "source image", &inspect);
+    let summary: serde_json::Value =
+        serde_json::from_slice(&inspect.stdout).expect("inspect output should be JSON");
+    assert_eq!(summary["format"], "ricochet-vm-image");
+    assert_eq!(summary["format_version"], 1);
+    assert!(
+        summary["variables"]
+            .as_array()
+            .expect("variables should be an array")
+            .iter()
+            .any(|value| value == "base"),
+        "inspect should list saved variables, got:\n{summary:#?}"
+    );
+    assert!(
+        summary["functions"]
+            .as_array()
+            .expect("functions should be an array")
+            .iter()
+            .any(|value| value == "triple"),
+        "inspect should list saved functions, got:\n{summary:#?}"
+    );
+    assert!(
+        summary["classes"]
+            .as_array()
+            .expect("classes should be an array")
+            .iter()
+            .any(|value| value == "Note"),
+        "inspect should list saved classes, got:\n{summary:#?}"
+    );
+}
+
+#[test]
+fn image_save_rejects_retained_task_state() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    write_source_at(root, "main.rco", "[ 1 ] spawn task var\n");
+    let image_path = root.join("unsafe.rci");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("image")
+        .arg("save")
+        .arg(&image_path)
+        .arg("--source")
+        .arg(root.join("main.rco"))
+        .output()
+        .expect("rco image save should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "image save should reject retained task state\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("retained task"),
+        "stderr should explain retained task rejection, got:\n{stderr}"
+    );
+    assert!(
+        !image_path.exists(),
+        "failed image save should not leave an image file"
+    );
+}
+
+#[test]
 fn run_prints_final_stack_for_source_file() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
@@ -4411,6 +4626,50 @@ fn run_bytecode_trace_file_records_json_debug_events() {
             .iter()
             .any(|event| event["event"] == "instruction" && event["opcode"] == "CallWord(\"+\")"),
         "bytecode trace should include plus instruction, got:\n{trace:#?}"
+    );
+}
+
+#[test]
+fn emit_source_outputs_source_like_bytecode() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"answer function
+  42
+end
+User Model Subclass
+  "email" Accessor
+  [
+    self email.get
+  ] "label" Method
+end
+"#,
+    );
+
+    let build_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("build")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco build should launch");
+    assert_run_success_for("rco build", "main.rco", &build_output);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("emit-source")
+        .arg(root.join("build").join("app.rcob"))
+        .output()
+        .expect("rco emit-source should launch");
+    assert_run_success_for("rco emit-source", "build/app.rcob", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("(( emitted from bytecode chunk")
+            && stdout.contains("answer function")
+            && stdout.contains("User Model Subclass")
+            && stdout.contains("\"email\" Accessor")
+            && stdout.contains("] \"label\" Method"),
+        "emit-source should render readable declarations, got:\n{stdout}"
     );
 }
 
