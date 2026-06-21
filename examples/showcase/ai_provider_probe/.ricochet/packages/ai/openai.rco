@@ -805,6 +805,187 @@ end
   $finalResult
 end
 
+( baseUrl model -> Map ) ai_ollama_provider function
+  model var
+  baseUrl var
+  "ollama" $baseUrl $model ai_provider
+end
+
+( model messages stream -> Map ) ai_ollama_chat_body function
+  stream var
+  messages var
+  model var
+  body map
+  $body "model" $model put! drop
+  $body "messages" $messages put! drop
+  $body "stream" $stream put! drop
+  $body
+end
+
+( baseUrl model messages -> Map ) ai_ollama_chat_request function
+  messages var
+  model var
+  baseUrl var
+  $model $messages false ai_ollama_chat_body body var
+  "POST" $baseUrl "/api/chat" concat http_request_new value request var
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( baseUrl model messages -> Map ) ai_ollama_chat_stream_request function
+  messages var
+  model var
+  baseUrl var
+  $model $messages true ai_ollama_chat_body body var
+  "POST" $baseUrl "/api/chat" concat http_request_new value request var
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( provider request raw -> Result ) ai_ollama_chat_response_from_json function
+  raw var
+  request var
+  provider var
+  $raw "message" at message var
+  $message nil? if
+    "AiProviderMalformedResponse" "Ollama response is missing message" fail
+  else
+    $message "content" at text var
+    $text nil? if
+      "" text set
+    end
+    $raw "model" at model var
+    $model nil? if
+      $request "model" at model set
+    end
+    toolCalls array
+    $provider $model $text $toolCalls $raw ai_chat_response ok
+  end
+end
+
+( provider request response -> Result ) ai_ollama_http_response_to_result function
+  response var
+  request var
+  provider var
+  $response "status" at status var
+  $status ai_http_success_status? if
+    $response ai_openai_response_body_json decoded var
+    $decoded ok? if
+      $provider $request $decoded value ai_ollama_chat_response_from_json
+    else
+      $decoded
+    end
+  else
+    $status ai_openai_error_kind kind var
+    "AI provider returned status " $status to_string concat message var
+    $provider $kind $message $status $response ai_error ai_error_result
+  end
+end
+
+( request executorBlock -> Result ) ai_ollama_execute_chat function
+  executorBlock var
+  request var
+  $request "provider" at provider var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop transportResult var
+    nil result var
+    $transportResult ok? if
+      $provider $request $transportResult value ai_ollama_http_response_to_result result set
+    else
+      $transportResult result set
+    end
+
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( event -> String ) ai_ollama_stream_delta function
+  event var
+  $event "message" at message var
+  $message nil? if
+    nil
+  else
+    $message "content" at
+  end
+end
+
+( body -> Result ) ai_ollama_stream_events function
+  body var
+  events array
+  $body lines bodyLines var
+  nil finalResult var
+  0 index var
+  $bodyLines count total var
+
+  $index $total < while
+    $bodyLines $index at trim data var
+    $data length 0 = if
+      $index 1 + index set
+      continue
+    end
+
+    $data json_decode decoded var
+    $decoded ok? if
+      $decoded value rawEvent var
+      $rawEvent ai_ollama_stream_delta part var
+      $part nil? false = if
+        $events "delta" $part $index false ai_stream_event push! drop
+      end
+      $rawEvent "done" at true = if
+        $events "done" nil $index true ai_stream_event push! drop
+      end
+      $index 1 + index set
+    else
+      "AiProviderMalformedEvent" "Ollama stream event is not valid JSON" fail finalResult set
+      break
+    end
+  end
+
+  $finalResult nil? if
+    $events ok
+  else
+    $finalResult
+  end
+end
+
 ( body -> Result ) ai_openai_stream_events function
   body var
   events array

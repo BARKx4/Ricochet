@@ -44,15 +44,17 @@ dependency.
 rco run examples/showcase/ai_provider_probe/main.rco
 rco run examples/showcase/ai_provider_probe/fake_provider.rco
 rco run examples/showcase/ai_provider_probe/local_model_request.rco
+rco run examples/showcase/ai_provider_probe/ollama_native_request.rco
 rco run --env-allow OPENAI_API_KEY --http-allow-host api.openai.com examples/showcase/ai_provider_probe/live_probe.rco
 ```
 
 `main.rco` is an OpenAI-compatible dry-run request builder. `fake_provider.rco`
 executes the package provider flow through an injected fake executor, including
 retry and response normalization. `local_model_request.rco` builds a local
-OpenAI-compatible request for endpoints such as Ollama or LM Studio.
-`live_probe.rco` performs the HTTP request only when explicitly granted
-environment and HTTP capabilities.
+OpenAI-compatible request for endpoints such as Ollama or LM Studio when they
+expose `/v1/chat/completions`. `ollama_native_request.rco` builds Ollama's
+native `/api/chat` request shape. `live_probe.rco` performs the HTTP request
+only when explicitly granted environment and HTTP capabilities.
 
 ## GUI Task Monitor
 

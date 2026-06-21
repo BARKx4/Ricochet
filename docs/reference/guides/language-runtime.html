@@ -150,7 +150,7 @@ $provider &quot;gpt-4.1-mini&quot; $messages $options $tools $retry ai_chat_requ
 ] executor var
 
 $contract $executor ai_openai_execute_chat value &quot;text&quot; at println</code></pre>
-          <p>The same executor boundary is used by <code>examples/showcase/ai_provider_probe/fake_provider.rco</code> for offline provider tests and by <code>local_model_request.rco</code> for local OpenAI-compatible endpoints.</p>
+          <p>The same executor boundary is used by <code>examples/showcase/ai_provider_probe/fake_provider.rco</code> for offline provider tests and by <code>local_model_request.rco</code> for local OpenAI-compatible endpoints. Native Ollama <code>/api/chat</code> flows use the same contract shape with <code>ai_ollama_provider</code>, <code>ai_ollama_chat_request</code>, <code>ai_ollama_execute_chat</code>, and <code>ai_ollama_stream_events</code>; see <code>examples/showcase/ai_provider_probe/ollama_native_request.rco</code>.</p>
           <h2 id="webview-documents">Webview Documents</h2>
           <p>Build a webview document for desktop UI hosts:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>state map

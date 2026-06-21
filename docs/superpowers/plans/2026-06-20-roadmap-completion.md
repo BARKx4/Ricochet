@@ -720,6 +720,12 @@ OpenAI-compatible success response, and returns MVC JSON. The showcase now has
 offline fake-provider and local OpenAI-compatible request examples. Richer
 provider packages and deeper provider-level streaming integration remain open.
 
+**Progress Note (2026-06-21):** The local/Ollama package helper slice adds
+native Ollama `/api/chat` request builders, fake-executor chat normalization,
+and NDJSON stream event parsing in `@ricochet/ai`, plus a native Ollama
+dry-run showcase. Anthropic-compatible helpers and deeper provider-level
+streaming integration remain open.
+
 **Verification Gate:**
 
 Epic 11 closes when package tests and MVC fake-provider tests cover

@@ -416,4 +416,69 @@ AiPackageTest TestCase Subclass
     $validation "ok" at false assert_equals
     $validation "errors" at first "field" at "text" assert_equals
   ] "testFakeProviderResponseSchemaFailure" Method
+  [
+    "http://127.0.0.1:11434" "llama3.2" ai_ollama_provider provider var
+    $provider "provider" at "ollama" assert_equals
+    $provider "base_url" at "http://127.0.0.1:11434" assert_equals
+    $provider "model" at "llama3.2" assert_equals
+
+    messages array
+    $messages "hello local model" ai_user_message push! drop
+    "http://127.0.0.1:11434" "llama3.2" $messages ai_ollama_chat_request request var
+    $request "method" at "POST" assert_equals
+    $request "url" at "http://127.0.0.1:11434/api/chat" assert_equals
+    $request "json" at "model" at "llama3.2" assert_equals
+    $request "json" at "stream" at false assert_equals
+
+    "http://127.0.0.1:11434" "llama3.2" $messages ai_ollama_chat_stream_request streamRequest var
+    $streamRequest "json" at "stream" at true assert_equals
+  ] "testOllamaProviderAndRequestMaps" Method
+  [
+    "http://127.0.0.1:11434" "llama3.2" ai_ollama_provider provider var
+    messages array
+    $messages "hello" ai_user_message push! drop
+    options map
+    tools array
+    2 0 0 ai_retry_policy retry var
+    $provider "llama3.2" $messages $options $tools $retry ai_chat_request request var
+    attempts array
+
+    [
+      attempt var
+      providerRequest var
+      $attempts $attempt push! drop
+      response map
+      $attempt 1 = if
+        $response "status" 503 put! drop
+        $response "body" "{\"error\":\"busy\"}" put! drop
+      else
+        $response "status" 200 put! drop
+        $response "body" "{\"model\":\"llama3.2\",\"message\":{\"role\":\"assistant\",\"content\":\"local model ready\"},\"done\":true}" put! drop
+      end
+      $response ok
+    ] executor var
+
+    $request $executor ai_ollama_execute_chat result var
+    $result ok? true assert_equals
+    $result value "text" at "local model ready" assert_equals
+    $result value "model" at "llama3.2" assert_equals
+    $attempts count 2 assert_equals
+  ] "testOllamaExecuteChatRetriesFakeProviderStatus" Method
+  [
+    "{\"model\":\"llama3.2\",\"message\":{\"content\":\"Hel\"},\"done\":false}\n{\"model\":\"llama3.2\",\"message\":{\"content\":\"lo\"},\"done\":false}\n{\"model\":\"llama3.2\",\"done\":true}\n" body var
+    $body ai_ollama_stream_events result var
+    $result ok? true assert_equals
+    $result value events var
+    $events count 3 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hel" assert_equals
+    $events 1 at "data" at "lo" assert_equals
+    $events 2 at "kind" at "done" assert_equals
+    $events 2 at "done" at true assert_equals
+  ] "testOllamaStreamEventsReturnChunksAndDone" Method
+  [
+    "{bad-json}\n" ai_ollama_stream_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "AiProviderMalformedEvent" assert_equals
+  ] "testOllamaStreamEventsReportMalformedEvents" Method
 end

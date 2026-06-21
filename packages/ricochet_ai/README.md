@@ -1,15 +1,16 @@
 # @ricochet/ai
 
-Beta helpers for building provider-neutral AI contracts and OpenAI-compatible
-HTTP calls in Ricochet apps.
+Beta helpers for building provider-neutral AI contracts,
+OpenAI-compatible HTTP calls, and local/Ollama-compatible request flows in
+Ricochet apps.
 
 This package keeps provider workflows outside Ricochet core. It builds
 provider, message, request, response, error, stream-event, retry-policy, tool,
 schema-validation maps, retry predicates/delay helpers, local tool-dispatch
 helpers, and fake-provider-testable OpenAI-compatible response normalization.
-It also provides OpenAI-compatible starter bodies and request maps on top of
-core `secret_env`, `secret_resolve`, and HTTP request-map helpers, plus SSE
-response-body parsers for providers that return `text/event-stream` payloads.
+It also provides OpenAI-compatible and Ollama request maps on top of core
+`secret_env`, `secret_resolve`, and HTTP request-map helpers, plus SSE and
+NDJSON response-body parsers for providers that return streaming payloads.
 
 Apps still own provider selection, long-running stream orchestration, and
 user-facing agent behavior. The package-level executor helpers let apps wire
@@ -193,6 +194,36 @@ stream events instead of only concatenated text. It returns a `Result` whose ok
 value is an array of `ai_stream_event` maps and whose error value reports
 malformed SSE JSON without crashing the caller.
 
+## Local/Ollama helpers
+
+For native Ollama `/api/chat` endpoints, use the local-provider request helpers
+and the same fake-executor pattern:
+
+```ricochet
+"ai/openai" import
+
+"http://127.0.0.1:11434" "llama3.2" ai_ollama_provider provider var
+messages array
+$messages "Return the word ricochet." ai_user_message push! drop
+options map
+tools array
+3 0 0 ai_retry_policy retry var
+$provider "llama3.2" $messages $options $tools $retry ai_chat_request contract var
+
+[
+  attempt var
+  chatRequest var
+  $provider "base_url" at $chatRequest "model" at $chatRequest "messages" at ai_ollama_chat_request request var
+  $request http_request
+] executor var
+
+$contract $executor ai_ollama_execute_chat result var
+```
+
+Use `ai_ollama_stream_events` for small native Ollama NDJSON stream bodies. It
+returns the same `ai_stream_event` map shape as the OpenAI-compatible stream
+parser.
+
 For long-running streams, hand the same request map to Ricochet's retained HTTP
 stream words and parse chunks as you read offsets:
 
@@ -205,5 +236,5 @@ $chunk "body" at ai_openai_stream_text
 
 See `examples/showcase/ai_provider_probe/fake_provider.rco` for an offline
 provider executor flow and
-`examples/showcase/ai_provider_probe/local_model_request.rco` for a local
-OpenAI-compatible request shape.
+`examples/showcase/ai_provider_probe/local_model_request.rco` or
+`ollama_native_request.rco` for local model request shapes.

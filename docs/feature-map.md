@@ -444,9 +444,10 @@ Implemented:
   helpers, tool call/result maps, tool handler execution helpers, schema
   validation, OpenAI-compatible request builders, secret reference helpers,
   OpenAI-compatible response/error/tool-call normalization helpers,
-  fake-provider-testable chat execution, SSE parsing, stream event maps, stream
-  text extraction, MVC fake-provider integration coverage, and offline/local
-  provider examples.
+  OpenAI-compatible fake-provider-testable chat execution, local/Ollama-native
+  request/execution helpers, SSE and Ollama NDJSON parsing, stream event maps,
+  stream text extraction, MVC fake-provider integration coverage, and
+  offline/local provider examples.
 - Retained HTTP stream reads expose bounded `max_bytes` consumption,
   `from_offset`, `next_offset`, backward-compatible `offset`, `bytes_len`, and
   `done` metadata for incremental consumers.
@@ -470,9 +471,9 @@ Evidence:
 
 Remaining:
 
-- Richer provider packages, provider-level runtime integration beyond the
-  OpenAI-compatible package executor boundary, and provider-level AI streaming
-  integration remain future package/core work.
+- Additional provider packages such as Anthropic-compatible helpers,
+  provider-level runtime integration beyond package executor boundaries, and
+  provider-level AI streaming integration remain future package/core work.
 
 Do not assume:
 
@@ -678,8 +679,8 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Richer AI provider packages and provider-level streaming integration beyond
-  the OpenAI-compatible package executor boundary.
+- Additional AI provider packages such as Anthropic-compatible helpers and
+  provider-level streaming integration beyond package executor boundaries.
 - Production app distribution polish: signing, notarization, metadata, store or
   updater workflows.
 
