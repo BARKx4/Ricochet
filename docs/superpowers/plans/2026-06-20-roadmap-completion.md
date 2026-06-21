@@ -681,8 +681,8 @@ remain future work.
 - [x] Add true incremental stream consumption ergonomics over
   `http_stream_read`, including bounded offset reads and done events.
 - [x] Add package-level fake provider tests for streaming chunks, tool calls, malformed events, and schema failures.
-- [ ] Add MVC fake-provider integration tests for provider package flows.
-- [ ] Add provider examples for OpenAI-compatible and local model endpoints.
+- [x] Add MVC fake-provider integration tests for provider package flows.
+- [x] Add provider examples for OpenAI-compatible and local model endpoints.
 - [x] Wire the package retry/tool helpers into OpenAI-compatible provider runtime flows at the package executor boundary.
 - [x] Add docs that keep secret values in env-backed references.
 - [x] Commit package-only changes first, then core stream ergonomics if needed.
@@ -703,14 +703,22 @@ package-level retry/tool execution were still open at that point.
 retry classification, deterministic retry-delay calculation, retry execution,
 tool handler registration, single tool-call execution, and ordered multi-tool
 execution in `@ricochet/ai`. Provider-runtime wiring beyond package-local
-helpers, MVC fake-provider integration tests, and provider examples remain open.
+helpers, MVC fake-provider integration tests, and provider examples were still
+open at that point.
 
 **Progress Note (2026-06-21):** The OpenAI-compatible package runtime slice adds
 `ai_openai_execute_chat`, rich HTTP status/error normalization, OpenAI
 tool-call extraction, safe `ai_openai_stream_events`, and package-level
 fake-provider tests for retry, tool calls, malformed stream events, and schema
 validation failures. MVC fake-provider coverage, provider examples, and richer
-provider packages remain open.
+provider packages were still open at that point.
+
+**Progress Note (2026-06-21):** The MVC/provider examples slice adds a
+controller-level fake-provider integration test that imports `ai/openai` from a
+vendored `@ricochet/ai` dependency, retries a fake 503, normalizes a fake
+OpenAI-compatible success response, and returns MVC JSON. The showcase now has
+offline fake-provider and local OpenAI-compatible request examples. Richer
+provider packages and deeper provider-level streaming integration remain open.
 
 **Verification Gate:**
 

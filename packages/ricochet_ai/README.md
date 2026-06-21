@@ -202,3 +202,8 @@ options map
 $stream "id" at $options http_stream_read value chunk var
 $chunk "body" at ai_openai_stream_text
 ```
+
+See `examples/showcase/ai_provider_probe/fake_provider.rco` for an offline
+provider executor flow and
+`examples/showcase/ai_provider_probe/local_model_request.rco` for a local
+OpenAI-compatible request shape.

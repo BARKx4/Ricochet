@@ -1,0 +1,41 @@
+"ai/openai" import
+
+"openai" "https://api.example.test/v1" "gpt-fake" ai_provider provider var
+
+messages array
+$messages "Return a short fake-provider response." ai_user_message push! drop
+
+options map
+tools array
+3 0 0 ai_retry_policy retry var
+$provider "gpt-fake" $messages $options $tools $retry ai_chat_request request var
+
+attempts array
+
+[
+  attempt var
+  providerRequest var
+  $attempts $attempt push! drop
+
+  response map
+  $attempt 1 = if
+    $response "status" 503 put! drop
+    $response "body" "{\"error\":{\"message\":\"busy\"}}" put! drop
+  else
+    $response "status" 200 put! drop
+    $response "body" "{\"model\":\"gpt-fake\",\"choices\":[{\"message\":{\"content\":\"fake provider ready\"}}]}" put! drop
+  end
+  $response ok
+] executor var
+
+$request $executor ai_openai_execute_chat result var
+
+$result ok? if
+  summary map
+  $summary "text" $result value "text" at put! drop
+  $summary "attempts" $attempts count put! drop
+  $summary "provider" $result value "provider" at "provider" at put! drop
+  $summary json_encode println
+else
+  $result error json_encode println
+end

@@ -1,0 +1,21 @@
+"ai/openai" import
+
+messages array
+$messages "Return the word ricochet." ai_user_message push! drop
+
+"openai-compatible" "http://127.0.0.1:11434/v1" "llama3.2" ai_provider provider var
+
+$provider "base_url" at "local-dev-token" $provider "model" at $messages ai_openai_chat_request request var
+
+hosts array
+$hosts "127.0.0.1" push! drop
+$request "allowed_hosts" $hosts put! drop
+
+schemes array
+$schemes "http" push! drop
+$request "allowed_schemes" $schemes put! drop
+
+$request 30000 http_timeout value request set
+$request "max_response_bytes" 1048576 put! drop
+
+$request json_encode println

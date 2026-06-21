@@ -4712,6 +4712,122 @@ end
 }
 
 #[tokio::test]
+async fn mvc_controller_imports_ai_package_and_runs_fake_provider_flow() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    let ai_package_dir = project_root.join(".ricochet/packages/ai");
+    fs::create_dir_all(&ai_package_dir).expect("AI package directory should be created");
+    fs::write(
+        ai_package_dir.join("ricochet.toml"),
+        r#"
+[package]
+name = "@ricochet/ai"
+version = "0.1.0"
+"#,
+    )
+    .expect("AI package manifest should be written");
+    fs::copy(
+        repo_root_for_test().join("packages/ricochet_ai/openai.rco"),
+        ai_package_dir.join("openai.rco"),
+    )
+    .expect("AI package source should be copied into the test app");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "ai_package_mvc"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[dependencies.ai]
+path = ".ricochet/packages/ai"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/ai-package" AiPackageController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/AiPackageController.rco"),
+        r#"
+"ai/openai" import
+
+AiPackageController Controller Subclass
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    $messages "hello from mvc" ai_user_message push! drop
+    options map
+    tools array
+    2 0 0 ai_retry_policy retry var
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_request request var
+    attempts array
+
+    [
+      attempt var
+      providerRequest var
+      $attempts $attempt push! drop
+      response map
+      $attempt 1 = if
+        $response "status" 503 put! drop
+        $response "body" "{\"error\":{\"message\":\"busy\"}}" put! drop
+      else
+        $response "status" 200 put! drop
+        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"mvc fake provider\"}}]}" put! drop
+      end
+      $response ok
+    ] executor var
+
+    $request $executor ai_openai_execute_chat result var
+    $result ok? if
+      output map
+      $output "attempts" $attempts count put! drop
+      $output "provider" $result value "provider" at "provider" at put! drop
+      $output "text" $result value "text" at put! drop
+      $output json
+    else
+      $result error "message" at text
+    end
+  ] "index" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/ai-package")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    let payload: serde_json::Value =
+        serde_json::from_str(body).expect("body should be a JSON response");
+
+    assert_eq!(payload["text"], "mvc fake provider");
+    assert_eq!(payload["attempts"], 2);
+    assert_eq!(payload["provider"], "openai");
+}
+
+#[tokio::test]
 async fn serves_logger_capability_to_ricochet_controllers() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -4786,6 +4902,15 @@ fn temp_project_path() -> PathBuf {
 
     base.join("web-mvc")
         .join(format!("project-{}-{nanos}-{sequence}", std::process::id()))
+}
+
+fn repo_root_for_test() -> PathBuf {
+    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    crate_root
+        .parent()
+        .and_then(Path::parent)
+        .expect("crate should live under crates/ricochet_web")
+        .to_path_buf()
 }
 
 fn normalized_test_path(path: &std::path::Path) -> String {

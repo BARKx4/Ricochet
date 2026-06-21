@@ -209,6 +209,10 @@ $provider "gpt-4.1-mini" $messages $options $tools $retry ai_chat_request contra
 $contract $executor ai_openai_execute_chat value "text" at println
 ```
 
+The same executor boundary is used by
+`examples/showcase/ai_provider_probe/fake_provider.rco` for offline provider
+tests and by `local_model_request.rco` for local OpenAI-compatible endpoints.
+
 ## Webview Documents
 
 Build a webview document for desktop UI hosts:

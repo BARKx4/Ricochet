@@ -42,11 +42,17 @@ dependency.
 
 ```powershell
 rco run examples/showcase/ai_provider_probe/main.rco
+rco run examples/showcase/ai_provider_probe/fake_provider.rco
+rco run examples/showcase/ai_provider_probe/local_model_request.rco
 rco run --env-allow OPENAI_API_KEY --http-allow-host api.openai.com examples/showcase/ai_provider_probe/live_probe.rco
 ```
 
-`main.rco` is a dry-run request builder. `live_probe.rco` performs the HTTP
-request only when explicitly granted environment and HTTP capabilities.
+`main.rco` is an OpenAI-compatible dry-run request builder. `fake_provider.rco`
+executes the package provider flow through an injected fake executor, including
+retry and response normalization. `local_model_request.rco` builds a local
+OpenAI-compatible request for endpoints such as Ollama or LM Studio.
+`live_probe.rco` performs the HTTP request only when explicitly granted
+environment and HTTP capabilities.
 
 ## GUI Task Monitor
 
