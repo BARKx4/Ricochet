@@ -5,15 +5,15 @@ use axum::{
 use ricochet_vm::Value;
 use ricochet_web::{
     ActionResult, ActiveRecordError, ControllerRegistry, DatabaseBackend, ModelMapping,
-    MysqlDatabase, OrderPage, PostgresDatabase, RequestContext, SqliteDatabase, WatchTraceEvent,
-    WatchTraceSink,
+    MysqlDatabase, OrderPage, PostgresDatabase, RequestContext, RequestFaultPause,
+    RequestFaultSink, RequestFaultStage, SqliteDatabase, WatchTraceEvent, WatchTraceSink,
 };
 use std::{
     collections::BTreeMap,
     fs,
     io::{Read, Write},
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -24,6 +24,53 @@ use std::{
 use tower::ServiceExt;
 
 static NEXT_TEMP_PROJECT: AtomicU64 = AtomicU64::new(0);
+
+fn write_basic_mvc_project(project_root: &Path, package_name: &str, controller_source: &str) {
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        format!(
+            r#"
+[package]
+name = "{package_name}"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#
+        ),
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/" HomeController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/HomeController.rco"),
+        controller_source,
+    )
+    .expect("controller should be written");
+}
+
+fn recording_request_fault_sink() -> (Arc<Mutex<Vec<RequestFaultPause>>>, RequestFaultSink) {
+    let pauses = Arc::new(Mutex::new(Vec::new()));
+    let sink: RequestFaultSink = {
+        let pauses = Arc::clone(&pauses);
+        Arc::new(move |pause| {
+            pauses
+                .lock()
+                .expect("request fault pauses lock should not be poisoned")
+                .push(pause.clone());
+        })
+    };
+    (pauses, sink)
+}
 
 #[test]
 fn active_record_database_url_smoke_allows_unset_or_postgres_url() {
@@ -1517,6 +1564,198 @@ end
     assert!(
         body.contains("instruction limit exceeded"),
         "expected instruction budget error, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn debug_request_fault_pause_records_controller_fault_before_server_error() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "request_fault_controller",
+        r#"
+HomeController Controller Subclass
+  [
+    1000 sleep
+    "done" text
+  ] "index" Method
+end
+"#,
+    );
+    fs::create_dir_all(project_root.join("app/Views")).expect("views root should be created");
+    let (pauses, sink) = recording_request_fault_sink();
+    let options = ricochet_web::server::ServeOptions {
+        debug: true,
+        ..ricochet_web::server::ServeOptions::default()
+    };
+    let app = ricochet_web::build_app_from_dir_with_options_and_request_fault_sink(
+        &project_root,
+        &options,
+        Some(sink),
+    )
+    .expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        body.contains("sleep capability is not enabled"),
+        "expected controller fault in response, got: {body}"
+    );
+    let pauses = pauses
+        .lock()
+        .expect("request fault pauses lock should not be poisoned");
+    assert_eq!(pauses.len(), 1);
+    let pause = &pauses[0];
+    assert_eq!(pause.method, "GET");
+    assert_eq!(pause.path, "/");
+    assert_eq!(pause.controller, "HomeController");
+    assert_eq!(pause.action, "index");
+    assert_eq!(pause.revision, 0);
+    assert_eq!(pause.stage, RequestFaultStage::Action);
+    assert!(
+        pause.message.contains("sleep capability is not enabled"),
+        "expected controller fault in pause, got: {pause:?}"
+    );
+}
+
+#[tokio::test]
+async fn debug_request_fault_pause_records_view_render_fault_before_server_error() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "request_fault_view",
+        r#"
+HomeController Controller Subclass
+  [
+    "missing/index" view
+  ] "index" Method
+end
+"#,
+    );
+    let (pauses, sink) = recording_request_fault_sink();
+    let options = ricochet_web::server::ServeOptions {
+        debug: true,
+        ..ricochet_web::server::ServeOptions::default()
+    };
+    let app = ricochet_web::build_app_from_dir_with_options_and_request_fault_sink(
+        &project_root,
+        &options,
+        Some(sink),
+    )
+    .expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let pauses = pauses
+        .lock()
+        .expect("request fault pauses lock should not be poisoned");
+    assert_eq!(pauses.len(), 1);
+    let pause = &pauses[0];
+    assert_eq!(pause.stage, RequestFaultStage::View);
+    assert_eq!(pause.controller, "HomeController");
+    assert_eq!(pause.action, "index");
+    assert!(
+        pause.message.contains("failed to resolve"),
+        "expected view render fault in pause, got: {pause:?}"
+    );
+}
+
+#[tokio::test]
+async fn request_fault_pause_sink_is_ignored_when_debug_is_disabled() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "request_fault_debug_off",
+        r#"
+HomeController Controller Subclass
+  [
+    1000 sleep
+    "done" text
+  ] "index" Method
+end
+"#,
+    );
+    let (pauses, sink) = recording_request_fault_sink();
+    let app = ricochet_web::build_app_from_dir_with_options_and_request_fault_sink(
+        &project_root,
+        &ricochet_web::server::ServeOptions::default(),
+        Some(sink),
+    )
+    .expect("build app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        pauses
+            .lock()
+            .expect("request fault pauses lock should not be poisoned")
+            .is_empty(),
+        "request fault hook should be debug-gated"
+    );
+}
+
+#[tokio::test]
+async fn watched_debug_request_fault_pause_survives_runtime_snapshots() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "request_fault_watched",
+        r#"
+HomeController Controller Subclass
+  [
+    1000 sleep
+    "done" text
+  ] "index" Method
+end
+"#,
+    );
+    let (pauses, sink) = recording_request_fault_sink();
+    let options = ricochet_web::server::ServeOptions {
+        debug: true,
+        watch: true,
+        ..ricochet_web::server::ServeOptions::default()
+    };
+    let app = ricochet_web::build_watched_app_from_dir_with_options_and_request_fault_sink(
+        &project_root,
+        &options,
+        Some(sink),
+    )
+    .expect("build watched app");
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let pauses = pauses
+        .lock()
+        .expect("request fault pauses lock should not be poisoned");
+    assert_eq!(pauses.len(), 1);
+    assert_eq!(pauses[0].stage, RequestFaultStage::Action);
+    assert_eq!(pauses[0].revision, 0);
+    assert!(
+        pauses[0]
+            .message
+            .contains("sleep capability is not enabled"),
+        "expected watched request fault in pause, got: {:?}",
+        pauses[0]
     );
 }
 

@@ -20,11 +20,13 @@ pub use manifest::{
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
 pub use server::{
-    build_app_from_dir_with_database, build_served_app_from_dir, build_test_app,
-    build_watched_app_from_dir, build_watched_app_from_dir_with_database,
-    build_watched_app_from_dir_with_database_and_trace, build_watched_app_from_dir_with_trace,
-    install_project_database_runtime, routes_from_dir, serve_app_on_listener, serve_current_dir,
-    ServeOptions, WatchTraceEvent, WatchTraceSink,
+    build_app_from_dir_with_database, build_app_from_dir_with_options_and_request_fault_sink,
+    build_served_app_from_dir, build_test_app, build_watched_app_from_dir,
+    build_watched_app_from_dir_with_database, build_watched_app_from_dir_with_database_and_trace,
+    build_watched_app_from_dir_with_options_and_request_fault_sink,
+    build_watched_app_from_dir_with_trace, install_project_database_runtime, routes_from_dir,
+    serve_app_on_listener, serve_current_dir, RequestFaultPause, RequestFaultSink,
+    RequestFaultStage, ServeOptions, WatchTraceEvent, WatchTraceSink,
 };
 pub use template::{render_template, EscapeMode};
 

@@ -171,9 +171,8 @@ Evidence:
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
 
-Remaining:
+Limit:
 
-- Richer suspended-task debugger views are still polish.
 - Source emission is a readable source-like bytecode view; do not treat it as a
   stable byte-for-byte source reconstruction contract.
 
@@ -205,10 +204,6 @@ Evidence:
 - `crates/ricochet_vm/src/builtins.rs`
 - `docs/reference/app.js`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
-
-Remaining:
-
-- Deeper suspended-task stack inspection in debugger views is future polish.
 
 ## Results, Date, And Time
 
@@ -561,7 +556,10 @@ Implemented:
   fault text, and worker-published frame/source/opcode/stack/locals snapshots;
   DAP task variables expand into those task and frame details.
 - VS Code extension includes TextMate grammar, LSP client, stack trace
-  visualizer, debug configuration, and live debugger stack panel.
+  visualizer, debug configuration, and a live debugger stack panel that expands
+  nested DAP task variables into task detail and worker-frame trees.
+- `rco serve --debug` installs MVC request-fault pause reporting before HTTP 500
+  responses for controller action, view render, and response metadata failures.
 - `rco lsp` provides diagnostics, completion, hover, go-to-definition, document
   symbols, semantic tokens, formatting, quick fixes, prepare-rename, and
   single-document rename.
@@ -583,7 +581,6 @@ Evidence:
 
 Remaining:
 
-- Request-fault pause before MVC HTTP 500 is debugger polish.
 - Dedicated TUI/browser debugger UIs beyond terminal, DAP, and VS Code are
   future polish.
 - Source breakpoints are line-based until stable instruction IDs exist.
@@ -654,8 +651,6 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Richer suspended-task debugger views and request-fault pause before MVC HTTP
-  500.
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
 - Richer AI provider packages, streaming integration, and structured schema
   validation.

@@ -13,6 +13,7 @@ rco debug-adapter
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
 rco emit-source build/app.rcob
+rco serve --debug
 ```
 
 Trace files are JSON arrays. `rco debug --json` streams the same event objects
@@ -95,6 +96,8 @@ Editor integration guidance:
   and the latest worker-frame snapshots published by the task VM.
 - VS Code renders saved trace files with `Ricochet: Run With Stack Visualizer`
   and renders live stopped-state scopes with `Ricochet: Show Debugger Stack`.
+  The live panel expands nested DAP variable references, so the `Tasks` scope
+  can show task detail fields and worker-frame snapshots as a tree.
 - Other IDEs should consume the same event contract through either saved traces,
   `rco debug --json`, or `rco debug-adapter`.
 - Stack visualizers should treat `debug` strings as the stable beta display
@@ -107,6 +110,12 @@ Editor integration guidance:
   stack, current instruction, current frame locals, globals, `self`, and the
   current task snapshot. Terminal sessions can inspect those task snapshots with
   `tasks`, `tasks --tree`, `task <id> stack`, and `task <id> locals`.
+- MVC servers built with debug mode install a request-fault pause hook. Before
+  returning an HTTP 500 for controller action, view render, or response metadata
+  failures, `rco serve --debug` prints a `FAULT request METHOD PATH
+  Controller.action revision=N stage=... ...` line. Embedders can install a
+  `RequestFaultSink` to observe the same `RequestFaultPause` event without
+  blocking request handling.
 - `rco emit-source` can provide a readable source-like bytecode view for
   debugger tooling and recovery workflows, but it is not a stable byte-for-byte
   source reconstruction contract.

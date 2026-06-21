@@ -44,6 +44,7 @@ use crate::template::{render_template, EscapeMode};
 struct AppState {
     runtime: RuntimeSource,
     revisions: RevisionManager,
+    request_fault_sink: Option<RequestFaultSink>,
 }
 
 struct AppRuntime {
@@ -96,6 +97,7 @@ struct WatchedRuntime {
 
 type RuntimeBuilder = Arc<dyn Fn() -> Result<AppRuntime> + Send + Sync>;
 pub type WatchTraceSink = Arc<dyn Fn(&WatchTraceEvent) + Send + Sync>;
+pub type RequestFaultSink = Arc<dyn Fn(&RequestFaultPause) + Send + Sync>;
 const SESSION_COOKIE_NAME: &str = "ricochet_session";
 const SIGNED_SESSION_PREFIX: &str = "v1";
 const ENCRYPTED_SESSION_PREFIX: &str = "v2";
@@ -191,6 +193,34 @@ pub enum WatchTraceEvent {
         changed_files: Vec<PathBuf>,
         message: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestFaultStage {
+    Action,
+    View,
+    Response,
+}
+
+impl RequestFaultStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Action => "action",
+            Self::View => "view",
+            Self::Response => "response",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestFaultPause {
+    pub method: String,
+    pub path: String,
+    pub controller: String,
+    pub action: String,
+    pub revision: u64,
+    pub stage: RequestFaultStage,
+    pub message: String,
 }
 
 enum RenderedAction {
@@ -363,10 +393,23 @@ pub fn build_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
 ) -> Result<Router> {
+    build_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+}
+
+pub fn build_app_from_dir_with_options_and_request_fault_sink(
+    project_root: impl AsRef<Path>,
+    options: &ServeOptions,
+    request_fault_sink: Option<RequestFaultSink>,
+) -> Result<Router> {
     let project_root = project_root.as_ref();
     let vm_setup = model_vm_setup(project_root)?;
     let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
-    build_app_from_dir_internal_with_options(project_root, vm_setup, Some(options))
+    build_app_from_dir_internal_with_options_and_request_fault_sink(
+        project_root,
+        vm_setup,
+        Some(options),
+        request_fault_sink,
+    )
 }
 
 pub fn build_app_from_dir_with_database(
@@ -385,6 +428,14 @@ pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Rout
 pub fn build_watched_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
+) -> Result<Router> {
+    build_watched_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+}
+
+pub fn build_watched_app_from_dir_with_options_and_request_fault_sink(
+    project_root: impl AsRef<Path>,
+    options: &ServeOptions,
+    request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
     let project_root = project_root.as_ref().to_path_buf();
     let builder_root = project_root.clone();
@@ -405,7 +456,12 @@ pub fn build_watched_app_from_dir_with_options(
         )
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder, None)
+    build_watched_app_from_runtime_builder(
+        project_root,
+        builder,
+        None,
+        request_fault_sink_for_options(Some(options), request_fault_sink),
+    )
 }
 
 pub fn build_watched_app_from_dir_with_trace(
@@ -443,7 +499,12 @@ pub fn build_watched_app_from_dir_with_options_and_trace(
         )
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
+    build_watched_app_from_runtime_builder(
+        project_root,
+        builder,
+        Some(trace_sink),
+        request_fault_sink_for_options(Some(options), None),
+    )
 }
 
 pub fn build_watched_app_from_dir_with_database(
@@ -481,7 +542,12 @@ pub fn build_watched_app_from_dir_with_database_and_options(
         )
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder, None)
+    build_watched_app_from_runtime_builder(
+        project_root,
+        builder,
+        None,
+        request_fault_sink_for_options(Some(options), None),
+    )
 }
 
 pub fn build_watched_app_from_dir_with_database_and_trace(
@@ -522,7 +588,12 @@ pub fn build_watched_app_from_dir_with_database_options_and_trace(
         )
     });
 
-    build_watched_app_from_runtime_builder(project_root, builder, Some(trace_sink))
+    build_watched_app_from_runtime_builder(
+        project_root,
+        builder,
+        Some(trace_sink),
+        request_fault_sink_for_options(Some(options), None),
+    )
 }
 
 pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
@@ -537,20 +608,24 @@ pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
 
 fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
     let runtime = Arc::new(build_runtime_from_dir_internal(project_root, vm_setup)?);
-    build_static_router(runtime)
+    build_static_router(runtime, None)
 }
 
-fn build_app_from_dir_internal_with_options(
+fn build_app_from_dir_internal_with_options_and_request_fault_sink(
     project_root: &Path,
     vm_setup: Option<VmSetup>,
     options: Option<&ServeOptions>,
+    request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
     let runtime = Arc::new(build_runtime_from_dir_internal_with_options(
         project_root,
         vm_setup,
         options,
     )?);
-    build_static_router(runtime)
+    build_static_router(
+        runtime,
+        request_fault_sink_for_options(options, request_fault_sink),
+    )
 }
 
 fn build_runtime_from_dir_internal(
@@ -617,6 +692,7 @@ fn build_watched_app_from_runtime_builder(
     project_root: PathBuf,
     builder: RuntimeBuilder,
     trace_sink: Option<WatchTraceSink>,
+    request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
     let runtime = Arc::new(builder()?);
     let signature = project_signature(&project_root)?;
@@ -631,6 +707,7 @@ fn build_watched_app_from_runtime_builder(
     let state = AppState {
         runtime: RuntimeSource::Watched(Arc::new(watched)),
         revisions: RevisionManager::default(),
+        request_fault_sink,
     };
 
     Ok(Router::new()
@@ -639,11 +716,15 @@ fn build_watched_app_from_runtime_builder(
         .with_state(state))
 }
 
-fn build_static_router(runtime: Arc<AppRuntime>) -> Result<Router> {
+fn build_static_router(
+    runtime: Arc<AppRuntime>,
+    request_fault_sink: Option<RequestFaultSink>,
+) -> Result<Router> {
     let routes = runtime.routes.clone();
     let state = AppState {
         runtime: RuntimeSource::Static(runtime),
         revisions: RevisionManager::default(),
+        request_fault_sink,
     };
 
     let mut app = Router::new();
@@ -1182,6 +1263,21 @@ fn stdout_watch_trace_sink() -> WatchTraceSink {
     Arc::new(print_watch_trace_event)
 }
 
+fn stdout_request_fault_sink() -> RequestFaultSink {
+    Arc::new(print_request_fault_pause)
+}
+
+fn request_fault_sink_for_options(
+    options: Option<&ServeOptions>,
+    request_fault_sink: Option<RequestFaultSink>,
+) -> Option<RequestFaultSink> {
+    if options.is_some_and(|options| options.debug) {
+        request_fault_sink.or_else(|| Some(stdout_request_fault_sink()))
+    } else {
+        None
+    }
+}
+
 fn print_watch_trace_event(event: &WatchTraceEvent) {
     match event {
         WatchTraceEvent::Reloaded {
@@ -1209,6 +1305,19 @@ fn print_watch_trace_event(event: &WatchTraceEvent) {
             }
         }
     }
+}
+
+fn print_request_fault_pause(pause: &RequestFaultPause) {
+    println!(
+        "FAULT request {} {} {}.{} revision={} stage={} {}",
+        pause.method,
+        pause.path,
+        pause.controller,
+        pause.action,
+        pause.revision,
+        pause.stage.as_str(),
+        pause.message
+    );
 }
 
 fn install_dynamic_module_loader(vm: &mut Vm, parent: PathBuf) {
@@ -1434,25 +1543,44 @@ async fn render_route(
     controller: String,
     action: String,
     request: WebRequest,
-) -> impl IntoResponse {
+) -> Response {
     let (runtime, revision) = match state.runtime.snapshot(&state.revisions) {
         Ok(snapshot) => snapshot,
         Err(err) => return mvc_error_response(err),
     };
 
+    let fault_method = request.method.clone();
+    let fault_path = request.path.clone();
     match render_action(&runtime, revision, &controller, &action, request) {
-        Ok(action) => action.into_response().unwrap_or_else(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("ricochet MVC error: {err:#}"),
+        Ok(action_result) => action_result.into_response().unwrap_or_else(|err| {
+            mvc_request_fault_response(
+                &state,
+                RequestFaultMeta {
+                    method: &fault_method,
+                    path: &fault_path,
+                    controller: &controller,
+                    action: &action,
+                    revision,
+                    stage: RequestFaultStage::Response,
+                },
+                err,
             )
-                .into_response()
         }),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("ricochet MVC error: {err:#}"),
-        )
-            .into_response(),
+        Err(err) => {
+            let (stage, error) = err.into_parts();
+            mvc_request_fault_response(
+                &state,
+                RequestFaultMeta {
+                    method: &fault_method,
+                    path: &fault_path,
+                    controller: &controller,
+                    action: &action,
+                    revision,
+                    stage,
+                },
+                error,
+            )
+        }
     }
 }
 
@@ -1551,13 +1679,15 @@ async fn render_watched_route(
         return StatusCode::NOT_FOUND.into_response();
     };
 
+    let fault_method = method.to_string();
+    let fault_path = path.clone();
     match render_action(
         &runtime,
         revision,
         &route.controller,
         &route.action,
         WebRequest {
-            method: method.to_string(),
+            method: fault_method.clone(),
             path,
             headers,
             path_params,
@@ -1570,8 +1700,35 @@ async fn render_watched_route(
             upload_streams: request_body.upload_streams,
         },
     ) {
-        Ok(action) => action.into_response().unwrap_or_else(mvc_error_response),
-        Err(err) => mvc_error_response(err),
+        Ok(action_result) => action_result.into_response().unwrap_or_else(|err| {
+            mvc_request_fault_response(
+                &state,
+                RequestFaultMeta {
+                    method: &fault_method,
+                    path: &fault_path,
+                    controller: &route.controller,
+                    action: &route.action,
+                    revision,
+                    stage: RequestFaultStage::Response,
+                },
+                err,
+            )
+        }),
+        Err(err) => {
+            let (stage, error) = err.into_parts();
+            mvc_request_fault_response(
+                &state,
+                RequestFaultMeta {
+                    method: &fault_method,
+                    path: &fault_path,
+                    controller: &route.controller,
+                    action: &route.action,
+                    revision,
+                    stage,
+                },
+                error,
+            )
+        }
     }
 }
 
@@ -1581,6 +1738,55 @@ fn mvc_error_response(err: anyhow::Error) -> Response {
         format!("ricochet MVC error: {err:#}"),
     )
         .into_response()
+}
+
+struct RequestFaultMeta<'a> {
+    method: &'a str,
+    path: &'a str,
+    controller: &'a str,
+    action: &'a str,
+    revision: AppRevision,
+    stage: RequestFaultStage,
+}
+
+fn mvc_request_fault_response(
+    state: &AppState,
+    meta: RequestFaultMeta<'_>,
+    err: anyhow::Error,
+) -> Response {
+    let message = format!("{err:#}");
+    if let Some(sink) = &state.request_fault_sink {
+        sink(&RequestFaultPause {
+            method: meta.method.to_string(),
+            path: meta.path.to_string(),
+            controller: meta.controller.to_string(),
+            action: meta.action.to_string(),
+            revision: meta.revision.id,
+            stage: meta.stage,
+            message: message.clone(),
+        });
+    }
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("ricochet MVC error: {message}"),
+    )
+        .into_response()
+}
+
+struct RequestFaultError {
+    stage: RequestFaultStage,
+    error: anyhow::Error,
+}
+
+impl RequestFaultError {
+    fn new(stage: RequestFaultStage, error: anyhow::Error) -> Self {
+        Self { stage, error }
+    }
+
+    fn into_parts(self) -> (RequestFaultStage, anyhow::Error) {
+        (self.stage, self.error)
+    }
 }
 
 fn mvc_bad_request_response(err: anyhow::Error) -> Response {
@@ -1597,7 +1803,7 @@ fn render_action(
     controller: &str,
     action: &str,
     request: WebRequest,
-) -> Result<RenderedAction> {
+) -> std::result::Result<RenderedAction, RequestFaultError> {
     let cookies = cookies_from_headers(&request.headers);
     let initial_session = session_from_cookies(
         &cookies,
@@ -1624,10 +1830,14 @@ fn render_action(
     ctx.view_data
         .insert("revision".to_string(), Value::Number(revision.id as i64));
 
-    let action = runtime.controllers.call(controller, action, &mut ctx)?;
+    let action = runtime
+        .controllers
+        .call(controller, action, &mut ctx)
+        .map_err(|error| RequestFaultError::new(RequestFaultStage::Action, error))?;
     let mut rendered = match action {
         ActionResult::View(view) => RenderedAction::Html {
-            body: render_view(runtime, &view, &ctx)?,
+            body: render_view(runtime, &view, &ctx)
+                .map_err(|error| RequestFaultError::new(RequestFaultStage::View, error))?,
             status: None,
             headers: BTreeMap::new(),
         },
@@ -1646,7 +1856,8 @@ fn render_action(
             status,
             headers,
         } => RenderedAction::Html {
-            body: render_view(runtime, &view, &ctx)?,
+            body: render_view(runtime, &view, &ctx)
+                .map_err(|error| RequestFaultError::new(RequestFaultStage::View, error))?,
             status,
             headers,
         },
@@ -1688,7 +1899,8 @@ fn render_action(
                 runtime.session_encryption_key.as_ref(),
                 runtime.session_secure,
                 &ctx.headers,
-            )?,
+            )
+            .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?,
         );
     }
 
@@ -2554,13 +2766,23 @@ pub async fn build_served_app_from_dir(
                 Some(vm_setup),
                 &effective_options,
             )?;
-            build_app_from_dir_internal(project_root, vm_setup)
+            build_app_from_dir_internal_with_options_and_request_fault_sink(
+                project_root,
+                vm_setup,
+                Some(&effective_options),
+                None,
+            )
         }
         (false, None) => {
             let vm_setup = model_vm_setup(project_root)?;
             let vm_setup =
                 compose_serve_capability_vm_setup(project_root, vm_setup, &effective_options)?;
-            build_app_from_dir_internal(project_root, vm_setup)
+            build_app_from_dir_internal_with_options_and_request_fault_sink(
+                project_root,
+                vm_setup,
+                Some(&effective_options),
+                None,
+            )
         }
     }
 }

@@ -28,7 +28,15 @@ operation labels, status predicates, optional fault text, and worker
 frame/source/opcode/stack/locals details. `rco debug-adapter` speaks Debug
 Adapter Protocol over stdio, maps source breakpoints and step into/over/out
 controls to the VM debugger, and exposes stack, locals, globals, `self`, and
-expandable task scopes to IDEs.
+expandable task scopes to IDEs. The VS Code live debugger stack panel follows
+nested DAP variable references, so the `Tasks` scope opens into task detail
+fields and worker-frame snapshots instead of stopping at the top-level task
+summary.
+
+`rco serve --debug` also installs an MVC request-fault pause hook. Before a
+controller action, view render, or response metadata failure becomes an HTTP
+500 response, the server prints a `FAULT request ...` line with the method,
+path, controller/action, revision, stage, and error text.
 
 `Ricochet: Run With Stack Visualizer` runs the active `.rco` file with `rco run
 --trace-file` and opens a separate IDE panel for the instruction timeline,

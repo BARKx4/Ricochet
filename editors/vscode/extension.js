@@ -11,6 +11,7 @@ let client;
 let outputChannel;
 let debugStackPanel;
 const pausedDebugSessions = new Set();
+const MAX_DEBUG_VARIABLE_TREE_DEPTH = 4;
 
 function ricochetCommand() {
   const config = vscode.workspace.getConfiguration("ricochet");
@@ -529,12 +530,7 @@ async function readDebuggerSnapshot(session) {
   const scopesResponse = await session.customRequest("scopes", { frameId: frame.id });
   const scopes = [];
   for (const scope of scopesResponse.scopes ?? []) {
-    const variables =
-      scope.variablesReference > 0
-        ? (await session.customRequest("variables", {
-            variablesReference: scope.variablesReference,
-          })).variables ?? []
-        : [];
+    const variables = await readDebuggerVariables(session, scope.variablesReference);
     scopes.push({
       name: scope.name,
       variables,
@@ -544,8 +540,27 @@ async function readDebuggerSnapshot(session) {
   return {
     status: "paused",
     frame,
+    requestFault: null,
     scopes,
   };
+}
+
+async function readDebuggerVariables(session, variablesReference, depth = 0) {
+  if (!variablesReference || depth >= MAX_DEBUG_VARIABLE_TREE_DEPTH) {
+    return [];
+  }
+  const response = await session.customRequest("variables", { variablesReference });
+  const variables = response.variables ?? [];
+  const expanded = [];
+  for (const variable of variables) {
+    const children = await readDebuggerVariables(
+      session,
+      variable.variablesReference,
+      depth + 1,
+    );
+    expanded.push({ ...variable, children });
+  }
+  return expanded;
 }
 
 function debuggerStackHtml(webview) {
@@ -622,6 +637,17 @@ function debuggerStackHtml(webview) {
       color: var(--vscode-symbolIcon-variableForeground);
       overflow-wrap: anywhere;
     }
+    .binding-tree {
+      margin-bottom: 6px;
+    }
+    .binding-children {
+      margin: 4px 0 0 12px;
+      padding-left: 10px;
+      border-left: 1px solid var(--vscode-panel-border);
+    }
+    .request-fault {
+      border-color: var(--vscode-errorForeground);
+    }
   </style>
 </head>
 <body>
@@ -654,6 +680,41 @@ function debuggerStackHtml(webview) {
       return node;
     }
 
+    function renderVariable(variable) {
+      const tree = document.createElement("div");
+      tree.className = "binding-tree";
+      const row = document.createElement("div");
+      row.className = "binding";
+      const name = document.createElement("div");
+      name.className = "binding-name";
+      name.textContent = text(variable.name);
+      const value = valueNode(variable.value);
+      row.append(name, value);
+      tree.appendChild(row);
+
+      const children = variable.children || [];
+      if (children.length > 0) {
+        const childList = document.createElement("div");
+        childList.className = "binding-children";
+        for (const child of children) {
+          childList.appendChild(renderVariable(child));
+        }
+        tree.appendChild(childList);
+      }
+
+      return tree;
+    }
+
+    function requestFaultText(fault) {
+      if (typeof fault === "string") {
+        return fault;
+      }
+      const route = [fault.method, fault.path].filter(Boolean).join(" ");
+      const action = [fault.controller, fault.action].filter(Boolean).join(".");
+      const parts = [route, action, fault.stage, fault.message].filter(Boolean);
+      return parts.length > 0 ? parts.join(" | ") : JSON.stringify(fault);
+    }
+
     function renderSnapshot(snapshot) {
       detail.textContent = "";
       if (!snapshot || !snapshot.frame) {
@@ -668,6 +729,14 @@ function debuggerStackHtml(webview) {
       frameSection.appendChild(valueNode(frame.name + " at line " + frame.line));
       detail.appendChild(frameSection);
 
+      if (snapshot.requestFault) {
+        const faultSection = section("Request Fault");
+        const fault = valueNode(requestFaultText(snapshot.requestFault));
+        fault.classList.add("request-fault");
+        faultSection.appendChild(fault);
+        detail.appendChild(faultSection);
+      }
+
       for (const scope of snapshot.scopes || []) {
         const scopeSection = section(scope.name);
         const variables = scope.variables || [];
@@ -675,14 +744,7 @@ function debuggerStackHtml(webview) {
           scopeSection.appendChild(valueNode("<empty>"));
         } else {
           for (const variable of variables) {
-            const row = document.createElement("div");
-            row.className = "binding";
-            const name = document.createElement("div");
-            name.className = "binding-name";
-            name.textContent = text(variable.name);
-            const value = valueNode(variable.value);
-            row.append(name, value);
-            scopeSection.appendChild(row);
+            scopeSection.appendChild(renderVariable(variable));
           }
         }
         detail.appendChild(scopeSection);

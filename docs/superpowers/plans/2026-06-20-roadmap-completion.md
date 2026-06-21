@@ -536,15 +536,20 @@ CLI smoke tests use a local fake hosted registry server, prove install/search/pu
 
 **Implementation Path:**
 
-- [ ] Add VM task snapshot data structures that can report suspended frames without racing worker threads.
-- [ ] Add debugger JSON event fields for task call stacks and await points.
-- [ ] Add terminal debugger commands such as `task <id> stack`, `task <id> locals`, and `tasks --tree`.
-- [ ] Extend DAP custom variables/scopes for task snapshots.
-- [ ] Add MVC debug flag to pause before error response generation.
-- [ ] Add tests for task stack inspection, failed task inspection, released task behavior, and MVC request-fault pause.
-- [ ] Update VS Code stack panel to display task tree and request-fault status.
-- [ ] Update docs and feature map.
-- [ ] Commit as `feat: enrich debugger task views`.
+- [x] Add VM task snapshot data structures that can report suspended frames without racing worker threads.
+- [x] Add debugger JSON event fields for task call stacks and await points.
+- [x] Add terminal debugger commands such as `task <id> stack`, `task <id> locals`, and `tasks --tree`.
+- [x] Extend DAP custom variables/scopes for task snapshots.
+- [x] Add MVC debug flag to pause before error response generation.
+- [x] Add tests for task stack inspection, failed task inspection, released task behavior, and MVC request-fault pause.
+- [x] Update VS Code stack panel to display task tree and request-fault status.
+- [x] Update docs and feature map.
+- [x] Commit task snapshot slice as `feat: enrich debugger task snapshots`; land request-fault/editor follow-up as the Epic 9 closure slice.
+
+Epic 9 is now functionally complete in the roadmap branch: task snapshots landed
+through terminal, JSON, DAP, and VS Code surfaces, and MVC debug-mode request
+faults now report pause events before HTTP 500 responses. Dedicated TUI/browser
+debugger UIs are tracked separately in Epic 10.
 
 **Verification Gate:**
 

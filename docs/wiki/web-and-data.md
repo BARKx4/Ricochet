@@ -10,6 +10,7 @@ rco serve --allow-process --fs-root .
 rco serve --allow-process --process-root .\scripts
 rco serve --allow-pty --fs-root .
 rco serve --watch
+rco serve --debug
 rco serve --watch --fs-root . --http-allow-host 127.0.0.1
 ```
 
@@ -20,6 +21,11 @@ with `--debug` to print reload trace lines with the new revision and changed
 files. The same filesystem, HTTP, environment, process, and PTY capability
 flags used by ordinary `rco serve` are also honored by watched MVC runtimes and
 by each hot-reloaded revision.
+
+`rco serve --debug` also records MVC request fault pauses. Before a controller
+action, view render, or response metadata failure becomes an HTTP 500 response,
+the server prints a `FAULT request ...` line with the method, path,
+controller/action, revision, stage, and error text.
 
 Use `rco doctor [path]` for a read-only health check of a source file, source
 tree, package project, or MVC app. Add `--capabilities` to print the MVC
