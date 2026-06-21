@@ -7627,10 +7627,18 @@ fn debug_web_serves_live_debugger_shell_on_loopback() {
     );
     assert!(
         response.contains("Ricochet Debug Web")
-            && response.contains("Live loopback debugger session")
             && response.contains("EventSource('/events')")
             && response.contains("data-action=\"step\"")
-            && response.contains("data-breakpoint-action=\"breakpoint_add\""),
+            && response.contains("data-breakpoint-action=\"breakpoint_add\"")
+            && response.contains("id=\"source-line\"")
+            && response.contains("id=\"current-instruction\"")
+            && response.contains("id=\"stack\"")
+            && response.contains("id=\"locals\"")
+            && response.contains("id=\"globals\"")
+            && response.contains("id=\"self-value\"")
+            && response.contains("id=\"tasks\"")
+            && response.contains("id=\"program-output\"")
+            && response.contains("document.addEventListener('keydown'"),
         "debug-web root should render the live debugger shell, got:\n{response}"
     );
 }

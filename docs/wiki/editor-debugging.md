@@ -41,8 +41,16 @@ each pause and accepts `step`, `next`, `out`, `continue`, `abort`,
 `--command ACTION` for deterministic scripted sessions. `rco debug-web
 --smoke` writes the same snapshot as standalone HTML, while `rco debug-web`
 serves a loopback-only browser debugger shell with Server-Sent Events at
-`/events` and JSON controls at `/control`, including runtime line-breakpoint
-add/remove/clear/list actions.
+`/events`, JSON controls at `/control`, grouped panes for source/current
+instruction, stack, locals, globals, `self`, tasks, output, event log, and
+runtime breakpoints, and keyboard shortcuts for step, next, out, continue, and
+abort.
+Breakpoint add/remove/clear/list actions update the same event stream.
+
+Manual Epic 10 debugger verification should cover keyboard navigation, source
+display, stepping, breakpoint edits, variable inspection, and task view in both
+`debug-tui` and `debug-web`. Keep `debug-tui` described as a command-driven
+text UI until a true full-screen terminal layout is implemented and tested.
 
 `rco serve --debug` also installs an MVC request-fault pause hook. Before a
 controller action, view render, or response metadata failure becomes an HTTP

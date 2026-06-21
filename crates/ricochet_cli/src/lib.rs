@@ -8844,23 +8844,42 @@ fn render_debug_web_live_page() -> String {
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
     html.push_str("<title>Ricochet Debug Web</title>");
     html.push_str(
-        "<style>body{font:14px system-ui,sans-serif;margin:24px;max-width:1100px}\
-         header{border-bottom:1px solid #ccc;margin-bottom:16px}\
-         button{margin-right:8px;margin-bottom:8px}\
-         pre{background:#111;color:#f5f5f5;padding:12px;overflow:auto}\
-         .muted{color:#666}</style>",
+        "<style>:root{color-scheme:light dark;--border:#c8d0d8;--panel:#f7f9fb;--ink:#17202a;--muted:#5f6f7c;--accent:#0b6bcb}\
+         body{font:14px system-ui,sans-serif;margin:0;color:var(--ink);background:#fff}\
+         main{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);min-height:100vh}\
+         aside{border-right:1px solid var(--border);padding:16px;background:var(--panel)}\
+         section{border-bottom:1px solid var(--border);padding:14px 16px}\
+         h1{font-size:20px;margin:0 0 4px}h2{font-size:13px;margin:0 0 10px;text-transform:uppercase;color:var(--muted)}\
+         button{margin:0 6px 8px 0;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer}\
+         button:focus,input:focus{outline:2px solid var(--accent);outline-offset:2px}\
+         input{width:84px;margin:0 6px 8px 0;padding:6px;border:1px solid var(--border);border-radius:6px}\
+         pre{background:#111;color:#f5f5f5;padding:12px;overflow:auto;white-space:pre-wrap}\
+         code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}\
+         .value-list{display:grid;gap:6px}.value-row{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}\
+         .muted{color:var(--muted)}@media (max-width:760px){main{display:block}.grid{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--border)}}\
+         @media (prefers-color-scheme:dark){:root{--border:#344452;--panel:#121820;--ink:#e6edf3;--muted:#9fb1c1;--accent:#58a6ff}body,button,input{background:#0d1117;color:var(--ink)}}</style>",
     );
-    html.push_str("</head><body><header><h1>Ricochet Debug Web</h1>");
-    html.push_str("<p class=\"muted\">Live loopback debugger session.</p></header>");
-    html.push_str("<section aria-label=\"Debugger controls\">");
+    html.push_str("</head><body><main><aside><header><h1>Ricochet Debug Web</h1>");
+    html.push_str(
+        "<p id=\"session-status\" class=\"muted\" aria-live=\"polite\">connecting</p></header>",
+    );
+    html.push_str("<section aria-label=\"Debugger controls\"><h2>Controls</h2>");
     for action in ["step", "next", "out", "continue", "abort"] {
+        let shortcut = match action {
+            "step" => "s",
+            "next" => "n",
+            "out" => "o",
+            "continue" => "c",
+            "abort" => "q",
+            _ => "",
+        };
         write!(
             &mut html,
-            "<button type=\"button\" data-action=\"{action}\">{action}</button>"
+            "<button type=\"button\" data-action=\"{action}\" title=\"Shortcut: {shortcut}\">{action}</button>"
         )
         .expect("write to string");
     }
-    html.push_str("</section><section aria-label=\"Breakpoint controls\">");
+    html.push_str("</section><section aria-label=\"Breakpoint controls\"><h2>Breakpoints</h2>");
     html.push_str("<label>Line <input id=\"breakpoint-line\" type=\"number\" min=\"1\"></label>");
     for action in [
         ("breakpoint_add", "add breakpoint"),
@@ -8875,27 +8894,109 @@ fn render_debug_web_live_page() -> String {
         )
         .expect("write to string");
     }
-    html.push_str(
-        "</section><section><h2>Events</h2><pre id=\"events\">connecting...</pre></section>",
-    );
+    html.push_str("<div id=\"breakpoints\" class=\"value-list muted\">none</div>");
+    html.push_str("</section></aside><div>");
+    html.push_str("<section aria-label=\"Source\"><h2>Source</h2><div id=\"source-line\" class=\"muted\">waiting for pause</div></section>");
+    html.push_str("<section aria-label=\"Current instruction\"><h2>Current Instruction</h2><div id=\"current-instruction\" class=\"value-list muted\">waiting for pause</div></section>");
+    html.push_str("<div class=\"grid\"><section aria-label=\"Stack\"><h2>Stack</h2><div id=\"stack\" class=\"value-list muted\">empty</div></section>");
+    html.push_str("<section aria-label=\"Locals\"><h2>Locals</h2><div id=\"locals\" class=\"value-list muted\">empty</div></section>");
+    html.push_str("<section aria-label=\"Globals\"><h2>Globals</h2><div id=\"globals\" class=\"value-list muted\">empty</div></section>");
+    html.push_str("<section aria-label=\"Self\"><h2>Self</h2><div id=\"self-value\" class=\"value-list muted\">nil</div></section>");
+    html.push_str("<section aria-label=\"Tasks\"><h2>Tasks</h2><div id=\"tasks\" class=\"value-list muted\">empty</div></section></div>");
+    html.push_str("<section aria-label=\"Program output\"><h2>Output</h2><pre id=\"program-output\"></pre></section>");
+    html.push_str("<section aria-label=\"Event log\"><h2>Events</h2><pre id=\"events\">connecting...</pre></section>");
+    html.push_str("</div></main>");
     html.push_str(
         "<script>
-const output = document.getElementById('events');
+const eventLog = document.getElementById('events');
+const panes = {
+  status: document.getElementById('session-status'),
+  source: document.getElementById('source-line'),
+  instruction: document.getElementById('current-instruction'),
+  stack: document.getElementById('stack'),
+  locals: document.getElementById('locals'),
+  globals: document.getElementById('globals'),
+  selfValue: document.getElementById('self-value'),
+  tasks: document.getElementById('tasks'),
+  output: document.getElementById('program-output'),
+  breakpoints: document.getElementById('breakpoints'),
+};
 let latestPauseId = null;
 function append(line) {
-  if (output.textContent === 'connecting...') output.textContent = '';
-  output.textContent += line + '\\n';
-  output.scrollTop = output.scrollHeight;
+  if (eventLog.textContent === 'connecting...') eventLog.textContent = '';
+  eventLog.textContent += line + '\\n';
+  eventLog.scrollTop = eventLog.scrollHeight;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>\"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;'
+  }[char]));
+}
+function valueLabel(value) {
+  return value && typeof value === 'object' && 'debug' in value ? value.debug : JSON.stringify(value);
+}
+function renderPairs(items, keyName) {
+  if (!items || items.length === 0) return '<span class=\"muted\">empty</span>';
+  return items.map((item, index) => {
+    const key = keyName ? item[keyName] : `[${index}]`;
+    const value = keyName ? item.value : item;
+    return `<div class=\"value-row\"><span>${escapeHtml(key)}</span><code>${escapeHtml(valueLabel(value))}</code></div>`;
+  }).join('');
+}
+function renderTasks(tasks) {
+  if (!tasks || tasks.length === 0) return '<span class=\"muted\">empty</span>';
+  return tasks.map((task) => {
+    const frames = (task.frames || []).map((frame, index) =>
+      `<div class=\"value-row\"><span>frame ${index}</span><code>${escapeHtml(frame.opcode)}</code></div><div class=\"muted\">${escapeHtml(frame.source)}</div>`
+    ).join('');
+    return `<div><strong>task ${escapeHtml(task.id)}</strong> ${escapeHtml(task.status)} <span class=\"muted\">${escapeHtml(task.operation)}</span>${frames}</div>`;
+  }).join('');
+}
+function renderBreakpoints(payload) {
+  if (!payload.breakpoints || payload.breakpoints.length === 0) {
+    panes.breakpoints.innerHTML = '<span class=\"muted\">none</span>';
+    return;
+  }
+  panes.breakpoints.innerHTML = payload.breakpoints
+    .map((bp) => `<div><code>${escapeHtml(bp.file)}:${escapeHtml(bp.line)}</code></div>`)
+    .join('');
+}
+function renderPaused(payload) {
+  latestPauseId = payload.pause_id;
+  panes.status.textContent = `paused (${payload.reason})`;
+  panes.source.innerHTML = `<code>${escapeHtml(payload.source)}</code><br><strong>${escapeHtml(payload.source_line ?? '')}</strong>`;
+  panes.instruction.innerHTML =
+    `<div class=\"value-row\"><span>frame</span><code>${escapeHtml(payload.frame)}</code></div>` +
+    `<div class=\"value-row\"><span>opcode</span><code>${escapeHtml(payload.opcode)}</code></div>` +
+    `<div class=\"value-row\"><span>pause</span><code>${escapeHtml(payload.pause_id)}</code></div>`;
+  panes.stack.innerHTML = renderPairs(payload.stack);
+  panes.locals.innerHTML = renderPairs(payload.locals, 'name');
+  panes.globals.innerHTML = renderPairs(payload.globals, 'name');
+  panes.selfValue.innerHTML = payload.self
+    ? `<code>${escapeHtml(valueLabel(payload.self))}</code>`
+    : '<span class=\"muted\">nil</span>';
+  panes.tasks.innerHTML = renderTasks(payload.tasks);
+  panes.output.textContent = [payload.stdout, payload.stderr].filter(Boolean).join('\\n');
+}
+function renderPayload(payload) {
+  if (payload.event === 'paused') renderPaused(payload);
+  if (payload.event === 'breakpoints' || payload.event === 'breakpoint_added' || payload.event === 'breakpoint_removed' || payload.event === 'breakpoints_cleared') renderBreakpoints(payload);
+  if (payload.event === 'completed' || payload.event === 'aborted' || payload.event === 'fault') panes.status.textContent = payload.event;
 }
 const events = new EventSource('/events');
 events.addEventListener('debug', (event) => {
   append(event.data);
   try {
     const payload = JSON.parse(event.data);
-    if (payload.event === 'paused') latestPauseId = payload.pause_id;
-  } catch (_) {}
+    renderPayload(payload);
+  } catch (_) {
+    panes.status.textContent = 'event parse error';
+  }
 });
-events.onerror = () => append('{\"event\":\"connection_error\"}');
+events.onerror = () => {
+  panes.status.textContent = 'connection error';
+  append('{\"event\":\"connection_error\"}');
+};
 for (const button of document.querySelectorAll('button[data-action]')) {
   button.addEventListener('click', async () => {
     const body = { action: button.dataset.action };
@@ -8918,8 +9019,18 @@ async function sendControl(body) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  append(JSON.stringify({ event: 'control_response', status: response.status, body: await response.json() }));
+  const responseBody = await response.json();
+  append(JSON.stringify({ event: 'control_response', status: response.status, body: responseBody }));
+  if (!response.ok) panes.status.textContent = responseBody.error || 'control error';
 }
+document.addEventListener('keydown', (event) => {
+  if (event.target instanceof HTMLInputElement || event.ctrlKey || event.metaKey || event.altKey) return;
+  const shortcuts = { s: 'step', n: 'next', o: 'out', c: 'continue', q: 'abort' };
+  const action = shortcuts[event.key.toLowerCase()];
+  if (!action) return;
+  event.preventDefault();
+  document.querySelector(`button[data-action=\"${action}\"]`)?.click();
+});
 </script>",
     );
     html.push_str("</body></html>");

@@ -113,8 +113,11 @@ Editor integration guidance:
   tracked as debugger UI polish.
 - `rco debug-web --smoke` writes the same first-pause snapshot as standalone
   HTML. Without `--smoke`, `rco debug-web` serves a loopback-only browser
-  debugger shell. `GET /events` streams debugger events as Server-Sent Events
-  and replays the latest pause to late subscribers; `POST /control` accepts
+  debugger shell with grouped panes for source, current instruction, stack,
+  locals, globals, `self`, tasks, program output, event log, and runtime
+  breakpoints.
+  `GET /events` streams debugger events as Server-Sent Events and replays the
+  latest pause to late subscribers; `POST /control` accepts
   JSON actions shaped as `{ "action": "step" }` with optional `pause_id` stale
   control protection. Supported actions are `step`, `next`, `out`, `continue`,
   `abort`, `breakpoint_add`, `breakpoint_remove`, `breakpoint_clear`, and
@@ -143,3 +146,26 @@ Editor integration guidance:
   workflows. They are not debugger pause snapshots and they refuse retained
   host resources such as tasks, streams, processes, PTYs, sockets, approvals,
   capabilities, regex internals, and literal secret references.
+
+## Manual Epic 10 debugger verification
+
+Run this checklist before marking the debugger UI epic complete. Use a small
+`.rco` file with at least three source lines, a stack-producing operation, a
+binding/global, and an async task if the task view changed.
+
+- `rco debug-tui --command step --command next --command out --command continue`
+  shows a fresh text snapshot at each pause with the current source line,
+  opcode, stack, locals, globals, and tasks.
+- Interactive `rco debug-tui` accepts keyboard-entered `step`, `next`, `out`,
+  `continue`, `abort`, `break <line>`, `clear <line>`, `clear_breakpoints`, and
+  `breakpoints` commands without claiming to be a curses-style full-screen UI.
+- `rco debug-web` binds only to loopback, renders grouped panes for source,
+  current instruction, stack, locals, globals, `self`, tasks, output, event log,
+  and breakpoints, and keeps those panes in sync while stepping.
+- Browser controls work by click and keyboard shortcuts for step, next, out,
+  continue, and abort; breakpoint add/remove/clear/list controls update the
+  breakpoint pane and the event log.
+- Variable inspection shows stack, locals, globals, `self` when present, and
+  task frame details consistently with `rco debug --json` or DAP scopes.
+- Screenshots are optional and should be committed only after the UI layout and
+  assets are stable enough to avoid noisy churn.

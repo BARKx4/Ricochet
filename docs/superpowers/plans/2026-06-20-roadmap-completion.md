@@ -586,9 +586,9 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 - [x] Build browser UI server bound to `127.0.0.1` by default.
 - [x] Add websocket or SSE event stream for browser UI updates.
 - [x] Add smoke tests for snapshot rendering and loopback bind safety.
-- [ ] Add manual verification checklist for keyboard navigation and source display.
+- [x] Add manual verification checklist for keyboard navigation and source display.
 - [ ] Update docs with screenshots only when stable assets exist.
-- [ ] Commit TUI and browser UI as separate slices.
+- [x] Commit TUI and browser UI as separate slices.
 
 **Verification Gate:**
 
@@ -627,8 +627,19 @@ debugger command parsing, web control request parsing, runtime breakpoint edit
 events, debug event JSON serialization, and debug value labels into
 `crates/ricochet_cli/src/debug_protocol.rs`. TUI, browser, JSON trace, and
 terminal debug surfaces now share that internal module; remaining Epic 10
-polish is richer full-screen TUI layout, browser UI polish, and manual
-keyboard/source-display verification.
+polish at that point was richer full-screen TUI layout, browser UI polish, and
+manual keyboard/source-display verification.
+
+**Progress Note (2026-06-21):** The browser UI polish/manual verification
+slice keeps `debug-web` loopback-only and adds grouped live panes for source,
+current instruction, stack, locals, globals, `self`, tasks, output, event log,
+and runtime breakpoint state, plus keyboard shortcuts for step, next, out,
+continue, and abort. `docs/debugger-integrations.md` now carries the manual
+Epic 10 checklist for keyboard navigation, source display, stepping,
+breakpoints, variable inspection, and task view in both `debug-tui` and
+`debug-web`. No screenshots were added because stable assets are still not
+available; richer full-screen TUI layout and screenshot-quality visual polish
+remain future work.
 
 ---
 
