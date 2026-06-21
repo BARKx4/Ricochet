@@ -555,7 +555,9 @@ Implemented:
   command-driven text session with per-pause snapshots plus `step`, `next`,
   `out`, `continue`, and `abort` controls.
 - `rco debug-web --smoke` renders the same snapshot as standalone HTML, and
-  `rco debug-web` serves it from a loopback-only local server.
+  non-smoke `rco debug-web` serves a loopback-only browser debugger shell with
+  `GET /events` Server-Sent Events and `POST /control` step/next/out/continue/
+  abort actions.
 - DAP supports launch, source breakpoints, continue, pause, step into/over/out,
   stack frames, scopes, variables, output events, and termination.
 - Debug task snapshots include operation labels, status predicates, optional
@@ -587,14 +589,15 @@ Evidence:
 
 Remaining:
 
-- Runtime breakpoint editing, richer full-screen TUI layout, and live browser
-  event/control streaming are future polish.
+- Runtime breakpoint editing, richer full-screen TUI layout, browser interface
+  polish, and shared debugger protocol extraction are future polish.
 - Source breakpoints are line-based until stable instruction IDs exist.
 
 Do not assume:
 
-- Debugger UI is broadly missing; first-pause TUI/browser previews and a
-  command-driven text TUI control loop exist.
+- Debugger UI is broadly missing; first-pause TUI/browser previews, a
+  command-driven text TUI control loop, and a loopback browser SSE/control
+  shell exist.
 - DAP or VS Code debugger surfaces are missing.
 
 ## Build, Packaging, Release, And CI

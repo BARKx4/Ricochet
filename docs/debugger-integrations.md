@@ -112,9 +112,12 @@ Editor integration guidance:
   editing and a richer full-screen layout are still tracked as debugger UI
   polish.
 - `rco debug-web --smoke` writes the same first-pause snapshot as standalone
-  HTML. Without `--smoke`, `rco debug-web` serves that snapshot from a local
-  loopback-only Axum server; live controls and event streaming remain future
-  browser-debugger work.
+  HTML. Without `--smoke`, `rco debug-web` serves a loopback-only browser
+  debugger shell. `GET /events` streams debugger events as Server-Sent Events
+  and replays the latest pause to late subscribers; `POST /control` accepts
+  JSON actions shaped as `{ "action": "step" }` with optional `pause_id` stale
+  control protection. Supported actions are `step`, `next`, `out`, `continue`,
+  and `abort`.
 - Stack visualizers should treat `debug` strings as the stable beta display
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the

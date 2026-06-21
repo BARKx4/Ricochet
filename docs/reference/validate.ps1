@@ -417,6 +417,7 @@ if ($failures.Count -eq 0) {
         "rco debug-tui --smoke app.rco",
         "rco debug-tui --command step --command continue app.rco",
         "rco debug-web --smoke app.rco",
+        "rco debug-web app.rco",
         "rco debug-adapter",
         "rco run --trace-file trace.json app.rco",
         "step``, ``next``, ``out``, ``continue``",

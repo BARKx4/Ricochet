@@ -7580,7 +7580,7 @@ fn debug_web_smoke_renders_read_only_html_snapshot() {
 }
 
 #[test]
-fn debug_web_serves_read_only_snapshot_on_loopback() {
+fn debug_web_serves_live_debugger_shell_on_loopback() {
     let source_path = write_source("2\n3\n+\n");
     let server = DebugWebPreviewServer::start(&source_path, 3);
     assert!(
@@ -7596,11 +7596,99 @@ fn debug_web_serves_read_only_snapshot_on_loopback() {
     );
     assert!(
         response.contains("Ricochet Debug Web")
-            && response.contains("Paused: breakpoint")
-            && response.contains("Number(2)")
-            && response.contains("Read-only debugger web preview"),
-        "debug-web root should render the read-only snapshot, got:\n{response}"
+            && response.contains("Live loopback debugger session")
+            && response.contains("EventSource('/events')")
+            && response.contains("data-action=\"step\""),
+        "debug-web root should render the live debugger shell, got:\n{response}"
     );
+}
+
+#[test]
+fn debug_web_event_stream_and_control_route_drive_session() {
+    let source_path = write_source("2\n3\n+\n");
+    let mut server = DebugWebPreviewServer::start_without_breakpoint(&source_path);
+    let mut events = http_get_stream_for_test(server.base_url(), "/events");
+
+    let first_event = read_http_stream_until_for_test(&mut events, "\"pause_id\":1");
+    assert!(
+        first_event.contains("event: debug")
+            && first_event.contains("\"event\":\"paused\"")
+            && first_event.contains("\"reason\":\"step\"")
+            && first_event.contains("\"source_line\":\"2\""),
+        "debug-web events should bootstrap with the current pause, got:\n{first_event}"
+    );
+
+    let step_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"step","pause_id":1}"#,
+    );
+    assert!(
+        step_response.starts_with("HTTP/1.1 200 OK") && step_response.contains("\"ok\":true"),
+        "debug-web step control should succeed, got:\n{step_response}"
+    );
+    let second_event = read_http_stream_until_for_test(&mut events, "\"pause_id\":2");
+    assert!(
+        second_event.contains("\"source_line\":\"3\""),
+        "debug-web step should advance to the second source line, got:\n{second_event}"
+    );
+
+    let continue_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"continue","pause_id":2}"#,
+    );
+    assert!(
+        continue_response.starts_with("HTTP/1.1 200 OK")
+            && continue_response.contains("\"action\":\"continue\""),
+        "debug-web continue control should succeed, got:\n{continue_response}"
+    );
+    let completed_event = read_http_stream_until_for_test(&mut events, "\"event\":\"completed\"");
+    assert!(
+        completed_event.contains("\"pause_count\":2"),
+        "debug-web should emit a completion event after continue, got:\n{completed_event}"
+    );
+    server.wait_for_exit();
+}
+
+#[test]
+fn debug_web_rejects_stale_pause_id_controls() {
+    let source_path = write_source("2\n3\n+\n");
+    let mut server = DebugWebPreviewServer::start_without_breakpoint(&source_path);
+    let mut events = http_get_stream_for_test(server.base_url(), "/events");
+    let _first_event = read_http_stream_until_for_test(&mut events, "\"pause_id\":1");
+    let step_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"step","pause_id":1}"#,
+    );
+    assert!(
+        step_response.starts_with("HTTP/1.1 200 OK"),
+        "step should succeed, got:\n{step_response}"
+    );
+    let _second_event = read_http_stream_until_for_test(&mut events, "\"pause_id\":2");
+
+    let stale_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"continue","pause_id":1}"#,
+    );
+    assert!(
+        stale_response.starts_with("HTTP/1.1 409 Conflict")
+            && stale_response.contains("stale pause id"),
+        "debug-web should reject stale pause-id controls, got:\n{stale_response}"
+    );
+
+    let abort_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"abort","pause_id":2}"#,
+    );
+    assert!(
+        abort_response.starts_with("HTTP/1.1 200 OK"),
+        "abort should finish the stale-pause test session, got:\n{abort_response}"
+    );
+    server.wait_for_exit();
 }
 
 #[test]
@@ -11936,6 +12024,77 @@ fn http_get_text_for_test(url: &str) -> String {
     response
 }
 
+fn http_get_stream_for_test(base_url: &str, path: &str) -> std::net::TcpStream {
+    let authority = http_authority_for_test(base_url);
+    let mut stream = std::net::TcpStream::connect(&authority)
+        .expect("test HTTP server should accept streaming connection");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test HTTP stream should set read timeout");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .expect("test HTTP streaming request should write");
+    stream
+}
+
+fn read_http_stream_until_for_test(stream: &mut std::net::TcpStream, expected: &str) -> String {
+    let mut response = String::new();
+    let mut buffer = [0_u8; 1024];
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => panic!("HTTP stream ended before {expected:?}; got:\n{response}"),
+            Ok(count) => {
+                response.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                if response.contains(expected) {
+                    return response;
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                panic!("timed out waiting for {expected:?}; got:\n{response}");
+            }
+            Err(error) => panic!("HTTP stream read failed while waiting for {expected:?}: {error}"),
+        }
+    }
+}
+
+fn http_post_json_for_test(base_url: &str, path: &str, body: &str) -> String {
+    let authority = http_authority_for_test(base_url);
+    let mut stream =
+        std::net::TcpStream::connect(&authority).expect("test HTTP server should accept POST");
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .expect("test HTTP POST should write");
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("test HTTP POST response should read");
+    response
+}
+
+fn http_authority_for_test(base_url: &str) -> String {
+    let without_scheme = base_url
+        .strip_prefix("http://")
+        .expect("test URL should use http");
+    without_scheme
+        .trim_end_matches('/')
+        .split_once('/')
+        .map(|(authority, _)| authority)
+        .unwrap_or_else(|| without_scheme.trim_end_matches('/'))
+        .to_string()
+}
+
 #[derive(Clone)]
 struct HostedTestResponse {
     status: u16,
@@ -12097,12 +12256,22 @@ struct DebugWebPreviewServer {
 
 impl DebugWebPreviewServer {
     fn start(source_path: &Path, breakpoint: usize) -> Self {
+        Self::start_with_debug_args(
+            source_path,
+            &["--breakpoint".to_string(), breakpoint.to_string()],
+        )
+    }
+
+    fn start_without_breakpoint(source_path: &Path) -> Self {
+        Self::start_with_debug_args(source_path, &[])
+    }
+
+    fn start_with_debug_args(source_path: &Path, debug_args: &[String]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
             .arg("debug-web")
             .arg("--port")
             .arg("0")
-            .arg("--breakpoint")
-            .arg(breakpoint.to_string())
+            .args(debug_args)
             .arg(source_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -12141,6 +12310,21 @@ impl DebugWebPreviewServer {
 
     fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    fn wait_for_exit(&mut self) {
+        for _ in 0..300 {
+            if self
+                .child
+                .try_wait()
+                .expect("debug-web child status should be readable")
+                .is_some()
+            {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("debug-web server did not exit after the debug session completed");
     }
 }
 

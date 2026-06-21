@@ -584,7 +584,7 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 - [x] Add stepping controls to the TUI command loop.
 - [ ] Add runtime breakpoint editing controls to the TUI.
 - [x] Build browser UI server bound to `127.0.0.1` by default.
-- [ ] Add websocket or SSE event stream for browser UI updates.
+- [x] Add websocket or SSE event stream for browser UI updates.
 - [x] Add smoke tests for snapshot rendering and loopback bind safety.
 - [ ] Add manual verification checklist for keyboard navigation and source display.
 - [ ] Update docs with screenshots only when stable assets exist.
@@ -597,14 +597,24 @@ Automated smoke tests cover startup and protocol behavior; manual verification c
 **Progress Note (2026-06-21):** First preview slice adds `rco debug-tui --smoke`
 and `rco debug-web --smoke` first-pause snapshot renderers. `rco debug-web`
 can serve that read-only snapshot from a loopback-only local server. Runtime
-breakpoint editing, protocol extraction, and live browser events remain open.
+breakpoint editing and protocol extraction remained open after this preview
+slice.
 
 **Progress Note (2026-06-21):** The TUI control slice adds non-smoke
 `rco debug-tui` sessions that render a text snapshot at each pause and accept
 `step`, `next`, `out`, `continue`, or `abort` from stdin, plus repeatable
 `--command ACTION` flags for deterministic scripted sessions. Runtime
-breakpoint editing, protocol extraction, richer full-screen layout, and live
-browser event/control streaming remain open.
+breakpoint editing, protocol extraction, richer full-screen layout, and browser
+event/control streaming remained open after this slice.
+
+**Progress Note (2026-06-21):** The browser live-control slice upgrades
+non-smoke `rco debug-web` from a static snapshot server to a loopback-only
+browser debugger shell. `GET /events` streams debugger events over SSE and
+replays the latest pause for late subscribers; `POST /control` accepts `step`,
+`next`, `out`, `continue`, and `abort` JSON actions with optional `pause_id`
+stale-control protection. Runtime breakpoint editing, shared protocol
+extraction, richer full-screen TUI layout, browser UI polish, and manual
+verification checklist remain open.
 
 ---
 

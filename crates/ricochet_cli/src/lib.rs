@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::convert::Infallible;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
@@ -8,11 +9,21 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use axum::{body::Body, http::Request, response::Html, routing::get, Router};
+use axum::{
+    body::Body,
+    extract::State,
+    http::{Request, StatusCode},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        Html, IntoResponse,
+    },
+    routing::{get, post},
+    Json, Router,
+};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use ricochet_compiler::{
@@ -37,6 +48,7 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use toml_edit::{value, DocumentMut, Item, Table};
 use tower::ServiceExt;
 
@@ -8010,6 +8022,27 @@ struct DebugWebOptions<'a> {
     breakpoints: &'a [usize],
 }
 
+#[derive(Clone)]
+struct DebugWebLiveState {
+    events: tokio::sync::broadcast::Sender<String>,
+    latest_event: Arc<Mutex<Option<String>>>,
+    status: Arc<Mutex<DebugWebSessionStatus>>,
+    actions: Arc<Mutex<std_mpsc::Sender<DebugAction>>>,
+}
+
+#[derive(Default)]
+struct DebugWebSessionStatus {
+    paused: bool,
+    completed: bool,
+    pause_id: usize,
+}
+
+#[derive(Deserialize)]
+struct DebugWebControlRequest {
+    action: String,
+    pause_id: Option<usize>,
+}
+
 fn run_debug_tui(
     path: &str,
     options: DebugTuiOptions<'_>,
@@ -8050,41 +8083,354 @@ async fn run_debug_web(
         Some(SocketAddr::new(ip, options.port))
     };
 
-    let snapshot =
-        collect_debug_ui_snapshot(path, options.step, options.breakpoints, args, capabilities)?;
-    let html = render_debug_web_snapshot(&snapshot);
     if options.smoke {
+        let snapshot =
+            collect_debug_ui_snapshot(path, options.step, options.breakpoints, args, capabilities)?;
+        let html = render_debug_web_snapshot(&snapshot);
         println!("{html}");
         return Ok(());
     }
 
     let bind_address = bind_address.expect("debug-web bind address set for non-smoke mode");
+    run_debug_web_live_session(path, options, args, capabilities, bind_address).await
+}
+
+async fn run_debug_web_live_session(
+    path: &str,
+    options: DebugWebOptions<'_>,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+    bind_address: SocketAddr,
+) -> Result<()> {
+    let (source_path, chunk, mut vm) =
+        prepare_debug_ui_run(path, options.step, options.breakpoints, args, capabilities)?;
+    let (action_tx, action_rx) = std_mpsc::channel::<DebugAction>();
+    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(64);
+    let latest_event = Arc::new(Mutex::new(None::<String>));
+    let status = Arc::new(Mutex::new(DebugWebSessionStatus::default()));
+    let app_state = DebugWebLiveState {
+        events: event_tx.clone(),
+        latest_event: Arc::clone(&latest_event),
+        status: Arc::clone(&status),
+        actions: Arc::new(Mutex::new(action_tx)),
+    };
+
     let listener = tokio::net::TcpListener::bind(bind_address)
         .await
-        .with_context(|| {
-            format!(
-                "failed to bind debug-web server on {}:{}",
-                options.host, options.port
-            )
-        })?;
+        .with_context(|| format!("failed to bind debug-web server on {bind_address}"))?;
     let address = listener
         .local_addr()
         .context("failed to read debug-web listener address")?;
-    let html = Arc::new(html);
-    let app = Router::new().route(
-        "/",
-        get({
-            let html = Arc::clone(&html);
-            move || {
-                let html = Arc::clone(&html);
-                async move { Html((*html).clone()) }
-            }
-        }),
-    );
+    let app = Router::new()
+        .route("/", get(debug_web_live_page))
+        .route("/events", get(debug_web_events))
+        .route("/control", post(debug_web_control))
+        .with_state(app_state);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server_task = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
     println!("Ricochet debug web listening on http://{address}/");
-    axum::serve(listener, app)
-        .await
-        .context("debug-web server stopped unexpectedly")
+
+    let session_result = tokio::task::block_in_place(|| {
+        run_debug_web_vm_session(
+            source_path,
+            chunk,
+            &mut vm,
+            action_rx,
+            event_tx,
+            latest_event,
+            status,
+        )
+    });
+    let _ = shutdown_tx.send(());
+    match server_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) if session_result.is_ok() => {
+            bail!("debug-web server stopped unexpectedly: {error}");
+        }
+        Ok(Err(_)) => {}
+        Err(error) if session_result.is_ok() => {
+            bail!("debug-web server task failed: {error}");
+        }
+        Err(_) => {}
+    }
+    session_result
+}
+
+fn run_debug_web_vm_session(
+    source_path: PathBuf,
+    chunk: Chunk,
+    vm: &mut Vm,
+    action_rx: std_mpsc::Receiver<DebugAction>,
+    event_tx: tokio::sync::broadcast::Sender<String>,
+    latest_event: Arc<Mutex<Option<String>>>,
+    status: Arc<Mutex<DebugWebSessionStatus>>,
+) -> Result<()> {
+    let pause_count = Rc::new(Cell::new(0_usize));
+    let controller_pause_count = Rc::clone(&pause_count);
+    let controller_source_path = source_path.clone();
+    let controller_event_tx = event_tx.clone();
+    let controller_latest_event = Arc::clone(&latest_event);
+    let controller_status = Arc::clone(&status);
+    vm.set_debug_controller(move |pause| {
+        let count = controller_pause_count.get() + 1;
+        controller_pause_count.set(count);
+        let snapshot = debug_ui_snapshot_for_pause(
+            &controller_source_path,
+            pause.clone(),
+            String::new(),
+            String::new(),
+        );
+        {
+            let mut status = controller_status
+                .lock()
+                .expect("debug-web session status lock");
+            status.paused = true;
+            status.completed = false;
+            status.pause_id = count;
+        }
+        publish_debug_web_event(
+            &controller_event_tx,
+            &controller_latest_event,
+            debug_web_pause_event(&snapshot, count),
+        );
+        let action = action_rx.recv().unwrap_or(DebugAction::Abort);
+        {
+            let mut status = controller_status
+                .lock()
+                .expect("debug-web session status lock");
+            status.paused = false;
+        }
+        action
+    });
+
+    let result = vm.run_chunk(&chunk);
+    match result {
+        Ok(()) => {
+            mark_debug_web_session_completed(&status);
+            publish_debug_web_event(
+                &event_tx,
+                &latest_event,
+                json!({
+                    "event": "completed",
+                    "pause_count": pause_count.get(),
+                    "stdout": vm.stdout(),
+                    "stderr": vm.stderr(),
+                }),
+            );
+            Ok(())
+        }
+        Err(ricochet_vm::VmError::ExecutionAborted { .. }) => {
+            mark_debug_web_session_completed(&status);
+            publish_debug_web_event(
+                &event_tx,
+                &latest_event,
+                json!({
+                    "event": "aborted",
+                    "pause_count": pause_count.get(),
+                    "stdout": vm.stdout(),
+                    "stderr": vm.stderr(),
+                }),
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let message = runtime_error_message(vm, &error);
+            mark_debug_web_session_completed(&status);
+            publish_debug_web_event(
+                &event_tx,
+                &latest_event,
+                json!({
+                    "event": "fault",
+                    "pause_count": pause_count.get(),
+                    "message": message,
+                    "stdout": vm.stdout(),
+                    "stderr": vm.stderr(),
+                }),
+            );
+            bail!("{message}")
+        }
+    }
+}
+
+async fn debug_web_live_page() -> Html<String> {
+    Html(render_debug_web_live_page())
+}
+
+async fn debug_web_events(
+    State(state): State<DebugWebLiveState>,
+) -> Sse<impl tokio_stream::Stream<Item = std::result::Result<Event, Infallible>>> {
+    let live_events = state.events.subscribe();
+    let initial = state
+        .latest_event
+        .lock()
+        .expect("debug-web latest event lock")
+        .clone();
+    let (events_tx, events_rx) = tokio::sync::mpsc::channel::<String>(16);
+    tokio::spawn(forward_debug_web_sse_events(
+        initial,
+        live_events,
+        events_tx,
+    ));
+    let stream =
+        ReceiverStream::new(events_rx).map(|data| Ok(Event::default().event("debug").data(data)));
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+async fn forward_debug_web_sse_events(
+    initial: Option<String>,
+    mut live_events: tokio::sync::broadcast::Receiver<String>,
+    events_tx: tokio::sync::mpsc::Sender<String>,
+) {
+    let mut last_sent = None::<String>;
+    if let Some(data) = initial {
+        let terminal = debug_web_event_is_terminal(&data);
+        if send_debug_web_sse_event(&events_tx, data, &mut last_sent)
+            .await
+            .is_err()
+            || terminal
+        {
+            return;
+        }
+    }
+
+    loop {
+        match live_events.recv().await {
+            Ok(data) => {
+                if last_sent.as_deref() == Some(data.as_str()) {
+                    continue;
+                }
+                let terminal = debug_web_event_is_terminal(&data);
+                if send_debug_web_sse_event(&events_tx, data, &mut last_sent)
+                    .await
+                    .is_err()
+                    || terminal
+                {
+                    return;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let data = json!({
+                    "event": "lagged",
+                    "skipped": skipped,
+                })
+                .to_string();
+                if send_debug_web_sse_event(&events_tx, data, &mut last_sent)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+async fn send_debug_web_sse_event(
+    events_tx: &tokio::sync::mpsc::Sender<String>,
+    data: String,
+    last_sent: &mut Option<String>,
+) -> std::result::Result<(), ()> {
+    *last_sent = Some(data.clone());
+    events_tx.send(data).await.map_err(|_| ())
+}
+
+fn debug_web_event_is_terminal(data: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("event")
+                .and_then(serde_json::Value::as_str)
+                .map(|event| matches!(event, "completed" | "aborted" | "fault"))
+        })
+        .unwrap_or(false)
+}
+
+async fn debug_web_control(
+    State(state): State<DebugWebLiveState>,
+    Json(request): Json<DebugWebControlRequest>,
+) -> impl IntoResponse {
+    let Some(action) = debug_action_from_command(&request.action) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "ok": false,
+                "error": "unknown action",
+                "expected": ["step", "next", "out", "continue", "abort"],
+            })),
+        )
+            .into_response();
+    };
+
+    {
+        let mut status = state.status.lock().expect("debug-web session status lock");
+        if status.completed {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "ok": false,
+                    "error": "debug session is already complete",
+                })),
+            )
+                .into_response();
+        }
+        if !status.paused {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "ok": false,
+                    "error": "debug session is not paused",
+                })),
+            )
+                .into_response();
+        }
+        if let Some(pause_id) = request.pause_id {
+            if pause_id != status.pause_id {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({
+                        "ok": false,
+                        "error": "stale pause id",
+                        "current_pause_id": status.pause_id,
+                    })),
+                )
+                    .into_response();
+            }
+        }
+        status.paused = false;
+    }
+
+    let send_result = state
+        .actions
+        .lock()
+        .expect("debug-web action channel lock")
+        .send(action);
+    match send_result {
+        Ok(()) => Json(json!({
+            "ok": true,
+            "action": debug_action_label(action),
+        }))
+        .into_response(),
+        Err(_) => {
+            mark_debug_web_session_completed(&state.status);
+            (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "ok": false,
+                    "error": "debug session is already complete",
+                })),
+            )
+                .into_response()
+        }
+    }
 }
 
 fn collect_debug_ui_snapshot(
@@ -8245,6 +8591,37 @@ fn debug_ui_snapshot_for_pause(
         stdout,
         stderr,
     }
+}
+
+fn debug_web_pause_event(snapshot: &DebugUiSnapshot, pause_id: usize) -> serde_json::Value {
+    let mut value = debug_event_json(&DebugEvent::Paused(snapshot.pause.clone()));
+    if let serde_json::Value::Object(fields) = &mut value {
+        fields.insert("pause_id".to_string(), json!(pause_id));
+        fields.insert("source_line".to_string(), json!(snapshot.source_line));
+        if !snapshot.stdout.is_empty() {
+            fields.insert("stdout".to_string(), json!(snapshot.stdout));
+        }
+        if !snapshot.stderr.is_empty() {
+            fields.insert("stderr".to_string(), json!(snapshot.stderr));
+        }
+    }
+    value
+}
+
+fn publish_debug_web_event(
+    events: &tokio::sync::broadcast::Sender<String>,
+    latest_event: &Arc<Mutex<Option<String>>>,
+    value: serde_json::Value,
+) {
+    let data = value.to_string();
+    *latest_event.lock().expect("debug-web latest event lock") = Some(data.clone());
+    let _ = events.send(data);
+}
+
+fn mark_debug_web_session_completed(status: &Arc<Mutex<DebugWebSessionStatus>>) {
+    let mut status = status.lock().expect("debug-web session status lock");
+    status.paused = false;
+    status.completed = true;
 }
 
 fn debug_source_line(source_path: &Path, pause: &DebugPause) -> Option<String> {
@@ -8422,7 +8799,68 @@ fn render_debug_web_snapshot(snapshot: &DebugUiSnapshot) -> String {
         )
         .expect("write to string");
     }
-    html.push_str("<p class=\"muted\">Read-only debugger web preview. Interactive stepping and live event streaming are the next Epic 10 slice.</p>");
+    html.push_str("<p class=\"muted\">Read-only debugger web preview. Run without --smoke for live loopback controls and SSE events.</p>");
+    html.push_str("</body></html>");
+    html
+}
+
+fn render_debug_web_live_page() -> String {
+    let mut html = String::new();
+    html.push_str("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+    html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+    html.push_str("<title>Ricochet Debug Web</title>");
+    html.push_str(
+        "<style>body{font:14px system-ui,sans-serif;margin:24px;max-width:1100px}\
+         header{border-bottom:1px solid #ccc;margin-bottom:16px}\
+         button{margin-right:8px;margin-bottom:8px}\
+         pre{background:#111;color:#f5f5f5;padding:12px;overflow:auto}\
+         .muted{color:#666}</style>",
+    );
+    html.push_str("</head><body><header><h1>Ricochet Debug Web</h1>");
+    html.push_str("<p class=\"muted\">Live loopback debugger session.</p></header>");
+    html.push_str("<section aria-label=\"Debugger controls\">");
+    for action in ["step", "next", "out", "continue", "abort"] {
+        write!(
+            &mut html,
+            "<button type=\"button\" data-action=\"{action}\">{action}</button>"
+        )
+        .expect("write to string");
+    }
+    html.push_str(
+        "</section><section><h2>Events</h2><pre id=\"events\">connecting...</pre></section>",
+    );
+    html.push_str(
+        "<script>
+const output = document.getElementById('events');
+let latestPauseId = null;
+function append(line) {
+  if (output.textContent === 'connecting...') output.textContent = '';
+  output.textContent += line + '\\n';
+  output.scrollTop = output.scrollHeight;
+}
+const events = new EventSource('/events');
+events.addEventListener('debug', (event) => {
+  append(event.data);
+  try {
+    const payload = JSON.parse(event.data);
+    if (payload.event === 'paused') latestPauseId = payload.pause_id;
+  } catch (_) {}
+});
+events.onerror = () => append('{\"event\":\"connection_error\"}');
+for (const button of document.querySelectorAll('button[data-action]')) {
+  button.addEventListener('click', async () => {
+    const body = { action: button.dataset.action };
+    if (latestPauseId !== null) body.pause_id = latestPauseId;
+    const response = await fetch('/control', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    append(JSON.stringify({ event: 'control_response', status: response.status, body: await response.json() }));
+  });
+}
+</script>",
+    );
     html.push_str("</body></html>");
     html
 }
@@ -8522,6 +8960,16 @@ fn debug_action_from_command(command: &str) -> Option<DebugAction> {
         "c" | "continue" => Some(DebugAction::Continue),
         "a" | "abort" | "q" | "quit" => Some(DebugAction::Abort),
         _ => None,
+    }
+}
+
+fn debug_action_label(action: DebugAction) -> &'static str {
+    match action {
+        DebugAction::Step => "step",
+        DebugAction::StepOver => "next",
+        DebugAction::StepOut => "out",
+        DebugAction::Continue => "continue",
+        DebugAction::Abort => "abort",
     }
 }
 
