@@ -7183,7 +7183,7 @@ fn run_debug_breakpoint_prints_task_tree_and_task_stack() {
         .expect("temp source directory should be created");
     fs::write(
         &source_path,
-        "[ 100 sleep 40 2 + ] spawn task var\n20 sleep\ntask get id\ntask get await\n",
+        "[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n",
     )
     .expect("temp source should be written");
 
@@ -7304,9 +7304,7 @@ fn debug_json_streams_json_lines_events() {
 
 #[test]
 fn debug_json_pause_includes_task_snapshot() {
-    let source_path = write_source(
-        "[ 100 sleep 40 2 + ] spawn task var\n20 sleep\ntask get id\ntask get await\n",
-    );
+    let source_path = write_source("[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("debug")
         .arg("--json")
@@ -7442,10 +7440,9 @@ name get
 fn debug_adapter_serves_task_snapshot_variables() {
     let source_path = write_source(
         r#"
-[ 100 sleep 40 2 + ] spawn task var
-20 sleep
+[ 5000 sleep 40 2 + ] spawn task var
+50 sleep
 task get id
-task get await
 "#,
     );
     let source = path_to_slash_for_test(&source_path);
