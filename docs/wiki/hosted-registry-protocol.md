@@ -4,13 +4,16 @@ This document specifies the Ricochet hosted package registry protocol target for
 the Epic 8 implementation work. It does not replace the current local and
 static registry behavior. Existing `rco publish PACKAGE --registry PATH`,
 `rco registry rebuild PATH`, `rco registry check PATH`,
+`rco publish PACKAGE --registry-url URL --token-env RICOCHET_REGISTRY_TOKEN`,
+`rco registry yank PACKAGE VERSION --registry-url URL --token-env RICOCHET_REGISTRY_TOKEN`,
 `rco search QUERY --registry-url URL`, and static
 `ricochet-static-registry-v1` indexes remain supported.
 
-Ricochet currently implements read-only hosted client operations for discovery,
-search, metadata fetch, archive fetch, install, and lockfile verification.
-Publish, yank, authentication, a real hosted server/reference implementation,
-and mirror export remain future work.
+Ricochet currently implements hosted client operations for discovery, search,
+metadata fetch, archive fetch, install, lockfile verification, publish, and
+yank. A real hosted server/reference implementation, mirror export, and hosted
+same-version replacement tests against the real server/reference path remain
+future work.
 
 ## Protocol Identity
 
@@ -42,8 +45,9 @@ Discovery responses have this shape:
 }
 ```
 
-The read client fetches `GET /v1` before hosted search or install operations.
-`base_url` is the registry base used to resolve later endpoints and artifacts.
+The client fetches `GET /v1` before hosted search, install, publish, or yank
+operations. `base_url` is the registry base used to resolve later endpoints and
+artifacts.
 For beta/local fake registries the client also accepts discovery without
 `base_url` and uses the requested base URL.
 
@@ -168,6 +172,12 @@ mirrorable and allow static exports to preserve the existing index behavior.
 
 ## Publish
 
+Client publish uses:
+
+```powershell
+rco publish PACKAGE --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN
+```
+
 The publish endpoint uses `multipart/form-data`:
 
 - `metadata`: JSON with media type
@@ -206,6 +216,12 @@ later publishes require an authorized publisher for that package. A publish to
 an existing version returns `409 Conflict` with code `version_exists`.
 
 ## Yank
+
+Client yank uses:
+
+```powershell
+rco registry yank PACKAGE VERSION --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN
+```
 
 Yanking marks a version unavailable without deleting metadata or artifacts. The
 published version record remains immutable: archive paths, archive integrity,
@@ -350,7 +366,7 @@ Later Epic 8 slices should implement the protocol in this order:
    verification order, lockfile invariants, and HTTPS enforcement. Implemented.
 2. Publish and yank client: secret-reference bearer tokens, package/scoped
    authorization errors, duplicate-version rejection, provenance/signature
-   upload, and yanking.
+   upload, and yanking. Implemented with local fake-server client tests.
 3. Hosted server/reference implementation for operational smoke tests beyond
    the local fake-server client tests.
 4. Mirror command that exports hosted metadata and artifacts to

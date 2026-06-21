@@ -60,6 +60,7 @@ const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
+const CLI_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
 #[command(about = "Ricochet language toolchain")]
@@ -258,7 +259,19 @@ enum Command {
             value_name = "PATH",
             help = "Publish to a local file-backed package registry"
         )]
-        registry: PathBuf,
+        registry: Option<PathBuf>,
+        #[arg(
+            long = "registry-url",
+            value_name = "URL",
+            help = "Publish to a hosted registry base URL"
+        )]
+        registry_url: Option<String>,
+        #[arg(
+            long = "token-env",
+            value_name = "NAME",
+            help = "Resolve the hosted registry bearer token from environment variable NAME"
+        )]
+        token_env: Option<String>,
         #[arg(
             long = "provenance-file",
             value_name = "PATH",
@@ -482,8 +495,29 @@ enum MigrateCommand {
 
 #[derive(Debug, Subcommand)]
 enum RegistryCommand {
-    Rebuild { path: PathBuf },
-    Check { path: PathBuf },
+    Rebuild {
+        path: PathBuf,
+    },
+    Check {
+        path: PathBuf,
+    },
+    Yank {
+        package: String,
+        #[arg(value_name = "VERSION")]
+        package_version: String,
+        #[arg(
+            long = "registry-url",
+            value_name = "URL",
+            help = "Use a hosted registry base URL"
+        )]
+        registry_url: String,
+        #[arg(
+            long = "token-env",
+            value_name = "NAME",
+            help = "Resolve the hosted registry bearer token from environment variable NAME"
+        )]
+        token_env: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -727,6 +761,30 @@ pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+fn run_on_cli_parse_stack<T, F>(name: &'static str, f: F) -> T
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .name(name.to_string())
+        .stack_size(CLI_PARSE_STACK_SIZE)
+        .spawn(f)
+        .expect("failed to spawn CLI parser thread");
+    match handle.join() {
+        Ok(value) => value,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn parse_cli() -> Cli {
+    run_on_cli_parse_stack("rco-cli-parse", Cli::parse)
+}
+
+fn parse_cli_from(args: Vec<OsString>) -> Cli {
+    run_on_cli_parse_stack("rco-cli-parse-from", move || Cli::parse_from(args))
+}
+
 pub async fn run_cli() -> Result<()> {
     if let Some(app) = embedded_app_from_current_exe()? {
         match app.payload {
@@ -765,7 +823,7 @@ pub async fn run_cli() -> Result<()> {
         return Ok(());
     }
 
-    let cli = Cli::parse();
+    let cli = parse_cli();
     match cli.command {
         Command::New { path, with_sqlite } => {
             new_project(Path::new(&path), NewProjectOptions { with_sqlite })?
@@ -904,15 +962,19 @@ pub async fn run_cli() -> Result<()> {
         Command::Publish {
             path,
             registry,
+            registry_url,
+            token_env,
             provenance_file,
             signature_file,
             signature_kind,
             dry_run,
         } => publish_package(
             path.as_deref(),
-            &registry,
+            registry.as_deref(),
+            registry_url.as_deref(),
             PublishRegistryOptions {
                 dry_run,
+                token_env: token_env.as_deref(),
                 provenance_file: provenance_file.as_deref(),
                 signature_file: signature_file.as_deref(),
                 signature_kind: signature_kind.as_deref(),
@@ -921,6 +983,12 @@ pub async fn run_cli() -> Result<()> {
         Command::Registry { command } => match command {
             RegistryCommand::Rebuild { path } => static_registry::rebuild(&path)?,
             RegistryCommand::Check { path } => static_registry::check(&path)?,
+            RegistryCommand::Yank {
+                package,
+                package_version,
+                registry_url,
+                token_env,
+            } => hosted_registry::yank(&package, &package_version, &registry_url, &token_env)?,
         },
         Command::Search {
             query,
@@ -1105,11 +1173,11 @@ fn dispatch_repl_with_image(executable: OsString, args: Vec<OsString>) -> Result
         index += 1;
     }
 
-    let cli = Cli::parse_from(
-        std::iter::once(executable)
-            .chain(std::iter::once(OsString::from("repl")))
-            .chain(filtered),
-    );
+    let cli_args = std::iter::once(executable)
+        .chain(std::iter::once(OsString::from("repl")))
+        .chain(filtered)
+        .collect::<Vec<_>>();
+    let cli = parse_cli_from(cli_args);
     let Command::Repl {
         debug,
         capabilities,
@@ -1232,10 +1300,13 @@ fn is_flag(value: &OsString) -> bool {
 }
 
 fn print_root_help_with_manual_commands() -> Result<()> {
-    let mut bytes = Vec::new();
-    Cli::command()
-        .write_help(&mut bytes)
-        .context("failed to render CLI help")?;
+    let bytes = run_on_cli_parse_stack("rco-cli-help", || {
+        let mut bytes = Vec::new();
+        Cli::command()
+            .write_help(&mut bytes)
+            .context("failed to render CLI help")?;
+        Ok::<_, anyhow::Error>(bytes)
+    })?;
     let mut help = String::from_utf8(bytes).context("CLI help was not valid UTF-8")?;
     let manual_commands =
         "  image            Save and inspect persistent Ricochet VM images\n  emit-source      Emit readable Ricochet-like source from source or bytecode\n";
@@ -4712,6 +4783,7 @@ struct RegistryPackage {
 #[derive(Debug, Default)]
 struct PublishRegistryOptions<'a> {
     dry_run: bool,
+    token_env: Option<&'a str>,
     provenance_file: Option<&'a Path>,
     signature_file: Option<&'a Path>,
     signature_kind: Option<&'a str>,
@@ -4769,9 +4841,20 @@ fn add_dependency(
 
 fn publish_package(
     path: Option<&str>,
-    registry: &Path,
+    registry: Option<&Path>,
+    registry_url: Option<&str>,
     options: PublishRegistryOptions<'_>,
 ) -> Result<()> {
+    if registry.is_some() == registry_url.is_some() {
+        bail!("use exactly one of --registry or --registry-url for publish");
+    }
+    if registry.is_some() && options.token_env.is_some() {
+        bail!("--token-env can only be used with hosted --registry-url publish");
+    }
+    if registry_url.is_some() && options.token_env.is_none() && !options.dry_run {
+        bail!("--token-env is required for hosted publish unless --dry-run is used");
+    }
+
     let manifest_path = project_manifest_path_for_command("publish", path)?;
     let package_root = manifest_path
         .parent()
@@ -4787,13 +4870,6 @@ fn publish_package(
         .as_deref()
         .with_context(|| format!("{} must include [package] version", manifest_path.display()))?;
     validate_package_version(version)?;
-
-    let registry_root = absolute_path_from_current(registry)?;
-    let package_root_canonical = fs::canonicalize(package_root)
-        .with_context(|| format!("failed to resolve {}", package_root.display()))?;
-    if registry_root.starts_with(&package_root_canonical) {
-        bail!("publish registry must not be inside the package being published");
-    }
 
     if options.signature_kind.is_some() && options.signature_file.is_none() {
         bail!("--signature-kind requires --signature-file");
@@ -4818,6 +4894,29 @@ fn publish_package(
     )?;
 
     let package_integrity = package_tree_integrity(package_root)?;
+    if let Some(registry_url) = registry_url {
+        return hosted_registry::publish(hosted_registry::HostedPublishOptions {
+            package_root,
+            package: name,
+            version,
+            package_integrity: &package_integrity,
+            registry_url,
+            token_env: options.token_env,
+            dry_run: options.dry_run,
+            provenance: provenance.as_ref(),
+            signature: signature.as_ref(),
+            signature_kind,
+        });
+    }
+
+    let registry = registry.expect("publish target cardinality checked above");
+    let registry_root = absolute_path_from_current(registry)?;
+    let package_root_canonical = fs::canonicalize(package_root)
+        .with_context(|| format!("failed to resolve {}", package_root.display()))?;
+    if registry_root.starts_with(&package_root_canonical) {
+        bail!("publish registry must not be inside the package being published");
+    }
+
     let version_root = registry_root
         .join(registry_package_relative_path(name))
         .join(version);

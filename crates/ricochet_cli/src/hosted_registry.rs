@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -6,16 +7,19 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use reqwest::blocking::Client;
 use reqwest::blocking::Response;
+use reqwest::Method;
 use reqwest::Url;
 use semver::{Version, VersionReq};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
-    bytes_integrity, package_tree_integrity, package_version_satisfies, project_dependency_path,
-    read_package_metadata, static_registry, validate_package_integrity, validate_package_version,
-    validate_registry_package_name, validate_signature_kind, DependencySpec, LockedPackage,
+    bytes_integrity, hex_digest, package_tree_integrity, package_version_satisfies,
+    project_dependency_path, read_package_metadata, static_registry, validate_package_integrity,
+    validate_package_version, validate_registry_package_name, validate_signature_kind,
+    DependencySpec, LockedPackage, PublishArtifact,
 };
 
 const PROTOCOL: &str = "ricochet-hosted-registry-v1";
@@ -23,6 +27,10 @@ const DISCOVERY_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.v1+json";
 const SEARCH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.search.v1+json";
 const PACKAGE_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.package.v1+json";
 const ARCHIVE_MEDIA_TYPE: &str = "application/vnd.ricochet.package.archive.v1+gzip";
+const PUBLISH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.publish.v1+json";
+const ERROR_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.error.v1+json";
+const PUBLISH_ACCEPT: &str = "application/vnd.ricochet.registry.package.v1+json, application/vnd.ricochet.registry.v1+json, application/vnd.ricochet.registry.error.v1+json";
+const YANK_ACCEPT: &str = "application/vnd.ricochet.registry.package.v1+json, application/vnd.ricochet.registry.error.v1+json";
 const MAX_METADATA_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -94,6 +102,59 @@ enum HostedCacheValidation<'a> {
     Extracted,
 }
 
+#[derive(Debug)]
+pub(super) struct HostedPublishOptions<'a> {
+    pub(super) package_root: &'a Path,
+    pub(super) package: &'a str,
+    pub(super) version: &'a str,
+    pub(super) package_integrity: &'a str,
+    pub(super) registry_url: &'a str,
+    pub(super) token_env: Option<&'a str>,
+    pub(super) dry_run: bool,
+    pub(super) provenance: Option<&'a PublishArtifact>,
+    pub(super) signature: Option<&'a PublishArtifact>,
+    pub(super) signature_kind: Option<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
+struct HostedPublishMetadata<'a> {
+    protocol: &'static str,
+    package: &'a str,
+    version: &'a str,
+    package_integrity: &'a str,
+    archive_integrity: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provenance_integrity: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_integrity: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_kind: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedErrorEnvelope {
+    error: Option<HostedErrorBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedErrorBody {
+    code: Option<String>,
+    message: Option<String>,
+    details: Option<serde_json::Value>,
+}
+
+struct HostedMutationRequest {
+    method: Method,
+    url: Url,
+    accept: &'static str,
+    token: String,
+    idempotency_key: String,
+    content_type: Option<String>,
+    body: Vec<u8>,
+    label: &'static str,
+    duplicate_conflict_hint: bool,
+}
+
 pub(super) fn is_hosted_source(registry: &str) -> bool {
     registry.starts_with("https://") || registry.starts_with("http://")
 }
@@ -118,6 +179,165 @@ pub(super) fn validate_base_url(registry_url: &str) -> Result<String> {
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+pub(super) fn publish(options: HostedPublishOptions<'_>) -> Result<()> {
+    validate_registry_package_name(options.package)?;
+    validate_package_version(options.version)?;
+    validate_base_url(options.registry_url)?;
+    if let Some(token_env) = options.token_env {
+        validate_token_env_name(token_env)?;
+    }
+
+    if options.dry_run {
+        println!(
+            "would publish {} {} to {} with integrity {}",
+            options.package, options.version, options.registry_url, options.package_integrity
+        );
+        if let Some(provenance) = options.provenance {
+            println!("would attach provenance {}", provenance.integrity);
+        }
+        if let Some(signature) = options.signature {
+            println!(
+                "would attach {} signature {}",
+                options.signature_kind.unwrap_or("detached"),
+                signature.integrity
+            );
+        }
+        return Ok(());
+    }
+
+    let token_env = options
+        .token_env
+        .context("--token-env is required for hosted publish unless --dry-run is used")?;
+    let token = resolve_bearer_token(token_env)?;
+    let archive_bytes = static_registry::create_package_archive_bytes(options.package_root)?;
+    let archive_integrity = bytes_integrity(&archive_bytes);
+    let provenance_bytes = options
+        .provenance
+        .map(read_publish_artifact_bytes)
+        .transpose()?;
+    let signature_bytes = options
+        .signature
+        .map(read_publish_artifact_bytes)
+        .transpose()?;
+    let discovery = discover(options.registry_url)?;
+    let publish_url = endpoint_url(
+        &discovery.base_url,
+        &[
+            "v1",
+            "packages",
+            options.package,
+            "versions",
+            options.version,
+        ],
+    )?;
+    let metadata = HostedPublishMetadata {
+        protocol: PROTOCOL,
+        package: options.package,
+        version: options.version,
+        package_integrity: options.package_integrity,
+        archive_integrity: &archive_integrity,
+        provenance_integrity: options
+            .provenance
+            .map(|artifact| artifact.integrity.as_str()),
+        signature_integrity: options
+            .signature
+            .map(|artifact| artifact.integrity.as_str()),
+        signature_kind: options.signature_kind,
+    };
+    let metadata_bytes =
+        serde_json::to_vec(&metadata).context("failed to encode hosted publish metadata")?;
+    let idempotency_key = generate_idempotency_key()?;
+    let boundary = format!("ricochet-{idempotency_key}");
+    let mut body = Vec::new();
+    push_multipart_part(
+        &mut body,
+        &boundary,
+        "metadata",
+        None,
+        PUBLISH_MEDIA_TYPE,
+        &metadata_bytes,
+    );
+    push_multipart_part(
+        &mut body,
+        &boundary,
+        "archive",
+        Some("package.tar.gz"),
+        ARCHIVE_MEDIA_TYPE,
+        &archive_bytes,
+    );
+    if let (Some(provenance), Some(bytes)) = (options.provenance, provenance_bytes.as_deref()) {
+        push_multipart_part(
+            &mut body,
+            &boundary,
+            "provenance",
+            Some(provenance.target),
+            "application/octet-stream",
+            bytes,
+        );
+    }
+    if let (Some(signature), Some(bytes)) = (options.signature, signature_bytes.as_deref()) {
+        push_multipart_part(
+            &mut body,
+            &boundary,
+            "signature",
+            Some(signature.target),
+            "application/octet-stream",
+            bytes,
+        );
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    send_mutation(HostedMutationRequest {
+        method: Method::PUT,
+        url: publish_url,
+        accept: PUBLISH_ACCEPT,
+        token,
+        idempotency_key,
+        content_type: Some(content_type),
+        body,
+        label: "hosted registry publish response",
+        duplicate_conflict_hint: true,
+    })?;
+
+    println!(
+        "published {} {} to {} with integrity {}",
+        options.package, options.version, discovery.base_url, options.package_integrity
+    );
+    Ok(())
+}
+
+pub(super) fn yank(
+    package: &str,
+    version: &str,
+    registry_url: &str,
+    token_env: &str,
+) -> Result<()> {
+    validate_registry_package_name(package)?;
+    validate_package_version(version)?;
+    validate_base_url(registry_url)?;
+    validate_token_env_name(token_env)?;
+    let token = resolve_bearer_token(token_env)?;
+    let discovery = discover(registry_url)?;
+    let yank_url = endpoint_url(
+        &discovery.base_url,
+        &["v1", "packages", package, "versions", version, "yank"],
+    )?;
+    let idempotency_key = generate_idempotency_key()?;
+    send_mutation(HostedMutationRequest {
+        method: Method::POST,
+        url: yank_url,
+        accept: YANK_ACCEPT,
+        token,
+        idempotency_key,
+        content_type: None,
+        body: Vec::new(),
+        label: "hosted registry yank response",
+        duplicate_conflict_hint: false,
+    })?;
+    println!("yanked {package} {version} from {}", discovery.base_url);
+    Ok(())
 }
 
 pub(super) fn search(query: &str, registry_url: &str) -> Result<()> {
@@ -574,6 +794,242 @@ fn refresh_spec_registry(spec: &mut DependencySpec, registry: &str) {
     };
 }
 
+fn validate_token_env_name(name: &str) -> Result<&str> {
+    if name.is_empty() {
+        bail!("environment variable name must not be empty");
+    }
+    if name.contains('=') {
+        bail!("environment variable name must not contain =");
+    }
+    if name.contains('\0') {
+        bail!("environment variable name must not contain NUL");
+    }
+    Ok(name)
+}
+
+fn resolve_bearer_token(name: &str) -> Result<String> {
+    validate_token_env_name(name)?;
+    let token = env::var(name)
+        .with_context(|| format!("hosted registry token env var {name} is not set"))?;
+    if token.is_empty() {
+        bail!("hosted registry token env var {name} is empty");
+    }
+    Ok(token)
+}
+
+fn read_publish_artifact_bytes(artifact: &PublishArtifact) -> Result<Vec<u8>> {
+    let bytes = fs::read(&artifact.source)
+        .with_context(|| format!("failed to read {}", artifact.source.display()))?;
+    let integrity = bytes_integrity(&bytes);
+    if integrity != artifact.integrity {
+        bail!(
+            "publish artifact {} changed while reading: expected {}, got {}",
+            artifact.target,
+            artifact.integrity,
+            integrity
+        );
+    }
+    Ok(bytes)
+}
+
+fn generate_idempotency_key() -> Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("failed to generate idempotency key: {error}"))?;
+    Ok(hex_digest(&bytes))
+}
+
+fn push_multipart_part(
+    body: &mut Vec<u8>,
+    boundary: &str,
+    name: &str,
+    filename: Option<&str>,
+    content_type: &str,
+    bytes: &[u8],
+) {
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"");
+    body.extend_from_slice(name.as_bytes());
+    body.extend_from_slice(b"\"");
+    if let Some(filename) = filename {
+        body.extend_from_slice(b"; filename=\"");
+        body.extend_from_slice(filename.as_bytes());
+        body.extend_from_slice(b"\"");
+    }
+    body.extend_from_slice(b"\r\nContent-Type: ");
+    body.extend_from_slice(content_type.as_bytes());
+    body.extend_from_slice(b"\r\n\r\n");
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(b"\r\n");
+}
+
+fn send_mutation(request: HostedMutationRequest) -> Result<()> {
+    let url_text = request.url.to_string();
+    let url_text_for_thread = url_text.clone();
+    let result = thread::spawn(move || -> Result<()> {
+        let client = http_client()?;
+        let mut http_request = client
+            .request(request.method, request.url)
+            .header(reqwest::header::ACCEPT, request.accept)
+            .header("Idempotency-Key", request.idempotency_key)
+            .bearer_auth(&request.token)
+            .body(request.body);
+        if let Some(content_type) = request.content_type {
+            http_request = http_request.header(reqwest::header::CONTENT_TYPE, content_type);
+        }
+        let response = http_request
+            .send()
+            .with_context(|| format!("failed to send {} {url_text_for_thread}", request.label))?;
+        let status = response.status();
+        if !status.is_success() {
+            let error_suffix =
+                registry_error_suffix(response, request.label, &url_text_for_thread, &request.token)
+                    .unwrap_or_default();
+            if request.duplicate_conflict_hint && status == reqwest::StatusCode::CONFLICT {
+                bail!(
+                    "hosted registry duplicate version/version exists: HTTP status {status}{error_suffix}"
+                );
+            }
+            bail!(
+                "{} {url_text_for_thread} returned non-success HTTP status {status}{error_suffix}",
+                request.label
+            );
+        }
+        validate_response_content_type_one_of(
+            &response,
+            &[PACKAGE_MEDIA_TYPE, DISCOVERY_MEDIA_TYPE],
+            request.label,
+            &url_text_for_thread,
+        )?;
+        let bytes =
+            read_limited_response(response, MAX_METADATA_BYTES, request.label, &url_text_for_thread)?;
+        validate_success_body_protocol(&bytes, request.label)
+    })
+    .join();
+
+    match result {
+        Ok(result) => result,
+        Err(_) => bail!("hosted registry mutation worker panicked for {url_text}"),
+    }
+}
+
+fn http_client() -> Result<Client> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(FETCH_TIMEOUT)
+        .build()
+        .context("failed to build hosted registry HTTP client")
+}
+
+fn registry_error_suffix(
+    response: Response,
+    label: &str,
+    url: &str,
+    bearer_token: &str,
+) -> Result<String> {
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or("").trim().to_string());
+    let bytes = read_limited_response(response, MAX_METADATA_BYTES, label, url)?;
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+    let looks_like_registry_error = content_type
+        .as_deref()
+        .is_some_and(|media_type| media_type.eq_ignore_ascii_case(ERROR_MEDIA_TYPE));
+    if !looks_like_registry_error {
+        return Ok(String::new());
+    }
+    let envelope: HostedErrorEnvelope =
+        serde_json::from_slice(&bytes).context("failed to parse hosted registry error JSON")?;
+    let Some(error) = envelope.error else {
+        return Ok(String::new());
+    };
+    let mut parts = Vec::new();
+    if let Some(code) = error.code {
+        parts.push(redact_bearer_token_echo(&code, bearer_token));
+    }
+    if let Some(message) = error.message {
+        parts.push(redact_bearer_token_echo(&message, bearer_token));
+    }
+    if let Some(details) = error.details.and_then(|details| {
+        registry_error_details_suffix_part(redact_bearer_token_echo_in_json(details, bearer_token))
+    }) {
+        parts.push(details);
+    }
+    if parts.is_empty() {
+        Ok(String::new())
+    } else {
+        Ok(format!(" ({})", parts.join(": ")))
+    }
+}
+
+fn redact_bearer_token_echo(value: &str, bearer_token: &str) -> String {
+    if bearer_token.is_empty() {
+        return value.to_string();
+    }
+    value
+        .replace(&format!("Bearer {bearer_token}"), "Bearer [redacted token]")
+        .replace(bearer_token, "[redacted token]")
+}
+
+fn redact_bearer_token_echo_in_json(
+    value: serde_json::Value,
+    bearer_token: &str,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(value) => {
+            serde_json::Value::String(redact_bearer_token_echo(&value, bearer_token))
+        }
+        serde_json::Value::Array(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|value| redact_bearer_token_echo_in_json(value, bearer_token))
+                .collect(),
+        ),
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        redact_bearer_token_echo(&key, bearer_token),
+                        redact_bearer_token_echo_in_json(value, bearer_token),
+                    )
+                })
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+fn registry_error_details_suffix_part(details: serde_json::Value) -> Option<String> {
+    match details {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(value) if value.is_empty() => None,
+        serde_json::Value::String(value) => Some(format!("details {value}")),
+        serde_json::Value::Array(values) if values.is_empty() => None,
+        serde_json::Value::Object(values) if values.is_empty() => None,
+        details => serde_json::to_string(&details)
+            .ok()
+            .map(|details| format!("details {details}")),
+    }
+}
+
+fn validate_success_body_protocol(bytes: &[u8], label: &str) -> Result<()> {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(());
+    }
+    let body: serde_json::Value =
+        serde_json::from_slice(bytes).with_context(|| format!("failed to parse {label} JSON"))?;
+    let protocol = body
+        .get("protocol")
+        .and_then(serde_json::Value::as_str)
+        .with_context(|| format!("{label} must include protocol"))?;
+    ensure_protocol(protocol, label)
+}
+
 fn read_json<T: DeserializeOwned>(
     url: Url,
     limit: usize,
@@ -593,11 +1049,7 @@ fn read_bytes(
     let url_text = url.to_string();
     let url_text_for_thread = url_text.clone();
     let result = thread::spawn(move || -> Result<Vec<u8>> {
-        let client = reqwest::blocking::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(FETCH_TIMEOUT)
-            .build()
-            .context("failed to build hosted registry HTTP client")?;
+        let client = http_client()?;
         let response = client
             .get(url)
             .header(reqwest::header::ACCEPT, accept)
@@ -624,18 +1076,38 @@ fn validate_response_content_type(
     label: &str,
     url: &str,
 ) -> Result<()> {
+    validate_response_content_type_one_of(response, &[expected], label, url)
+}
+
+fn validate_response_content_type_one_of(
+    response: &Response,
+    expected: &[&str],
+    label: &str,
+    url: &str,
+) -> Result<()> {
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
-        .with_context(|| format!("{label} {url} must include Content-Type {expected}"))?;
+        .with_context(|| {
+            format!(
+                "{label} {url} must include Content-Type {}",
+                expected.join(", ")
+            )
+        })?;
     let content_type = content_type
         .to_str()
         .with_context(|| format!("{label} {url} has invalid Content-Type header"))?;
     let media_type = content_type.split(';').next().unwrap_or("").trim();
-    if media_type.eq_ignore_ascii_case(expected) {
+    if expected
+        .iter()
+        .any(|expected| media_type.eq_ignore_ascii_case(expected))
+    {
         return Ok(());
     }
-    bail!("{label} {url} returned Content-Type {content_type:?}, expected {expected}")
+    bail!(
+        "{label} {url} returned Content-Type {content_type:?}, expected {}",
+        expected.join(", ")
+    )
 }
 
 fn read_limited_response(

@@ -49,12 +49,12 @@
         <article class="guide-content">
           <p>The hosted registry protocol is the Epic 8 implementation target. It extends Ricochet beyond local and static registries without replacing the current <code>ricochet-static-registry-v1</code> workflow.</p>
           <p>Hosted registry base URLs use HTTPS outside local fake-server tests. Static mirrors continue to use <code>file://</code> or <code>https://</code> index URLs.</p>
-          <p>Ricochet currently implements read-only hosted client operations for discovery, search, metadata fetch, archive fetch, install, and lockfile verification. Publish, yank, authentication, a real hosted server/reference implementation, and mirror export remain future work.</p>
+          <p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank. A real hosted server/reference implementation, mirror export, and hosted same-version replacement tests against the real server/reference path remain future work.</p>
 
           <h2 id="identity">Identity</h2>
           <p>The protocol name is Ricochet Hosted Registry Protocol and the version string is <code>ricochet-hosted-registry-v1</code>. Canonical JSON responses use vendor media types such as <code>application/vnd.ricochet.registry.package.v1+json</code>, and package archives use <code>application/vnd.ricochet.package.archive.v1+gzip</code>.</p>
           <p>Package identities match the static registry rules. Unscoped names use ASCII letters, numbers, <code>_</code>, and <code>-</code>. Scoped names use <code>@scope/name</code> with the same segment rules, as in <code>@ricochet/forms</code>. Endpoint paths encode the full package identity as one percent-encoded segment.</p>
-          <p>Hosted clients fetch discovery before search or install. A discovery response includes the protocol and registry base URL used for later endpoints and artifact resolution.</p>
+          <p>Hosted clients fetch discovery before search, install, publish, or yank. A discovery response includes the protocol and registry base URL used for later endpoints and artifact resolution.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>{
   "protocol": "ricochet-hosted-registry-v1",
   "base_url": "https://registry.example"
@@ -105,6 +105,7 @@
           <p>Error responses use an envelope with <code>error.code</code>, <code>error.message</code>, optional <code>details</code>, and <code>request_id</code>. Duplicate publishes return <code>409 Conflict</code> with a stable code such as <code>version_exists</code>. Rate limits use <code>429</code> with <code>Retry-After</code>.</p>
 
           <h2 id="security">Security</h2>
+          <p>Publish uses <code>rco publish PACKAGE --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN</code>. Yank uses <code>rco registry yank PACKAGE VERSION --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN</code>.</p>
           <p>Publish and yank requests use bearer tokens resolved from secret references. Future CLI configuration stores references such as <code>token = { secret_env = "RICOCHET_REGISTRY_TOKEN" }</code>, not literal tokens. Tokens must not be written to <code>ricochet.toml</code>, <code>ricochet.lock</code>, reports, or traces.</p>
           <p>Mutating requests use client-generated <code>Idempotency-Key</code> headers bound to publisher, method, path, and body digest. Replaying the same key with identical bytes returns the original result; replaying it with different bytes returns <code>409 Conflict</code> with <code>idempotency_conflict</code>. Registries may also require a fresh <code>Ricochet-Date</code> header.</p>
           <p>Published version records stay immutable. Yanking appends availability state projected as <code>yanked</code>, <code>yanked_at</code>, <code>yanked_by</code>, and optionally <code>yank_event_id</code>; it does not rewrite archive paths, integrity fields, provenance, signature data, publisher, or <code>published_at</code>. Clients may cache immutable fields and artifacts for long periods, but package metadata and yank overlays must use validators and short or <code>must-revalidate</code> lifetimes.</p>
@@ -119,7 +120,7 @@ format = "ricochet-static-registry-v1"
 "@ricochet/forms" = "packages/@ricochet/forms.toml"</code></pre>
 
           <h2 id="sequence">Sequence</h2>
-          <p>The hosted read client slice is implemented. Remaining slices are publish/yank client support with secret-reference bearer tokens, a real hosted server/reference implementation beyond the local fake-server client tests, mirror export to static registry format, and same-version replacement tests against the real server/reference path.</p>
+          <p>The hosted read client and publish/yank client slices are implemented. Remaining slices are a real hosted server/reference implementation beyond the local fake-server client tests, mirror export to static registry format, and same-version replacement tests against the real server/reference path.</p>
         </article>
       </section>
     </main>

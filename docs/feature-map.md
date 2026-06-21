@@ -52,7 +52,7 @@ graph TD
 | Runtime | implemented beta | `repl`, `run`, `debug`, `run-bytecode`, `build`, `test`, `image`, `emit-source` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_vm/src/vm.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
 | Dependencies | implemented beta | `add`, `install`, `verify`, `audit` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
-| Registries | implemented beta | `publish`, `registry rebuild`, `registry check`, `search` | `crates/ricochet_cli/src/lib.rs`, `README.md`, `docs/reference/index.html` |
+| Registries | implemented beta | `publish`, `registry rebuild`, `registry check`, `registry yank`, `search` | `crates/ricochet_cli/src/lib.rs`, `README.md`, `docs/reference/index.html` |
 | Editor and diagnostics | implemented beta | `lsp`, `lsp-diagnostics`, `lint`, `fmt`, `words` | `crates/ricochet_cli/src/lsp.rs`, `editors/vscode`, `scripts/validate-editor-assets.ps1` |
 | Docs and quality | implemented beta | `doc`, `bench`, docs validation, acceptance suite | `docs/reference/validate.ps1`, `scripts/acceptance.ps1`, `.github/workflows` |
 
@@ -475,8 +475,8 @@ Do not assume:
 
 ## Packages And Registries
 
-Status: implemented beta for local/static registries and hosted registry read
-client operations; hosted mutation/server/mirror work remains future.
+Status: implemented beta for local/static registries and hosted registry client
+read/publish/yank operations; hosted server/mirror work remains future.
 
 Implemented:
 
@@ -490,11 +490,12 @@ Implemented:
   and signature metadata, `sha256:` archive verification, semver requirements,
   aliases, scoped package names, and lock hardening against same-version
   replacement.
-- Hosted registry read client workflows include discovery, search, package
-  metadata fetch, archive fetch, HTTPS enforcement with loopback HTTP tests,
+- Hosted registry client workflows include discovery, search, package metadata
+  fetch, archive fetch, HTTPS enforcement with loopback HTTP tests,
   semver/yank-aware install resolution, archive and package tree verification,
-  and same-version lock hardening against hosted metadata or archive
-  replacement.
+  hosted publish with `--token-env RICOCHET_REGISTRY_TOKEN`,
+  `rco registry yank`, and same-version lock hardening against hosted metadata
+  or archive replacement.
 - The hosted registry protocol spec defines immutable hosted version metadata,
   publish/search/fetch/yank endpoints, bearer-token handling by secret
   reference, registry-relative artifact paths, verification order, and static
@@ -521,9 +522,9 @@ Evidence:
 
 Remaining:
 
-- Hosted publish/yank client, authentication and bearer-token resolution, real
-  server/reference implementation, hosted same-version replacement tests beyond
-  the local fake-server client tests, and mirror command are future work.
+- Real hosted server/reference implementation, hosted same-version replacement
+  tests beyond the local fake-server client tests, and mirror command are future
+  work.
 
 Do not assume:
 

@@ -20,6 +20,8 @@ const HOSTED_DISCOVERY_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.v1+
 const HOSTED_SEARCH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.search.v1+json";
 const HOSTED_PACKAGE_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.package.v1+json";
 const HOSTED_ARCHIVE_MEDIA_TYPE: &str = "application/vnd.ricochet.package.archive.v1+gzip";
+const HOSTED_PUBLISH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.publish.v1+json";
+const HOSTED_ERROR_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.error.v1+json";
 
 #[test]
 fn new_creates_mvc_project_skeleton() {
@@ -4469,6 +4471,273 @@ fn hosted_registry_search_accepts_empty_results_array() {
     assert!(
         stdout.contains("no packages found"),
         "empty hosted search results should print no packages found, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn hosted_registry_publish_sends_authenticated_multipart_request() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = write_hosted_publish_package(base, "hosted_publish_pkg", "greeter", "0.2.3");
+    let provenance_file = base.join("hosted-provenance.json");
+    let signature_file = base.join("hosted-signature.sig");
+    fs::write(&provenance_file, r#"{"builder":"local-ci"}"#)
+        .expect("provenance should be writable");
+    fs::write(&signature_file, "detached-signature").expect("signature should be writable");
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/packages/greeter/versions/0.2.3",
+        HOSTED_PACKAGE_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "package": {"name": "greeter"}
+        }),
+    );
+
+    let token_env = "RICOCHET_HOSTED_PUBLISH_TOKEN_TEST";
+    let token = "publish-env-token";
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(token_env)
+        .arg("--provenance-file")
+        .arg(&provenance_file)
+        .arg("--signature-file")
+        .arg(&signature_file)
+        .arg("--signature-kind")
+        .arg("minisign")
+        .env(token_env, token)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "hosted registry publish", &publish);
+    let stdout = String::from_utf8_lossy(&publish.stdout);
+    let stderr = String::from_utf8_lossy(&publish.stderr);
+    assert!(
+        !stdout.contains(token) && !stderr.contains(token),
+        "publish output must not leak token\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2, "publish should discover then PUT");
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(requests[0].path, "/v1");
+    let put = &requests[1];
+    assert_eq!(put.method, "PUT");
+    assert_eq!(put.path, "/v1/packages/greeter/versions/0.2.3");
+    assert_eq!(
+        put.header("authorization"),
+        Some("Bearer publish-env-token")
+    );
+    assert!(
+        put.header("idempotency-key")
+            .is_some_and(|value| !value.is_empty()),
+        "publish should send Idempotency-Key"
+    );
+    assert!(
+        put.header("content-type")
+            .is_some_and(|value| value.starts_with("multipart/form-data; boundary=")),
+        "publish should send multipart content type, got {:?}",
+        put.header("content-type")
+    );
+    let body = String::from_utf8_lossy(&put.body);
+    assert!(body.contains("name=\"metadata\""));
+    assert!(body.contains(HOSTED_PUBLISH_MEDIA_TYPE));
+    assert!(body.contains("\"protocol\":\"ricochet-hosted-registry-v1\""));
+    assert!(body.contains("\"package\":\"greeter\""));
+    assert!(body.contains("\"version\":\"0.2.3\""));
+    assert!(body.contains("\"package_integrity\":\"sha256:"));
+    assert!(body.contains("\"archive_integrity\":\"sha256:"));
+    assert!(body.contains("\"signature_kind\":\"minisign\""));
+    assert!(body.contains("name=\"archive\""));
+    assert!(body.contains(HOSTED_ARCHIVE_MEDIA_TYPE));
+    assert!(body.contains("name=\"provenance\""));
+    assert!(body.contains("name=\"signature\""));
+}
+
+#[test]
+fn hosted_registry_publish_reports_duplicate_without_leaking_token() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir =
+        write_hosted_publish_package(base, "hosted_duplicate_pkg", "greeter", "0.2.3");
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json_status(
+        "/v1/packages/greeter/versions/0.2.3",
+        409,
+        HOSTED_ERROR_MEDIA_TYPE,
+        json!({
+            "error": {
+                "code": "version_exists",
+                "message": "greeter 0.2.3 already exists; echoed Authorization: Bearer duplicate-env-token",
+                "details": {
+                    "token_echo": "duplicate-env-token",
+                    "authorization_echo": "Bearer duplicate-env-token"
+                }
+            }
+        }),
+    );
+
+    let token_env = "RICOCHET_HOSTED_DUPLICATE_TOKEN_TEST";
+    let token = "duplicate-env-token";
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(token_env)
+        .env(token_env, token)
+        .output()
+        .expect("rco publish should launch");
+
+    assert!(
+        !publish.status.success(),
+        "duplicate hosted publish should fail"
+    );
+    let stdout = String::from_utf8_lossy(&publish.stdout);
+    let stderr = String::from_utf8_lossy(&publish.stderr);
+    assert!(
+        stderr.contains("version_exists") || stderr.contains("duplicate version"),
+        "stderr should explain duplicate version, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("already exists") && stderr.contains("[redacted token]"),
+        "stderr should retain useful sanitized registry error details, got:\n{stderr}"
+    );
+    assert!(
+        !stdout.contains(token) && !stderr.contains(token),
+        "duplicate publish output must not leak token\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_publish_rejects_missing_token_before_connecting() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir =
+        write_hosted_publish_package(base, "hosted_missing_token_pkg", "greeter", "0.2.3");
+    let server = HostedRegistryTestServer::start();
+    let token_env = format!("RICOCHET_HOSTED_MISSING_TOKEN_{}", std::process::id());
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(&token_env)
+        .env_remove(&token_env)
+        .output()
+        .expect("rco publish should launch");
+
+    assert!(
+        !publish.status.success(),
+        "hosted publish should reject missing token env"
+    );
+    let stderr = String::from_utf8_lossy(&publish.stderr);
+    assert!(
+        stderr.contains(&token_env),
+        "stderr should mention missing env var {token_env}, got:\n{stderr}"
+    );
+    assert!(
+        server.requests().is_empty(),
+        "missing token should fail before connecting"
+    );
+}
+
+#[test]
+fn hosted_registry_yank_sends_authenticated_idempotent_request() {
+    let server = HostedRegistryTestServer::start();
+    server.set_json(
+        "/v1",
+        HOSTED_DISCOVERY_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "base_url": server.base_url(),
+        }),
+    );
+    server.set_json(
+        "/v1/packages/greeter/versions/0.2.3/yank",
+        HOSTED_PACKAGE_MEDIA_TYPE,
+        json!({
+            "protocol": "ricochet-hosted-registry-v1",
+            "package": {"name": "greeter"}
+        }),
+    );
+
+    let token_env = "RICOCHET_HOSTED_YANK_TOKEN_TEST";
+    let token = "yank-env-token";
+    let yank = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("yank")
+        .arg("greeter")
+        .arg("0.2.3")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(token_env)
+        .env(token_env, token)
+        .output()
+        .expect("rco registry yank should launch");
+    assert_run_success_for("rco registry yank", "hosted registry yank", &yank);
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2, "yank should discover then POST");
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(requests[0].path, "/v1");
+    let post = &requests[1];
+    assert_eq!(post.method, "POST");
+    assert_eq!(post.path, "/v1/packages/greeter/versions/0.2.3/yank");
+    assert_eq!(post.header("authorization"), Some("Bearer yank-env-token"));
+    assert!(
+        post.header("idempotency-key")
+            .is_some_and(|value| !value.is_empty()),
+        "yank should send Idempotency-Key"
+    );
+}
+
+#[test]
+fn hosted_registry_publish_dry_run_skips_token_and_network() {
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir = write_hosted_publish_package(base, "hosted_dry_run_pkg", "greeter", "0.2.3");
+    let server = HostedRegistryTestServer::start();
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--dry-run")
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for(
+        "rco publish --registry-url --dry-run",
+        "hosted registry dry-run publish",
+        &publish,
+    );
+    assert!(
+        server.requests().is_empty(),
+        "hosted publish dry-run should not connect"
     );
 }
 
@@ -10807,9 +11076,26 @@ struct HostedTestResponse {
     body: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+struct HostedTestRequest {
+    method: String,
+    path: String,
+    headers: BTreeMap<String, String>,
+    body: Vec<u8>,
+}
+
+impl HostedTestRequest {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
+}
+
 struct HostedRegistryTestServer {
     address: std::net::SocketAddr,
     routes: Arc<Mutex<BTreeMap<String, HostedTestResponse>>>,
+    requests: Arc<Mutex<Vec<HostedTestRequest>>>,
     shutdown: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -10822,20 +11108,32 @@ impl HostedRegistryTestServer {
             .expect("test server should become nonblocking");
         let address = listener.local_addr().expect("listener should have address");
         let routes = Arc::new(Mutex::new(BTreeMap::<String, HostedTestResponse>::new()));
+        let requests = Arc::new(Mutex::new(Vec::<HostedTestRequest>::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let routes_for_thread = Arc::clone(&routes);
+        let requests_for_thread = Arc::clone(&requests);
         let shutdown_for_thread = Arc::clone(&shutdown);
         let handle = thread::spawn(move || {
             while !shutdown_for_thread.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        if shutdown_for_thread.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        stream
+                            .set_nonblocking(false)
+                            .expect("accepted test stream should become blocking");
                         let response = read_hosted_test_request(&mut stream)
-                            .and_then(|target| {
-                                let path = target.split('?').next().unwrap_or(&target);
+                            .and_then(|request| {
+                                let path = request.path.clone();
+                                requests_for_thread
+                                    .lock()
+                                    .expect("requests lock should not be poisoned")
+                                    .push(request);
                                 routes_for_thread
                                     .lock()
                                     .expect("routes lock should not be poisoned")
-                                    .get(path)
+                                    .get(&path)
                                     .cloned()
                             })
                             .unwrap_or_else(|| HostedTestResponse {
@@ -10856,6 +11154,7 @@ impl HostedRegistryTestServer {
         Self {
             address,
             routes,
+            requests,
             shutdown,
             handle: Some(handle),
         }
@@ -10899,6 +11198,13 @@ impl HostedRegistryTestServer {
 
     fn set_response(&self, path: &str, status: u16, content_type: &'static str, body: String) {
         self.set_bytes_status(path, status, content_type, body.into_bytes());
+    }
+
+    fn requests(&self) -> Vec<HostedTestRequest> {
+        self.requests
+            .lock()
+            .expect("requests lock should not be poisoned")
+            .clone()
     }
 }
 
@@ -10983,6 +11289,26 @@ fn hosted_package_fixture_json(fixture: &HostedArchiveFixture) -> serde_json::Va
             }
         ]
     })
+}
+
+fn write_hosted_publish_package(
+    base: &Path,
+    package_dir_name: &str,
+    package: &str,
+    version: &str,
+) -> PathBuf {
+    let package_dir = base.join(package_dir_name);
+    write_source_at(
+        &package_dir,
+        "ricochet.toml",
+        &format!("[package]\nname = \"{package}\"\nversion = \"{version}\"\n"),
+    );
+    write_source_at(
+        &package_dir,
+        "greeting.rco",
+        "\"packageHello\" function\n  \"hello from hosted publish\"\nend\n",
+    );
+    package_dir
 }
 
 fn build_hosted_archive_fixture(
@@ -11076,39 +11402,73 @@ fn toml_string_value(source: &str, key: &str) -> String {
         .to_string()
 }
 
-fn read_hosted_test_request(stream: &mut std::net::TcpStream) -> Option<String> {
+fn read_hosted_test_request(stream: &mut std::net::TcpStream) -> Option<HostedTestRequest> {
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("test stream should accept read timeout");
     let mut request = Vec::new();
     let mut buffer = [0_u8; 1024];
-    loop {
+    let header_end = loop {
         let read = stream.read(&mut buffer).ok()?;
         if read == 0 {
-            break;
+            return None;
         }
         request.extend_from_slice(&buffer[..read]);
-        if request.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
+        if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
         }
         if request.len() > 16 * 1024 {
             return None;
         }
+    };
+    let header_text = String::from_utf8_lossy(&request[..header_end]);
+    let mut lines = header_text.lines();
+    let mut parts = lines.next()?.split_whitespace();
+    let method = parts.next()?.to_string();
+    let target = parts.next()?.to_string();
+    let path = target.split('?').next().unwrap_or(&target).to_string();
+    let mut headers = BTreeMap::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let (name, value) = line.split_once(':')?;
+        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
     }
-    let request = String::from_utf8_lossy(&request);
-    let mut parts = request.lines().next()?.split_whitespace();
-    let method = parts.next()?;
-    let target = parts.next()?;
-    if method != "GET" {
-        return None;
+    let content_length = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = request[header_end..].to_vec();
+    loop {
+        if body.len() >= content_length {
+            break;
+        }
+        let remaining = content_length - body.len();
+        let read_limit = buffer.len().min(remaining);
+        let read = stream.read(&mut buffer[..read_limit]).ok()?;
+        if read == 0 {
+            return None;
+        }
+        body.extend_from_slice(&buffer[..read]);
+        if body.len() > 16 * 1024 * 1024 {
+            return None;
+        }
     }
-    Some(target.to_string())
+    body.truncate(content_length);
+    Some(HostedTestRequest {
+        method,
+        path,
+        headers,
+        body,
+    })
 }
 
 fn write_hosted_test_response(stream: &mut std::net::TcpStream, response: HostedTestResponse) {
     let reason = match response.status {
         200 => "OK",
         302 => "Found",
+        409 => "Conflict",
         404 => "Not Found",
         _ => "Error",
     };

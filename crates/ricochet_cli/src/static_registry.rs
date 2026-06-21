@@ -458,10 +458,24 @@ fn create_package_archive(package_dir: &Path, archive_path: &Path) -> Result<()>
     Ok(())
 }
 
-fn append_package_archive_entries(
+pub(super) fn create_package_archive_bytes(package_dir: &Path) -> Result<Vec<u8>> {
+    package_tree_integrity(package_dir)?;
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let mut builder = Builder::new(encoder);
+    append_package_archive_entries(package_dir, package_dir, &mut builder)?;
+    builder
+        .finish()
+        .context("failed to finish package archive")?;
+    let encoder = builder
+        .into_inner()
+        .context("failed to finish package archive")?;
+    encoder.finish().context("failed to finish package archive")
+}
+
+fn append_package_archive_entries<W: io::Write>(
     root: &Path,
     current: &Path,
-    builder: &mut Builder<GzEncoder<fs::File>>,
+    builder: &mut Builder<GzEncoder<W>>,
 ) -> Result<()> {
     for entry in
         fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
