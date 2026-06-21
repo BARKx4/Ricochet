@@ -579,6 +579,7 @@ Implemented:
 Evidence:
 
 - `docs/debugger-integrations.md`
+- `crates/ricochet_cli/src/debug_protocol.rs`
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/src/lsp.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
@@ -589,8 +590,7 @@ Evidence:
 
 Remaining:
 
-- Richer full-screen TUI layout, browser interface polish, and shared debugger
-  protocol extraction are future polish.
+- Richer full-screen TUI layout and browser interface polish are future polish.
 - Source breakpoints are line-based until stable instruction IDs exist.
 
 Do not assume:

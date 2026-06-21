@@ -579,7 +579,7 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 
 **Implementation Path:**
 
-- [ ] Extract debugger session protocol into a reusable internal module.
+- [x] Extract debugger session protocol into a reusable internal module.
 - [x] Build a read-only TUI prototype that attaches to a debug session and renders current source, stack, locals, globals, and tasks.
 - [x] Add stepping controls to the TUI command loop.
 - [x] Add runtime breakpoint editing controls to the TUI.
@@ -596,24 +596,24 @@ Automated smoke tests cover startup and protocol behavior; manual verification c
 
 **Progress Note (2026-06-21):** First preview slice adds `rco debug-tui --smoke`
 and `rco debug-web --smoke` first-pause snapshot renderers. `rco debug-web`
-can serve that read-only snapshot from a loopback-only local server. Runtime
-breakpoint editing and protocol extraction remained open after this preview
-slice.
+can serve that read-only snapshot from a loopback-only local server. At the
+time, runtime breakpoint editing and protocol extraction had not yet landed.
 
 **Progress Note (2026-06-21):** The TUI control slice adds non-smoke
 `rco debug-tui` sessions that render a text snapshot at each pause and accept
 `step`, `next`, `out`, `continue`, or `abort` from stdin, plus repeatable
-`--command ACTION` flags for deterministic scripted sessions. Protocol
-extraction, richer full-screen layout, and browser event/control streaming
-remained open after this slice.
+`--command ACTION` flags for deterministic scripted sessions. At the time,
+protocol extraction had not yet landed, and richer full-screen layout plus
+browser event/control streaming were still ahead.
 
 **Progress Note (2026-06-21):** The browser live-control slice upgrades
 non-smoke `rco debug-web` from a static snapshot server to a loopback-only
 browser debugger shell. `GET /events` streams debugger events over SSE and
 replays the latest pause for late subscribers; `POST /control` accepts `step`,
 `next`, `out`, `continue`, and `abort` JSON actions with optional `pause_id`
-stale-control protection. Shared protocol extraction, richer full-screen TUI
-layout, browser UI polish, and manual verification checklist remain open.
+stale-control protection. At the time, shared protocol extraction had not yet
+landed, and richer full-screen TUI layout, browser UI polish, and manual
+verification checklist were still ahead.
 
 **Progress Note (2026-06-21):** The runtime breakpoint editing slice adds a VM
 debug-control hook plus terminal, TUI, and browser controls for adding,
@@ -621,6 +621,14 @@ removing, clearing, and listing line breakpoints while paused. Browser control
 actions include `breakpoint_add`, `breakpoint_remove`, `breakpoint_clear`, and
 `breakpoints`; TUI and terminal sessions accept `break <line>`, `clear <line>`,
 `clear_breakpoints`, and `breakpoints`.
+
+**Progress Note (2026-06-21):** The shared protocol extraction slice moves
+debugger command parsing, web control request parsing, runtime breakpoint edit
+events, debug event JSON serialization, and debug value labels into
+`crates/ricochet_cli/src/debug_protocol.rs`. TUI, browser, JSON trace, and
+terminal debug surfaces now share that internal module; remaining Epic 10
+polish is richer full-screen TUI layout, browser UI polish, and manual
+keyboard/source-display verification.
 
 ---
 
