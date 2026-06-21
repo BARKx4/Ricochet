@@ -669,7 +669,7 @@ remain future work.
 
 **Public Surface Candidate:**
 
-- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`.
+- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_retryable_error?`, `ai_retry_delay_ms`, `ai_execute_with_retry`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`, `ai_tool_handlers`, `ai_tool_handler_put`, `ai_execute_tool_call`, `ai_execute_tool_calls`.
 - Core changes only if current HTTP stream words cannot support incremental consumption ergonomically.
 
 **Implementation Path:**
@@ -677,11 +677,12 @@ remain future work.
 - [x] Define provider-neutral message, request, response, error, stream-event, and tool-call maps in `@ricochet/ai`.
 - [x] Add package-local schema validation helpers in `@ricochet/ai` using the same field/rule shape as `@ricochet/forms`.
 - [x] Add retry policy maps and normalized error maps in `@ricochet/ai`.
-- [ ] Add actual provider retry/backoff execution.
+- [x] Add package-level retry/backoff and tool execution helpers.
 - [x] Add true incremental stream consumption ergonomics over
   `http_stream_read`, including bounded offset reads and done events.
 - [ ] Add fake provider integration tests for streaming chunks, tool calls, malformed events, and schema failures.
 - [ ] Add provider examples for OpenAI-compatible and local model endpoints.
+- [ ] Wire the package retry/tool helpers into provider-level runtime flows.
 - [x] Add docs that keep secret values in env-backed references.
 - [x] Commit package-only changes first, then core stream ergonomics if needed.
 
@@ -695,7 +696,13 @@ MVC `[ai.default]`, or provider runtime execution.
 `http_stream_read` `max_bytes`, `from_offset`, `next_offset`,
 backward-compatible `offset`, `bytes_len`, and `done` metadata. Provider
 runtime execution, fake-provider integration tests, provider examples, and
-actual AI package retry/tool execution remain open.
+package-level retry/tool execution were still open at that point.
+
+**Progress Note (2026-06-21):** The AI execution helper slice adds package-level
+retry classification, deterministic retry-delay calculation, retry execution,
+tool handler registration, single tool-call execution, and ordered multi-tool
+execution in `@ricochet/ai`. Provider-runtime wiring, fake-provider MVC/package
+integration tests, and provider examples remain open.
 
 **Verification Gate:**
 

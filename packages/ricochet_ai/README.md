@@ -5,13 +5,14 @@ HTTP calls in Ricochet apps.
 
 This package keeps provider workflows outside Ricochet core. It builds
 provider, message, request, response, error, stream-event, retry-policy, tool,
-and schema-validation maps. It also provides OpenAI-compatible starter bodies
-and request maps on top of core `secret_env`, `secret_resolve`, and HTTP
-request-map helpers, plus SSE response-body parsers for providers that return
-`text/event-stream` payloads.
+schema-validation maps, retry predicates/delay helpers, and local tool-dispatch
+helpers. It also provides OpenAI-compatible starter bodies and request maps on
+top of core `secret_env`, `secret_resolve`, and HTTP request-map helpers, plus
+SSE response-body parsers for providers that return `text/event-stream`
+payloads.
 
-Apps still own provider selection, actual retry execution, tool execution,
-long-running stream orchestration, and user-facing agent behavior.
+Apps still own provider selection, provider-runtime wiring, long-running stream
+orchestration, and user-facing agent behavior.
 
 ## Provider-neutral contracts
 
@@ -56,6 +57,63 @@ $arguments "city" "Chicago" put! drop
 "call-1" "get_weather" $arguments ai_tool_call toolCall var
 "call-1" "{\"ok\":true}" ai_tool_result toolResult var
 ```
+
+## Retry and tool execution
+
+Use the package retry helpers with local executor blocks that return ordinary
+Ricochet `Result` values:
+
+```ricochet
+"ai/openai" import
+
+request map
+3 0 0 ai_retry_policy retry var
+$request "retry" $retry put! drop
+
+[
+  attempt var
+  request var
+  $attempt 3 < if
+    "rate_limit" "retry later" fail result var
+    $result error "status" 429 put! drop
+    $result
+  else
+    response map
+    $response "attempt" $attempt put! drop
+    $response ok
+  end
+] executor var
+
+$request $executor ai_execute_with_retry value "attempt" at println
+```
+
+`ai_retryable_error?` recognizes transient kinds such as `rate_limit`,
+`timeout`, `server_error`, `network`, and `transient`, plus retryable HTTP
+statuses like `429` and `500..599`. `ai_retry_delay_ms` computes deterministic
+exponential backoff with no jitter.
+
+Tool handlers stay package-local too:
+
+```ricochet
+"ai/openai" import
+
+ai_tool_handlers handlers var
+$handlers "get_weather" [
+  arguments var
+  toolCall var
+  content map
+  $content "city" $arguments "city" at put! drop
+  $content
+] ai_tool_handler_put handlers set
+
+arguments map
+$arguments "city" "Chicago" put! drop
+"call-1" "get_weather" $arguments ai_tool_call toolCall var
+$toolCall $handlers ai_execute_tool_call value "content" at "city" at println
+```
+
+Use `ai_execute_tool_calls` to run an array of tool-call maps in order and stop
+on the first handler failure.
 
 ## Schema validation
 

@@ -440,9 +440,10 @@ Implemented:
   calls an OpenAI-compatible `/chat/completions` endpoint and returns `Result`
   maps.
 - `@ricochet/ai` provides provider-neutral provider/message/request/response/
-  error contracts, retry policy maps, tool call/result maps, schema validation,
-  OpenAI-compatible request builders, secret reference helpers, SSE parsing,
-  and stream text extraction.
+  error contracts, retry policy maps, retry classification/delay/execution
+  helpers, tool call/result maps, tool handler execution helpers, schema
+  validation, OpenAI-compatible request builders, secret reference helpers, SSE
+  parsing, and stream text extraction.
 - Retained HTTP stream reads expose bounded `max_bytes` consumption,
   `from_offset`, `next_offset`, backward-compatible `offset`, `bytes_len`, and
   `done` metadata for incremental consumers.
@@ -466,9 +467,9 @@ Evidence:
 
 Remaining:
 
-- Richer provider packages, actual retry/tool execution, fake-provider
-  integration tests, and provider-level AI streaming integration remain future
-  package/core work.
+- Richer provider packages, provider-level runtime integration for the package
+  retry/tool helpers, fake-provider integration tests, provider examples, and
+  provider-level AI streaming integration remain future package/core work.
 
 Do not assume:
 
@@ -674,8 +675,9 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Richer AI provider packages, actual retry/tool execution, fake-provider
-  integration tests, and provider-level streaming integration.
+- Richer AI provider packages, provider-level retry/tool integration,
+  fake-provider integration tests, provider examples, and provider-level
+  streaming integration.
 - Production app distribution polish: signing, notarization, metadata, store or
   updater workflows.
 

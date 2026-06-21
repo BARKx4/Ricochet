@@ -95,6 +95,165 @@ end
   $retry
 end
 
+( kind -> Bool ) ai_retryable_kind function
+  kind var
+  $kind nil? if
+    false
+  else
+    $kind lowercase normalizedKind var
+    $normalizedKind "rate_limit" =
+    $normalizedKind "timeout" = or
+    $normalizedKind "server_error" = or
+    $normalizedKind "network" = or
+    $normalizedKind "transient" = or
+  end
+end
+
+( kind -> Bool ) ai_nonretryable_kind function
+  kind var
+  $kind nil? if
+    false
+  else
+    $kind lowercase normalizedKind var
+    $normalizedKind "validation" =
+    $normalizedKind "validation_error" = or
+    $normalizedKind "auth" = or
+    $normalizedKind "auth_error" = or
+    $normalizedKind "authentication" = or
+    $normalizedKind "authentication_error" = or
+    $normalizedKind "unauthorized" = or
+    $normalizedKind "user" = or
+    $normalizedKind "user_error" = or
+  end
+end
+
+( status -> Bool ) ai_retryable_status function
+  status var
+  $status nil? if
+    false
+  else
+    $status 408 =
+    $status 409 = or
+    $status 425 = or
+    $status 429 = or
+    $status 500 >= $status 599 <= and or
+  end
+end
+
+( status -> Bool ) ai_nonretryable_status function
+  status var
+  $status nil? if
+    false
+  else
+    $status 400 >= $status 499 <= and
+  end
+end
+
+( errorMap -> Bool ) ai_retryable_error? function
+  errorMap var
+  $errorMap "kind" at kind var
+  $errorMap "status" at status var
+  $kind ai_nonretryable_kind if
+    false
+  else
+    $status ai_retryable_status if
+      true
+    else
+      $status ai_nonretryable_status if
+        false
+      else
+        $kind ai_retryable_kind
+      end
+    end
+  end
+end
+
+( attempt retryPolicy -> Number ) ai_retry_delay_ms function
+  retryPolicy var
+  attempt var
+  $attempt 0 > not if
+    1 attempt set
+  end
+
+  0 initialDelayMs var
+  0 maxDelayMs var
+
+  $retryPolicy nil? false = if
+    $retryPolicy "initial_delay_ms" at initialDelayValue var
+    $retryPolicy "max_delay_ms" at maxDelayValue var
+    $initialDelayValue nil? false = if
+      $initialDelayValue initialDelayMs set
+    end
+    $maxDelayValue nil? false = if
+      $maxDelayValue maxDelayMs set
+    end
+  end
+
+  $initialDelayMs 0 > not if
+    0 initialDelayMs set
+  end
+  $maxDelayMs 0 > not if
+    0 maxDelayMs set
+  end
+
+  $initialDelayMs 0 = if
+    0
+  else
+    $initialDelayMs delayMs var
+    $attempt 1 - remaining var
+    $remaining 0 > while
+      $delayMs 2 * delayMs set
+      $remaining 1 - remaining set
+    end
+    $delayMs $maxDelayMs min
+  end
+end
+
+( request executorBlock -> Result ) ai_execute_with_retry function
+  executorBlock var
+  request var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop result var
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
 ( provider model text toolCalls raw -> Map ) ai_chat_response function
   raw var
   toolCalls var
@@ -157,6 +316,59 @@ end
   $result "tool_call_id" $toolCallId put! drop
   $result "content" $content put! drop
   $result
+end
+
+( -> Map ) ai_tool_handlers function
+  handlers map
+  $handlers
+end
+
+( handlers name block -> Map ) ai_tool_handler_put function
+  block var
+  name var
+  handlers var
+  $handlers $name $block put! drop
+  $handlers
+end
+
+( toolCall handlers -> Result ) ai_execute_tool_call function
+  handlers var
+  toolCall var
+  $toolCall "name" at name var
+  $handlers $name at handler var
+  $handler nil? if
+    "AiToolNotFound" "No AI tool handler registered for " $name concat fail
+  else
+    $toolCall $toolCall "arguments" at $handler call drop content var
+    $toolCall "id" at $content ai_tool_result ok
+  end
+end
+
+( toolCalls handlers -> Result ) ai_execute_tool_calls function
+  handlers var
+  toolCalls var
+  results array
+  nil finalResult var
+  0 index var
+  $toolCalls count total var
+
+  $index $total < while
+    $toolCalls $index at toolCall var
+    $toolCall $handlers ai_execute_tool_call result var
+    $result ok? if
+      $results $result value push! drop
+      $index 1 + index set
+    else
+      $result finalResult set
+      break
+    end
+  end
+
+  $finalResult nil? if
+    $results ok
+  else
+    $finalResult
+  end
 end
 
 ( -> Map ) ai_schema function

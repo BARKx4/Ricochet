@@ -71,6 +71,78 @@ AiPackageTest TestCase Subclass
     $event "done" at false assert_equals
   ] "testNormalizedResponseErrorAndStreamEventMaps" Method
   [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    raw map
+    $provider "server_error" "try again" 500 $raw ai_error ai_retryable_error?
+    true assert_equals
+    $provider "unknown" "gateway down" 503 $raw ai_error ai_retryable_error?
+    true assert_equals
+    $provider "validation" "bad request" 400 $raw ai_error ai_retryable_error?
+    false assert_equals
+    $provider "unknown" "bad request" 400 $raw ai_error ai_retryable_error?
+    false assert_equals
+  ] "testRetryableErrorStatusHandling" Method
+  [
+    4 100 250 ai_retry_policy retry var
+    0 $retry ai_retry_delay_ms
+    100 assert_equals
+    2 $retry ai_retry_delay_ms
+    200 assert_equals
+    4 $retry ai_retry_delay_ms
+    250 assert_equals
+  ] "testRetryDelayCap" Method
+  [
+    request map
+    3 0 0 ai_retry_policy retry var
+    $request "retry" $retry put! drop
+    attempts array
+
+    [
+      attempt var
+      request var
+      $attempts $attempt push! drop
+      $attempt 3 < if
+        "rate_limit" "retry later" fail result var
+        $result error "status" 429 put! drop
+        $result
+      else
+        response map
+        $response "attempt" $attempt put! drop
+        $response ok
+      end
+    ] executor var
+
+    $request $executor ai_execute_with_retry result var
+    $result ok? true assert_equals
+    $result value "attempt" at 3 assert_equals
+    $attempts count 3 assert_equals
+  ] "testExecuteWithRetryRetriesRetryableErrors" Method
+  [
+    request map
+    5 0 0 ai_retry_policy retry var
+    $request "retry" $retry put! drop
+    attempts array
+
+    [
+      attempt var
+      request var
+      $attempts $attempt push! drop
+      "validation" "bad input" fail
+    ] executor var
+
+    $request $executor ai_execute_with_retry result var
+    $result ok? false assert_equals
+    $result error "kind" at "validation" assert_equals
+    $attempts count 1 assert_equals
+  ] "testExecuteWithRetrySkipsNonretryableErrors" Method
+  [
+    request map
+    [ drop drop "plain-ok" ok ] executor var
+    $request $executor ai_execute_with_retry result var
+    $result ok? true assert_equals
+    $result value "plain-ok" assert_equals
+  ] "testExecuteWithRetrySupportsNoLocalExecutorBlocks" Method
+  [
     args map
     $args "city" "Chicago" put! drop
     "call-1" "get_weather" $args ai_tool_call toolCall var
@@ -83,6 +155,73 @@ AiPackageTest TestCase Subclass
     $toolResult "tool_call_id" at "call-1" assert_equals
     $toolResult "content" at "{\"ok\":true}" assert_equals
   ] "testToolCallAndToolResultMaps" Method
+  [
+    ai_tool_handlers handlers var
+    $handlers "get_weather" [
+      arguments var
+      toolCall var
+      content map
+      $content "name" $toolCall "name" at put! drop
+      $content "city" $arguments "city" at put! drop
+      $content
+    ] ai_tool_handler_put handlers set
+
+    args map
+    $args "city" "Chicago" put! drop
+    "call-1" "get_weather" $args ai_tool_call toolCall var
+
+    $toolCall $handlers ai_execute_tool_call result var
+    $result ok? true assert_equals
+    $result value "role" at "tool" assert_equals
+    $result value "tool_call_id" at "call-1" assert_equals
+    $result value "content" at "name" at "get_weather" assert_equals
+    $result value "content" at "city" at "Chicago" assert_equals
+  ] "testExecuteToolCallWrapsHandlerContent" Method
+  [
+    ai_tool_handlers handlers var
+    $handlers "echo" [ drop drop "plain-content" ] ai_tool_handler_put handlers set
+    args map
+    "call-plain" "echo" $args ai_tool_call toolCall var
+    $toolCall $handlers ai_execute_tool_call result var
+    $result ok? true assert_equals
+    $result value "content" at "plain-content" assert_equals
+  ] "testExecuteToolCallSupportsNoLocalHandlerBlocks" Method
+  [
+    ai_tool_handlers handlers var
+    args map
+    "call-404" "missing_tool" $args ai_tool_call toolCall var
+    $toolCall $handlers ai_execute_tool_call result var
+    $result ok? false assert_equals
+    $result error "kind" at "AiToolNotFound" assert_equals
+  ] "testExecuteToolCallReportsMissingHandler" Method
+  [
+    ai_tool_handlers handlers var
+    $handlers "echo" [
+      arguments var
+      toolCall var
+      content map
+      $content "tool" $toolCall "name" at put! drop
+      $content "value" $arguments "value" at put! drop
+      $content
+    ] ai_tool_handler_put handlers set
+
+    toolCalls array
+    argsOne map
+    $argsOne "value" "first" put! drop
+    argsTwo map
+    $argsTwo "value" "second" put! drop
+    $toolCalls "call-1" "echo" $argsOne ai_tool_call push! drop
+    $toolCalls "call-2" "echo" $argsTwo ai_tool_call push! drop
+
+    $toolCalls $handlers ai_execute_tool_calls result var
+    $result ok? true assert_equals
+    $result value executed var
+    $executed count 2 assert_equals
+    $executed first "tool_call_id" at "call-1" assert_equals
+    $executed first "content" at "value" at "first" assert_equals
+    $executed 1 at "tool_call_id" at "call-2" assert_equals
+    $executed 1 at "content" at "value" at "second" assert_equals
+  ] "testExecuteToolCallsReturnsResultsInOrder" Method
   [
     ai_schema "text" "string" true ai_schema_field "score" "number" false ai_schema_field schema var
     data map

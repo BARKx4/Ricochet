@@ -2092,9 +2092,7 @@ impl Vm {
             "map" => {
                 self.call_collection_declaration_or_constructor(Value::Map(MapValue::default()))
             }
-            predicate if predicate.ends_with('?') => {
-                self.call_predicate_or_receiver_method(predicate)
-            }
+            predicate if predicate.ends_with('?') => self.call_question_word(predicate),
             _ => self.call_function(word),
         }
     }
@@ -2131,6 +2129,20 @@ impl Vm {
         }
 
         Err(VmError::UnknownWord(name.to_string()))
+    }
+
+    fn call_question_word(&mut self, word: &str) -> Result<(), VmError> {
+        if is_known_predicate(word) {
+            if self.receiver_method_exists(word)? {
+                return self.call_top_receiver_method(word);
+            }
+            return self.call_predicate(word);
+        }
+
+        match self.call_function(word) {
+            Err(VmError::UnknownWord(_)) => self.call_predicate(word),
+            result => result,
+        }
     }
 
     fn call_result_value(&mut self, word: &str) -> Result<(), VmError> {
@@ -3617,14 +3629,6 @@ impl Vm {
                 Err(error)
             }
         }
-    }
-
-    fn call_predicate_or_receiver_method(&mut self, word: &str) -> Result<(), VmError> {
-        if self.receiver_method_exists(word)? {
-            return self.call_top_receiver_method(word);
-        }
-
-        self.call_predicate(word)
     }
 
     fn call_bytecode_method(
@@ -7050,6 +7054,64 @@ mod tests {
         vm.run_chunk(&chunk).expect("function call runs");
 
         assert_eq!(vm.stack(), &[Value::String("hi".to_string())]);
+    }
+
+    #[test]
+    fn call_word_dispatches_bytecode_function_with_question_mark_suffix() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut function = Chunk::new("test.rco");
+        function.push(Op::PushBool(true), span());
+        function.push(Op::Return, span());
+
+        let block = chunk.push_block(function);
+        chunk.push(
+            Op::AddFunction {
+                name: "ready?".to_string(),
+                block,
+                args: None,
+            },
+            span(),
+        );
+        chunk.push(Op::CallWord("ready?".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("function call runs");
+
+        assert_eq!(vm.stack(), &[Value::Bool(true)]);
+    }
+
+    #[test]
+    fn known_predicate_word_still_dispatches_receiver_method() {
+        let mut chunk = Chunk::new("test.rco");
+        let mut method = Chunk::new("test.rco");
+        method.push(Op::PushString("method".to_string()), span());
+        method.push(Op::Return, span());
+
+        let block = chunk.push_block(method);
+        chunk.push(
+            Op::BeginClass {
+                name: "Widget".to_string(),
+                superclass: "Object".to_string(),
+            },
+            span(),
+        );
+        chunk.push(
+            Op::AddMethod {
+                name: "empty?".to_string(),
+                block,
+                args: None,
+            },
+            span(),
+        );
+        chunk.push(Op::EndClass, span());
+        chunk.push(Op::CallWord("Widget".to_string()), span());
+        chunk.push(Op::CallWord("new".to_string()), span());
+        chunk.push(Op::CallWord("empty?".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.run_chunk(&chunk).expect("receiver method call runs");
+
+        assert_eq!(vm.stack(), &[Value::String("method".to_string())]);
     }
 
     #[test]
