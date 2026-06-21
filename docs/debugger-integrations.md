@@ -44,11 +44,23 @@ stderr. Events currently use these shapes:
   "tasks": [
     {
       "id": 0,
+      "operation": "spawn",
       "status": "running",
       "pending": true,
       "running": true,
       "completed": false,
-      "failed": false
+      "failed": false,
+      "fault": null,
+      "frames": [
+        {
+          "frame": "<task>",
+          "source": "app.rco:1",
+          "opcode": "CallWord(\"sleep\")",
+          "stack": [{ "debug": "Number(100)" }],
+          "locals": [],
+          "self": null
+        }
+      ]
     }
   ]
 }
@@ -79,7 +91,8 @@ Editor integration guidance:
   `variables` requests while the VM is stopped.
 - The DAP bridge maps `continue`, `next`, `stepIn`, and `stepOut` to the same VM
   controls as the terminal debugger, and returns stack, locals, globals, `self`,
-  and tasks as DAP scopes.
+  and tasks as DAP scopes. Each task variable expands into stable status fields
+  and the latest worker-frame snapshots published by the task VM.
 - VS Code renders saved trace files with `Ricochet: Run With Stack Visualizer`
   and renders live stopped-state scopes with `Ricochet: Show Debugger Stack`.
 - Other IDEs should consume the same event contract through either saved traces,
@@ -92,7 +105,8 @@ Editor integration guidance:
   step-over, `out` to step-out, and `continue` to normal execution.
 - Live debugger integrations should keep the RPN mental model visible: current
   stack, current instruction, current frame locals, globals, `self`, and the
-  current task snapshot.
+  current task snapshot. Terminal sessions can inspect those task snapshots with
+  `tasks`, `tasks --tree`, `task <id> stack`, and `task <id> locals`.
 - `rco emit-source` can provide a readable source-like bytecode view for
   debugger tooling and recovery workflows, but it is not a stable byte-for-byte
   source reconstruction contract.

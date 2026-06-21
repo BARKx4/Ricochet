@@ -28,14 +28,27 @@ pub struct DebugPause {
     pub tasks: Vec<DebugTask>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DebugTask {
     pub id: u64,
+    pub operation: String,
     pub status: String,
     pub pending: bool,
     pub running: bool,
     pub completed: bool,
     pub failed: bool,
+    pub fault: Option<String>,
+    pub frames: Vec<DebugTaskFrame>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DebugTaskFrame {
+    pub frame: String,
+    pub source: String,
+    pub opcode: String,
+    pub stack: Vec<Value>,
+    pub locals: Vec<(String, Value)>,
+    pub current_self: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

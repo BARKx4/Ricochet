@@ -550,12 +550,16 @@ Status: implemented beta.
 Implemented:
 
 - Terminal debugger supports `step`, `next`, `out`, `continue`, `abort`,
-  `stack`, `locals`, `globals`, `self`, and `tasks`.
+  `stack`, `locals`, `globals`, `self`, `tasks`, `tasks --tree`,
+  `task <id> stack`, and `task <id> locals`.
 - `rco run --trace-file` writes JSON runtime traces.
 - `rco debug --json` streams JSON Lines events.
 - `rco debug-adapter` speaks Debug Adapter Protocol over stdio.
 - DAP supports launch, source breakpoints, continue, pause, step into/over/out,
   stack frames, scopes, variables, output events, and termination.
+- Debug task snapshots include operation labels, status predicates, optional
+  fault text, and worker-published frame/source/opcode/stack/locals snapshots;
+  DAP task variables expand into those task and frame details.
 - VS Code extension includes TextMate grammar, LSP client, stack trace
   visualizer, debug configuration, and live debugger stack panel.
 - `rco lsp` provides diagnostics, completion, hover, go-to-definition, document

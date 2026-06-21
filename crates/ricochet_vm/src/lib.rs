@@ -20,7 +20,7 @@ pub use approval_runtime::ApprovalRegistry;
 pub use capability::Capability;
 pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use collection::{ArrayValue, ListValue, MapValue, SetValue};
-pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
+pub use debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame};
 pub use http_stream_runtime::HttpStreamRegistry;
 pub use image::{ImageError, ImageValue, VmImage, VM_IMAGE_FORMAT, VM_IMAGE_FORMAT_VERSION};
 pub use object::Instance;

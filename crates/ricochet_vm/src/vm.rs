@@ -15,7 +15,9 @@ use crate::approval_runtime::ApprovalRegistry;
 use crate::capability::Capability;
 use crate::class::{BytecodeCallable, Class, NativeMethod};
 use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
-use crate::debug::{DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask};
+use crate::debug::{
+    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
+};
 use crate::http_stream_runtime::HttpStreamRegistry;
 use crate::image::{
     class_to_image, value_from_image, value_to_image, ImageClass, ImageError, VmImage,
@@ -157,6 +159,13 @@ struct DynamicModuleState {
     language: LanguageState,
 }
 
+#[derive(Clone, Default)]
+struct TaskDebugSnapshot {
+    operation: String,
+    fault: Option<String>,
+    frames: Vec<DebugTaskFrame>,
+}
+
 #[derive(Clone)]
 pub struct Vm {
     pub(super) stack: Vec<Value>,
@@ -210,6 +219,8 @@ pub struct Vm {
     step_over_depth: Option<usize>,
     step_out_depth: Option<usize>,
     debug_frame_depth: usize,
+    task_debug_snapshot: Option<Arc<Mutex<TaskDebugSnapshot>>>,
+    task_debug_frames: Vec<DebugTaskFrame>,
     breakpoints: BTreeSet<(String, usize)>,
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
@@ -272,6 +283,8 @@ impl Default for Vm {
             step_over_depth: None,
             step_out_depth: None,
             debug_frame_depth: 0,
+            task_debug_snapshot: None,
+            task_debug_frames: Vec::new(),
             breakpoints: BTreeSet::new(),
             suppressed_breakpoint: None,
             instruction_limit: None,
@@ -326,7 +339,7 @@ struct Task {
 #[derive(Clone)]
 enum TaskState {
     Running(RunningTask),
-    Finished(TaskCompletion),
+    Finished(Box<TaskCompletion>),
 }
 
 #[derive(Clone)]
@@ -336,6 +349,7 @@ struct RunningTask {
 
 struct RunningTaskShared {
     completion: Mutex<Option<TaskCompletion>>,
+    snapshot: Arc<Mutex<TaskDebugSnapshot>>,
     ready: Condvar,
 }
 
@@ -373,6 +387,7 @@ struct TaskCompletion {
     result: Result<Value, VmError>,
     output: TaskOutput,
     output_consumed: bool,
+    snapshot: TaskDebugSnapshot,
 }
 
 #[derive(Clone, Default)]
@@ -384,8 +399,8 @@ struct TaskOutput {
 
 impl RunningTask {
     fn spawn(task: Task, permit: TaskPermit) -> Self {
-        Self::spawn_completion("spawn".to_string(), permit, move || {
-            run_task_to_completion(task)
+        Self::spawn_completion("spawn".to_string(), permit, move |snapshot| {
+            run_task_to_completion(task, Some(snapshot))
         })
     }
 
@@ -394,36 +409,53 @@ impl RunningTask {
         permit: TaskPermit,
         operation: impl FnOnce() -> Value + Send + 'static,
     ) -> Self {
-        Self::spawn_completion(word, permit, move || TaskCompletion {
+        Self::spawn_completion(word, permit, move |snapshot| TaskCompletion {
             result: Ok(operation()),
             output: TaskOutput::default(),
             output_consumed: false,
+            snapshot: snapshot
+                .lock()
+                .expect("task snapshot lock poisoned")
+                .clone(),
         })
     }
 
     fn spawn_completion(
         panic_word: String,
         permit: TaskPermit,
-        operation: impl FnOnce() -> TaskCompletion + Send + 'static,
+        operation: impl FnOnce(Arc<Mutex<TaskDebugSnapshot>>) -> TaskCompletion + Send + 'static,
     ) -> Self {
+        let snapshot = Arc::new(Mutex::new(TaskDebugSnapshot {
+            operation: panic_word.clone(),
+            fault: None,
+            frames: Vec::new(),
+        }));
         let shared = Arc::new(RunningTaskShared {
             completion: Mutex::new(None),
+            snapshot,
             ready: Condvar::new(),
         });
         let worker_shared = shared.clone();
         thread::spawn(move || {
             let _permit = permit;
-            let completion = match catch_unwind(AssertUnwindSafe(operation)) {
-                Ok(completion) => completion,
-                Err(_) => TaskCompletion {
-                    result: Err(VmError::HostError {
-                        word: panic_word,
-                        message: "task worker thread panicked".to_string(),
-                    }),
-                    output: TaskOutput::default(),
-                    output_consumed: false,
-                },
-            };
+            let worker_snapshot = worker_shared.snapshot.clone();
+            let completion =
+                match catch_unwind(AssertUnwindSafe(move || operation(worker_snapshot))) {
+                    Ok(completion) => completion,
+                    Err(_) => TaskCompletion {
+                        result: Err(VmError::HostError {
+                            word: panic_word,
+                            message: "task worker thread panicked".to_string(),
+                        }),
+                        output: TaskOutput::default(),
+                        output_consumed: false,
+                        snapshot: worker_shared
+                            .snapshot
+                            .lock()
+                            .expect("task snapshot lock poisoned")
+                            .clone(),
+                    },
+                };
             let mut slot = worker_shared
                 .completion
                 .lock()
@@ -462,6 +494,14 @@ impl RunningTask {
 
     fn is_failed(&self) -> bool {
         matches!(self.status(), "failed")
+    }
+
+    fn debug_snapshot(&self) -> TaskDebugSnapshot {
+        self.shared
+            .snapshot
+            .lock()
+            .expect("task snapshot lock poisoned")
+            .clone()
     }
 
     fn wait(&self) -> TaskCompletion {
@@ -506,7 +546,10 @@ fn image_restore_error(error: VmError) -> ImageError {
     }
 }
 
-fn run_task_to_completion(task: Task) -> TaskCompletion {
+fn run_task_to_completion(
+    task: Task,
+    task_debug_snapshot: Option<Arc<Mutex<TaskDebugSnapshot>>>,
+) -> TaskCompletion {
     let mut task_vm = Vm {
         variables: task.variables,
         local_variables: task.local_variables,
@@ -545,10 +588,12 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
         environment_allowed_names: task.environment_allowed_names,
         sleep_enabled: task.sleep_enabled,
         instruction_limit: task.instruction_limit,
+        task_debug_snapshot,
         ..Vm::default()
     };
 
     let result = task_vm.call_bytecode_block("<task>", &task.block);
+    let snapshot = task_vm.task_debug_snapshot();
     TaskCompletion {
         result,
         output: TaskOutput {
@@ -557,6 +602,7 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
             stderr: task_vm.stderr,
         },
         output_consumed: false,
+        snapshot,
     }
 }
 
@@ -1254,9 +1300,29 @@ impl Vm {
         allow_return: bool,
     ) -> Result<ExecutionSignal, VmError> {
         let previous_depth = self.debug_frame_depth;
+        let task_frame_index = self.task_debug_frames.len();
+        if self.task_debug_snapshot.is_some() {
+            self.task_debug_frames.push(DebugTaskFrame {
+                frame: frame.to_string(),
+                source: "<pending>".to_string(),
+                opcode: "<pending>".to_string(),
+                stack: self.stack.clone(),
+                locals: self
+                    .local_variables
+                    .last()
+                    .map(debug_variables)
+                    .unwrap_or_default(),
+                current_self: self.self_stack.last().cloned(),
+            });
+            self.publish_task_debug_snapshot();
+        }
         self.debug_frame_depth = previous_depth + 1;
         let result = self.run_chunk_with_frame_inner(chunk, frame, allow_return);
         self.debug_frame_depth = previous_depth;
+        if self.task_debug_snapshot.is_some() && result.is_ok() {
+            self.task_debug_frames.truncate(task_frame_index);
+            self.publish_task_debug_snapshot();
+        }
         result
     }
 
@@ -1270,6 +1336,7 @@ impl Vm {
         while ip < chunk.instructions.len() {
             self.consume_instruction_budget()?;
             let instruction = &chunk.instructions[ip];
+            self.update_task_debug_frame(frame, instruction);
             self.pause_before_instruction(frame, instruction)?;
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
             let source = self.debug_enabled.then(|| source_label(&instruction.span));
@@ -1307,6 +1374,7 @@ impl Vm {
                             stack: self.stack.clone(),
                         });
                     }
+                    self.record_task_debug_fault(&error);
                     return Err(error);
                 }
             }
@@ -1441,16 +1509,83 @@ impl Vm {
         self.debug_events.push(event);
     }
 
+    fn task_debug_snapshot(&self) -> TaskDebugSnapshot {
+        self.task_debug_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .lock()
+                    .expect("task snapshot lock poisoned")
+                    .clone()
+            })
+            .unwrap_or_default()
+    }
+
+    fn update_task_debug_frame(
+        &mut self,
+        frame: &str,
+        instruction: &ricochet_bytecode::Instruction,
+    ) {
+        if self.task_debug_snapshot.is_none() {
+            return;
+        }
+
+        let task_frame = DebugTaskFrame {
+            frame: frame.to_string(),
+            source: source_label(&instruction.span),
+            opcode: format!("{:?}", &instruction.op),
+            stack: self.stack.clone(),
+            locals: self
+                .local_variables
+                .last()
+                .map(debug_variables)
+                .unwrap_or_default(),
+            current_self: self.self_stack.last().cloned(),
+        };
+        if let Some(current_frame) = self.task_debug_frames.last_mut() {
+            *current_frame = task_frame;
+        } else {
+            self.task_debug_frames.push(task_frame);
+        }
+        self.publish_task_debug_snapshot();
+    }
+
+    fn record_task_debug_fault(&mut self, error: &VmError) {
+        let Some(snapshot) = self.task_debug_snapshot.as_ref() else {
+            return;
+        };
+        let mut snapshot = snapshot.lock().expect("task snapshot lock poisoned");
+        snapshot.frames = self.task_debug_frames.clone();
+        snapshot.fault = Some(error.to_string());
+    }
+
+    fn publish_task_debug_snapshot(&self) {
+        let Some(snapshot) = self.task_debug_snapshot.as_ref() else {
+            return;
+        };
+        let mut snapshot = snapshot.lock().expect("task snapshot lock poisoned");
+        snapshot.frames = self.task_debug_frames.clone();
+    }
+
     fn debug_tasks(&self) -> Vec<DebugTask> {
         self.tasks
-            .keys()
-            .map(|task_id| DebugTask {
-                id: *task_id,
-                status: self.task_status(*task_id).to_string(),
-                pending: self.task_pending(*task_id),
-                running: self.task_running(*task_id),
-                completed: self.task_completed(*task_id),
-                failed: self.task_failed(*task_id),
+            .iter()
+            .map(|(task_id, task)| {
+                let snapshot = match task {
+                    TaskState::Running(task) => task.debug_snapshot(),
+                    TaskState::Finished(completion) => completion.snapshot.clone(),
+                };
+                DebugTask {
+                    id: *task_id,
+                    operation: snapshot.operation,
+                    status: self.task_status(*task_id).to_string(),
+                    pending: self.task_pending(*task_id),
+                    running: self.task_running(*task_id),
+                    completed: self.task_completed(*task_id),
+                    failed: self.task_failed(*task_id),
+                    fault: snapshot.fault,
+                    frames: snapshot.frames,
+                }
             })
             .collect()
     }
@@ -2461,11 +2596,12 @@ impl Vm {
 
         let mut completion = match task {
             TaskState::Running(task) => task.wait(),
-            TaskState::Finished(completion) => completion,
+            TaskState::Finished(completion) => *completion,
         };
         self.merge_task_output(&mut completion);
         let result = completion.result.clone();
-        self.tasks.insert(task_id, TaskState::Finished(completion));
+        self.tasks
+            .insert(task_id, TaskState::Finished(Box::new(completion)));
         result
     }
 

@@ -21,11 +21,14 @@ over a file or directory in CI. `rco fmt` formats current syntax without hiding
 unsupported legacy forms.
 
 Terminal debug sessions accept `step`, `next`, `out`, `continue`, `abort`,
-`stack`, `locals`, `globals`, `self`, and `tasks`; `rco debug --json` streams
-the same event contract as JSON Lines for editor adapters. `rco debug-adapter`
-speaks Debug Adapter Protocol over stdio, maps source breakpoints and step
-into/over/out controls to the VM debugger, and exposes stack, locals, globals,
-`self`, and task scopes to IDEs.
+`stack`, `locals`, `globals`, `self`, `tasks`, `tasks --tree`,
+`task <id> stack`, and `task <id> locals`; `rco debug --json` streams the same
+event contract as JSON Lines for editor adapters. Task pause snapshots include
+operation labels, status predicates, optional fault text, and worker
+frame/source/opcode/stack/locals details. `rco debug-adapter` speaks Debug
+Adapter Protocol over stdio, maps source breakpoints and step into/over/out
+controls to the VM debugger, and exposes stack, locals, globals, `self`, and
+expandable task scopes to IDEs.
 
 `Ricochet: Run With Stack Visualizer` runs the active `.rco` file with `rco run
 --trace-file` and opens a separate IDE panel for the instruction timeline,

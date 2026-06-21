@@ -7177,6 +7177,61 @@ fn run_debug_breakpoint_prints_locals_for_current_frame() {
 }
 
 #[test]
+fn run_debug_breakpoint_prints_task_tree_and_task_stack() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    fs::write(
+        &source_path,
+        "[ 100 sleep 40 2 + ] spawn task var\n20 sleep\ntask get id\ntask get await\n",
+    )
+    .expect("temp source should be written");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--breakpoint")
+        .arg("3")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco run debugger should launch");
+
+    child
+        .stdin
+        .take()
+        .expect("debugger stdin should be piped")
+        .write_all(b"tasks --tree\ntask 0 stack\ntask 0 locals\ncontinue\n")
+        .expect("debugger commands should write");
+
+    let output = child.wait_with_output().expect("debugger should finish");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "task debugger commands should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("task 0:") && stdout.contains("operation=spawn"),
+        "task tree should include task summary, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("frame 0: <task>"),
+        "task tree should include worker frame, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("task 0 stack:") && stdout.contains("stack:"),
+        "task stack command should print the worker stack, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("task 0 locals:"),
+        "task locals command should print worker locals, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_trace_file_records_json_debug_events() {
     let source_path = temp_source_path();
     let root = source_path.parent().expect("source path has parent");
@@ -7249,12 +7304,14 @@ fn debug_json_streams_json_lines_events() {
 
 #[test]
 fn debug_json_pause_includes_task_snapshot() {
-    let source_path = write_source("[ 100 sleep 40 2 + ] spawn task var\ntask get id\n");
+    let source_path = write_source(
+        "[ 100 sleep 40 2 + ] spawn task var\n20 sleep\ntask get id\ntask get await\n",
+    );
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("debug")
         .arg("--json")
         .arg("--breakpoint")
-        .arg("2")
+        .arg("3")
         .arg(&source_path)
         .output()
         .expect("rco debug should launch");
@@ -7271,6 +7328,7 @@ fn debug_json_pause_includes_task_snapshot() {
         .expect("debug stream should include pause event");
     assert_eq!(pause["reason"], "breakpoint");
     assert_eq!(pause["tasks"][0]["id"], 0);
+    assert_eq!(pause["tasks"][0]["operation"], "spawn");
     let task_status = pause["tasks"][0]["status"]
         .as_str()
         .expect("task snapshot should include a string status");
@@ -7281,6 +7339,24 @@ fn debug_json_pause_includes_task_snapshot() {
     assert_eq!(
         pause["tasks"][0]["running"],
         serde_json::Value::Bool(task_status == "running")
+    );
+    let frames = pause["tasks"][0]["frames"]
+        .as_array()
+        .expect("task snapshot should include frame snapshots");
+    assert!(
+        !frames.is_empty(),
+        "task snapshot should include the worker frame, got:\n{pause}"
+    );
+    assert_eq!(frames[0]["frame"], "<task>");
+    assert!(
+        frames[0]["source"]
+            .as_str()
+            .is_some_and(|source| source.ends_with(":1")),
+        "task frame should point at the worker source line, got:\n{pause}"
+    );
+    assert!(
+        frames[0]["opcode"].as_str().is_some(),
+        "task frame should include the current opcode, got:\n{pause}"
     );
 }
 
@@ -7360,6 +7436,81 @@ name get
     assert!(messages
         .iter()
         .any(|message| { message["type"] == "event" && message["event"] == "terminated" }));
+}
+
+#[test]
+fn debug_adapter_serves_task_snapshot_variables() {
+    let source_path = write_source(
+        r#"
+[ 100 sleep 40 2 + ] spawn task var
+20 sleep
+task get id
+task get await
+"#,
+    );
+    let source = path_to_slash_for_test(&source_path);
+    let mut input = Vec::new();
+    for message in [
+        json!({"seq":1,"type":"request","command":"initialize","arguments":{"adapterID":"ricochet","linesStartAt1":true,"columnsStartAt1":true}}),
+        json!({"seq":2,"type":"request","command":"launch","arguments":{"program":source}}),
+        json!({"seq":3,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":source},"breakpoints":[{"line":4}]}}),
+        json!({"seq":4,"type":"request","command":"configurationDone","arguments":{}}),
+        json!({"seq":5,"type":"request","command":"variables","arguments":{"variablesReference":5}}),
+        json!({"seq":6,"type":"request","command":"variables","arguments":{"variablesReference":10000}}),
+        json!({"seq":7,"type":"request","command":"variables","arguments":{"variablesReference":1000000}}),
+        json!({"seq":8,"type":"request","command":"continue","arguments":{"threadId":1}}),
+    ] {
+        write_lsp_message(&mut input, &message);
+    }
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-adapter")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco debug-adapter should launch");
+    child
+        .stdin
+        .as_mut()
+        .expect("debug adapter stdin should be open")
+        .write_all(&input)
+        .expect("debug adapter messages should write");
+    let output = child
+        .wait_with_output()
+        .expect("debug adapter should finish");
+    assert_run_success_for("rco debug-adapter", "DAP task snapshot", &output);
+    let messages = read_lsp_messages(&output.stdout);
+
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "variables"
+            && message["body"]["variables"]
+                .as_array()
+                .expect("task variables should be an array")
+                .iter()
+                .any(|variable| variable["name"] == "0" && variable["variablesReference"] == 10000)
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "variables"
+            && message["body"]["variables"]
+                .as_array()
+                .expect("task detail variables should be an array")
+                .iter()
+                .any(|variable| {
+                    variable["name"] == "frame 0" && variable["variablesReference"] == 1000000
+                })
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "variables"
+            && message["body"]["variables"]
+                .as_array()
+                .expect("frame variables should be an array")
+                .iter()
+                .any(|variable| variable["name"] == "opcode")
+    }));
 }
 
 #[test]

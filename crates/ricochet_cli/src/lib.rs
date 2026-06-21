@@ -26,8 +26,8 @@ use ricochet_syntax::{
     TokenKind,
 };
 use ricochet_vm::{
-    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DynamicModuleSource,
-    MapValue, RicochetResult, Value, Vm, VmImage,
+    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
+    DynamicModuleSource, MapValue, RicochetResult, Value, Vm, VmImage,
 };
 use ricochet_web::{
     install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
@@ -7966,11 +7966,30 @@ fn debug_tasks_json(tasks: &[DebugTask]) -> Vec<serde_json::Value> {
         .map(|task| {
             json!({
                 "id": task.id,
+                "operation": task.operation,
                 "status": task.status,
                 "pending": task.pending,
                 "running": task.running,
                 "completed": task.completed,
                 "failed": task.failed,
+                "fault": task.fault,
+                "frames": debug_task_frames_json(task),
+            })
+        })
+        .collect()
+}
+
+fn debug_task_frames_json(task: &DebugTask) -> Vec<serde_json::Value> {
+    task.frames
+        .iter()
+        .map(|frame| {
+            json!({
+                "frame": frame.frame,
+                "source": frame.source,
+                "opcode": frame.opcode,
+                "stack": debug_stack_json(&frame.stack),
+                "locals": debug_bindings_json(&frame.locals),
+                "self": frame.current_self.as_ref().map(debug_value_json),
             })
         })
         .collect()
@@ -8448,6 +8467,10 @@ fn generated_template(expressions: usize) -> String {
     template
 }
 
+const DAP_TASK_REFERENCE_BASE: u64 = 10_000;
+const DAP_TASK_FRAME_REFERENCE_BASE: u64 = 1_000_000;
+const DAP_TASK_FRAME_REFERENCE_STRIDE: u64 = 1_000;
+
 #[derive(Debug, Clone)]
 struct DapSetup {
     program: PathBuf,
@@ -8718,6 +8741,16 @@ where
                 .map(|value| vec![dap_value_variable("self".to_string(), value)])
                 .unwrap_or_default(),
             (5, Some(pause)) => pause.tasks.iter().map(dap_task_variable).collect(),
+            (reference, Some(pause)) => {
+                if let Some(task_id) = dap_task_reference_id(reference) {
+                    dap_task_detail_variables(pause, task_id)
+                } else if let Some((task_id, frame_index)) = dap_task_frame_reference_id(reference)
+                {
+                    dap_task_frame_variables(pause, task_id, frame_index)
+                } else {
+                    Vec::new()
+                }
+            }
             _ => Vec::new(),
         };
         self.send_response(request, json!({ "variables": variables }))
@@ -8942,11 +8975,122 @@ fn dap_task_variable(task: &DebugTask) -> serde_json::Value {
     json!({
         "name": task.id.to_string(),
         "value": format!(
-            "{} pending={} running={} completed={} failed={}",
-            task.status, task.pending, task.running, task.completed, task.failed
+            "{} operation={} pending={} running={} completed={} failed={} frames={}",
+            task.status,
+            task.operation,
+            task.pending,
+            task.running,
+            task.completed,
+            task.failed,
+            task.frames.len()
         ),
+        "variablesReference": dap_task_reference(task.id),
+    })
+}
+
+fn dap_task_detail_variables(pause: &DebugPause, task_id: u64) -> Vec<serde_json::Value> {
+    let Some(task) = pause.tasks.iter().find(|task| task.id == task_id) else {
+        return Vec::new();
+    };
+    let mut variables = vec![
+        dap_scalar_variable("operation", &task.operation),
+        dap_scalar_variable("status", &task.status),
+        dap_scalar_variable("pending", task.pending),
+        dap_scalar_variable("running", task.running),
+        dap_scalar_variable("completed", task.completed),
+        dap_scalar_variable("failed", task.failed),
+        dap_scalar_variable("frame_count", task.frames.len()),
+    ];
+    if let Some(fault) = &task.fault {
+        variables.push(dap_scalar_variable("fault", fault));
+    }
+    variables.extend(task.frames.iter().enumerate().map(|(index, frame)| {
+        json!({
+            "name": format!("frame {index}"),
+            "value": format!("{} {} {}", frame.frame, frame.source, frame.opcode),
+            "variablesReference": dap_task_frame_reference(task.id, index),
+        })
+    }));
+    variables
+}
+
+fn dap_task_frame_variables(
+    pause: &DebugPause,
+    task_id: u64,
+    frame_index: usize,
+) -> Vec<serde_json::Value> {
+    let Some(frame) = pause
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .and_then(|task| task.frames.get(frame_index))
+    else {
+        return Vec::new();
+    };
+    dap_task_frame_detail_variables(frame)
+}
+
+fn dap_task_frame_detail_variables(frame: &DebugTaskFrame) -> Vec<serde_json::Value> {
+    let mut variables = vec![
+        dap_scalar_variable("frame", &frame.frame),
+        dap_scalar_variable("source", &frame.source),
+        dap_scalar_variable("opcode", &frame.opcode),
+    ];
+    variables.extend(
+        frame
+            .stack
+            .iter()
+            .enumerate()
+            .map(|(index, value)| dap_value_variable(format!("stack[{index}]"), value)),
+    );
+    variables.extend(
+        frame
+            .locals
+            .iter()
+            .map(|(name, value)| dap_value_variable(format!("local {name}"), value)),
+    );
+    if let Some(current_self) = &frame.current_self {
+        variables.push(dap_value_variable("self".to_string(), current_self));
+    }
+    variables
+}
+
+fn dap_scalar_variable(name: impl Into<String>, value: impl ToString) -> serde_json::Value {
+    json!({
+        "name": name.into(),
+        "value": value.to_string(),
         "variablesReference": 0,
     })
+}
+
+fn dap_task_reference(task_id: u64) -> u64 {
+    DAP_TASK_REFERENCE_BASE.saturating_add(task_id)
+}
+
+fn dap_task_reference_id(reference: u64) -> Option<u64> {
+    if (DAP_TASK_REFERENCE_BASE..DAP_TASK_FRAME_REFERENCE_BASE).contains(&reference) {
+        Some(reference - DAP_TASK_REFERENCE_BASE)
+    } else {
+        None
+    }
+}
+
+fn dap_task_frame_reference(task_id: u64, frame_index: usize) -> u64 {
+    DAP_TASK_FRAME_REFERENCE_BASE
+        .saturating_add(task_id.saturating_mul(DAP_TASK_FRAME_REFERENCE_STRIDE))
+        .saturating_add(frame_index as u64)
+}
+
+fn dap_task_frame_reference_id(reference: u64) -> Option<(u64, usize)> {
+    if reference < DAP_TASK_FRAME_REFERENCE_BASE {
+        return None;
+    }
+    let offset = reference - DAP_TASK_FRAME_REFERENCE_BASE;
+    let task_id = offset / DAP_TASK_FRAME_REFERENCE_STRIDE;
+    let frame_index = offset % DAP_TASK_FRAME_REFERENCE_STRIDE;
+    usize::try_from(frame_index)
+        .ok()
+        .map(|frame_index| (task_id, frame_index))
 }
 
 fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
@@ -9023,21 +9167,26 @@ fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
         let mut command = String::new();
         match io::stdin().read_line(&mut command) {
             Ok(0) | Err(_) => return DebugAction::Abort,
-            Ok(_) => match command.trim().to_ascii_lowercase().as_str() {
-                "" | "s" | "step" => return DebugAction::Step,
-                "n" | "next" | "over" | "step-over" => return DebugAction::StepOver,
-                "o" | "out" | "step-out" => return DebugAction::StepOut,
-                "c" | "continue" => return DebugAction::Continue,
-                "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
-                "stack" => println!("{:?}", pause.stack),
-                "locals" => print_debug_bindings("locals", &pause.locals),
-                "globals" => print_debug_bindings("globals", &pause.globals),
-                "self" => println!("{:?}", pause.current_self),
-                "tasks" => println!("{:?}", pause.tasks),
-                _ => println!(
-                    "commands: step, next, out, continue, abort, stack, locals, globals, self, tasks"
-                ),
-            },
+            Ok(_) => {
+                let command = command.trim().to_ascii_lowercase();
+                match command.as_str() {
+                    "" | "s" | "step" => return DebugAction::Step,
+                    "n" | "next" | "over" | "step-over" => return DebugAction::StepOver,
+                    "o" | "out" | "step-out" => return DebugAction::StepOut,
+                    "c" | "continue" => return DebugAction::Continue,
+                    "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
+                    "stack" => println!("{:?}", pause.stack),
+                    "locals" => print_debug_bindings("locals", &pause.locals),
+                    "globals" => print_debug_bindings("globals", &pause.globals),
+                    "self" => println!("{:?}", pause.current_self),
+                    "tasks" => print_debug_tasks(&pause.tasks),
+                    "tasks --tree" => print_debug_task_tree(&pause.tasks),
+                    _ if handle_debug_task_command(&command, pause) => {}
+                    _ => println!(
+                        "commands: step, next, out, continue, abort, stack, locals, globals, self, tasks, tasks --tree, task <id> stack, task <id> locals"
+                    ),
+                }
+            }
         }
     }
 }
@@ -9050,6 +9199,105 @@ fn print_debug_bindings(label: &str, bindings: &[(String, Value)]) {
     println!("{label}:");
     for (name, value) in bindings {
         println!("  {name} = {value:?}");
+    }
+}
+
+fn print_debug_tasks(tasks: &[DebugTask]) {
+    if tasks.is_empty() {
+        println!("tasks: <empty>");
+        return;
+    }
+    println!("tasks:");
+    for task in tasks {
+        println!(
+            "  task {}: {} operation={} pending={} running={} completed={} failed={} frames={}",
+            task.id,
+            task.status,
+            task.operation,
+            task.pending,
+            task.running,
+            task.completed,
+            task.failed,
+            task.frames.len()
+        );
+        if let Some(fault) = &task.fault {
+            println!("    fault: {fault}");
+        }
+    }
+}
+
+fn print_debug_task_tree(tasks: &[DebugTask]) {
+    if tasks.is_empty() {
+        println!("tasks: <empty>");
+        return;
+    }
+    println!("tasks:");
+    for task in tasks {
+        println!(
+            "  task {}: {} operation={}",
+            task.id, task.status, task.operation
+        );
+        for (index, frame) in task.frames.iter().enumerate() {
+            println!(
+                "    frame {index}: {} {} {}",
+                frame.frame, frame.source, frame.opcode
+            );
+        }
+    }
+}
+
+fn handle_debug_task_command(command: &str, pause: &DebugPause) -> bool {
+    let mut parts = command.split_whitespace();
+    if parts.next() != Some("task") {
+        return false;
+    }
+    let Some(id) = parts.next().and_then(|part| part.parse::<u64>().ok()) else {
+        println!("usage: task <id> stack|locals");
+        return true;
+    };
+    let Some(task) = pause.tasks.iter().find(|task| task.id == id) else {
+        println!("task {id}: <unknown>");
+        return true;
+    };
+    match parts.next() {
+        Some("stack") => print_debug_task_stack(task),
+        Some("locals") => print_debug_task_locals(task),
+        Some("info") | None => print_debug_tasks(std::slice::from_ref(task)),
+        _ => println!("usage: task <id> stack|locals"),
+    }
+    true
+}
+
+fn print_debug_task_stack(task: &DebugTask) {
+    if task.frames.is_empty() {
+        println!("task {} stack: <empty>", task.id);
+        return;
+    }
+    println!("task {} stack:", task.id);
+    for (index, frame) in task.frames.iter().enumerate() {
+        println!(
+            "  frame {index}: {} {} {}",
+            frame.frame, frame.source, frame.opcode
+        );
+        println!("    stack: {:?}", frame.stack);
+    }
+}
+
+fn print_debug_task_locals(task: &DebugTask) {
+    if task.frames.is_empty() {
+        println!("task {} locals: <empty>", task.id);
+        return;
+    }
+    println!("task {} locals:", task.id);
+    for (index, frame) in task.frames.iter().enumerate() {
+        println!("  frame {index}: {} {}", frame.frame, frame.source);
+        if frame.locals.is_empty() {
+            println!("    <empty>");
+        } else {
+            for (name, value) in &frame.locals {
+                println!("    {name} = {value:?}");
+            }
+        }
     }
 }
 
