@@ -7,7 +7,8 @@ pub use compiler::{
     expand_module_with_imported_macros, expand_source, expand_source_with_imported_macros,
     exported_macro_table_from_source, exported_macro_table_from_source_with_imports,
     format_compile_error, CompileError, ImportedMacroTable, MacroExpansion,
-    MacroExpansionTraceEntry, MacroImportSummary, MacroSummary, MacroTableSummary,
+    MacroExpansionTraceEntry, MacroImportSummary, MacroPackageMetadata, MacroSourceKind,
+    MacroSummary, MacroTableSummary,
 };
 pub use imports::{
     compile_file_with_imports, expand_file_with_imports, resolve_import_with_metadata,

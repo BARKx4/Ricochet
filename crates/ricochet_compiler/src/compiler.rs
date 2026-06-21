@@ -4,6 +4,7 @@ use ricochet_syntax::{
     FunctionDecl, Item, MacroDecl, MethodDecl, Module, ParseError, SourceDiagnostic, Span,
     SpannedExpr,
 };
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -41,11 +42,31 @@ pub struct MacroImportSummary {
     pub module_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroSourceKind {
+    Local,
+    Package,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroPackageMetadata {
+    pub name: String,
+    pub package: Option<String>,
+    pub module_path: String,
+    pub version: Option<String>,
+    pub integrity: Option<String>,
+    pub source_kind: Option<String>,
+    pub commit: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MacroTableSummary {
     pub module_id: String,
     pub import_specifier: Option<String>,
     pub macros: Vec<MacroSummary>,
+    pub source_hash: String,
+    pub source_kind: MacroSourceKind,
+    pub package: Option<MacroPackageMetadata>,
     pub source_len: usize,
     pub line_starts: Vec<usize>,
 }
@@ -63,6 +84,7 @@ pub struct MacroSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroExpansionTraceEntry {
     pub id: String,
+    pub invocation_module_id: String,
     pub module_id: String,
     pub import_specifier: Option<String>,
     pub macro_name: String,
@@ -158,6 +180,9 @@ fn exported_macro_table_from_module(
         exported_macros,
         local_macros,
         imported_macros: imported_macros.to_vec(),
+        source_hash: sha256_text(source),
+        source_kind: MacroSourceKind::Local,
+        package: None,
         source_len: source.len(),
         line_starts: line_starts(source),
     })
@@ -219,12 +244,19 @@ fn exported_macro_subset(
         .collect()
 }
 
+struct MacroTableSource<'a> {
+    hash: &'a str,
+    kind: MacroSourceKind,
+    package: Option<MacroPackageMetadata>,
+    len: usize,
+    line_starts: Vec<usize>,
+}
+
 fn macro_table_summary(
     module_id: &str,
     import_specifier: Option<String>,
     macros: &HashMap<String, MacroDefinition>,
-    source_len: usize,
-    line_starts: Vec<usize>,
+    source: MacroTableSource<'_>,
 ) -> MacroTableSummary {
     let mut macros = macros
         .values()
@@ -242,8 +274,11 @@ fn macro_table_summary(
         module_id: module_id.to_string(),
         import_specifier,
         macros,
-        source_len,
-        line_starts,
+        source_hash: source.hash.to_string(),
+        source_kind: source.kind,
+        package: source.package,
+        source_len: source.len,
+        line_starts: source.line_starts,
     }
 }
 
@@ -281,6 +316,9 @@ pub struct ImportedMacroTable {
     exported_macros: HashMap<String, MacroDefinition>,
     local_macros: HashMap<String, MacroDefinition>,
     imported_macros: Vec<ImportedMacroTable>,
+    source_hash: String,
+    source_kind: MacroSourceKind,
+    package: Option<MacroPackageMetadata>,
     source_len: usize,
     line_starts: Vec<usize>,
 }
@@ -312,6 +350,39 @@ impl ImportedMacroTable {
                 })
                 .collect(),
             imported_macros: self.imported_macros.clone(),
+            source_hash: self.source_hash.clone(),
+            source_kind: self.source_kind.clone(),
+            package: self.package.clone(),
+            source_len: self.source_len,
+            line_starts: self.line_starts.clone(),
+        }
+    }
+
+    pub fn with_source_identity(
+        &self,
+        module_id: impl Into<String>,
+        source_hash: impl Into<String>,
+        source_kind: MacroSourceKind,
+        package: Option<MacroPackageMetadata>,
+    ) -> Self {
+        let module_id = module_id.into();
+        Self {
+            import_specifier: self.import_specifier.clone(),
+            module_id: module_id.clone(),
+            exported_macros: self
+                .exported_macros
+                .iter()
+                .map(|(name, macro_def)| (name.clone(), macro_def.with_module_id(&module_id)))
+                .collect(),
+            local_macros: self
+                .local_macros
+                .iter()
+                .map(|(name, macro_def)| (name.clone(), macro_def.with_module_id(&module_id)))
+                .collect(),
+            imported_macros: self.imported_macros.clone(),
+            source_hash: source_hash.into(),
+            source_kind,
+            package,
             source_len: self.source_len,
             line_starts: self.line_starts.clone(),
         }
@@ -330,8 +401,13 @@ impl ImportedMacroTable {
             &self.module_id,
             Some(self.import_specifier.clone()),
             &self.exported_macros,
-            self.source_len,
-            self.line_starts.clone(),
+            MacroTableSource {
+                hash: &self.source_hash,
+                kind: self.source_kind.clone(),
+                package: self.package.clone(),
+                len: self.source_len,
+                line_starts: self.line_starts.clone(),
+            },
         )
     }
 
@@ -341,6 +417,7 @@ impl ImportedMacroTable {
 
     fn definition_scope(&self) -> MacroScope {
         MacroScope {
+            module_id: self.module_id.clone(),
             local_macros: self.local_macros.clone(),
             imported_macros: self.imported_macros.clone(),
         }
@@ -361,6 +438,9 @@ struct MacroDefinition {
 
 struct MacroExpander {
     module_id: String,
+    source_hash: String,
+    source_kind: MacroSourceKind,
+    package: Option<MacroPackageMetadata>,
     source_len: usize,
     line_starts: Vec<usize>,
     local_macros: HashMap<String, MacroDefinition>,
@@ -371,6 +451,7 @@ struct MacroExpander {
 
 #[derive(Clone)]
 struct MacroScope {
+    module_id: String,
     local_macros: HashMap<String, MacroDefinition>,
     imported_macros: Vec<ImportedMacroTable>,
 }
@@ -466,6 +547,9 @@ impl MacroExpander {
         let local_macros = collect_macro_definitions(module_id, module)?;
         Ok(Self {
             module_id: module_id.to_string(),
+            source_hash: sha256_text(source),
+            source_kind: MacroSourceKind::Local,
+            package: None,
             source_len: source.len(),
             line_starts: line_starts(source),
             local_macros,
@@ -500,8 +584,13 @@ impl MacroExpander {
             &self.module_id,
             None,
             &self.local_macros,
-            self.source_len,
-            self.line_starts.clone(),
+            MacroTableSource {
+                hash: &self.source_hash,
+                kind: self.source_kind.clone(),
+                package: self.package.clone(),
+                len: self.source_len,
+                line_starts: self.line_starts.clone(),
+            },
         )];
         summaries.extend(self.imported_macros.iter().map(ImportedMacroTable::summary));
         summaries
@@ -509,6 +598,7 @@ impl MacroExpander {
 
     fn root_scope(&self) -> MacroScope {
         MacroScope {
+            module_id: self.module_id.clone(),
             local_macros: self.local_macros.clone(),
             imported_macros: self.imported_macros.clone(),
         }
@@ -946,6 +1036,7 @@ impl MacroExpander {
         let output_node_count = count_spanned_exprs(expansion.exprs());
         self.trace.push(MacroExpansionTraceEntry {
             id: trace_id(&macro_def, call_span, depth),
+            invocation_module_id: scope.module_id.clone(),
             module_id: macro_def.module_id.clone(),
             import_specifier: macro_def.import_specifier.clone(),
             macro_name: macro_def.name.clone(),
@@ -1188,6 +1279,13 @@ impl MacroDefinition {
     fn with_import_specifier(&self, import_specifier: &str) -> Self {
         Self {
             import_specifier: Some(import_specifier.to_string()),
+            ..self.clone()
+        }
+    }
+
+    fn with_module_id(&self, module_id: &str) -> Self {
+        Self {
+            module_id: module_id.to_string(),
             ..self.clone()
         }
     }
@@ -1724,6 +1822,18 @@ fn normalize_module_id(module_id: &str) -> String {
     } else {
         module_id
     }
+}
+
+fn sha256_text(source: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    let digest = hasher.finalize();
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").expect("writing to String should not fail");
+    }
+    format!("sha256:{output}")
 }
 
 fn trace_id(macro_def: &MacroDefinition, span: Span, depth: usize) -> String {

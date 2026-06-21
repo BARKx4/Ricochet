@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     compile_source_with_imported_macros_and_module_id, expand_source_with_imported_macros,
     exported_macro_table_from_source_with_imports, format_compile_error, ImportedMacroTable,
-    MacroExpansion,
+    MacroExpansion, MacroPackageMetadata, MacroSourceKind,
 };
 
 pub fn compile_file_with_imports(source_path: impl AsRef<Path>) -> Result<Chunk> {
@@ -77,6 +77,27 @@ struct ResolvedExpansion {
     exported_macros: ImportedMacroTable,
 }
 
+struct SourceIdentity {
+    module_id: String,
+    source_kind: MacroSourceKind,
+    package: Option<MacroPackageMetadata>,
+}
+
+#[derive(Default)]
+struct PackageLockMetadata {
+    package: Option<String>,
+    version: Option<String>,
+    integrity: Option<String>,
+    source_kind: Option<String>,
+    commit: Option<String>,
+}
+
+#[derive(Default)]
+struct PackageManifestMetadata {
+    package: Option<String>,
+    version: Option<String>,
+}
+
 impl SourceResolver {
     fn compile_file(&mut self, source_path: &Path) -> Result<CompiledFile> {
         let canonical = fs::canonicalize(source_path)
@@ -116,15 +137,16 @@ impl SourceResolver {
             .unwrap_or_else(|| Path::new("."));
 
         for import in unique_imports(&imports) {
-            let import_path = resolve_import(parent, import)?;
-            let compiled_import = self.compile_file(&import_path).with_context(|| {
+            let resolved_import = resolve_import_metadata(parent, import)?;
+            let compiled_import = self.compile_file(&resolved_import.path).with_context(|| {
                 format!("failed to import {import:?} from {}", source_path.display())
             })?;
-            imported_macro_tables.push(
-                compiled_import
-                    .exported_macros
-                    .with_import_specifier(import),
-            );
+            imported_macro_tables.push(bind_imported_macro_table(
+                parent,
+                import,
+                &resolved_import,
+                &compiled_import.exported_macros,
+            )?);
             append_chunk(&mut combined, compiled_import.chunk);
         }
 
@@ -139,7 +161,13 @@ impl SourceResolver {
                 &source_without_imports,
                 &error
             ))
-        })?;
+        })?
+        .with_source_identity(
+            module_id.clone(),
+            sha256_text(&source),
+            MacroSourceKind::Local,
+            None,
+        );
 
         let own_chunk = compile_source_with_imported_macros_and_module_id(
             &diagnostic_file,
@@ -185,11 +213,16 @@ impl SourceResolver {
             .unwrap_or_else(|| Path::new("."));
 
         for import in unique_imports(&imports) {
-            let import_path = resolve_import(parent, import)?;
-            let imported = self.expand_file(&import_path).with_context(|| {
+            let resolved_import = resolve_import_metadata(parent, import)?;
+            let imported = self.expand_file(&resolved_import.path).with_context(|| {
                 format!("failed to import {import:?} from {}", source_path.display())
             })?;
-            imported_macro_tables.push(imported.exported_macros.with_import_specifier(import));
+            imported_macro_tables.push(bind_imported_macro_table(
+                parent,
+                import,
+                &resolved_import,
+                &imported.exported_macros,
+            )?);
         }
 
         let exported_macros = exported_macro_table_from_source_with_imports(
@@ -199,9 +232,15 @@ impl SourceResolver {
         )
         .map_err(|error| {
             anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
-        })?;
+        })?
+        .with_source_identity(
+            file.clone(),
+            sha256_text(&source),
+            MacroSourceKind::Local,
+            None,
+        );
 
-        let expansion = expand_source_with_imported_macros(
+        let mut expansion = expand_source_with_imported_macros(
             &file,
             &source_without_imports,
             &imported_macro_tables,
@@ -209,6 +248,15 @@ impl SourceResolver {
         .map_err(|error| {
             anyhow::anyhow!(format_compile_error(&file, &source_without_imports, &error))
         })?;
+        if let Some(root_table) = expansion
+            .macro_tables
+            .iter_mut()
+            .find(|table| table.module_id == file && table.import_specifier.is_none())
+        {
+            root_table.source_hash = sha256_text(&source);
+            root_table.source_kind = MacroSourceKind::Local;
+            root_table.package = None;
+        }
         self.visiting.remove(&canonical);
         Ok(ResolvedExpansion {
             original_source: source,
@@ -247,6 +295,179 @@ fn logical_module_id(canonical_source_path: &Path, root: &Path) -> String {
         ".".to_string()
     } else {
         module_id
+    }
+}
+
+fn bind_imported_macro_table(
+    parent: &Path,
+    import: &str,
+    resolved_import: &ResolvedImport,
+    table: &ImportedMacroTable,
+) -> Result<ImportedMacroTable> {
+    let source_hash = sha256_text(&read_source_path(&resolved_import.path)?);
+    let bound = match source_identity_for_import(parent, import, resolved_import)? {
+        Some(identity) => table.with_source_identity(
+            identity.module_id,
+            source_hash,
+            identity.source_kind,
+            identity.package,
+        ),
+        None => table.with_source_identity(
+            table.module_id().to_string(),
+            source_hash,
+            MacroSourceKind::Local,
+            None,
+        ),
+    };
+    Ok(bound.with_import_specifier(import))
+}
+
+fn source_identity_for_import(
+    parent: &Path,
+    import: &str,
+    resolved_import: &ResolvedImport,
+) -> Result<Option<SourceIdentity>> {
+    match &resolved_import.kind {
+        ResolvedImportKind::Local => Ok(None),
+        ResolvedImportKind::Package { package } => {
+            let Some(package_import) = parse_package_import(import) else {
+                bail!("failed to parse package import metadata for {import:?}");
+            };
+            let lock = package_lock_metadata(parent, package)?;
+            let manifest = package_manifest_metadata_for_source(&resolved_import.path)?;
+            let module_path = package_import.module;
+            let module_id = canonical_package_module_id(package, &module_path, lock.as_ref());
+            Ok(Some(SourceIdentity {
+                module_id,
+                source_kind: MacroSourceKind::Package,
+                package: Some(MacroPackageMetadata {
+                    name: package.to_string(),
+                    package: lock
+                        .as_ref()
+                        .and_then(|entry| entry.package.clone())
+                        .or(manifest.package),
+                    module_path,
+                    version: lock
+                        .as_ref()
+                        .and_then(|entry| entry.version.clone())
+                        .or(manifest.version),
+                    integrity: lock.as_ref().and_then(|entry| entry.integrity.clone()),
+                    source_kind: lock.as_ref().and_then(|entry| entry.source_kind.clone()),
+                    commit: lock.as_ref().and_then(|entry| entry.commit.clone()),
+                }),
+            }))
+        }
+    }
+}
+
+fn package_lock_metadata(parent: &Path, package: &str) -> Result<Option<PackageLockMetadata>> {
+    let Some(manifest_path) = find_nearest_manifest(parent) else {
+        return Ok(None);
+    };
+    let Some(lock_path) = manifest_path
+        .parent()
+        .map(|manifest_dir| manifest_dir.join("ricochet.lock"))
+    else {
+        return Ok(None);
+    };
+    if !lock_path.is_file() {
+        return Ok(None);
+    }
+    let source = fs::read_to_string(&lock_path)
+        .with_context(|| format!("failed to read {}", lock_path.display()))?;
+    let lock: toml::Value = toml::from_str(&source)
+        .with_context(|| format!("failed to parse {}", lock_path.display()))?;
+    let Some(entry) = lock
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .and_then(|packages| packages.get(package))
+        .and_then(toml::Value::as_table)
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(PackageLockMetadata {
+        package: entry
+            .get("package")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+        version: entry
+            .get("version")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+        integrity: entry
+            .get("integrity")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+        source_kind: package_lock_source_kind(entry),
+        commit: entry
+            .get("commit")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+    }))
+}
+
+fn package_manifest_metadata_for_source(source_path: &Path) -> Result<PackageManifestMetadata> {
+    let parent = source_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let Some(manifest_path) = find_nearest_manifest(parent) else {
+        return Ok(PackageManifestMetadata::default());
+    };
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest: toml::Value = toml::from_str(&source)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let package = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .and_then(|package| package.get("name"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_string);
+    let version = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_string);
+    Ok(PackageManifestMetadata { package, version })
+}
+
+fn package_lock_source_kind(entry: &toml::map::Map<String, toml::Value>) -> Option<String> {
+    if entry.get("git").is_some() || entry.get("commit").is_some() {
+        Some("git".to_string())
+    } else if entry.get("registry").is_some() {
+        Some("registry".to_string())
+    } else if entry.get("path").is_some() {
+        Some("path".to_string())
+    } else {
+        None
+    }
+}
+
+fn canonical_package_module_id(
+    package: &str,
+    module_path: &str,
+    lock: Option<&PackageLockMetadata>,
+) -> String {
+    let module_path = module_path.replace('\\', "/");
+    let revision = lock
+        .and_then(|entry| entry.integrity.clone())
+        .or_else(|| {
+            lock.and_then(|entry| entry.commit.clone().map(|commit| format!("git:{commit}")))
+        })
+        .or_else(|| {
+            lock.and_then(|entry| {
+                entry
+                    .version
+                    .clone()
+                    .map(|version| format!("version:{version}"))
+            })
+        });
+    match revision {
+        Some(revision) => format!("{package}@{revision}/{module_path}"),
+        None => format!("{package}/{module_path}"),
     }
 }
 
@@ -339,10 +560,6 @@ fn parse_string_prefix(source: &str) -> Result<Option<(String, &str)>> {
         bail!("unterminated import string escape");
     }
     Ok(None)
-}
-
-fn resolve_import(parent: &Path, import: &str) -> Result<PathBuf> {
-    resolve_import_metadata(parent, import).map(|resolved| resolved.path)
 }
 
 fn resolve_import_metadata(parent: &Path, import: &str) -> Result<ResolvedImport> {
@@ -722,6 +939,13 @@ fn hex_digest(bytes: &[u8]) -> String {
         write!(&mut output, "{byte:02x}").expect("writing to String should not fail");
     }
     output
+}
+
+fn sha256_text(source: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    let digest = hasher.finalize();
+    format!("sha256:{}", hex_digest(&digest))
 }
 
 fn path_to_slash(path: &Path) -> String {

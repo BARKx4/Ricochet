@@ -357,9 +357,9 @@ The exact syntax must be designed before implementation. It must avoid leading-d
 - [x] Add declaration-item macro output for top-level `function` and
   `Subclass` rows, including class-body declaration rows inside generated
   classes.
-- [ ] Stabilize the `rco expand --json` schema, source maps, cache hashes, and
+- [x] Stabilize the `rco expand --json` schema, source maps, cache hashes, and
   package lockfile canonical module IDs.
-- [ ] Add docs, examples, and package tests.
+- [ ] Add public examples and broader package tests.
 - [ ] Commit as `feat: add compile-time macros`.
 
 **Verification Gate:**

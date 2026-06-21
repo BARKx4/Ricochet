@@ -101,7 +101,9 @@ Implemented:
 - Compile-time expression macros use string-named `"name" Macro` declarations,
   explicit `"name" macro_call` invocation, AST quoting/splicing through
   `quote_ast` and `ast_splice`, whole-item row generation through
-  `quote_items`, local and static-import lookup, and `rco expand` inspection.
+  `quote_items`, local/static-import/package lookup, and `rco expand`
+  inspection with a stable v1 JSON schema, source inventory, source maps,
+  cache metadata, and canonical package macro IDs.
 - `quote_items` supports ordinary expression-item rows, class-body rows such as
   `Accessor`, `Field`, `Table`, and `Method`, and top-level declaration rows
   encoded as `[ body ] "name" function`,
@@ -125,9 +127,8 @@ Evidence:
 
 Remaining:
 
-- Compile-time macros still need a fully stable JSON schema/cache contract,
-  package lockfile canonical IDs, public examples, and package tests before
-  being treated as stable for package authors.
+- Compile-time macros still need public examples and broader package tests
+  before being treated as stable for package authors.
 
 Do not assume:
 
@@ -626,8 +627,7 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Compile-time macro stabilization: full source-map/cache schema, package
-  lockfile canonical IDs, public examples, and package tests.
+- Compile-time macro stabilization: public examples and broader package tests.
 - Central hosted package registry.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.

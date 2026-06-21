@@ -127,9 +127,9 @@ the compiler fails and asks for a qualified call:
 ```
 
 Package path imports use the same manifest and containment rules as ordinary
-static imports. Lockfile-canonical macro module IDs are still stabilization
-work, so do not treat the current `rco expand --json` module IDs as a permanent
-package identity format.
+static imports. `rco expand --json` now reports canonical package-aware macro
+module IDs with safe lock metadata when `ricochet.lock` is present, so package
+macros can be traced without exposing local cache paths.
 
 ## Inspection
 
@@ -140,9 +140,9 @@ rco expand app.rco
 rco expand app.rco --json
 ```
 
-The JSON form includes the expanded AST, macro tables, imports, traces, and
-diagnostics. It is useful for debugging today, but the full cache/source-map
-schema is still beta and may change before macro stabilization.
+The JSON form includes stable v1 contract metadata through `schema`,
+`sources`, `source_map`, and `cache`, alongside the expanded AST, macro
+tables, imports, traces, diagnostics, and output hash.
 
 ## Current Limits
 
@@ -153,6 +153,4 @@ schema is still beta and may change before macro stabilization.
   nodes are bounded.
 - `quote_items` declaration rows are supported only where a whole declaration
   item is valid.
-- Stable `rco expand --json` source maps/cache metadata, package lockfile
-  canonical macro module IDs, and public package examples remain stabilization
-  work.
+- Public package examples and broader package tests remain stabilization work.

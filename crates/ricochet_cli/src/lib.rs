@@ -50,6 +50,7 @@ mod migration_dsl;
 
 const DEFAULT_BUILD_SOURCE: &str = "main.rco";
 const BUILD_OUTPUT: &str = "build/app.rcob";
+const EXPAND_JSON_SCHEMA: &str = "ricochet.expand.v1";
 const EXPAND_JSON_SCHEMA_VERSION: u32 = 1;
 const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
@@ -10902,19 +10903,35 @@ fn expand_json_payload(
     Ok(expand_json_payload_from_expansion(source, &expansion))
 }
 
+#[derive(Clone)]
+struct ExpandSourceEntry {
+    id: String,
+    module_id: String,
+    kind: &'static str,
+    source_hash: String,
+    package: Option<ricochet_compiler::MacroPackageMetadata>,
+}
+
 fn expand_json_payload_from_expansion(
     source: &str,
     expansion: &ricochet_compiler::MacroExpansion,
 ) -> serde_json::Value {
     let expanded_source = format_module(&expansion.module);
     let source_line_starts = line_starts(source);
+    let sources = expand_sources(expansion);
+    let source_lookup = expand_source_lookup(&sources);
+    let cache = expand_cache_json(expansion.module_id.as_str(), &sources);
+    let cache_hash = cache["key"].clone();
     json!({
+        "schema": EXPAND_JSON_SCHEMA,
         "schema_version": EXPAND_JSON_SCHEMA_VERSION,
         "module_id": &expansion.module_id,
         "source_hash": sha256_text(source),
         "compiler_version": ricochet_compiler::crate_version(),
         "formatter_version": ricochet_syntax::crate_version(),
-        "imports": imports_json(&expansion.imports),
+        "imports": imports_json(&expansion.imports, &source_lookup),
+        "sources": sources_json(&sources),
+        "source_map": source_map_json(expansion),
         "macro_tables": macro_tables_json(&expansion.macro_tables),
         "expanded_ast": module_ast_json(source, &source_line_starts, &expansion.module),
         "expanded_source": &expanded_source,
@@ -10925,6 +10942,8 @@ fn expand_json_payload_from_expansion(
             &expansion.trace,
         ),
         "diagnostics": [],
+        "cache": cache,
+        "cache_hash": cache_hash,
         "output_hash": sha256_text(&expanded_source),
     })
 }
@@ -10934,13 +10953,30 @@ fn expand_json_error_message_payload(
     source: &str,
     error: &anyhow::Error,
 ) -> serde_json::Value {
+    let source_hash = sha256_text(source);
+    let sources = vec![ExpandSourceEntry {
+        id: module_id.to_string(),
+        module_id: module_id.to_string(),
+        kind: "local",
+        source_hash: source_hash.clone(),
+        package: None,
+    }];
+    let cache = expand_cache_json(module_id, &sources);
+    let cache_hash = cache["key"].clone();
     json!({
+        "schema": EXPAND_JSON_SCHEMA,
         "schema_version": EXPAND_JSON_SCHEMA_VERSION,
         "module_id": module_id,
-        "source_hash": sha256_text(source),
+        "source_hash": source_hash,
         "compiler_version": ricochet_compiler::crate_version(),
         "formatter_version": ricochet_syntax::crate_version(),
         "imports": [],
+        "sources": sources_json(&sources),
+        "source_map": {
+            "root_source_id": module_id,
+            "macro_tables": [],
+            "trace": [],
+        },
         "macro_tables": [],
         "expanded_ast": serde_json::Value::Null,
         "expanded_source": serde_json::Value::Null,
@@ -10949,17 +10985,131 @@ fn expand_json_error_message_payload(
             "severity": "error",
             "message": error.to_string(),
         }],
+        "cache": cache,
+        "cache_hash": cache_hash,
         "output_hash": serde_json::Value::Null,
     })
 }
 
-fn imports_json(imports: &[ricochet_compiler::MacroImportSummary]) -> Vec<serde_json::Value> {
+fn expand_sources(expansion: &ricochet_compiler::MacroExpansion) -> Vec<ExpandSourceEntry> {
+    let mut root = None;
+    let mut imported = BTreeMap::new();
+    for table in &expansion.macro_tables {
+        let entry = ExpandSourceEntry {
+            id: table.module_id.clone(),
+            module_id: table.module_id.clone(),
+            kind: source_kind_name(&table.source_kind),
+            source_hash: table.source_hash.clone(),
+            package: table.package.clone(),
+        };
+        if table.module_id == expansion.module_id && table.import_specifier.is_none() {
+            root = Some(entry);
+        } else {
+            imported.entry(entry.id.clone()).or_insert(entry);
+        }
+    }
+
+    let mut sources = Vec::new();
+    if let Some(root) = root {
+        sources.push(root);
+    }
+    sources.extend(imported.into_values());
+    sources
+}
+
+fn expand_source_lookup(sources: &[ExpandSourceEntry]) -> BTreeMap<String, ExpandSourceEntry> {
+    sources
+        .iter()
+        .cloned()
+        .map(|source| (source.id.clone(), source))
+        .collect()
+}
+
+fn source_kind_name(source_kind: &ricochet_compiler::MacroSourceKind) -> &'static str {
+    match source_kind {
+        ricochet_compiler::MacroSourceKind::Local => "local",
+        ricochet_compiler::MacroSourceKind::Package => "package",
+    }
+}
+
+fn sources_json(sources: &[ExpandSourceEntry]) -> Vec<serde_json::Value> {
+    sources
+        .iter()
+        .map(|source| {
+            json!({
+                "id": &source.id,
+                "module_id": &source.module_id,
+                "kind": source.kind,
+                "source_hash": &source.source_hash,
+                "package": source.package.as_ref().map(package_json),
+            })
+        })
+        .collect()
+}
+
+fn package_json(package: &ricochet_compiler::MacroPackageMetadata) -> serde_json::Value {
+    json!({
+        "name": &package.name,
+        "package": &package.package,
+        "module_path": &package.module_path,
+        "version": &package.version,
+        "integrity": &package.integrity,
+        "source_kind": &package.source_kind,
+        "commit": &package.commit,
+    })
+}
+
+fn expand_cache_json(root_module_id: &str, sources: &[ExpandSourceEntry]) -> serde_json::Value {
+    let imported_sources = sources
+        .iter()
+        .filter(|source| source.id != root_module_id)
+        .map(|source| {
+            json!({
+                "id": &source.id,
+                "source_hash": &source.source_hash,
+                "kind": source.kind,
+                "package": source.package.as_ref().map(package_json),
+            })
+        })
+        .collect::<Vec<_>>();
+    let cache_inputs = json!({
+        "schema": EXPAND_JSON_SCHEMA,
+        "schema_version": EXPAND_JSON_SCHEMA_VERSION,
+        "compiler_version": ricochet_compiler::crate_version(),
+        "formatter_version": ricochet_syntax::crate_version(),
+        "root_module_id": root_module_id,
+        "root_source_hash": sources
+            .iter()
+            .find(|source| source.id == root_module_id)
+            .map(|source| source.source_hash.clone())
+            .unwrap_or_default(),
+        "imported_sources": imported_sources,
+    });
+    let cache_key =
+        sha256_text(&serde_json::to_string(&cache_inputs).expect("cache inputs should serialize"));
+    json!({
+        "algorithm": "sha256",
+        "key": cache_key,
+        "inputs": cache_inputs,
+    })
+}
+
+fn imports_json(
+    imports: &[ricochet_compiler::MacroImportSummary],
+    source_lookup: &BTreeMap<String, ExpandSourceEntry>,
+) -> Vec<serde_json::Value> {
     imports
         .iter()
         .map(|import| {
+            let source = source_lookup
+                .get(import.module_id.as_str())
+                .expect("import source should exist in source inventory");
             json!({
                 "specifier": &import.specifier,
                 "module_id": &import.module_id,
+                "kind": source.kind,
+                "source_hash": &source.source_hash,
+                "package": source.package.as_ref().map(package_json),
             })
         })
         .collect()
@@ -10969,6 +11119,7 @@ fn macro_tables_json(tables: &[ricochet_compiler::MacroTableSummary]) -> Vec<ser
     tables
         .iter()
         .map(|table| {
+            let source_id = table.module_id.as_str();
             let macros = table
                 .macros
                 .iter()
@@ -10980,17 +11131,19 @@ fn macro_tables_json(tables: &[ricochet_compiler::MacroTableSummary]) -> Vec<ser
                             "outputs": &macro_summary.outputs,
                         },
                         "docs": &macro_summary.docs,
-                        "span": span_json_from_source_map(
+                        "span": span_json_from_source_map_with_source_id(
                             table.source_len,
                             &table.line_starts,
                             macro_summary.span,
+                            source_id,
                         ),
                         "body_span": macro_summary
                             .body_span
-                            .map(|span| span_json_from_source_map(
+                            .map(|span| span_json_from_source_map_with_source_id(
                                 table.source_len,
                                 &table.line_starts,
                                 span,
+                                source_id,
                             )),
                     })
                 })
@@ -11005,6 +11158,35 @@ fn macro_tables_json(tables: &[ricochet_compiler::MacroTableSummary]) -> Vec<ser
         .collect()
 }
 
+fn source_map_json(expansion: &ricochet_compiler::MacroExpansion) -> serde_json::Value {
+    json!({
+        "root_source_id": &expansion.module_id,
+        "macro_tables": expansion
+            .macro_tables
+            .iter()
+            .map(|table| {
+                json!({
+                    "module_id": &table.module_id,
+                    "import_specifier": &table.import_specifier,
+                    "source_id": &table.module_id,
+                })
+            })
+            .collect::<Vec<_>>(),
+        "trace": expansion
+            .trace
+            .iter()
+            .map(|entry| {
+                json!({
+                    "id": &entry.id,
+                    "invocation_source_id": &entry.invocation_module_id,
+                    "name_source_id": &entry.invocation_module_id,
+                    "definition_source_id": &entry.module_id,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn trace_json(
     source: &str,
     source_line_starts: &[usize],
@@ -11014,6 +11196,12 @@ fn trace_json(
     trace
         .iter()
         .map(|entry| {
+            let (invocation_source_len, invocation_line_starts) = trace_source_map_for_module(
+                source,
+                source_line_starts,
+                macro_tables,
+                &entry.invocation_module_id,
+            );
             let (definition_source_len, definition_line_starts) =
                 trace_definition_source_map(source, source_line_starts, macro_tables, entry);
             json!({
@@ -11024,16 +11212,40 @@ fn trace_json(
                 "depth": entry.depth,
                 "argument_count": entry.argument_count,
                 "output_node_count": entry.output_node_count,
-                "invocation_span": span_json(source, source_line_starts, entry.invocation_span),
-                "name_span": span_json(source, source_line_starts, entry.name_span),
-                "definition_span": span_json_from_source_map(
+                "invocation_span": span_json_from_source_map_with_source_id(
+                    invocation_source_len,
+                    invocation_line_starts,
+                    entry.invocation_span,
+                    &entry.invocation_module_id,
+                ),
+                "name_span": span_json_from_source_map_with_source_id(
+                    invocation_source_len,
+                    invocation_line_starts,
+                    entry.name_span,
+                    &entry.invocation_module_id,
+                ),
+                "definition_span": span_json_from_source_map_with_source_id(
                     definition_source_len,
                     definition_line_starts,
                     entry.definition_span,
+                    &entry.module_id,
                 ),
             })
         })
         .collect()
+}
+
+fn trace_source_map_for_module<'a>(
+    source: &'a str,
+    source_line_starts: &'a [usize],
+    macro_tables: &'a [ricochet_compiler::MacroTableSummary],
+    module_id: &str,
+) -> (usize, &'a [usize]) {
+    macro_tables
+        .iter()
+        .find(|table| table.module_id == module_id)
+        .map(|table| (table.source_len, table.line_starts.as_slice()))
+        .unwrap_or((source.len(), source_line_starts))
 }
 
 fn trace_definition_source_map<'a>(
@@ -11209,6 +11421,17 @@ fn span_json_from_source_map(
         "end_line": end_line,
         "end_column": end_column,
     })
+}
+
+fn span_json_from_source_map_with_source_id(
+    source_len: usize,
+    source_line_starts: &[usize],
+    span: Span,
+    source_id: &str,
+) -> serde_json::Value {
+    let mut span_json = span_json_from_source_map(source_len, source_line_starts, span);
+    span_json["source_id"] = json!(source_id);
+    span_json
 }
 
 fn module_id_for_path(path: &Path) -> String {
@@ -11480,6 +11703,67 @@ end
         let trace_id = trace["id"].as_str().expect("trace id");
         assert!(!trace_id.contains('\\'));
         assert!(!trace_id.contains('/'));
+    }
+
+    #[test]
+    fn expand_json_payload_emits_stable_schema_sources_source_map_and_cache_fields() {
+        let source = r#"
+(( Say ok. ))
+"say_ok" Macro
+[
+  [ "ok" println ] quote_ast
+]
+end
+
+"say_ok" macro_call
+"#;
+
+        let payload =
+            expand_json_payload("src\\macro_test.rco", source).expect("expand JSON succeeds");
+
+        assert_eq!(payload["schema"], "ricochet.expand.v1");
+        assert_eq!(payload["cache_hash"], payload["cache"]["key"]);
+        assert_eq!(payload["cache"]["algorithm"], "sha256");
+        assert_eq!(
+            payload["source_map"]["root_source_id"],
+            "src/macro_test.rco"
+        );
+
+        let sources = payload["sources"].as_array().expect("sources array");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0]["id"], "src/macro_test.rco");
+        assert_eq!(sources[0]["module_id"], "src/macro_test.rco");
+        assert_eq!(sources[0]["kind"], "local");
+        assert_eq!(sources[0]["source_hash"], payload["source_hash"]);
+
+        assert_eq!(
+            payload["macro_tables"][0]["macros"][0]["span"]["source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["trace"][0]["invocation_span"]["source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["trace"][0]["name_span"]["source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["trace"][0]["definition_span"]["source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["source_map"]["macro_tables"][0]["source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["source_map"]["trace"][0]["invocation_source_id"],
+            "src/macro_test.rco"
+        );
+        assert_eq!(
+            payload["source_map"]["trace"][0]["definition_source_id"],
+            "src/macro_test.rco"
+        );
     }
 
     #[test]

@@ -2795,6 +2795,46 @@ end
         payload["imports"][0]["module_id"]
     );
     assert_eq!(payload["trace"][0]["import_specifier"], "lib/macros");
+    assert_eq!(payload["schema"], "ricochet.expand.v1");
+    assert_eq!(payload["cache_hash"], payload["cache"]["key"]);
+    let sources = payload["sources"].as_array().expect("sources array");
+    assert_eq!(sources.len(), 2);
+    assert_eq!(sources[0]["id"], "main.rco");
+    assert_eq!(sources[0]["module_id"], "main.rco");
+    assert_eq!(sources[0]["kind"], "local");
+    assert_eq!(sources[0]["source_hash"], payload["source_hash"]);
+    assert_eq!(sources[1]["id"], "lib/macros.rco");
+    assert_eq!(sources[1]["module_id"], "lib/macros.rco");
+    assert_eq!(sources[1]["kind"], "local");
+    assert_eq!(
+        payload["imports"][0]["source_hash"],
+        sources[1]["source_hash"]
+    );
+    assert_eq!(payload["source_map"]["root_source_id"], "main.rco");
+    assert_eq!(
+        payload["source_map"]["macro_tables"][0]["source_id"],
+        "main.rco"
+    );
+    assert_eq!(
+        payload["source_map"]["macro_tables"][1]["source_id"],
+        "lib/macros.rco"
+    );
+    assert_eq!(
+        payload["source_map"]["trace"][0]["invocation_source_id"],
+        "main.rco"
+    );
+    assert_eq!(
+        payload["source_map"]["trace"][0]["definition_source_id"],
+        "lib/macros.rco"
+    );
+    assert_eq!(
+        payload["trace"][0]["invocation_span"]["source_id"],
+        "main.rco"
+    );
+    assert_eq!(
+        payload["trace"][0]["definition_span"]["source_id"],
+        "lib/macros.rco"
+    );
     assert!(payload["expanded_source"]
         .as_str()
         .is_some_and(|source| source.contains("\"ok\" println")));
@@ -2802,6 +2842,165 @@ end
     assert!(
         !serialized.contains(&root.to_string_lossy().replace('\\', "/")),
         "expand JSON should not expose temp-root absolute paths:\n{serialized}"
+    );
+}
+
+#[test]
+fn expand_json_cache_key_changes_when_imported_macro_source_changes() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    let imported_path = root.join("lib").join("macros.rco");
+    write_source_at(
+        root,
+        "lib/macros.rco",
+        r#""say_ok" Macro
+  [
+    [ "ok" println ] quote_ast
+  ]
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        "\"lib/macros\" import\n\"say_ok\" macro_call\n",
+    );
+
+    let first_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("expand")
+        .arg(&main_path)
+        .arg("--json")
+        .output()
+        .expect("first rco expand should launch");
+    assert_run_success_for("rco expand", "main.rco", &first_output);
+    let first_payload: serde_json::Value =
+        serde_json::from_slice(&first_output.stdout).expect("first expand stdout should be JSON");
+
+    fs::write(
+        &imported_path,
+        r#""say_ok" Macro
+  [
+    [ "better" println ] quote_ast
+  ]
+end
+"#,
+    )
+    .expect("imported macro source should update");
+
+    let second_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("expand")
+        .arg(&main_path)
+        .arg("--json")
+        .output()
+        .expect("second rco expand should launch");
+    assert_run_success_for("rco expand", "main.rco", &second_output);
+    let second_payload: serde_json::Value =
+        serde_json::from_slice(&second_output.stdout).expect("second expand stdout should be JSON");
+
+    assert_eq!(
+        first_payload["source_hash"], second_payload["source_hash"],
+        "root source hash should stay stable when only the imported macro changes"
+    );
+    assert_ne!(
+        first_payload["cache_hash"], second_payload["cache_hash"],
+        "cache key should change when an imported macro source changes"
+    );
+    assert_ne!(
+        first_payload["imports"][0]["source_hash"], second_payload["imports"][0]["source_hash"],
+        "imported source hash should change when the imported macro file changes"
+    );
+    assert!(
+        second_payload["expanded_source"]
+            .as_str()
+            .is_some_and(|source| source.contains("\"better\" println")),
+        "expanded output should reflect the updated imported macro"
+    );
+}
+
+#[test]
+fn expand_json_uses_canonical_package_macro_source_identity() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    let package_root = root.join("packages").join("greeter");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"expand_package_app\"\nversion = \"0.1.0\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\nversion = \"^0.1.0\"\n",
+    );
+    write_source_at(
+        &package_root,
+        "ricochet.toml",
+        "[package]\nname = \"@tests/greeter\"\nversion = \"0.1.0\"\n",
+    );
+    write_source_at(
+        &package_root,
+        "macros.rco",
+        r#""hello" Macro
+  [
+    [ "hello from package macro" println ] quote_ast
+  ]
+end
+"#,
+    );
+    let install_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "expand_package_app", &install_output);
+    write_source_at(
+        root,
+        "main.rco",
+        "\"greeter/macros\" import\n\"hello\" macro_call\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("expand")
+        .arg("main.rco")
+        .arg("--json")
+        .current_dir(root)
+        .output()
+        .expect("rco expand should launch");
+
+    assert_run_success_for("rco expand", "main.rco", &output);
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expand stdout should be JSON");
+    let module_id = payload["imports"][0]["module_id"]
+        .as_str()
+        .expect("package import module id");
+    let serialized = serde_json::to_string(&payload).expect("payload should serialize");
+
+    assert!(
+        module_id.starts_with("greeter@sha256:"),
+        "package import module id should use a canonical revision label, got {module_id}"
+    );
+    assert!(
+        module_id.ends_with("/macros"),
+        "package import module id should use the package-relative module path, got {module_id}"
+    );
+    assert_eq!(payload["imports"][0]["kind"], "package");
+    assert_eq!(payload["imports"][0]["package"]["name"], "greeter");
+    assert_eq!(
+        payload["imports"][0]["package"]["package"],
+        "@tests/greeter"
+    );
+    assert_eq!(payload["imports"][0]["package"]["module_path"], "macros");
+    assert_eq!(payload["imports"][0]["package"]["source_kind"], "path");
+    assert_eq!(payload["imports"][0]["package"]["version"], "0.1.0");
+    assert!(payload["imports"][0]["package"]["integrity"]
+        .as_str()
+        .is_some_and(|integrity| integrity.starts_with("sha256:")));
+    assert!(
+        !module_id.contains("packages/greeter"),
+        "package import module id should not expose workspace-relative paths: {module_id}"
+    );
+    assert!(
+        !serialized.contains(&path_to_slash_for_test(root)),
+        "expand JSON should not expose the temp project root:\n{serialized}"
+    );
+    assert!(
+        !serialized.contains(".ricochet/packages"),
+        "expand JSON should not expose cache directories:\n{serialized}"
     );
 }
 
