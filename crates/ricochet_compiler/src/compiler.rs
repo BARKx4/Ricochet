@@ -394,6 +394,28 @@ enum ItemRowContext {
     ClassBody,
 }
 
+#[derive(Clone, Copy)]
+struct ItemExpansionContext {
+    depth: usize,
+    item_rows: ItemRowContext,
+}
+
+impl ItemExpansionContext {
+    fn top_level(depth: usize) -> Self {
+        Self {
+            depth,
+            item_rows: ItemRowContext::TopLevel,
+        }
+    }
+
+    fn class_body(depth: usize) -> Self {
+        Self {
+            depth,
+            item_rows: ItemRowContext::ClassBody,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ExpandedSegment {
     exprs: Vec<SpannedExpr>,
@@ -521,9 +543,14 @@ impl MacroExpander {
                 docs: function.docs.clone(),
                 span: function.span,
             })]),
-            Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, 0, scope, ItemRowContext::TopLevel)
-            }
+            Item::Expr { expr, span, docs } => self.expand_expr_item(
+                expr,
+                *span,
+                docs,
+                stack,
+                scope,
+                ItemExpansionContext::top_level(0),
+            ),
         }
     }
 
@@ -574,7 +601,7 @@ impl MacroExpander {
                 span: function.span,
             })]),
             Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, 0, scope, ItemRowContext::ClassBody)
+                self.expand_expr_item(expr, *span, docs, stack, scope, ItemExpansionContext::class_body(0))
             }
         }
     }
@@ -600,9 +627,8 @@ impl MacroExpander {
         span: Span,
         docs: &[String],
         stack: &mut Vec<String>,
-        depth: usize,
         scope: &MacroScope,
-        item_context: ItemRowContext,
+        context: ItemExpansionContext,
     ) -> Result<Vec<Item>, CompileError> {
         let exprs = expr_as_spanned_exprs(expr, span);
         let mut output = Vec::<ExpandedSegment>::new();
@@ -610,7 +636,7 @@ impl MacroExpander {
         for (index, expr) in exprs.iter().enumerate() {
             if matches!(&expr.expr, Expr::Symbol(word) if word == "macro_call") {
                 let expansion =
-                    self.evaluate_macro_call(expr.span, &mut output, stack, depth, scope)?;
+                    self.evaluate_macro_call(expr.span, &mut output, stack, context.depth, scope)?;
                 match expansion {
                     MacroExpansionOutput::Exprs(exprs) => {
                         output.push(ExpandedSegment::new(exprs, expr.span));
@@ -631,13 +657,16 @@ impl MacroExpander {
                                 ),
                             });
                         }
-                        return item_rows_to_items(rows, docs, item_context);
+                        return item_rows_to_items(rows, docs, context.item_rows);
                     }
                 }
             } else {
-                output.push(ExpandedSegment::single(
-                    self.expand_spanned_expr(expr, stack, depth, scope)?,
-                ));
+                output.push(ExpandedSegment::single(self.expand_spanned_expr(
+                    expr,
+                    stack,
+                    context.depth,
+                    scope,
+                )?));
             }
         }
 
@@ -723,9 +752,8 @@ impl MacroExpander {
                 row.span,
                 &[],
                 stack,
-                depth,
                 scope,
-                ItemRowContext::ClassBody,
+                ItemExpansionContext::class_body(depth),
             )?;
             for item in items {
                 expanded.push(class_body_item_to_row(item)?);
