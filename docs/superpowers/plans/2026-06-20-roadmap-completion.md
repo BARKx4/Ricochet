@@ -362,8 +362,8 @@ The exact syntax must be designed before implementation. It must avoid leading-d
 - [x] Add public examples and broader package tests.
 - [x] Land the macro stabilization follow-up as `test: add macro package examples`.
 
-Epic 5 macro stabilization is now fully covered. Continue roadmap execution
-with Epics 6 and 7 next, then return to Epic 8 central hosted package registry.
+Epic 5 macro stabilization is now fully covered. Roadmap execution has advanced
+through Epics 6 and 7, and Epic 8 now tracks hosted registry work.
 
 **Verification Gate:**
 
@@ -496,7 +496,7 @@ Tests prove dynamic imports respect lockfile integrity, aliases, local path cont
 
 **Implementation Path:**
 
-- [ ] Write registry protocol spec before code.
+- [x] Write registry protocol spec before code.
 - [ ] Split CLI static registry code into reusable client/index/metadata modules.
 - [ ] Add hosted registry client read operations first: search, metadata fetch, install.
 - [ ] Add publish flow with auth token references through `secret_env`.

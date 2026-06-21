@@ -27,10 +27,11 @@
         <div class="hero-copy">
           <p class="eyebrow">Dependency workflow</p>
           <h1>Packages And Registries</h1>
-          <p class="lede">Local packages, registry publishing, lockfile integrity, static indexes, audits, and import examples.</p>
+          <p class="lede">Local packages, registry publishing, lockfile integrity, static indexes, hosted registry protocol planning, audits, and import examples.</p>
           <div class="command-strip" aria-label="Guide links">
             <code>docs/reference/guides/packages.html</code>
             <code>docs/wiki/packages.md</code>
+            <code>docs/wiki/hosted-registry-protocol.md</code>
           </div>
         </div>
       </section>
@@ -39,6 +40,7 @@
         <aside class="guide-toc" aria-label="On this page">
           <strong>On This Page</strong>
           <a href="#top">Top</a>
+          <a href="#hosted-registry-protocol">Hosted Registry Protocol</a>
         </aside>
         <article class="guide-content">
           <p>Add a package dependency from a Ricochet project:</p>
@@ -61,6 +63,9 @@ rco audit --json</code></pre>
           <p><code>rco registry rebuild PATH</code> writes a static <code>index.toml</code>, package metadata, and release-style archives, while <code>rco registry check PATH</code> verifies the generated hashes. <code>rco add registry:name --registry PATH</code> installs from the local registry layout, or uses <code>RICOCHET_REGISTRY</code> when <code>--registry</code> is omitted.</p>
           <p><code>rco add registry:@scope/name --registry-url URL --as alias</code> installs from a static HTTP/file registry index with required <code>sha256:</code> archive verification. <code>rco install</code> and <code>rco verify</code> reject packages whose <code>[package] version</code> does not satisfy the manifest requirement, and <code>rco verify</code> recomputes the package tree hash while ignoring VCS metadata, so it catches local path changes, registry cache drift, or cached Git package drift without fetching or rewriting anything. Locked static-registry installs also reject same-version registry metadata changes instead of accepting replacement archives during ordinary <code>rco install</code>.</p>
           <p>Use <code>rco search QUERY --registry-url URL</code> to discover static registry packages, and use <code>rco audit</code> or <code>rco audit --json</code> for dependency reports in CI and release tooling.</p>
+          <h2 id="hosted-registry-protocol">Hosted Registry Protocol</h2>
+          <p>The hosted registry protocol is specified for future implementation slices in <a href="hosted-registry-protocol.html">Hosted Registry Protocol</a>. It preserves static registry compatibility by using immutable version records, registry-relative artifacts, <code>sha256:</code> archive and package tree integrity, yanked records, and provenance/signature fields that can export back to <code>ricochet-static-registry-v1</code>.</p>
+          <p>Hosted registry client, publish/yank client, fake server, and mirror command support remain future work. Current package installs still use path, GitHub, local registry, or static registry sources.</p>
           <p>Static imports load dependencies at compile time and remain the preferred default for ordinary module sharing:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import
 &quot;email&quot; &quot;ada@example.com&quot; form_field

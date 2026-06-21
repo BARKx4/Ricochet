@@ -47,6 +47,19 @@ Use `rco search QUERY --registry-url URL` to discover static registry packages,
 and use `rco audit` or `rco audit --json` for dependency reports in CI and
 release tooling.
 
+## Hosted Registry Protocol
+
+The hosted registry protocol is specified for the next registry implementation
+slices in [Hosted Registry Protocol](hosted-registry-protocol.md). The spec
+keeps static registry compatibility as the fallback path: hosted metadata uses
+immutable version records, registry-relative artifacts, `sha256:` archive and
+package tree integrity, yanked records, and provenance/signature fields that can
+export back to `ricochet-static-registry-v1`.
+
+Hosted registry client, publish/yank client, fake server, and mirror command
+support remain future work. Current package installs still use path, GitHub,
+local registry, or static registry sources.
+
 Static imports load dependencies at compile time and remain the preferred
 default for ordinary module sharing:
 

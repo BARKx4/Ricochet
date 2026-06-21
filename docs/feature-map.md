@@ -475,7 +475,8 @@ Do not assume:
 
 ## Packages And Registries
 
-Status: implemented beta.
+Status: implemented beta for local/static registries; hosted registry protocol
+specified for future implementation.
 
 Implemented:
 
@@ -489,6 +490,10 @@ Implemented:
   and signature metadata, `sha256:` archive verification, semver requirements,
   aliases, scoped package names, and lock hardening against same-version
   replacement.
+- The hosted registry protocol spec defines immutable hosted version metadata,
+  publish/search/fetch/yank endpoints, bearer-token handling by secret
+  reference, registry-relative artifact paths, verification order, and static
+  mirror fallback.
 - Static imports shaped like `package/module` resolve through
   `[dependencies.package]` when no relative file exists.
 - Dynamic runtime imports are available through `import_dynamic`,
@@ -501,7 +506,9 @@ Evidence:
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
 - `README.md`
+- `docs/wiki/hosted-registry-protocol.md`
 - `docs/reference/index.html`
+- `docs/reference/guides/hosted-registry-protocol.html`
 - `packages/README.md`
 - `scripts/package-release.ps1`
 - `scripts/package-release-linux.sh`
@@ -509,8 +516,9 @@ Evidence:
 
 Remaining:
 
-- A central hosted package registry is future work; current registry support is
-  local file-backed registries plus static file/HTTP indexes.
+- Hosted registry read client, publish/yank client, fake server/reference
+  implementation, hosted same-version replacement tests, and mirror command are
+  future work.
 
 Do not assume:
 
@@ -624,7 +632,7 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Central hosted package registry.
+- Central hosted package registry implementation; the protocol spec exists.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
