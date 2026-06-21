@@ -142,9 +142,14 @@ tools array
 $provider &quot;gpt-4.1-mini&quot; $messages $options $tools $retry ai_chat_request contract var
 
 &quot;OPENAI_API_KEY&quot; ai_secret_ref secret_resolve value token var
-$provider &quot;base_url&quot; at $token $contract &quot;model&quot; at $contract &quot;messages&quot; at ai_openai_chat_request request var
-$request http_request value response var
-$response &quot;status&quot; at println</code></pre>
+[
+  attempt var
+  chatRequest var
+  $provider &quot;base_url&quot; at $token $chatRequest &quot;model&quot; at $chatRequest &quot;messages&quot; at ai_openai_chat_request request var
+  $request http_request
+] executor var
+
+$contract $executor ai_openai_execute_chat value &quot;text&quot; at println</code></pre>
           <h2 id="webview-documents">Webview Documents</h2>
           <p>Build a webview document for desktop UI hosts:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>state map

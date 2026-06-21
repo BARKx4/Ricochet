@@ -669,7 +669,7 @@ remain future work.
 
 **Public Surface Candidate:**
 
-- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_retryable_error?`, `ai_retry_delay_ms`, `ai_execute_with_retry`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`, `ai_tool_handlers`, `ai_tool_handler_put`, `ai_execute_tool_call`, `ai_execute_tool_calls`.
+- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_retryable_error?`, `ai_retry_delay_ms`, `ai_execute_with_retry`, `ai_openai_execute_chat`, `ai_openai_stream_events`, `ai_error_result`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`, `ai_tool_handlers`, `ai_tool_handler_put`, `ai_execute_tool_call`, `ai_execute_tool_calls`.
 - Core changes only if current HTTP stream words cannot support incremental consumption ergonomically.
 
 **Implementation Path:**
@@ -680,9 +680,10 @@ remain future work.
 - [x] Add package-level retry/backoff and tool execution helpers.
 - [x] Add true incremental stream consumption ergonomics over
   `http_stream_read`, including bounded offset reads and done events.
-- [ ] Add fake provider integration tests for streaming chunks, tool calls, malformed events, and schema failures.
+- [x] Add package-level fake provider tests for streaming chunks, tool calls, malformed events, and schema failures.
+- [ ] Add MVC fake-provider integration tests for provider package flows.
 - [ ] Add provider examples for OpenAI-compatible and local model endpoints.
-- [ ] Wire the package retry/tool helpers into provider-level runtime flows.
+- [x] Wire the package retry/tool helpers into OpenAI-compatible provider runtime flows at the package executor boundary.
 - [x] Add docs that keep secret values in env-backed references.
 - [x] Commit package-only changes first, then core stream ergonomics if needed.
 
@@ -701,8 +702,15 @@ package-level retry/tool execution were still open at that point.
 **Progress Note (2026-06-21):** The AI execution helper slice adds package-level
 retry classification, deterministic retry-delay calculation, retry execution,
 tool handler registration, single tool-call execution, and ordered multi-tool
-execution in `@ricochet/ai`. Provider-runtime wiring, fake-provider MVC/package
-integration tests, and provider examples remain open.
+execution in `@ricochet/ai`. Provider-runtime wiring beyond package-local
+helpers, MVC fake-provider integration tests, and provider examples remain open.
+
+**Progress Note (2026-06-21):** The OpenAI-compatible package runtime slice adds
+`ai_openai_execute_chat`, rich HTTP status/error normalization, OpenAI
+tool-call extraction, safe `ai_openai_stream_events`, and package-level
+fake-provider tests for retry, tool calls, malformed stream events, and schema
+validation failures. MVC fake-provider coverage, provider examples, and richer
+provider packages remain open.
 
 **Verification Gate:**
 

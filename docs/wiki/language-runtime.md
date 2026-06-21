@@ -199,9 +199,14 @@ tools array
 $provider "gpt-4.1-mini" $messages $options $tools $retry ai_chat_request contract var
 
 "OPENAI_API_KEY" ai_secret_ref secret_resolve value token var
-$provider "base_url" at $token $contract "model" at $contract "messages" at ai_openai_chat_request request var
-$request http_request value response var
-$response "status" at println
+[
+  attempt var
+  chatRequest var
+  $provider "base_url" at $token $chatRequest "model" at $chatRequest "messages" at ai_openai_chat_request request var
+  $request http_request
+] executor var
+
+$contract $executor ai_openai_execute_chat value "text" at println
 ```
 
 ## Webview Documents

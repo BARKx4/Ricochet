@@ -8,9 +8,10 @@ language core.
   CSRF/form-token helpers, secure cookie option maps, credential normalization,
   password policy validation, and Argon2id password hash/verify wrappers.
 - `@ricochet/ai`: provider-neutral provider/message/request/response/error
-  contracts, retry policy and retry-execution helpers, tool call/result and
+  contracts, retry policy and retry-execution helpers, OpenAI-compatible
+  fake-provider execution/normalization helpers, tool call/result and
   tool-handler execution helpers, schema validation, OpenAI-compatible request
-  builders, and SSE response-body parsing layered on core secret refs.
+  builders, and SSE response-body/event parsing layered on core secret refs.
 - `@ricochet/forms`: form field maps, required-field validation, schema-shaped
   validation result maps, and multipart/upload helper maps.
 - `@ricochet/test_helpers`: package and MVC test assertions, fixture maps,

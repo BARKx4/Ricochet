@@ -5,14 +5,16 @@ HTTP calls in Ricochet apps.
 
 This package keeps provider workflows outside Ricochet core. It builds
 provider, message, request, response, error, stream-event, retry-policy, tool,
-schema-validation maps, retry predicates/delay helpers, and local tool-dispatch
-helpers. It also provides OpenAI-compatible starter bodies and request maps on
-top of core `secret_env`, `secret_resolve`, and HTTP request-map helpers, plus
-SSE response-body parsers for providers that return `text/event-stream`
-payloads.
+schema-validation maps, retry predicates/delay helpers, local tool-dispatch
+helpers, and fake-provider-testable OpenAI-compatible response normalization.
+It also provides OpenAI-compatible starter bodies and request maps on top of
+core `secret_env`, `secret_resolve`, and HTTP request-map helpers, plus SSE
+response-body parsers for providers that return `text/event-stream` payloads.
 
-Apps still own provider selection, provider-runtime wiring, long-running stream
-orchestration, and user-facing agent behavior.
+Apps still own provider selection, long-running stream orchestration, and
+user-facing agent behavior. The package-level executor helpers let apps wire
+their chosen transport into retry/error/tool-call normalization without
+requiring a real provider during tests.
 
 ## Provider-neutral contracts
 
@@ -159,6 +161,37 @@ body:
 $request http_request value response var
 $response "body" at ai_openai_stream_text
 ```
+
+For provider-runtime flows that should be testable with fake providers, pass a
+neutral chat request and an executor block to `ai_openai_execute_chat`. The
+executor receives the neutral request plus the 1-based retry attempt and returns
+an HTTP-like response map `Result` with `status` and `body` fields. The helper
+normalizes OpenAI-compatible success bodies into `ai_chat_response` maps,
+normalizes non-2xx statuses into rich `ai_error` results, applies retry policy
+rules, and extracts OpenAI tool calls:
+
+```ricochet
+"ai/openai" import
+
+[
+  attempt var
+  chatRequest var
+  $provider "base_url" at $token $chatRequest "model" at $chatRequest "messages" at ai_openai_chat_request httpRequest var
+  $httpRequest http_request
+] executor var
+
+$contract $executor ai_openai_execute_chat result var
+$result ok? if
+  $result value "text" at println
+else
+  $result error "message" at println
+end
+```
+
+Use `ai_openai_stream_events` when tests or small responses need structured
+stream events instead of only concatenated text. It returns a `Result` whose ok
+value is an array of `ai_stream_event` maps and whose error value reports
+malformed SSE JSON without crashing the caller.
 
 For long-running streams, hand the same request map to Ricochet's retained HTTP
 stream words and parse chunks as you read offsets:

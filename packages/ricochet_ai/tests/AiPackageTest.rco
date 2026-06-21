@@ -92,6 +92,12 @@ AiPackageTest TestCase Subclass
     250 assert_equals
   ] "testRetryDelayCap" Method
   [
+    409 ai_openai_error_kind "transient" assert_equals
+    425 ai_openai_error_kind "transient" assert_equals
+    401 ai_openai_error_kind "auth" assert_equals
+    500 ai_openai_error_kind "server_error" assert_equals
+  ] "testOpenAiErrorKindPreservesRetryableStatuses" Method
+  [
     request map
     3 0 0 ai_retry_policy retry var
     $request "retry" $retry put! drop
@@ -314,4 +320,100 @@ AiPackageTest TestCase Subclass
     $body ai_openai_stream_text
     "Hello" assert_equals
   ] "testOpenAiStreamText" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    $messages "hello" ai_user_message push! drop
+    options map
+    tools array
+    3 0 0 ai_retry_policy retry var
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_request request var
+    attempts array
+
+    [
+      attempt var
+      providerRequest var
+      $attempts $attempt push! drop
+      response map
+      $attempt 1 = if
+        $response "status" 503 put! drop
+        $response "body" "{\"error\":{\"message\":\"busy\"}}" put! drop
+      else
+        $response "status" 200 put! drop
+        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"hello from fake\"}}]}" put! drop
+      end
+      $response ok
+    ] executor var
+
+    $request $executor ai_openai_execute_chat result var
+    $result ok? true assert_equals
+    $result value "text" at "hello from fake" assert_equals
+    $attempts count 2 assert_equals
+  ] "testOpenAiExecuteChatRetriesFakeProviderStatus" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    options map
+    tools array
+    1 0 0 ai_retry_policy retry var
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_request request var
+
+    [
+      drop
+      drop
+      response map
+      $response "status" 200 put! drop
+      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Chicago\\\"}\"}}]}}]}" put! drop
+      $response ok
+    ] executor var
+
+    $request $executor ai_openai_execute_chat result var
+    $result ok? true assert_equals
+    $result value "tool_calls" at toolCalls var
+    $toolCalls count 1 assert_equals
+    $toolCalls first "id" at "call-1" assert_equals
+    $toolCalls first "name" at "get_weather" assert_equals
+    $toolCalls first "arguments" at "city" at "Chicago" assert_equals
+  ] "testOpenAiExecuteChatExtractsFakeProviderToolCalls" Method
+  [
+    "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n" body var
+    $body ai_openai_stream_events result var
+    $result ok? true assert_equals
+    $result value events var
+    $events count 3 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hel" assert_equals
+    $events 1 at "data" at "lo" assert_equals
+    $events 2 at "kind" at "done" assert_equals
+    $events 2 at "done" at true assert_equals
+  ] "testOpenAiStreamEventsReturnChunksAndDone" Method
+  [
+    "data: {bad-json}\n\n" ai_openai_stream_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "AiProviderMalformedEvent" assert_equals
+  ] "testOpenAiStreamEventsReportMalformedEvents" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    options map
+    tools array
+    1 0 0 ai_retry_policy retry var
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_request request var
+
+    [
+      drop
+      drop
+      response map
+      $response "status" 200 put! drop
+      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"high\"}}]}" put! drop
+      $response ok
+    ] executor var
+
+    $request $executor ai_openai_execute_chat result var
+    $result ok? true assert_equals
+    ai_schema "text" "number" true ai_schema_field schema var
+    $result value $schema ai_validate_schema validation var
+    $validation "ok" at false assert_equals
+    $validation "errors" at first "field" at "text" assert_equals
+  ] "testFakeProviderResponseSchemaFailure" Method
 end

@@ -567,6 +567,278 @@ end
   $text
 end
 
+( errorMap -> Result ) ai_error_result function
+  errorMap var
+  $errorMap "kind" at kind var
+  $errorMap "message" at message var
+  $kind $message fail result var
+  $result error richError var
+  $richError "provider" $errorMap "provider" at put! drop
+  $richError "status" $errorMap "status" at put! drop
+  $richError "raw" $errorMap "raw" at put! drop
+  $result
+end
+
+( status -> Bool ) ai_http_success_status? function
+  status var
+  $status nil? if
+    false
+  else
+    $status 200 >= $status 299 <= and
+  end
+end
+
+( status -> String ) ai_openai_error_kind function
+  status var
+  $status nil? if
+    "unknown"
+  else
+    $status 429 = if
+      "rate_limit"
+    else
+      $status 408 = if
+        "timeout"
+      else
+        $status 409 = $status 425 = or if
+          "transient"
+        else
+          $status 401 = $status 403 = or if
+            "auth"
+          else
+            $status 500 >= $status 599 <= and if
+              "server_error"
+            else
+              $status 400 >= $status 499 <= and if
+                "validation"
+              else
+                "unknown"
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+( response -> Result ) ai_openai_response_body_json function
+  response var
+  $response "body" at body var
+  $body nil? if
+    "AiProviderMalformedResponse" "AI provider response is missing body" fail
+  else
+    $body json_decode decoded var
+    $decoded ok? if
+      $decoded value ok
+    else
+      "AiProviderMalformedResponse" "AI provider response body is not valid JSON" fail
+    end
+  end
+end
+
+( argumentsValue -> Result ) ai_openai_tool_arguments function
+  argumentsValue var
+  $argumentsValue nil? if
+    args map
+    $args ok
+  else
+    $argumentsValue type "string" = if
+      $argumentsValue json_decode decoded var
+      $decoded ok? if
+        $decoded value ok
+      else
+        "AiProviderMalformedToolCall" "OpenAI tool call arguments are not valid JSON" fail
+      end
+    else
+      $argumentsValue type "map" = if
+        $argumentsValue ok
+      else
+        "AiProviderMalformedToolCall" "OpenAI tool call arguments must be a JSON object string or map" fail
+      end
+    end
+  end
+end
+
+( message -> Result ) ai_openai_message_tool_calls function
+  message var
+  toolCalls array
+  $message "tool_calls" at rawToolCalls var
+  $rawToolCalls nil? if
+    $toolCalls ok
+  else
+    nil finalResult var
+    0 index var
+    $rawToolCalls count total var
+
+    $index $total < while
+      $rawToolCalls $index at rawCall var
+      $rawCall "id" at id var
+      $rawCall "function" at functionMap var
+      $functionMap nil? if
+        "AiProviderMalformedToolCall" "OpenAI tool call is missing function metadata" fail finalResult set
+        break
+      end
+
+      $functionMap "name" at name var
+      $functionMap "arguments" at ai_openai_tool_arguments argumentsResult var
+      $argumentsResult ok? if
+        $toolCalls $id $name $argumentsResult value ai_tool_call push! drop
+        $index 1 + index set
+      else
+        $argumentsResult finalResult set
+        break
+      end
+    end
+
+    $finalResult nil? if
+      $toolCalls ok
+    else
+      $finalResult
+    end
+  end
+end
+
+( provider request raw -> Result ) ai_openai_chat_response_from_json function
+  raw var
+  request var
+  provider var
+  $raw "choices" at choices var
+  $choices nil? if
+    "AiProviderMalformedResponse" "AI provider response is missing choices" fail
+  else
+    $choices first choice var
+    $choice nil? if
+      "AiProviderMalformedResponse" "AI provider response has no choices" fail
+    else
+      $choice "message" at message var
+      $message nil? if
+        "AiProviderMalformedResponse" "AI provider response is missing choices[0].message" fail
+      else
+        $message "content" at text var
+        $text nil? if
+          "" text set
+        end
+        $raw "model" at model var
+        $model nil? if
+          $request "model" at model set
+        end
+        $message ai_openai_message_tool_calls toolCallsResult var
+        $toolCallsResult ok? if
+          $provider $model $text $toolCallsResult value $raw ai_chat_response ok
+        else
+          $toolCallsResult
+        end
+      end
+    end
+  end
+end
+
+( provider request response -> Result ) ai_openai_http_response_to_result function
+  response var
+  request var
+  provider var
+  $response "status" at status var
+  $status ai_http_success_status? if
+    $response ai_openai_response_body_json decoded var
+    $decoded ok? if
+      $provider $request $decoded value ai_openai_chat_response_from_json
+    else
+      $decoded
+    end
+  else
+    $status ai_openai_error_kind kind var
+    "AI provider returned status " $status to_string concat message var
+    $provider $kind $message $status $response ai_error ai_error_result
+  end
+end
+
+( request executorBlock -> Result ) ai_openai_execute_chat function
+  executorBlock var
+  request var
+  $request "provider" at provider var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop transportResult var
+    nil result var
+    $transportResult ok? if
+      $provider $request $transportResult value ai_openai_http_response_to_result result set
+    else
+      $transportResult result set
+    end
+
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( body -> Result ) ai_openai_stream_events function
+  body var
+  events array
+  $body ai_sse_data_lines dataLines var
+  nil finalResult var
+  0 index var
+  $dataLines count total var
+
+  $index $total < while
+    $dataLines $index at data var
+    $data "[DONE]" = if
+      $events "done" nil $index true ai_stream_event push! drop
+      $index 1 + index set
+    else
+      $data json_decode decoded var
+      $decoded ok? if
+        $decoded value rawEvent var
+        $rawEvent ai_openai_stream_delta part var
+        $events "delta" $part $index false ai_stream_event push! drop
+        $index 1 + index set
+      else
+        "AiProviderMalformedEvent" "AI stream event is not valid JSON" fail finalResult set
+        break
+      end
+    end
+  end
+
+  $finalResult nil? if
+    $events ok
+  else
+    $finalResult
+  end
+end
+
 ( response -> Map ) ai_response_summary function
   response var
   summary map
