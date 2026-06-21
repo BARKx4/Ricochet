@@ -475,8 +475,9 @@ Do not assume:
 
 ## Packages And Registries
 
-Status: implemented beta for local/static registries and hosted registry client
-read/publish/yank operations; hosted server/mirror work remains future.
+Status: implemented beta for local/static registries, hosted registry client
+read/publish/yank operations, and the local hosted registry reference server;
+hosted mirror export remains future.
 
 Implemented:
 
@@ -496,6 +497,14 @@ Implemented:
   hosted publish with `--token-env RICOCHET_REGISTRY_TOKEN`,
   `rco registry yank`, and same-version lock hardening against hosted metadata
   or archive replacement.
+- `rco registry serve PATH` runs the local hosted registry reference server with
+  discovery, search, package metadata, version metadata, artifact, publish, and
+  yank endpoints backed by an on-disk `registry.json` and `artifacts/` store.
+  It supports all-package `--token-env NAME` and package/scope
+  `--publisher PACKAGE=ENV` publisher policies, validates uploaded archive and
+  package tree integrity, preserves provenance/signature metadata, rejects
+  duplicate same-version publish attempts, and keeps literal bearer tokens out
+  of client metadata and output.
 - The hosted registry protocol spec defines immutable hosted version metadata,
   publish/search/fetch/yank endpoints, bearer-token handling by secret
   reference, registry-relative artifact paths, verification order, and static
@@ -522,9 +531,7 @@ Evidence:
 
 Remaining:
 
-- Real hosted server/reference implementation, hosted same-version replacement
-  tests beyond the local fake-server client tests, and mirror command are future
-  work.
+- Hosted mirror export to static registry format remains future work.
 
 Do not assume:
 
@@ -638,7 +645,7 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Central hosted package registry implementation; the protocol spec exists.
+- Hosted registry mirror export to static registry format.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.

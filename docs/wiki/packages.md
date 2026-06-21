@@ -13,6 +13,9 @@ rco registry check ../ricochet-registry
 rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
 rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version "^0.1.0"
 rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version "^0.1.0"
+rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"
+rco publish ./packages/ricochet_forms --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry yank @ricochet/forms 0.1.0 --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -57,11 +60,19 @@ integrity, yanked records, and provenance/signature fields that can export back
 to `ricochet-static-registry-v1`.
 
 Ricochet implements hosted client discovery, search, metadata fetch, archive
-fetch, install, publish, and yank operations. Hosted publish and yank use
-env-backed bearer tokens, for example
+fetch, install, publish, and yank operations. `rco registry serve PATH` runs the
+local hosted registry reference server, serving discovery, search, metadata,
+artifact, publish, and yank endpoints from an on-disk `registry.json` plus
+`artifacts/` store under `PATH`.
+
+Hosted publish and yank use env-backed bearer tokens, for example
 `--token-env RICOCHET_REGISTRY_TOKEN`, and never store literal token values in
-manifests or lockfiles. A real hosted server/reference implementation and mirror
-command remain future work.
+manifests or lockfiles. The reference server accepts `--token-env NAME` for an
+all-package publisher token or repeated `--publisher PACKAGE=ENV` policies for
+exact packages and `@scope/*` scopes. It verifies uploaded archive integrity,
+package tree integrity, package identity, provenance/signature digests, rejects
+same-version replacement with `version_exists`, and preserves yanked records.
+Static mirror export remains future work.
 
 Static imports load dependencies at compile time and remain the preferred
 default for ordinary module sharing:

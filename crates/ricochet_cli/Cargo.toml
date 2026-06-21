@@ -24,7 +24,9 @@ ricochet_syntax = { path = "../ricochet_syntax" }
 ricochet_vm = { path = "../ricochet_vm" }
 ricochet_web = { path = "../ricochet_web" }
 anyhow.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["multipart"] }
+bytes.workspace = true
+chrono.workspace = true
 clap.workspace = true
 flate2.workspace = true
 getrandom.workspace = true

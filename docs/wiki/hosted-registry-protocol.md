@@ -11,9 +11,8 @@ static registry behavior. Existing `rco publish PACKAGE --registry PATH`,
 
 Ricochet currently implements hosted client operations for discovery, search,
 metadata fetch, archive fetch, install, lockfile verification, publish, and
-yank. A real hosted server/reference implementation, mirror export, and hosted
-same-version replacement tests against the real server/reference path remain
-future work.
+yank, plus a local hosted registry reference server through
+`rco registry serve`. Mirror export remains future work.
 
 ## Protocol Identity
 
@@ -215,6 +214,21 @@ publish of a scoped package may claim the package only through registry policy;
 later publishes require an authorized publisher for that package. A publish to
 an existing version returns `409 Conflict` with code `version_exists`.
 
+The reference server runs locally with:
+
+```powershell
+rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"
+```
+
+It binds to `127.0.0.1:3001` by default, prints the discovered base URL on
+startup, stores metadata in `registry.json`, and stores package, provenance, and
+signature artifacts below `artifacts/`. `--token-env NAME` grants one
+all-package publisher token for local beta workflows; repeated
+`--publisher PACKAGE=ENV` policies grant exact packages or `@scope/*` scopes.
+The reference server verifies uploaded archive bytes, package tree integrity,
+manifest package identity/version, provenance/signature digests, idempotency
+keys, and duplicate-version rejection before persisting metadata.
+
 ## Yank
 
 Client yank uses:
@@ -368,8 +382,10 @@ Later Epic 8 slices should implement the protocol in this order:
    authorization errors, duplicate-version rejection, provenance/signature
    upload, and yanking. Implemented with local fake-server client tests.
 3. Hosted server/reference implementation for operational smoke tests beyond
-   the local fake-server client tests.
+   the local fake-server client tests. Implemented through
+   `rco registry serve`.
 4. Mirror command that exports hosted metadata and artifacts to
    `ricochet-static-registry-v1`.
 5. Hosted same-version replacement tests against a real server/reference
    implementation and documentation updates for operational deployment.
+   Implemented for the reference server publish path.

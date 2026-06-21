@@ -49,7 +49,7 @@
         <article class="guide-content">
           <p>The hosted registry protocol is the Epic 8 implementation target. It extends Ricochet beyond local and static registries without replacing the current <code>ricochet-static-registry-v1</code> workflow.</p>
           <p>Hosted registry base URLs use HTTPS outside local fake-server tests. Static mirrors continue to use <code>file://</code> or <code>https://</code> index URLs.</p>
-          <p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank. A real hosted server/reference implementation, mirror export, and hosted same-version replacement tests against the real server/reference path remain future work.</p>
+          <p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank, plus a local hosted registry reference server through <code>rco registry serve</code>. Mirror export remains future work.</p>
 
           <h2 id="identity">Identity</h2>
           <p>The protocol name is Ricochet Hosted Registry Protocol and the version string is <code>ricochet-hosted-registry-v1</code>. Canonical JSON responses use vendor media types such as <code>application/vnd.ricochet.registry.package.v1+json</code>, and package archives use <code>application/vnd.ricochet.package.archive.v1+gzip</code>.</p>
@@ -110,6 +110,7 @@
           <p>Mutating requests use client-generated <code>Idempotency-Key</code> headers bound to publisher, method, path, and body digest. Replaying the same key with identical bytes returns the original result; replaying it with different bytes returns <code>409 Conflict</code> with <code>idempotency_conflict</code>. Registries may also require a fresh <code>Ricochet-Date</code> header.</p>
           <p>Published version records stay immutable. Yanking appends availability state projected as <code>yanked</code>, <code>yanked_at</code>, <code>yanked_by</code>, and optionally <code>yank_event_id</code>; it does not rewrite archive paths, integrity fields, provenance, signature data, publisher, or <code>published_at</code>. Clients may cache immutable fields and artifacts for long periods, but package metadata and yank overlays must use validators and short or <code>must-revalidate</code> lifetimes.</p>
           <p>Publisher authorization is package-scoped. Clients pin the registry source, package identity, exact version, archive integrity, package tree integrity, provenance integrity, signature integrity, and signature kind in <code>ricochet.lock</code>. Ordinary installs reject same-version hosted metadata or artifact changes that conflict with the lock.</p>
+          <p>The reference server runs locally with <code>rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"</code>. It binds to <code>127.0.0.1:3001</code> by default, prints the discovered base URL on startup, stores metadata in <code>registry.json</code>, and stores package, provenance, and signature artifacts below <code>artifacts/</code>. <code>--token-env NAME</code> grants one all-package publisher token for local beta workflows; repeated <code>--publisher PACKAGE=ENV</code> policies grant exact packages or <code>@scope/*</code> scopes. The reference server verifies uploaded archive bytes, package tree integrity, manifest package identity/version, provenance/signature digests, idempotency keys, and duplicate-version rejection before persisting metadata.</p>
 
           <h2 id="mirror">Mirror Fallback</h2>
           <p>Hosted metadata must export to the current static format. A future mirror command writes <code>ricochet-static-registry-v1</code> indexes, package metadata, registry-relative archive paths, yanked records, and provenance/signature fields so existing static registry clients can keep using <code>--registry-url file://.../index.toml</code> or <code>--registry-url https://.../index.toml</code>.</p>
@@ -120,7 +121,7 @@ format = "ricochet-static-registry-v1"
 "@ricochet/forms" = "packages/@ricochet/forms.toml"</code></pre>
 
           <h2 id="sequence">Sequence</h2>
-          <p>The hosted read client and publish/yank client slices are implemented. Remaining slices are a real hosted server/reference implementation beyond the local fake-server client tests, mirror export to static registry format, and same-version replacement tests against the real server/reference path.</p>
+          <p>The hosted read client, publish/yank client, reference server, and real-server duplicate publish rejection slices are implemented. The remaining hosted registry slice is mirror export to static registry format.</p>
         </article>
       </section>
     </main>

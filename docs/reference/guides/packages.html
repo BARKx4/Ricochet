@@ -54,6 +54,9 @@ rco registry check ../ricochet-registry
 rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
 rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version &quot;^0.1.0&quot;
 rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version &quot;^0.1.0&quot;
+rco registry serve ./hosted-registry --publisher &quot;@ricochet/*=RICOCHET_REGISTRY_TOKEN&quot;
+rco publish ./packages/ricochet_forms --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry yank @ricochet/forms 0.1.0 --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
@@ -65,7 +68,8 @@ rco audit --json</code></pre>
           <p>Use <code>rco search QUERY --registry-url URL</code> to discover static or hosted registry packages, and use <code>rco audit</code> or <code>rco audit --json</code> for dependency reports in CI and release tooling.</p>
           <h2 id="hosted-registry-protocol">Hosted Registry Protocol</h2>
           <p>The hosted registry protocol is specified in <a href="hosted-registry-protocol.html">Hosted Registry Protocol</a>. It preserves static registry compatibility by using immutable version records, registry-relative artifacts, <code>sha256:</code> archive and package tree integrity, yanked records, and provenance/signature fields that can export back to <code>ricochet-static-registry-v1</code>.</p>
-          <p>Ricochet implements hosted client discovery, search, metadata fetch, archive fetch, install, publish, and yank operations. Hosted publish and yank use env-backed bearer tokens, for example <code>--token-env RICOCHET_REGISTRY_TOKEN</code>, and never store literal token values in manifests or lockfiles. A real hosted server/reference implementation and mirror command remain future work.</p>
+          <p>Ricochet implements hosted client discovery, search, metadata fetch, archive fetch, install, publish, and yank operations. <code>rco registry serve PATH</code> runs the local hosted registry reference server, serving discovery, search, metadata, artifact, publish, and yank endpoints from an on-disk <code>registry.json</code> plus <code>artifacts/</code> store under <code>PATH</code>.</p>
+          <p>Hosted publish and yank use env-backed bearer tokens, for example <code>--token-env RICOCHET_REGISTRY_TOKEN</code>, and never store literal token values in manifests or lockfiles. The reference server accepts <code>--token-env NAME</code> for an all-package publisher token or repeated <code>--publisher PACKAGE=ENV</code> policies for exact packages and <code>@scope/*</code> scopes. It verifies uploaded archive integrity, package tree integrity, package identity, provenance/signature digests, rejects same-version replacement with <code>version_exists</code>, and preserves yanked records. Static mirror export remains future work.</p>
           <p>Static imports load dependencies at compile time and remain the preferred default for ordinary module sharing:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import
 &quot;email&quot; &quot;ada@example.com&quot; form_field

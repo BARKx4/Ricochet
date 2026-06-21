@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufRead, BufReader, Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -4738,6 +4738,207 @@ fn hosted_registry_publish_dry_run_skips_token_and_network() {
     assert!(
         server.requests().is_empty(),
         "hosted publish dry-run should not connect"
+    );
+}
+
+#[test]
+fn hosted_registry_reference_server_publishes_installs_yanks_and_rejects_replacement() {
+    const TOKEN_ENV: &str = "RICOCHET_TEST_REGISTRY_TOKEN";
+    const TOKEN: &str = "reference-server-token";
+
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir =
+        write_hosted_publish_package(base, "hosted_reference_greeter_pkg", "greeter", "0.5.0");
+    let registry = base.join("hosted_reference_registry");
+    let server = ReferenceHostedRegistryServer::start(&registry, &[("greeter", TOKEN_ENV)], TOKEN);
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco publish should launch");
+    assert_run_success_for("rco publish", "reference hosted registry publish", &publish);
+    let publish_stdout = String::from_utf8_lossy(&publish.stdout);
+    let publish_stderr = String::from_utf8_lossy(&publish.stderr);
+    assert!(
+        !publish_stdout.contains(TOKEN) && !publish_stderr.contains(TOKEN),
+        "publish output must not leak the bearer token\nstdout:\n{publish_stdout}\nstderr:\n{publish_stderr}"
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch");
+    assert_run_success_for("rco search", "reference hosted registry search", &search);
+    let search_stdout = String::from_utf8_lossy(&search.stdout);
+    assert!(
+        search_stdout.contains("greeter 0.5.0"),
+        "search should list the published package, got:\n{search_stdout}"
+    );
+
+    let duplicate = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("duplicate rco publish should launch");
+    assert!(
+        !duplicate.status.success(),
+        "reference server should reject same-version replacement"
+    );
+    let duplicate_stderr = String::from_utf8_lossy(&duplicate.stderr);
+    assert!(
+        duplicate_stderr.contains("version_exists")
+            || duplicate_stderr.contains("duplicate version"),
+        "duplicate publish should explain version_exists, got:\n{duplicate_stderr}"
+    );
+    assert!(
+        !duplicate_stderr.contains(TOKEN),
+        "duplicate publish error must not leak the bearer token, got:\n{duplicate_stderr}"
+    );
+
+    let app = base.join("reference_app");
+    write_source_at(
+        &app,
+        "ricochet.toml",
+        "[package]\nname = \"reference_app\"\n",
+    );
+    write_source_at(
+        &app,
+        "main.rco",
+        "\"greeter/greeting\" import\npackageHello\n",
+    );
+    let add = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--version")
+        .arg("^0.5.0")
+        .current_dir(&app)
+        .output()
+        .expect("rco add should launch");
+    assert_run_success_for("rco add", "reference hosted registry dependency", &add);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(&app)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success(&run);
+    let run_stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run_stdout.contains("String(\"hello from hosted publish\")"),
+        "run should import from the reference hosted registry, got:\n{run_stdout}"
+    );
+
+    let yank = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("registry")
+        .arg("yank")
+        .arg("greeter")
+        .arg("0.5.0")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco registry yank should launch");
+    assert_run_success_for("rco registry yank", "reference hosted registry yank", &yank);
+
+    let search_after_yank = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("search")
+        .arg("greet")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .output()
+        .expect("rco search should launch after yank");
+    assert_run_success_for(
+        "rco search",
+        "reference hosted registry search after yank",
+        &search_after_yank,
+    );
+    let search_after_yank_stdout = String::from_utf8_lossy(&search_after_yank.stdout);
+    assert!(
+        search_after_yank_stdout.contains("no packages found"),
+        "search should exclude yanked versions, got:\n{search_after_yank_stdout}"
+    );
+
+    let fresh_app = base.join("reference_fresh_app");
+    write_source_at(
+        &fresh_app,
+        "ricochet.toml",
+        "[package]\nname = \"reference_fresh_app\"\n",
+    );
+    let add_after_yank = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("add")
+        .arg("registry:greeter")
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--version")
+        .arg("^0.5.0")
+        .current_dir(&fresh_app)
+        .output()
+        .expect("rco add should launch after yank");
+    assert!(
+        !add_after_yank.status.success(),
+        "new resolution should reject yanked hosted versions"
+    );
+    let add_after_yank_stderr = String::from_utf8_lossy(&add_after_yank.stderr);
+    assert!(
+        add_after_yank_stderr.contains("no non-yanked version satisfying ^0.5.0"),
+        "add after yank should explain yanked exclusion, got:\n{add_after_yank_stderr}"
+    );
+}
+
+#[test]
+fn hosted_registry_reference_server_enforces_package_publisher_policy() {
+    const TOKEN_ENV: &str = "RICOCHET_TEST_REGISTRY_TOKEN";
+    const TOKEN: &str = "reference-server-token";
+
+    let main_path = temp_source_path();
+    let base = main_path.parent().expect("source path has parent");
+    let package_dir =
+        write_hosted_publish_package(base, "hosted_reference_intruder_pkg", "intruder", "0.1.0");
+    let registry = base.join("hosted_reference_policy_registry");
+    let server = ReferenceHostedRegistryServer::start(&registry, &[("greeter", TOKEN_ENV)], TOKEN);
+
+    let publish = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("publish")
+        .arg(&package_dir)
+        .arg("--registry-url")
+        .arg(server.base_url())
+        .arg("--token-env")
+        .arg(TOKEN_ENV)
+        .env(TOKEN_ENV, TOKEN)
+        .output()
+        .expect("rco publish should launch");
+    assert!(
+        !publish.status.success(),
+        "reference server should reject packages outside the publisher policy"
+    );
+    let stderr = String::from_utf8_lossy(&publish.stderr);
+    assert!(
+        stderr.contains("publisher_forbidden"),
+        "publisher-policy rejection should surface publisher_forbidden, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains(TOKEN),
+        "publisher-policy rejection must not leak bearer token, got:\n{stderr}"
     );
 }
 
@@ -11215,6 +11416,72 @@ impl Drop for HostedRegistryTestServer {
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
+    }
+}
+
+struct ReferenceHostedRegistryServer {
+    child: Child,
+    base_url: String,
+}
+
+impl ReferenceHostedRegistryServer {
+    fn start(registry: &Path, publishers: &[(&str, &str)], token: &str) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rco"));
+        command
+            .arg("registry")
+            .arg("serve")
+            .arg(registry)
+            .arg("--port")
+            .arg("0")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (package, token_env) in publishers {
+            command
+                .arg("--publisher")
+                .arg(format!("{package}={token_env}"))
+                .env(token_env, token);
+        }
+        let mut child = command.spawn().expect("rco registry serve should launch");
+        let mut line = String::new();
+        {
+            let stdout = child
+                .stdout
+                .as_mut()
+                .expect("registry server stdout should be piped");
+            let mut reader = BufReader::new(stdout);
+            reader
+                .read_line(&mut line)
+                .expect("registry server should print startup line");
+        }
+        if line.is_empty() {
+            let _ = child.kill();
+            let output = child
+                .wait_with_output()
+                .expect("failed registry server should return output");
+            panic!(
+                "rco registry serve exited before reporting its URL\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let base_url = line
+            .rsplit_once(" at ")
+            .map(|(_, url)| url.trim().to_string())
+            .unwrap_or_else(|| {
+                panic!("registry server startup line should include URL, got {line:?}")
+            });
+        Self { child, base_url }
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+}
+
+impl Drop for ReferenceHostedRegistryServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 

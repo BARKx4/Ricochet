@@ -41,6 +41,7 @@ use toml_edit::{value, DocumentMut, Item, Table};
 use tower::ServiceExt;
 
 mod hosted_registry;
+mod hosted_registry_server;
 mod lsp;
 mod migration_dsl;
 mod static_registry;
@@ -500,6 +501,25 @@ enum RegistryCommand {
     },
     Check {
         path: PathBuf,
+    },
+    Serve {
+        path: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 3001)]
+        port: u16,
+        #[arg(
+            long = "token-env",
+            value_name = "NAME",
+            help = "Allow the bearer token from environment variable NAME to publish or yank any package"
+        )]
+        token_env: Vec<String>,
+        #[arg(
+            long = "publisher",
+            value_name = "PACKAGE=ENV",
+            help = "Allow the bearer token from ENV to publish or yank PACKAGE or @scope/*; repeat for multiple publishers"
+        )]
+        publisher: Vec<String>,
     },
     Yank {
         package: String,
@@ -983,6 +1003,22 @@ pub async fn run_cli() -> Result<()> {
         Command::Registry { command } => match command {
             RegistryCommand::Rebuild { path } => static_registry::rebuild(&path)?,
             RegistryCommand::Check { path } => static_registry::check(&path)?,
+            RegistryCommand::Serve {
+                path,
+                host,
+                port,
+                token_env,
+                publisher,
+            } => {
+                hosted_registry_server::serve(hosted_registry_server::HostedRegistryServeOptions {
+                    root: &path,
+                    host: &host,
+                    port,
+                    token_envs: &token_env,
+                    publishers: &publisher,
+                })
+                .await?
+            }
             RegistryCommand::Yank {
                 package,
                 package_version,
