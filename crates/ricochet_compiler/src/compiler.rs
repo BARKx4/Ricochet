@@ -522,7 +522,7 @@ impl MacroExpander {
                 span: function.span,
             })]),
             Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, scope, ItemRowContext::TopLevel)
+                self.expand_expr_item(expr, *span, docs, stack, 0, scope, ItemRowContext::TopLevel)
             }
         }
     }
@@ -574,7 +574,7 @@ impl MacroExpander {
                 span: function.span,
             })]),
             Item::Expr { expr, span, docs } => {
-                self.expand_expr_item(expr, *span, docs, stack, scope, ItemRowContext::ClassBody)
+                self.expand_expr_item(expr, *span, docs, stack, 0, scope, ItemRowContext::ClassBody)
             }
         }
     }
@@ -600,6 +600,7 @@ impl MacroExpander {
         span: Span,
         docs: &[String],
         stack: &mut Vec<String>,
+        depth: usize,
         scope: &MacroScope,
         item_context: ItemRowContext,
     ) -> Result<Vec<Item>, CompileError> {
@@ -609,7 +610,7 @@ impl MacroExpander {
         for (index, expr) in exprs.iter().enumerate() {
             if matches!(&expr.expr, Expr::Symbol(word) if word == "macro_call") {
                 let expansion =
-                    self.evaluate_macro_call(expr.span, &mut output, stack, 0, scope)?;
+                    self.evaluate_macro_call(expr.span, &mut output, stack, depth, scope)?;
                 match expansion {
                     MacroExpansionOutput::Exprs(exprs) => {
                         output.push(ExpandedSegment::new(exprs, expr.span));
@@ -635,7 +636,7 @@ impl MacroExpander {
                 }
             } else {
                 output.push(ExpandedSegment::single(
-                    self.expand_spanned_expr(expr, stack, 0, scope)?,
+                    self.expand_spanned_expr(expr, stack, depth, scope)?,
                 ));
             }
         }
@@ -657,11 +658,78 @@ impl MacroExpander {
         let mut expanded = Vec::new();
         for row in rows {
             let row_exprs = expr_as_spanned_exprs(&row.expr, row.span);
+            if let Some(expanded_row) =
+                self.expand_class_declaration_item_row(&row_exprs, row.span, stack, depth, scope)?
+            {
+                expanded.push(expanded_row);
+                continue;
+            }
             let row_exprs = self.expand_exprs(&row_exprs, stack, depth, scope)?;
             expanded.push(SpannedExpr {
                 expr: expr_from_spanned_exprs(row_exprs),
                 span: row.span,
             });
+        }
+        Ok(expanded)
+    }
+
+    fn expand_class_declaration_item_row(
+        &mut self,
+        exprs: &[SpannedExpr],
+        span: Span,
+        stack: &mut Vec<String>,
+        depth: usize,
+        scope: &MacroScope,
+    ) -> Result<Option<SpannedExpr>, CompileError> {
+        let [body, name, superclass, operator] = exprs else {
+            return Ok(None);
+        };
+        let (Expr::Block(body_rows), Expr::Symbol(word)) = (&body.expr, &operator.expr) else {
+            return Ok(None);
+        };
+        if word != "Subclass"
+            || declaration_name(name).is_none()
+            || declaration_name(superclass).is_none()
+        {
+            return Ok(None);
+        }
+
+        let expanded_body = self.expand_class_body_item_rows(body_rows, stack, depth, scope)?;
+        Ok(Some(SpannedExpr {
+            expr: Expr::Sequence(vec![
+                SpannedExpr {
+                    expr: Expr::Block(expanded_body),
+                    span: body.span,
+                },
+                name.clone(),
+                superclass.clone(),
+                operator.clone(),
+            ]),
+            span,
+        }))
+    }
+
+    fn expand_class_body_item_rows(
+        &mut self,
+        rows: &[SpannedExpr],
+        stack: &mut Vec<String>,
+        depth: usize,
+        scope: &MacroScope,
+    ) -> Result<Vec<SpannedExpr>, CompileError> {
+        let mut expanded = Vec::new();
+        for row in rows {
+            let items = self.expand_expr_item(
+                &row.expr,
+                row.span,
+                &[],
+                stack,
+                depth,
+                scope,
+                ItemRowContext::ClassBody,
+            )?;
+            for item in items {
+                expanded.push(class_body_item_to_row(item)?);
+            }
         }
         Ok(expanded)
     }
@@ -1480,6 +1548,30 @@ fn item_row_to_item(
         span: row.span,
         docs,
     })
+}
+
+fn class_body_item_to_row(item: Item) -> Result<SpannedExpr, CompileError> {
+    match item {
+        Item::Expr { expr, span, .. } => Ok(SpannedExpr { expr, span }),
+        Item::Function(function) => Err(declaration_item_macro_output_error(function.span)),
+        Item::Class(class) => Err(declaration_item_macro_output_error(class.span)),
+        Item::Method(method) => Err(CompileError::Unsupported {
+            feature: format!("generated method declaration {}", method.name),
+            span: method.span,
+            help: Some(
+                "emit class-body Method rows like `[ body ] \"name\" Method` from quote_items"
+                    .to_string(),
+            ),
+        }),
+        Item::Macro(macro_decl) => Err(CompileError::Unsupported {
+            feature: format!(
+                "generated class-body macro declaration {:?}",
+                macro_decl.name
+            ),
+            span: macro_decl.span,
+            help: Some("declare compile-time macros at top level before expansion".to_string()),
+        }),
+    }
 }
 
 fn function_declaration_row(
@@ -2938,6 +3030,44 @@ mod tests {
                     block: 0,
                     args: None,
                 },
+                Op::EndClass,
+            ]
+        );
+    }
+
+    #[test]
+    fn declaration_macro_expands_nested_class_body_item_macro() {
+        let source = r#"
+          "body_helper" Macro
+            [
+              [
+                "email" Accessor
+              ] quote_items
+            ]
+          end
+
+          "make_user" Macro
+            [
+              [
+                [
+                  "body_helper" macro_call
+                ] User Model Subclass
+              ] quote_items
+            ]
+          end
+
+          "make_user" macro_call
+        "#;
+        let chunk = compile_source("models/user.rco", source).expect("compile succeeds");
+
+        assert_eq!(
+            chunk.ops().cloned().collect::<Vec<_>>(),
+            vec![
+                Op::BeginClass {
+                    name: "User".to_string(),
+                    superclass: "Model".to_string(),
+                },
+                Op::AddAccessor("email".to_string()),
                 Op::EndClass,
             ]
         );

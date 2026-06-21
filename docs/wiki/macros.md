@@ -67,7 +67,7 @@ macro-only row encodings below:
   [
     [
       [ "hello from generated function" println ] "greet" function
-      ( name -> String ) [ "hello " name + ] "greeting" function
+      ( name -> String ) [ "hello " $name + ] "greeting" function
     ] quote_items
   ]
 end
