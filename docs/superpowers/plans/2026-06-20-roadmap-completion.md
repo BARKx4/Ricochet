@@ -582,7 +582,7 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 - [ ] Extract debugger session protocol into a reusable internal module.
 - [x] Build a read-only TUI prototype that attaches to a debug session and renders current source, stack, locals, globals, and tasks.
 - [x] Add stepping controls to the TUI command loop.
-- [ ] Add runtime breakpoint editing controls to the TUI.
+- [x] Add runtime breakpoint editing controls to the TUI.
 - [x] Build browser UI server bound to `127.0.0.1` by default.
 - [x] Add websocket or SSE event stream for browser UI updates.
 - [x] Add smoke tests for snapshot rendering and loopback bind safety.
@@ -603,18 +603,24 @@ slice.
 **Progress Note (2026-06-21):** The TUI control slice adds non-smoke
 `rco debug-tui` sessions that render a text snapshot at each pause and accept
 `step`, `next`, `out`, `continue`, or `abort` from stdin, plus repeatable
-`--command ACTION` flags for deterministic scripted sessions. Runtime
-breakpoint editing, protocol extraction, richer full-screen layout, and browser
-event/control streaming remained open after this slice.
+`--command ACTION` flags for deterministic scripted sessions. Protocol
+extraction, richer full-screen layout, and browser event/control streaming
+remained open after this slice.
 
 **Progress Note (2026-06-21):** The browser live-control slice upgrades
 non-smoke `rco debug-web` from a static snapshot server to a loopback-only
 browser debugger shell. `GET /events` streams debugger events over SSE and
 replays the latest pause for late subscribers; `POST /control` accepts `step`,
 `next`, `out`, `continue`, and `abort` JSON actions with optional `pause_id`
-stale-control protection. Runtime breakpoint editing, shared protocol
-extraction, richer full-screen TUI layout, browser UI polish, and manual
-verification checklist remain open.
+stale-control protection. Shared protocol extraction, richer full-screen TUI
+layout, browser UI polish, and manual verification checklist remain open.
+
+**Progress Note (2026-06-21):** The runtime breakpoint editing slice adds a VM
+debug-control hook plus terminal, TUI, and browser controls for adding,
+removing, clearing, and listing line breakpoints while paused. Browser control
+actions include `breakpoint_add`, `breakpoint_remove`, `breakpoint_clear`, and
+`breakpoints`; TUI and terminal sessions accept `break <line>`, `clear <line>`,
+`clear_breakpoints`, and `breakpoints`.
 
 ---
 

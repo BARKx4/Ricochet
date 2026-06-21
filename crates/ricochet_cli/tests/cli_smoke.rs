@@ -7386,6 +7386,37 @@ fn debug_tui_scripted_commands_step_and_continue() {
 }
 
 #[test]
+fn debug_tui_scripted_can_add_runtime_breakpoint() {
+    let source_path = write_source("2\n3\n+\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--command")
+        .arg("break 3")
+        .arg("--command")
+        .arg("continue")
+        .arg("--command")
+        .arg("continue")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for(
+        "rco debug-tui --command break",
+        "source with runtime breakpoint",
+        &output,
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("debug-tui command: break 3")
+            && stdout.contains("\"event\":\"breakpoint_added\"")
+            && stdout.contains("source line: +")
+            && stdout.contains("status: paused (breakpoint)")
+            && stdout.contains("debug-tui: program completed after 2 pause(s)"),
+        "scripted debug-tui should add a runtime breakpoint and stop there, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn debug_tui_scripted_next_steps_over_function_body() {
     let source_path = write_source(
         r#"work function
@@ -7598,7 +7629,8 @@ fn debug_web_serves_live_debugger_shell_on_loopback() {
         response.contains("Ricochet Debug Web")
             && response.contains("Live loopback debugger session")
             && response.contains("EventSource('/events')")
-            && response.contains("data-action=\"step\""),
+            && response.contains("data-action=\"step\"")
+            && response.contains("data-breakpoint-action=\"breakpoint_add\""),
         "debug-web root should render the live debugger shell, got:\n{response}"
     );
 }
@@ -7647,6 +7679,68 @@ fn debug_web_event_stream_and_control_route_drive_session() {
     assert!(
         completed_event.contains("\"pause_count\":2"),
         "debug-web should emit a completion event after continue, got:\n{completed_event}"
+    );
+    server.wait_for_exit();
+}
+
+#[test]
+fn debug_web_can_add_runtime_breakpoint() {
+    let source_path = write_source("2\n3\n+\n");
+    let mut server = DebugWebPreviewServer::start_without_breakpoint(&source_path);
+    let mut events = http_get_stream_for_test(server.base_url(), "/events");
+
+    let first_event = read_http_stream_until_for_test(&mut events, "\"pause_id\":1");
+    assert!(
+        first_event.contains("\"source_line\":\"2\""),
+        "debug-web should start paused at the first source line, got:\n{first_event}"
+    );
+
+    let add_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"breakpoint_add","pause_id":1,"line":3}"#,
+    );
+    assert!(
+        add_response.starts_with("HTTP/1.1 200 OK")
+            && add_response.contains("\"action\":\"breakpoint_add\""),
+        "runtime breakpoint add should succeed, got:\n{add_response}"
+    );
+    let breakpoint_event =
+        read_http_stream_until_for_test(&mut events, "\"event\":\"breakpoint_added\"");
+    assert!(
+        breakpoint_event.contains("\"line\":3"),
+        "debug-web should emit a breakpoint_added event, got:\n{breakpoint_event}"
+    );
+
+    let continue_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"continue","pause_id":1}"#,
+    );
+    assert!(
+        continue_response.starts_with("HTTP/1.1 200 OK"),
+        "debug-web continue after breakpoint edit should succeed, got:\n{continue_response}"
+    );
+    let breakpoint_pause = read_http_stream_until_for_test(&mut events, "\"pause_id\":2");
+    assert!(
+        breakpoint_pause.contains("\"reason\":\"breakpoint\"")
+            && breakpoint_pause.contains("\"source_line\":\"+\""),
+        "debug-web should pause at the runtime breakpoint, got:\n{breakpoint_pause}"
+    );
+
+    let finish_response = http_post_json_for_test(
+        server.base_url(),
+        "/control",
+        r#"{"action":"continue","pause_id":2}"#,
+    );
+    assert!(
+        finish_response.starts_with("HTTP/1.1 200 OK"),
+        "debug-web final continue should succeed, got:\n{finish_response}"
+    );
+    let completed_event = read_http_stream_until_for_test(&mut events, "\"event\":\"completed\"");
+    assert!(
+        completed_event.contains("\"pause_count\":2"),
+        "debug-web should complete after the runtime breakpoint, got:\n{completed_event}"
     );
     server.wait_for_exit();
 }

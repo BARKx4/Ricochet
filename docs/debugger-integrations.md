@@ -107,17 +107,19 @@ Editor integration guidance:
 - `rco debug-tui --smoke` renders a deterministic read-only terminal snapshot
   of the first debugger pause. Without `--smoke`, `rco debug-tui` opens a
   command-driven text session that renders a fresh pause snapshot and accepts
-  `step`, `next`, `out`, `continue`, or `abort` from stdin; repeat
-  `--command ACTION` for deterministic scripted sessions. Runtime breakpoint
-  editing and a richer full-screen layout are still tracked as debugger UI
-  polish.
+  `step`, `next`, `out`, `continue`, `abort`, `break <line>`, `clear <line>`,
+  `clear_breakpoints`, and `breakpoints` from stdin; repeat `--command ACTION`
+  for deterministic scripted sessions. A richer full-screen layout is still
+  tracked as debugger UI polish.
 - `rco debug-web --smoke` writes the same first-pause snapshot as standalone
   HTML. Without `--smoke`, `rco debug-web` serves a loopback-only browser
   debugger shell. `GET /events` streams debugger events as Server-Sent Events
   and replays the latest pause to late subscribers; `POST /control` accepts
   JSON actions shaped as `{ "action": "step" }` with optional `pause_id` stale
   control protection. Supported actions are `step`, `next`, `out`, `continue`,
-  and `abort`.
+  `abort`, `breakpoint_add`, `breakpoint_remove`, `breakpoint_clear`, and
+  `breakpoints`; breakpoint add/remove actions include a `line` field and can
+  optionally include `file`.
 - Stack visualizers should treat `debug` strings as the stable beta display
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the

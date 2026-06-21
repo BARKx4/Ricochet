@@ -37,7 +37,7 @@ use ricochet_syntax::{
     TokenKind,
 };
 use ricochet_vm::{
-    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
+    DebugAction, DebugControl, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
     DynamicModuleSource, MapValue, RicochetResult, Value, Vm, VmImage,
 };
 use ricochet_web::{
@@ -7907,7 +7907,7 @@ fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
     if options.debug_output == DebugOutput::Text
         && (options.step || !options.breakpoints.is_empty())
     {
-        vm.set_debug_controller(read_terminal_debug_action);
+        vm.set_debug_controller_with_control(read_terminal_debug_action);
     }
 
     let result = vm.run_chunk(chunk);
@@ -8027,7 +8027,7 @@ struct DebugWebLiveState {
     events: tokio::sync::broadcast::Sender<String>,
     latest_event: Arc<Mutex<Option<String>>>,
     status: Arc<Mutex<DebugWebSessionStatus>>,
-    actions: Arc<Mutex<std_mpsc::Sender<DebugAction>>>,
+    actions: Arc<Mutex<std_mpsc::Sender<DebugCommand>>>,
 }
 
 #[derive(Default)]
@@ -8041,6 +8041,17 @@ struct DebugWebSessionStatus {
 struct DebugWebControlRequest {
     action: String,
     pause_id: Option<usize>,
+    line: Option<usize>,
+    file: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DebugCommand {
+    Resume(DebugAction),
+    AddBreakpoint { file: Option<String>, line: usize },
+    RemoveBreakpoint { file: Option<String>, line: usize },
+    ClearBreakpoints { file: Option<String> },
+    ListBreakpoints,
 }
 
 fn run_debug_tui(
@@ -8104,7 +8115,7 @@ async fn run_debug_web_live_session(
 ) -> Result<()> {
     let (source_path, chunk, mut vm) =
         prepare_debug_ui_run(path, options.step, options.breakpoints, args, capabilities)?;
-    let (action_tx, action_rx) = std_mpsc::channel::<DebugAction>();
+    let (action_tx, action_rx) = std_mpsc::channel::<DebugCommand>();
     let (event_tx, _) = tokio::sync::broadcast::channel::<String>(64);
     let latest_event = Arc::new(Mutex::new(None::<String>));
     let status = Arc::new(Mutex::new(DebugWebSessionStatus::default()));
@@ -8166,7 +8177,7 @@ fn run_debug_web_vm_session(
     source_path: PathBuf,
     chunk: Chunk,
     vm: &mut Vm,
-    action_rx: std_mpsc::Receiver<DebugAction>,
+    action_rx: std_mpsc::Receiver<DebugCommand>,
     event_tx: tokio::sync::broadcast::Sender<String>,
     latest_event: Arc<Mutex<Option<String>>>,
     status: Arc<Mutex<DebugWebSessionStatus>>,
@@ -8177,7 +8188,7 @@ fn run_debug_web_vm_session(
     let controller_event_tx = event_tx.clone();
     let controller_latest_event = Arc::clone(&latest_event);
     let controller_status = Arc::clone(&status);
-    vm.set_debug_controller(move |pause| {
+    vm.set_debug_controller_with_control(move |pause, control| {
         let count = controller_pause_count.get() + 1;
         controller_pause_count.set(count);
         let snapshot = debug_ui_snapshot_for_pause(
@@ -8199,14 +8210,22 @@ fn run_debug_web_vm_session(
             &controller_latest_event,
             debug_web_pause_event(&snapshot, count),
         );
-        let action = action_rx.recv().unwrap_or(DebugAction::Abort);
-        {
-            let mut status = controller_status
-                .lock()
-                .expect("debug-web session status lock");
-            status.paused = false;
+        loop {
+            let command = action_rx
+                .recv()
+                .unwrap_or(DebugCommand::Resume(DebugAction::Abort));
+            if let Some(action) = apply_debug_control_command(command, control, |event| {
+                publish_debug_web_event(&controller_event_tx, &controller_latest_event, event)
+            }) {
+                {
+                    let mut status = controller_status
+                        .lock()
+                        .expect("debug-web session status lock");
+                    status.paused = false;
+                }
+                return action;
+            }
         }
-        action
     });
 
     let result = vm.run_chunk(&chunk);
@@ -8358,17 +8377,31 @@ async fn debug_web_control(
     State(state): State<DebugWebLiveState>,
     Json(request): Json<DebugWebControlRequest>,
 ) -> impl IntoResponse {
-    let Some(action) = debug_action_from_command(&request.action) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "ok": false,
-                "error": "unknown action",
-                "expected": ["step", "next", "out", "continue", "abort"],
-            })),
-        )
-            .into_response();
+    let command = match debug_command_from_web_request(&request) {
+        Ok(command) => command,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "ok": false,
+                    "error": error,
+                    "expected": [
+                        "step",
+                        "next",
+                        "out",
+                        "continue",
+                        "abort",
+                        "breakpoint_add",
+                        "breakpoint_remove",
+                        "breakpoint_clear",
+                        "breakpoints"
+                    ],
+                })),
+            )
+                .into_response();
+        }
     };
+    let resumes = debug_command_resumes(&command);
 
     {
         let mut status = state.status.lock().expect("debug-web session status lock");
@@ -8405,18 +8438,21 @@ async fn debug_web_control(
                     .into_response();
             }
         }
-        status.paused = false;
+        if resumes {
+            status.paused = false;
+        }
     }
 
+    let command_label = debug_command_label(&command);
     let send_result = state
         .actions
         .lock()
         .expect("debug-web action channel lock")
-        .send(action);
+        .send(command);
     match send_result {
         Ok(()) => Json(json!({
             "ok": true,
-            "action": debug_action_label(action),
+            "action": command_label,
         }))
         .into_response(),
         Err(_) => {
@@ -8487,7 +8523,7 @@ fn run_debug_tui_session(
     let controller_commands = Rc::clone(&commands);
     let controller_error = Rc::clone(&command_error);
     let controller_pause_count = Rc::clone(&pause_count);
-    vm.set_debug_controller(move |pause| {
+    vm.set_debug_controller_with_control(move |pause, control| {
         controller_pause_count.set(controller_pause_count.get() + 1);
         let snapshot = debug_ui_snapshot_for_pause(
             &controller_source_path,
@@ -8505,28 +8541,36 @@ fn run_debug_tui_session(
         }
 
         if scripted {
-            let Some(command) = controller_commands.borrow_mut().pop_front() else {
-                *controller_error.borrow_mut() = Some(
-                    "debug-tui command script ended while the VM was still paused; add another --command"
-                        .to_string(),
-                );
-                return DebugAction::Abort;
-            };
-            match debug_action_from_command(&command) {
-                Some(action) => {
-                    println!("debug-tui command: {}", command.trim());
-                    action
-                }
-                None => {
-                    *controller_error.borrow_mut() = Some(format!(
-                        "unknown debug-tui command {:?}; expected step, next, out, continue, or abort",
-                        command.trim()
-                    ));
-                    DebugAction::Abort
+            loop {
+                let Some(command) = controller_commands.borrow_mut().pop_front() else {
+                    *controller_error.borrow_mut() = Some(
+                        "debug-tui command script ended while the VM was still paused; add another --command"
+                            .to_string(),
+                    );
+                    return DebugAction::Abort;
+                };
+                match debug_command_from_command(&command) {
+                    Ok(command_action) => {
+                        println!("debug-tui command: {}", command.trim());
+                        if let Some(action) =
+                            apply_debug_control_command(command_action, control, |event| {
+                                println!("debug-tui event: {event}");
+                            })
+                        {
+                            return action;
+                        }
+                    }
+                    Err(error) => {
+                        *controller_error.borrow_mut() = Some(format!(
+                            "unknown debug-tui command {:?}: {error}; expected step, next, out, continue, abort, break <line>, clear <line>, clear_breakpoints, or breakpoints",
+                            command.trim()
+                        ));
+                        return DebugAction::Abort;
+                    }
                 }
             }
         } else {
-            read_debug_tui_action_from_stdin()
+            read_debug_tui_action_from_stdin(control)
         }
     });
 
@@ -8826,6 +8870,21 @@ fn render_debug_web_live_page() -> String {
         )
         .expect("write to string");
     }
+    html.push_str("</section><section aria-label=\"Breakpoint controls\">");
+    html.push_str("<label>Line <input id=\"breakpoint-line\" type=\"number\" min=\"1\"></label>");
+    for action in [
+        ("breakpoint_add", "add breakpoint"),
+        ("breakpoint_remove", "remove breakpoint"),
+        ("breakpoint_clear", "clear breakpoints"),
+        ("breakpoints", "list breakpoints"),
+    ] {
+        write!(
+            &mut html,
+            "<button type=\"button\" data-breakpoint-action=\"{}\">{}</button>",
+            action.0, action.1
+        )
+        .expect("write to string");
+    }
     html.push_str(
         "</section><section><h2>Events</h2><pre id=\"events\">connecting...</pre></section>",
     );
@@ -8851,13 +8910,25 @@ for (const button of document.querySelectorAll('button[data-action]')) {
   button.addEventListener('click', async () => {
     const body = { action: button.dataset.action };
     if (latestPauseId !== null) body.pause_id = latestPauseId;
-    const response = await fetch('/control', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    append(JSON.stringify({ event: 'control_response', status: response.status, body: await response.json() }));
+    await sendControl(body);
   });
+}
+for (const button of document.querySelectorAll('button[data-breakpoint-action]')) {
+  button.addEventListener('click', async () => {
+    const body = { action: button.dataset.breakpointAction };
+    if (latestPauseId !== null) body.pause_id = latestPauseId;
+    const line = Number(document.getElementById('breakpoint-line').value);
+    if (Number.isInteger(line) && line > 0) body.line = line;
+    await sendControl(body);
+  });
+}
+async function sendControl(body) {
+  const response = await fetch('/control', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  append(JSON.stringify({ event: 'control_response', status: response.status, body: await response.json() }));
 }
 </script>",
     );
@@ -8963,6 +9034,181 @@ fn debug_action_from_command(command: &str) -> Option<DebugAction> {
     }
 }
 
+fn debug_command_from_command(command: &str) -> Result<DebugCommand> {
+    if let Some(action) = debug_action_from_command(command) {
+        return Ok(DebugCommand::Resume(action));
+    }
+
+    let parts: Vec<_> = command.split_whitespace().collect();
+    match parts.as_slice() {
+        [name, line]
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "b" | "break" | "breakpoint" | "breakpoint_add" | "add_breakpoint"
+            ) =>
+        {
+            Ok(DebugCommand::AddBreakpoint {
+                file: None,
+                line: parse_debug_breakpoint_line(line)?,
+            })
+        }
+        [name, line]
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "clear" | "delete" | "remove" | "breakpoint_remove" | "remove_breakpoint"
+            ) =>
+        {
+            Ok(DebugCommand::RemoveBreakpoint {
+                file: None,
+                line: parse_debug_breakpoint_line(line)?,
+            })
+        }
+        [name]
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "breakpoints_clear" | "breakpoint_clear" | "clear_breakpoints"
+            ) =>
+        {
+            Ok(DebugCommand::ClearBreakpoints { file: None })
+        }
+        [name] if matches!(name.to_ascii_lowercase().as_str(), "breakpoints" | "bp") => {
+            Ok(DebugCommand::ListBreakpoints)
+        }
+        _ => bail!("unknown debug command"),
+    }
+}
+
+fn debug_command_from_web_request(
+    request: &DebugWebControlRequest,
+) -> Result<DebugCommand, String> {
+    if let Some(action) = debug_action_from_command(&request.action) {
+        return Ok(DebugCommand::Resume(action));
+    }
+
+    match request.action.trim().to_ascii_lowercase().as_str() {
+        "breakpoint_add" | "break" | "breakpoint" | "add_breakpoint" => {
+            let line = request
+                .line
+                .ok_or_else(|| "breakpoint_add requires line".to_string())?;
+            validate_debug_breakpoint_line(line)?;
+            Ok(DebugCommand::AddBreakpoint {
+                file: request.file.clone(),
+                line,
+            })
+        }
+        "breakpoint_remove" | "remove_breakpoint" | "clear" | "delete" | "remove" => {
+            let line = request
+                .line
+                .ok_or_else(|| "breakpoint_remove requires line".to_string())?;
+            validate_debug_breakpoint_line(line)?;
+            Ok(DebugCommand::RemoveBreakpoint {
+                file: request.file.clone(),
+                line,
+            })
+        }
+        "breakpoint_clear" | "breakpoints_clear" | "clear_breakpoints" => {
+            Ok(DebugCommand::ClearBreakpoints {
+                file: request.file.clone(),
+            })
+        }
+        "breakpoints" | "bp" => Ok(DebugCommand::ListBreakpoints),
+        _ => Err("unknown action".to_string()),
+    }
+}
+
+fn parse_debug_breakpoint_line(value: &str) -> Result<usize> {
+    let line = value
+        .parse::<usize>()
+        .with_context(|| format!("invalid breakpoint line {value:?}"))?;
+    validate_debug_breakpoint_line(line).map_err(anyhow::Error::msg)?;
+    Ok(line)
+}
+
+fn validate_debug_breakpoint_line(line: usize) -> std::result::Result<(), String> {
+    if line == 0 {
+        Err("breakpoint lines are 1-based".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn debug_command_resumes(command: &DebugCommand) -> bool {
+    matches!(command, DebugCommand::Resume(_))
+}
+
+fn debug_command_label(command: &DebugCommand) -> &'static str {
+    match command {
+        DebugCommand::Resume(action) => debug_action_label(*action),
+        DebugCommand::AddBreakpoint { .. } => "breakpoint_add",
+        DebugCommand::RemoveBreakpoint { .. } => "breakpoint_remove",
+        DebugCommand::ClearBreakpoints { .. } => "breakpoint_clear",
+        DebugCommand::ListBreakpoints => "breakpoints",
+    }
+}
+
+fn apply_debug_control_command<F>(
+    command: DebugCommand,
+    control: &mut DebugControl<'_>,
+    mut publish: F,
+) -> Option<DebugAction>
+where
+    F: FnMut(serde_json::Value),
+{
+    match command {
+        DebugCommand::Resume(action) => Some(action),
+        DebugCommand::AddBreakpoint { file, line } => {
+            control.add_line_breakpoint(file.as_deref(), line);
+            publish(debug_breakpoints_event(
+                "breakpoint_added",
+                control.line_breakpoints(),
+                json!({ "line": line, "file": file }),
+            ));
+            None
+        }
+        DebugCommand::RemoveBreakpoint { file, line } => {
+            let removed = control.remove_line_breakpoint(file.as_deref(), line);
+            publish(debug_breakpoints_event(
+                "breakpoint_removed",
+                control.line_breakpoints(),
+                json!({ "line": line, "file": file, "removed": removed }),
+            ));
+            None
+        }
+        DebugCommand::ClearBreakpoints { file } => {
+            let cleared = control.clear_line_breakpoints(file.as_deref());
+            publish(debug_breakpoints_event(
+                "breakpoints_cleared",
+                control.line_breakpoints(),
+                json!({ "file": file, "cleared": cleared }),
+            ));
+            None
+        }
+        DebugCommand::ListBreakpoints => {
+            publish(debug_breakpoints_event(
+                "breakpoints",
+                control.line_breakpoints(),
+                json!({}),
+            ));
+            None
+        }
+    }
+}
+
+fn debug_breakpoints_event(
+    event: &str,
+    breakpoints: Vec<(String, usize)>,
+    details: serde_json::Value,
+) -> serde_json::Value {
+    json!({
+        "event": event,
+        "details": details,
+        "breakpoints": breakpoints
+            .into_iter()
+            .map(|(file, line)| json!({ "file": file, "line": line }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn debug_action_label(action: DebugAction) -> &'static str {
     match action {
         DebugAction::Step => "step",
@@ -8973,7 +9219,7 @@ fn debug_action_label(action: DebugAction) -> &'static str {
     }
 }
 
-fn read_debug_tui_action_from_stdin() -> DebugAction {
+fn read_debug_tui_action_from_stdin(control: &mut DebugControl<'_>) -> DebugAction {
     loop {
         print!("debug-tui> ");
         if io::stdout().flush().is_err() {
@@ -8982,10 +9228,18 @@ fn read_debug_tui_action_from_stdin() -> DebugAction {
         let mut command = String::new();
         match io::stdin().read_line(&mut command) {
             Ok(0) | Err(_) => return DebugAction::Abort,
-            Ok(_) => match debug_action_from_command(&command) {
-                Some(action) => return action,
-                None => {
-                    println!("commands: step, next, out, continue, abort (aliases: s, n, o, c, q)")
+            Ok(_) => match debug_command_from_command(&command) {
+                Ok(command) => {
+                    if let Some(action) = apply_debug_control_command(command, control, |event| {
+                        println!("debug-tui event: {event}");
+                    }) {
+                        return action;
+                    }
+                }
+                Err(_) => {
+                    println!(
+                        "commands: step, next, out, continue, abort, break <line>, clear <line>, clear_breakpoints, breakpoints (aliases: s, n, o, c, q)"
+                    )
                 }
             },
         }
@@ -10258,7 +10512,7 @@ fn current_dir_for_dynamic_imports() -> Result<PathBuf> {
     })
 }
 
-fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
+fn read_terminal_debug_action(pause: &DebugPause, control: &mut DebugControl<'_>) -> DebugAction {
     loop {
         print!("debug> ");
         if io::stdout().flush().is_err() {
@@ -10270,12 +10524,17 @@ fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
             Ok(0) | Err(_) => return DebugAction::Abort,
             Ok(_) => {
                 let command = command.trim().to_ascii_lowercase();
+                if let Ok(debug_command) = debug_command_from_command(&command) {
+                    if let Some(action) =
+                        apply_debug_control_command(debug_command, control, |event| {
+                            println!("debug event: {event}");
+                        })
+                    {
+                        return action;
+                    }
+                    continue;
+                }
                 match command.as_str() {
-                    "" | "s" | "step" => return DebugAction::Step,
-                    "n" | "next" | "over" | "step-over" => return DebugAction::StepOver,
-                    "o" | "out" | "step-out" => return DebugAction::StepOut,
-                    "c" | "continue" => return DebugAction::Continue,
-                    "a" | "abort" | "q" | "quit" => return DebugAction::Abort,
                     "stack" => println!("{:?}", pause.stack),
                     "locals" => print_debug_bindings("locals", &pause.locals),
                     "globals" => print_debug_bindings("globals", &pause.globals),
@@ -10284,7 +10543,7 @@ fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {
                     "tasks --tree" => print_debug_task_tree(&pause.tasks),
                     _ if handle_debug_task_command(&command, pause) => {}
                     _ => println!(
-                        "commands: step, next, out, continue, abort, stack, locals, globals, self, tasks, tasks --tree, task <id> stack, task <id> locals"
+                        "commands: step, next, out, continue, abort, break <line>, clear <line>, clear_breakpoints, breakpoints, stack, locals, globals, self, tasks, tasks --tree, task <id> stack, task <id> locals"
                     ),
                 }
             }

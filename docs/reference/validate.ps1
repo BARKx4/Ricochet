@@ -35,6 +35,7 @@ if ($failures.Count -eq 0) {
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
     $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
     $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
+    $editorDebuggingGuide = Get-Content -LiteralPath (Join-Path $Root "guides/editor-debugging.html") -Raw
     $webAndDataGuide = Get-Content -LiteralPath (Join-Path $Root "guides/web-and-data.html") -Raw
 
     $requiredIndexMarkers = @(
@@ -416,6 +417,12 @@ if ($failures.Count -eq 0) {
         "rco debug --json app.rco",
         "rco debug-tui --smoke app.rco",
         "rco debug-tui --command step --command continue app.rco",
+        "break &lt;line&gt;",
+        "clear &lt;line&gt;",
+        "clear_breakpoints",
+        "breakpoint_add",
+        "breakpoint_remove",
+        "breakpoint_clear",
         "rco debug-web --smoke app.rco",
         "rco debug-web app.rco",
         "rco debug-adapter",
@@ -528,7 +535,7 @@ if ($failures.Count -eq 0) {
     )
 
     foreach ($example in $requiredExamples) {
-        if (-not $index.Contains($example) -and -not $app.Contains($example) -and -not $webAndDataGuide.Contains($example)) {
+        if (-not $index.Contains($example) -and -not $app.Contains($example) -and -not $webAndDataGuide.Contains($example) -and -not $editorDebuggingGuide.Contains($example)) {
             $failures.Add("Docs are missing example text: $example")
         }
     }

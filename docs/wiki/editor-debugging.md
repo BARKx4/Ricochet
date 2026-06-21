@@ -36,11 +36,13 @@ summary.
 `rco debug-tui --smoke` renders a deterministic read-only terminal snapshot of
 the first debugger pause, including source line, stack, locals, globals, and
 task snapshots. Without `--smoke`, `rco debug-tui` renders a fresh snapshot at
-each pause and accepts `step`, `next`, `out`, `continue`, or `abort`; repeat
+each pause and accepts `step`, `next`, `out`, `continue`, `abort`,
+`break <line>`, `clear <line>`, `clear_breakpoints`, and `breakpoints`; repeat
 `--command ACTION` for deterministic scripted sessions. `rco debug-web
 --smoke` writes the same snapshot as standalone HTML, while `rco debug-web`
 serves a loopback-only browser debugger shell with Server-Sent Events at
-`/events` and JSON controls at `/control`.
+`/events` and JSON controls at `/control`, including runtime line-breakpoint
+add/remove/clear/list actions.
 
 `rco serve --debug` also installs an MVC request-fault pause hook. Before a
 controller action, view render, or response metadata failure becomes an HTTP

@@ -112,8 +112,35 @@ pub struct RuntimeErrorSite {
 
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
+type DebugControlController =
+    Rc<RefCell<dyn for<'a> FnMut(&DebugPause, &mut DebugControl<'a>) -> DebugAction>>;
 type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
 type DynamicModuleLoader = Arc<dyn Fn(&str) -> Result<DynamicModuleSource, String> + Send + Sync>;
+
+pub struct DebugControl<'a> {
+    vm: &'a mut Vm,
+    default_file: String,
+}
+
+impl DebugControl<'_> {
+    pub fn add_line_breakpoint(&mut self, file: Option<&str>, line: usize) {
+        let file = file.unwrap_or(&self.default_file).to_string();
+        self.vm.add_line_breakpoint(file, line);
+    }
+
+    pub fn remove_line_breakpoint(&mut self, file: Option<&str>, line: usize) -> bool {
+        let file = file.unwrap_or(&self.default_file).to_string();
+        self.vm.remove_line_breakpoint(file, line)
+    }
+
+    pub fn clear_line_breakpoints(&mut self, file: Option<&str>) -> usize {
+        self.vm.clear_line_breakpoints(file)
+    }
+
+    pub fn line_breakpoints(&self) -> Vec<(String, usize)> {
+        self.vm.line_breakpoints()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicModuleSource {
@@ -215,6 +242,7 @@ pub struct Vm {
     last_error_site: Option<RuntimeErrorSite>,
     debug_sink: Option<DebugSink>,
     debug_controller: Option<DebugController>,
+    debug_control_controller: Option<DebugControlController>,
     step_mode: bool,
     step_over_depth: Option<usize>,
     step_out_depth: Option<usize>,
@@ -279,6 +307,7 @@ impl Default for Vm {
             last_error_site: None,
             debug_sink: None,
             debug_controller: None,
+            debug_control_controller: None,
             step_mode: false,
             step_over_depth: None,
             step_out_depth: None,
@@ -1052,6 +1081,15 @@ impl Vm {
         F: FnMut(&DebugPause) -> DebugAction + 'static,
     {
         self.debug_controller = Some(Rc::new(RefCell::new(controller)));
+        self.debug_control_controller = None;
+    }
+
+    pub fn set_debug_controller_with_control<F>(&mut self, controller: F)
+    where
+        F: for<'a> FnMut(&DebugPause, &mut DebugControl<'a>) -> DebugAction + 'static,
+    {
+        self.debug_controller = None;
+        self.debug_control_controller = Some(Rc::new(RefCell::new(controller)));
     }
 
     pub fn debug_events(&self) -> &[DebugEvent] {
@@ -1069,6 +1107,26 @@ impl Vm {
     pub fn add_line_breakpoint(&mut self, file: impl Into<String>, line: usize) {
         self.debug_enabled = true;
         self.breakpoints.insert((file.into(), line));
+    }
+
+    pub fn remove_line_breakpoint(&mut self, file: impl Into<String>, line: usize) -> bool {
+        let file = file.into();
+        self.breakpoints.remove(&(file, line))
+    }
+
+    pub fn clear_line_breakpoints(&mut self, file: Option<&str>) -> usize {
+        let before = self.breakpoints.len();
+        if let Some(file) = file {
+            self.breakpoints
+                .retain(|(breakpoint_file, _)| breakpoint_file != file);
+        } else {
+            self.breakpoints.clear();
+        }
+        before - self.breakpoints.len()
+    }
+
+    pub fn line_breakpoints(&self) -> Vec<(String, usize)> {
+        self.breakpoints.iter().cloned().collect()
     }
 
     pub fn define_class(
@@ -1452,11 +1510,18 @@ impl Vm {
         };
         self.record_debug_event(DebugEvent::Paused(pause.clone()));
 
-        let action = self
-            .debug_controller
-            .clone()
-            .map(|controller| (controller.borrow_mut())(&pause))
-            .unwrap_or(DebugAction::Continue);
+        let action = if let Some(controller) = self.debug_control_controller.clone() {
+            let mut control = DebugControl {
+                vm: self,
+                default_file: instruction.span.file.clone(),
+            };
+            (controller.borrow_mut())(&pause, &mut control)
+        } else {
+            self.debug_controller
+                .clone()
+                .map(|controller| (controller.borrow_mut())(&pause))
+                .unwrap_or(DebugAction::Continue)
+        };
 
         match action {
             DebugAction::Step => {
@@ -5027,6 +5092,42 @@ mod tests {
         assert_eq!(pauses.borrow()[0].reason, DebugPauseReason::Breakpoint);
         assert_eq!(pauses.borrow()[0].source, "test.rco:2");
         assert_eq!(pauses.borrow()[0].stack, vec![Value::Number(2)]);
+    }
+
+    #[test]
+    fn debug_control_can_add_line_breakpoint_while_paused() {
+        let mut chunk = Chunk::new("test.rco");
+        chunk.push(Op::PushNumber(2), SourceSpan { line: 1, ..span() });
+        chunk.push(Op::PushNumber(3), SourceSpan { line: 2, ..span() });
+        chunk.push(
+            Op::CallWord("+".to_string()),
+            SourceSpan { line: 3, ..span() },
+        );
+
+        let pauses = Rc::new(RefCell::new(Vec::new()));
+        let seen = pauses.clone();
+        let mut vm = Vm::default();
+        vm.enable_step_debugging();
+        vm.set_debug_controller_with_control(move |pause, control| {
+            seen.borrow_mut().push(pause.clone());
+            if seen.borrow().len() == 1 {
+                control.add_line_breakpoint(None, 3);
+            }
+            DebugAction::Continue
+        });
+
+        vm.run_chunk(&chunk).expect("runtime breakpoint continues");
+
+        assert_eq!(vm.stack(), &[Value::Number(5)]);
+        assert_eq!(pauses.borrow().len(), 2);
+        assert_eq!(pauses.borrow()[0].reason, DebugPauseReason::Step);
+        assert_eq!(pauses.borrow()[0].source, "test.rco:1");
+        assert_eq!(pauses.borrow()[1].reason, DebugPauseReason::Breakpoint);
+        assert_eq!(pauses.borrow()[1].source, "test.rco:3");
+        assert_eq!(
+            pauses.borrow()[1].stack,
+            vec![Value::Number(2), Value::Number(3)]
+        );
     }
 
     #[test]
