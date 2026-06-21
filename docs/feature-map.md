@@ -438,8 +438,10 @@ Implemented:
 - MVC `[ai.default]` injects an `ai` controller capability whose `chat` method
   calls an OpenAI-compatible `/chat/completions` endpoint and returns `Result`
   maps.
-- `@ricochet/ai` provides OpenAI-compatible request builders, secret reference
-  helpers, SSE parsing, and stream text extraction.
+- `@ricochet/ai` provides provider-neutral provider/message/request/response/
+  error contracts, retry policy maps, tool call/result maps, schema validation,
+  OpenAI-compatible request builders, secret reference helpers, SSE parsing,
+  and stream text extraction.
 - `@ricochet/test_helpers` provides assertion, fixture, HTTP response, and
   temporary workspace helpers.
 
@@ -460,8 +462,8 @@ Evidence:
 
 Remaining:
 
-- Richer provider packages, retries/tool execution, AI streaming integration,
-  and structured schema validation remain future package work.
+- Richer provider packages, actual retry/tool execution, and AI streaming
+  integration remain future package/core work.
 
 Do not assume:
 
@@ -666,8 +668,8 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Richer AI provider packages, streaming integration, and structured schema
-  validation.
+- Richer AI provider packages, actual retry/tool execution, and streaming
+  integration.
 - Production app distribution polish: signing, notarization, metadata, store or
   updater workflows.
 

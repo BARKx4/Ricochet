@@ -2,6 +2,143 @@
 
 AiPackageTest TestCase Subclass
   [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    $provider "provider" at
+    "openai" assert_equals
+    $provider "base_url" at
+    "https://api.example.test/v1" assert_equals
+    $provider "model" at
+    "gpt-test" assert_equals
+  ] "testProviderMap" Method
+  [
+    "system rules" ai_system_message systemMessage var
+    $systemMessage "role" at "system" assert_equals
+    $systemMessage "content" at "system rules" assert_equals
+    "user text" ai_user_message "role" at "user" assert_equals
+    "assistant text" ai_assistant_message "content" at "assistant text" assert_equals
+    "custom" "payload" ai_message "role" at "custom" assert_equals
+  ] "testMessageHelpers" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    $messages "hello" ai_user_message push! drop
+    options map
+    $options "temperature" 0.2 put! drop
+    tools array
+    3 100 1000 ai_retry_policy retry var
+
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_request request var
+    $request "provider" at "provider" at "openai" assert_equals
+    $request "model" at "gpt-test" assert_equals
+    $request "messages" at count 1 assert_equals
+    $request "stream" at false assert_equals
+    $request "options" at "temperature" at 0.2 assert_equals
+    $request "tools" at count 0 assert_equals
+    $request "retry" at "max_attempts" at 3 assert_equals
+    $request "retry" at "initial_delay_ms" at 100 assert_equals
+    $request "retry" at "max_delay_ms" at 1000 assert_equals
+  ] "testChatRequestMap" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    messages array
+    options map
+    tools array
+    2 50 500 ai_retry_policy retry var
+    $provider "gpt-test" $messages $options $tools $retry ai_chat_stream request var
+    $request "stream" at true assert_equals
+    $request "retry" at "max_attempts" at 2 assert_equals
+  ] "testChatStreamMap" Method
+  [
+    "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
+    toolCalls array
+    raw map
+    $raw "id" "chatcmpl-test" put! drop
+    $provider "gpt-test" "hello" $toolCalls $raw ai_chat_response response var
+    $response "provider" at "provider" at "openai" assert_equals
+    $response "model" at "gpt-test" assert_equals
+    $response "text" at "hello" assert_equals
+    $response "tool_calls" at count 0 assert_equals
+    $response "raw" at "id" at "chatcmpl-test" assert_equals
+
+    $provider "rate_limit" "slow down" 429 $raw ai_error providerError var
+    $providerError "kind" at "rate_limit" assert_equals
+    $providerError "message" at "slow down" assert_equals
+    $providerError "status" at 429 assert_equals
+
+    "delta" $raw 12 false ai_stream_event event var
+    $event "kind" at "delta" assert_equals
+    $event "offset" at 12 assert_equals
+    $event "done" at false assert_equals
+  ] "testNormalizedResponseErrorAndStreamEventMaps" Method
+  [
+    args map
+    $args "city" "Chicago" put! drop
+    "call-1" "get_weather" $args ai_tool_call toolCall var
+    $toolCall "id" at "call-1" assert_equals
+    $toolCall "name" at "get_weather" assert_equals
+    $toolCall "arguments" at "city" at "Chicago" assert_equals
+
+    "call-1" "{\"ok\":true}" ai_tool_result toolResult var
+    $toolResult "role" at "tool" assert_equals
+    $toolResult "tool_call_id" at "call-1" assert_equals
+    $toolResult "content" at "{\"ok\":true}" assert_equals
+  ] "testToolCallAndToolResultMaps" Method
+  [
+    ai_schema "text" "string" true ai_schema_field "score" "number" false ai_schema_field schema var
+    data map
+    $data "text" "hello" put! drop
+    $data "score" 42 put! drop
+    $data $schema ai_validate_schema "ok" at
+    true assert_equals
+  ] "testSchemaValidationAcceptsValidData" Method
+  [
+    ai_schema
+      "enabled" "bool" true ai_schema_field
+      "ratio" "float" true ai_schema_field
+      "items" "array" true ai_schema_field
+      "queue" "list" true ai_schema_field
+      "meta" "map" true ai_schema_field
+      "tags" "set" true ai_schema_field
+      "anything" "any" true ai_schema_field schema var
+    data map
+    $data "enabled" true put! drop
+    $data "ratio" 0.75 put! drop
+    itemArray array
+    $data "items" $itemArray put! drop
+    itemList list
+    $data "queue" $itemList put! drop
+    meta map
+    $data "meta" $meta put! drop
+    tags Set
+    $data "tags" $tags put! drop
+    $data "anything" "freeform" put! drop
+    $data $schema ai_validate_schema "ok" at
+    true assert_equals
+  ] "testSchemaValidationAcceptsSupportedTypes" Method
+  [
+    ai_schema "text" "string" true ai_schema_field schema var
+    data map
+    $data $schema ai_validate_schema result var
+    $result "ok" at false assert_equals
+    $result "errors" at first "field" at "text" assert_equals
+    $result "errors" at first "message" at "is required" assert_equals
+  ] "testSchemaValidationRequiresFields" Method
+  [
+    ai_schema "score" "number" true ai_schema_field schema var
+    data map
+    $data "score" "high" put! drop
+    $data $schema ai_validate_schema result var
+    $result "ok" at false assert_equals
+    $result "errors" at first "field" at "score" assert_equals
+    $result "errors" at first "message" at "must be number" assert_equals
+  ] "testSchemaValidationReportsTypeMismatch" Method
+  [
+    ai_schema "nickname" "string" false ai_schema_field schema var
+    data map
+    $data $schema ai_validate_schema "ok" at
+    true assert_equals
+  ] "testSchemaValidationAllowsMissingOptionalFields" Method
+  [
     "TOKEN" ai_bearer_headers "Authorization" at
     "Bearer TOKEN" assert_equals
   ] "testBearerHeaders" Method

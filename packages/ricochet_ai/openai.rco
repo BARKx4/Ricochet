@@ -19,6 +19,232 @@ end
   $envName secret_env
 end
 
+( provider baseUrl model -> Map ) ai_provider function
+  model var
+  baseUrl var
+  providerName var
+  provider map
+  $provider "provider" $providerName put! drop
+  $provider "base_url" $baseUrl put! drop
+  $provider "model" $model put! drop
+  $provider
+end
+
+( role content -> Map ) ai_message function
+  content var
+  role var
+  message map
+  $message "role" $role put! drop
+  $message "content" $content put! drop
+  $message
+end
+
+( content -> Map ) ai_system_message function
+  content var
+  "system" $content ai_message
+end
+
+( content -> Map ) ai_user_message function
+  content var
+  "user" $content ai_message
+end
+
+( content -> Map ) ai_assistant_message function
+  content var
+  "assistant" $content ai_message
+end
+
+( provider model messages options tools retry -> Map ) ai_chat_request function
+  retry var
+  tools var
+  options var
+  messages var
+  model var
+  provider var
+  request map
+  $request "provider" $provider put! drop
+  $request "model" $model put! drop
+  $request "messages" $messages put! drop
+  $request "stream" false put! drop
+  $request "options" $options put! drop
+  $request "tools" $tools put! drop
+  $request "retry" $retry put! drop
+  $request
+end
+
+( provider model messages options tools retry -> Map ) ai_chat_stream function
+  retry var
+  tools var
+  options var
+  messages var
+  model var
+  provider var
+  $provider $model $messages $options $tools $retry ai_chat_request request var
+  $request "stream" true put! drop
+  $request
+end
+
+( maxAttempts initialDelayMs maxDelayMs -> Map ) ai_retry_policy function
+  maxDelayMs var
+  initialDelayMs var
+  maxAttempts var
+  retry map
+  $retry "max_attempts" $maxAttempts put! drop
+  $retry "initial_delay_ms" $initialDelayMs put! drop
+  $retry "max_delay_ms" $maxDelayMs put! drop
+  $retry
+end
+
+( provider model text toolCalls raw -> Map ) ai_chat_response function
+  raw var
+  toolCalls var
+  text var
+  model var
+  provider var
+  response map
+  $response "provider" $provider put! drop
+  $response "model" $model put! drop
+  $response "text" $text put! drop
+  $response "tool_calls" $toolCalls put! drop
+  $response "raw" $raw put! drop
+  $response
+end
+
+( provider kind message status raw -> Map ) ai_error function
+  raw var
+  status var
+  message var
+  kind var
+  provider var
+  error map
+  $error "provider" $provider put! drop
+  $error "kind" $kind put! drop
+  $error "message" $message put! drop
+  $error "status" $status put! drop
+  $error "raw" $raw put! drop
+  $error
+end
+
+( kind data offset done -> Map ) ai_stream_event function
+  done var
+  offset var
+  data var
+  kind var
+  event map
+  $event "kind" $kind put! drop
+  $event "data" $data put! drop
+  $event "offset" $offset put! drop
+  $event "done" $done put! drop
+  $event
+end
+
+( id name arguments -> Map ) ai_tool_call function
+  arguments var
+  name var
+  id var
+  toolCall map
+  $toolCall "id" $id put! drop
+  $toolCall "name" $name put! drop
+  $toolCall "arguments" $arguments put! drop
+  $toolCall
+end
+
+( toolCallId content -> Map ) ai_tool_result function
+  content var
+  toolCallId var
+  result map
+  $result "role" "tool" put! drop
+  $result "tool_call_id" $toolCallId put! drop
+  $result "content" $content put! drop
+  $result
+end
+
+( -> Map ) ai_schema function
+  schema map
+  $schema
+end
+
+( type required -> Map ) ai_schema_rule function
+  required var
+  typeName var
+  rule map
+  $rule "type" $typeName put! drop
+  $rule "required" $required put! drop
+  $rule
+end
+
+( schema field type required -> Map ) ai_schema_field function
+  required var
+  typeName var
+  field var
+  schema var
+  $typeName $required ai_schema_rule rule var
+  $schema $field $rule put! drop
+  $schema
+end
+
+( field message -> Map ) ai_validation_error function
+  message var
+  field var
+  error map
+  $error "field" $field put! drop
+  $error "message" $message put! drop
+  $error
+end
+
+( -> Map ) ai_validation_result function
+  validation map
+  errors array
+  $validation "ok" true put! drop
+  $validation "errors" $errors put! drop
+  $validation
+end
+
+( validation error -> Map ) ai_validation_add_error function
+  error var
+  validation var
+  $validation "errors" at $error push! drop
+  $validation "ok" false put! drop
+  $validation
+end
+
+( value expectedType -> Bool ) ai_type_matches function
+  expectedType var
+  value var
+  $expectedType "any" = if
+    true
+  else
+    $value type $expectedType =
+  end
+end
+
+( data schema -> Map ) ai_validate_schema function
+  schema var
+  data var
+  ai_validation_result validation var
+
+  [
+    rule var
+    field var
+    $rule "type" at typeName var
+    $data $field at value var
+
+    $rule "required" at true = if
+      $value nil? if
+        $validation $field "is required" ai_validation_error ai_validation_add_error validation set
+      end
+    end
+
+    $value nil? false = if
+      $value $typeName ai_type_matches false = if
+        $validation $field "must be " $typeName concat ai_validation_error ai_validation_add_error validation set
+      end
+    end
+  ] $schema each drop
+
+  $validation
+end
+
 ( model messages -> Map ) ai_openai_chat_body function
   messages var
   model var

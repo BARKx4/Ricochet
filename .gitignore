@@ -1,6 +1,7 @@
 target/
 dist/
 .serena/
+.superpowers/
 **/*.rs.bk
 *.pdb
 *.profraw

@@ -172,6 +172,27 @@ $request http_request value response var
 $response "status" at println
 ```
 
+First-party AI package helpers can keep the provider contract separate from the
+HTTP transport while still resolving secrets only at the point of use:
+
+```forth
+"ai/openai" import
+
+"openai" "https://api.openai.com/v1" "gpt-4.1-mini" ai_provider provider var
+messages array
+$messages "Use one paragraph." ai_system_message push! drop
+$messages "Explain Ricochet packages." ai_user_message push! drop
+options map
+tools array
+3 100 1000 ai_retry_policy retry var
+$provider "gpt-4.1-mini" $messages $options $tools $retry ai_chat_request contract var
+
+"OPENAI_API_KEY" ai_secret_ref secret_resolve value token var
+$provider "base_url" at $token $contract "model" at $contract "messages" at ai_openai_chat_request request var
+$request http_request value response var
+$response "status" at println
+```
+
 ## Webview Documents
 
 Build a webview document for desktop UI hosts:

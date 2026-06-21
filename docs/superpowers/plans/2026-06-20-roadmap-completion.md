@@ -674,18 +674,27 @@ remain future work.
 
 **Implementation Path:**
 
-- [ ] Define provider-neutral message, request, response, error, stream-event, and tool-call maps.
-- [ ] Add schema validation helpers in `@ricochet/forms` or a new `@ricochet/schema` package, then reuse from AI.
-- [ ] Add OpenAI-compatible retries/backoff and normalized errors.
+- [x] Define provider-neutral message, request, response, error, stream-event, and tool-call maps in `@ricochet/ai`.
+- [x] Add package-local schema validation helpers in `@ricochet/ai` using the same field/rule shape as `@ricochet/forms`.
+- [x] Add retry policy maps and normalized error maps in `@ricochet/ai`.
+- [ ] Add actual provider retry/backoff execution.
 - [ ] Add true incremental stream consumption over `http_stream_read`, including offset handling and done events.
 - [ ] Add fake provider integration tests for streaming chunks, tool calls, malformed events, and schema failures.
 - [ ] Add provider examples for OpenAI-compatible and local model endpoints.
-- [ ] Add docs that keep secret values in env-backed references.
-- [ ] Commit package-only changes first, then core stream ergonomics if needed.
+- [x] Add docs that keep secret values in env-backed references.
+- [x] Commit package-only changes first, then core stream ergonomics if needed.
+
+**Progress Note (2026-06-21):** The package-only contract/schema slice adds
+provider-neutral provider, message, chat request/stream, retry policy, response,
+error, stream-event, tool-call, tool-result, and schema validation map helpers
+in `@ricochet/ai`. It deliberately does not change core HTTP streaming,
+MVC `[ai.default]`, or provider runtime execution.
 
 **Verification Gate:**
 
-Package tests and MVC fake-provider tests cover non-streaming, streaming, retry, schema validation, and error normalization without requiring real external API calls.
+Epic 11 closes when package tests and MVC fake-provider tests cover
+non-streaming, streaming, retry, schema validation, and error normalization
+without requiring real external API calls.
 
 ---
 

@@ -7,9 +7,10 @@ language core.
 - `@ricochet/auth`: session guards, route guard result maps, fail-closed
   CSRF/form-token helpers, secure cookie option maps, credential normalization,
   password policy validation, and Argon2id password hash/verify wrappers.
-- `@ricochet/ai`: provider-agnostic HTTP request maps, OpenAI-compatible
-  request builders, SSE response-body parsing, and response normalization
-  layered on core secret refs.
+- `@ricochet/ai`: provider-neutral provider/message/request/response/error
+  contracts, retry policy maps, tool call/result maps, schema validation,
+  OpenAI-compatible request builders, and SSE response-body parsing layered on
+  core secret refs.
 - `@ricochet/forms`: form field maps, required-field validation, schema-shaped
   validation result maps, and multipart/upload helper maps.
 - `@ricochet/test_helpers`: package and MVC test assertions, fixture maps,

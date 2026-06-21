@@ -43,6 +43,7 @@
           <a href="#tasks">Tasks</a>
           <a href="#date-time-and-duration">Date, Time, And Duration</a>
           <a href="#provider-settings-and-secrets">Provider Settings And Secrets</a>
+          <a href="#ai-package-contracts">AI Package Contracts</a>
           <a href="#webview-documents">Webview Documents</a>
         </aside>
         <article class="guide-content">
@@ -120,6 +121,23 @@ $payload &quot;probe&quot; true put! drop
 $request $token http_bearer_auth value request set
 $request $payload http_json_body value request set
 $request 30000 http_timeout value request set
+$request http_request value response var
+$response &quot;status&quot; at println</code></pre>
+          <h2 id="ai-package-contracts">AI Package Contracts</h2>
+          <p>First-party AI package helpers can keep the provider contract separate from the HTTP transport while still resolving secrets only at the point of use:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;ai/openai&quot; import
+
+&quot;openai&quot; &quot;https://api.openai.com/v1&quot; &quot;gpt-4.1-mini&quot; ai_provider provider var
+messages array
+$messages &quot;Use one paragraph.&quot; ai_system_message push! drop
+$messages &quot;Explain Ricochet packages.&quot; ai_user_message push! drop
+options map
+tools array
+3 100 1000 ai_retry_policy retry var
+$provider &quot;gpt-4.1-mini&quot; $messages $options $tools $retry ai_chat_request contract var
+
+&quot;OPENAI_API_KEY&quot; ai_secret_ref secret_resolve value token var
+$provider &quot;base_url&quot; at $token $contract &quot;model&quot; at $contract &quot;messages&quot; at ai_openai_chat_request request var
 $request http_request value response var
 $response &quot;status&quot; at println</code></pre>
           <h2 id="webview-documents">Webview Documents</h2>
