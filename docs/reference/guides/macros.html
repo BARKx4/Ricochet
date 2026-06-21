@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Compile-Time Macros - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Compile-time beta</p>
+          <h1>Compile-Time Macros</h1>
+          <p class="lede">Generate Ricochet expression AST before bytecode while preserving the language's postfix shape and fail-closed host safety.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/macros.html</code>
+            <code>docs/wiki/macros.md</code>
+            <code>rco expand app.rco --json</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Compile-Time Macros content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#expression-macros">Expression Macros</a>
+          <a href="#item-row-macros">Item Row Macros</a>
+          <a href="#imports">Imports</a>
+          <a href="#inspection">Inspection</a>
+          <a href="#current-limits">Current Limits</a>
+        </aside>
+        <article class="guide-content">
+          <p>Compile-time macros are a beta source-transformation surface. They expand parsed Ricochet AST before bytecode is generated, so generated code keeps the same postfix shape as handwritten code.</p>
+          <p>Use macros when a repeated declaration or expression pattern is clearer as a small local language feature. Macro bodies run in a restricted compile-time evaluator with no filesystem, network, process, database, clock, randomness, task, or capability access.</p>
+
+          <h2 id="expression-macros">Expression Macros</h2>
+          <p>Macro names are string literals and calls are explicit:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;unless&quot; Macro
+  ( condition body -&gt; expansion )
+  [
+    [
+      $condition ast_splice not if
+        $body ast_splice call
+      end
+    ] quote_ast
+  ]
+end
+
+$ready [
+  &quot;not ready&quot; println
+] &quot;unless&quot; macro_call</code></pre>
+          <p><code>quote_ast</code> converts a quoted block into expression AST. Inside quoted output, <code>$arg ast_splice</code> inserts the caller's parsed operand instead of generating a runtime <code>$arg</code> read.</p>
+
+          <h2 id="item-row-macros">Item Row Macros</h2>
+          <p>Use <code>quote_items</code> when a macro call owns a whole expression item and should emit one or more expression-item rows. This is useful for class-body declaration rows such as <code>Accessor</code>, <code>Field</code>, <code>Table</code>, and <code>Method</code>:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;accessors&quot; Macro
+  [
+    [
+      &quot;email&quot; Accessor
+      &quot;name&quot; Accessor
+    ] quote_items
+  ]
+end
+
+User Model Subclass
+  &quot;accessors&quot; macro_call
+end</code></pre>
+          <p><code>quote_items</code> is intentionally rejected inside larger expressions. Use <code>quote_ast</code> for expression-position expansion.</p>
+
+          <h2 id="imports">Imports</h2>
+          <p>Static imports expose public macros from the imported module during compilation. Macro declarations whose names start with <code>_</code> are private to their defining module but can still be used by public macros from that module:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>(( lib/macros.rco ))
+&quot;_helper&quot; Macro
+  [
+    [ &quot;from helper&quot; println ] quote_ast
+  ]
+end
+
+&quot;say_ok&quot; Macro
+  [
+    [ &quot;_helper&quot; macro_call ] quote_ast
+  ]
+end</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>(( main.rco ))
+&quot;lib/macros&quot; import
+&quot;say_ok&quot; macro_call</code></pre>
+          <p>Unqualified calls prefer local macros. If exactly one imported module exports a matching macro, that macro is used. If multiple imports export the same name, the compiler fails and asks for a qualified call:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;lib/macros#say_ok&quot; macro_call
+&quot;self#local_macro&quot; macro_call</code></pre>
+          <p>Package path imports use the same manifest and containment rules as ordinary static imports. Lockfile-canonical macro module IDs are still stabilization work, so do not treat the current <code>rco expand --json</code> module IDs as a permanent package identity format.</p>
+
+          <h2 id="inspection">Inspection</h2>
+          <p><code>rco expand</code> prints expanded source without executing runtime code:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco expand app.rco
+rco expand app.rco --json</code></pre>
+          <p>The JSON form includes the expanded AST, macro tables, imports, traces, and diagnostics. It is useful for debugging today, but the full cache/source-map schema is still beta and may change before macro stabilization.</p>
+
+          <h2 id="current-limits">Current Limits</h2>
+          <ul>
+            <li>Macro declaration names must be string literals and cannot contain <code>#</code>.</li>
+            <li>Runtime imports do not load macros.</li>
+            <li>Macro bodies are fail-closed and can use only the compile-time helper surface.</li>
+            <li>Expansion depth, same-macro recursion, evaluator steps, and generated AST nodes are bounded.</li>
+            <li>True declaration-item output for top-level <code>function</code> or <code>Subclass</code> AST items is still future work; <code>quote_items</code> currently emits expression-item rows.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

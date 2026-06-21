@@ -12,6 +12,8 @@ reference: [Reference Guides](../reference/guides/index.html).
 - [Getting Started](getting-started.md) - common `rco` workflows after install.
 - [Language And Runtime](language-runtime.md) - postfix syntax, runtime values,
   tasks, HTTP helpers, date/time, secrets, and UI document examples.
+- [Compile-Time Macros](macros.md) - beta expression macros, item-row macros,
+  static imports, expansion inspection, and current stabilization limits.
 - [Web And Data](web-and-data.md) - MVC apps, hot reload, databases, Active
   Record, migrations, and request parsing.
 - [Host Capabilities And Safety](host-capabilities.md) - filesystem, HTTP,
