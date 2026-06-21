@@ -20,7 +20,8 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use ricochet_compiler::{
-    compile_file_with_imports, compile_source, expand_file_with_imports, CompileError,
+    compile_file_with_imports, compile_source, expand_file_with_imports,
+    resolve_import_with_metadata, verify_runtime_import_locks_for_parent, CompileError,
 };
 use ricochet_syntax::formatter::format_module;
 use ricochet_syntax::{
@@ -29,8 +30,8 @@ use ricochet_syntax::{
     TokenKind,
 };
 use ricochet_vm::{
-    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, MapValue, RicochetResult,
-    Value, Vm, VmImage,
+    DebugAction, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DynamicModuleSource,
+    MapValue, RicochetResult, Value, Vm, VmImage,
 };
 use ricochet_web::{
     install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
@@ -752,6 +753,7 @@ pub async fn run_cli() -> Result<()> {
                         capabilities: CapabilityOptions::default(),
                         debug_output: DebugOutput::Text,
                         print_final_stack: true,
+                        dynamic_import_parent: current_dir_for_dynamic_imports()?,
                     },
                 )?
             }
@@ -1298,6 +1300,7 @@ fn run_repl<R: BufRead, W: Write>(
 ) -> Result<()> {
     let mut vm = Vm::default();
     capabilities.apply_to(&mut vm)?;
+    install_dynamic_module_loader(&mut vm, current_dir_for_dynamic_imports()?);
     if let Some(path) = image_path {
         if path.is_file() {
             let image = read_vm_image(path)?;
@@ -1485,6 +1488,7 @@ fn image_command(command: ImageCommand) -> Result<()> {
             CapabilityOptions::default().apply_to(&mut vm)?;
             if let Some(source) = source {
                 let chunk = compile_source_file(&source)?;
+                install_dynamic_module_loader(&mut vm, dynamic_import_parent_for_source(&source)?);
                 vm.run_chunk(&chunk)
                     .with_context(|| format!("failed to run {}", source.display()))?;
             }
@@ -7884,7 +7888,8 @@ fn run_file(
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
-    let chunk = compile_source_file(Path::new(path))?;
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
     run_chunk_cli(
         &chunk,
         RunChunkCliOptions {
@@ -7897,6 +7902,7 @@ fn run_file(
             capabilities,
             debug_output: DebugOutput::Text,
             print_final_stack: true,
+            dynamic_import_parent: dynamic_import_parent_for_source(source_path)?,
         },
     )
 }
@@ -7910,7 +7916,8 @@ fn debug_file(
     args: Vec<String>,
     capabilities: CapabilityOptions,
 ) -> Result<()> {
-    let chunk = compile_source_file(Path::new(path))?;
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
     run_chunk_cli(
         &chunk,
         RunChunkCliOptions {
@@ -7927,6 +7934,7 @@ fn debug_file(
                 DebugOutput::Text
             },
             print_final_stack: false,
+            dynamic_import_parent: dynamic_import_parent_for_source(source_path)?,
         },
     )
 }
@@ -7952,17 +7960,25 @@ fn run_bytecode(
             capabilities,
             debug_output: DebugOutput::Text,
             print_final_stack: true,
+            dynamic_import_parent: current_dir_for_dynamic_imports()?,
         },
     )
 }
 
 fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
-    let chunk = compile_source_file(Path::new(path))?;
-    run_gui_chunk(&chunk, args, capabilities)
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
+    run_gui_chunk(
+        &chunk,
+        args,
+        capabilities,
+        dynamic_import_parent_for_source(source_path)?,
+    )
 }
 
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
-    let chunk = compile_source_file(Path::new(path))?;
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
     run_chunk_cli(
         &chunk,
         RunChunkCliOptions {
@@ -7975,12 +7991,18 @@ fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
             capabilities,
             debug_output: DebugOutput::Text,
             print_final_stack: false,
+            dynamic_import_parent: dynamic_import_parent_for_source(source_path)?,
         },
     )
 }
 
 fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
-    run_gui_chunk(chunk, args, CapabilityOptions::default())
+    run_gui_chunk(
+        chunk,
+        args,
+        CapabilityOptions::default(),
+        current_dir_for_dynamic_imports()?,
+    )
 }
 
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
@@ -7996,6 +8018,7 @@ fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
             capabilities: CapabilityOptions::default(),
             debug_output: DebugOutput::Text,
             print_final_stack: false,
+            dynamic_import_parent: current_dir_for_dynamic_imports()?,
         },
     )
 }
@@ -8132,8 +8155,13 @@ async fn try_fetch_http_body(address: SocketAddr, path: &str) -> Result<String> 
     Ok(body.to_string())
 }
 
-fn run_gui_chunk(chunk: &Chunk, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
-    let document = render_webview_document(chunk, args, capabilities)?;
+fn run_gui_chunk(
+    chunk: &Chunk,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+    dynamic_import_parent: PathBuf,
+) -> Result<()> {
+    let document = render_webview_document(chunk, args, capabilities, dynamic_import_parent)?;
     if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
         fs::write(&path, &document.html).with_context(|| {
             format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
@@ -8147,8 +8175,10 @@ fn render_webview_document(
     chunk: &Chunk,
     args: Vec<String>,
     capabilities: CapabilityOptions,
+    dynamic_import_parent: PathBuf,
 ) -> Result<WebviewDocument> {
     let mut vm = cli_vm(args, &capabilities)?;
+    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
     let result = vm.run_chunk(chunk);
     print!("{}", vm.stdout());
     eprint!("{}", vm.stderr());
@@ -8504,10 +8534,12 @@ struct RunChunkCliOptions<'a> {
     capabilities: CapabilityOptions,
     debug_output: DebugOutput,
     print_final_stack: bool,
+    dynamic_import_parent: PathBuf,
 }
 
 fn run_chunk_cli(chunk: &Chunk, options: RunChunkCliOptions<'_>) -> Result<()> {
     let mut vm = cli_vm(options.args, &options.capabilities)?;
+    install_dynamic_module_loader(&mut vm, options.dynamic_import_parent);
     let debugger_enabled = options.debug
         || options.step
         || !options.breakpoints.is_empty()
@@ -9531,7 +9563,9 @@ fn run_debug_adapter() -> Result<()> {
         }
     };
 
+    let dynamic_import_parent = dynamic_import_parent_for_source(&setup.program)?;
     let mut vm = cli_vm(setup.args, &CapabilityOptions::default())?;
+    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
     vm.enable_debug();
     for breakpoint in setup.breakpoints {
         vm.add_line_breakpoint(breakpoint.path, breakpoint.line);
@@ -9670,6 +9704,7 @@ fn dap_task_variable(task: &DebugTask) -> serde_json::Value {
 fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
     let mut vm = Vm::default();
     capabilities.apply_to(&mut vm)?;
+    install_dynamic_module_loader(&mut vm, current_dir_for_dynamic_imports()?);
     vm.set_program_args(args);
     vm.set_input_reader(|| {
         let mut line = String::new();
@@ -9679,6 +9714,55 @@ fn cli_vm(args: Vec<String>, capabilities: &CapabilityOptions) -> Result<Vm> {
             .map(|read| (read > 0).then_some(line))
     });
     Ok(vm)
+}
+
+fn install_dynamic_module_loader(vm: &mut Vm, parent: PathBuf) {
+    vm.set_dynamic_module_loader(move |specifier| {
+        dynamic_module_source(&parent, specifier).map_err(|error| format!("{error:#}"))
+    });
+}
+
+fn dynamic_module_source(parent: &Path, specifier: &str) -> Result<DynamicModuleSource> {
+    let resolved = resolve_import_with_metadata(parent, specifier)?;
+    verify_runtime_import_locks_for_parent(parent)?;
+    let chunk = compile_file_with_imports(&resolved.path)
+        .with_context(|| format!("failed to compile dynamic import {specifier:?}"))?;
+    let canonical = fs::canonicalize(&resolved.path).with_context(|| {
+        format!(
+            "failed to resolve dynamic import {}",
+            resolved.path.display()
+        )
+    })?;
+    let module_id = path_to_slash(&canonical);
+    Ok(DynamicModuleSource::new(
+        specifier.to_string(),
+        module_id,
+        Some(canonical),
+        chunk,
+    ))
+}
+
+fn dynamic_import_parent_for_source(source_path: &Path) -> Result<PathBuf> {
+    let path = if source_path.is_absolute() {
+        source_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("failed to determine current directory")?
+            .join(source_path)
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::canonicalize(parent)
+        .with_context(|| format!("failed to resolve dynamic import root {}", parent.display()))
+}
+
+fn current_dir_for_dynamic_imports() -> Result<PathBuf> {
+    let current_dir = std::env::current_dir().context("failed to determine current directory")?;
+    fs::canonicalize(&current_dir).with_context(|| {
+        format!(
+            "failed to resolve dynamic import root {}",
+            current_dir.display()
+        )
+    })
 }
 
 fn read_terminal_debug_action(pause: &DebugPause) -> DebugAction {

@@ -19,10 +19,12 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use ricochet_bytecode::Chunk;
-use ricochet_compiler::compile_file_with_imports;
+use ricochet_compiler::{
+    compile_file_with_imports, resolve_import_with_metadata, verify_runtime_import_locks_for_parent,
+};
 use ricochet_vm::{
-    ApprovalRegistry, Capability, ProcessRegistry, PtyRegistry, UploadStreamMetadata,
-    UploadStreamRegistry, Value, Vm,
+    ApprovalRegistry, Capability, DynamicModuleSource, ProcessRegistry, PtyRegistry,
+    UploadStreamMetadata, UploadStreamRegistry, Value, Vm,
 };
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -1209,15 +1211,51 @@ fn print_watch_trace_event(event: &WatchTraceEvent) {
     }
 }
 
+fn install_dynamic_module_loader(vm: &mut Vm, parent: PathBuf) {
+    vm.set_dynamic_module_loader(move |specifier| {
+        dynamic_module_source(&parent, specifier).map_err(|error| format!("{error:#}"))
+    });
+}
+
+fn dynamic_module_source(parent: &Path, specifier: &str) -> Result<DynamicModuleSource> {
+    let resolved = resolve_import_with_metadata(parent, specifier)?;
+    verify_runtime_import_locks_for_parent(parent)?;
+    let chunk = compile_file_with_imports(&resolved.path)
+        .with_context(|| format!("failed to compile dynamic import {specifier:?}"))?;
+    let canonical = fs::canonicalize(&resolved.path).with_context(|| {
+        format!(
+            "failed to resolve dynamic import {}",
+            resolved.path.display()
+        )
+    })?;
+    let module_id = path_to_slash(&canonical);
+    Ok(DynamicModuleSource::new(
+        specifier.to_string(),
+        module_id,
+        Some(canonical),
+        chunk,
+    ))
+}
+
+fn path_to_slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 fn build_controller_registry(
     project_root: &Path,
     routes: &[Route],
     vm_setup: Option<VmSetup>,
 ) -> Result<ControllerRegistry> {
     let mut registry = ControllerRegistry::default();
-    if let Some(setup) = vm_setup {
-        registry.set_vm_setup(move |vm| setup(vm));
-    }
+    let dynamic_import_parent = fs::canonicalize(project_root)
+        .with_context(|| format!("failed to resolve project root {}", project_root.display()))?;
+    registry.set_vm_setup(move |vm| {
+        install_dynamic_module_loader(vm, dynamic_import_parent.clone());
+        match &vm_setup {
+            Some(setup) => setup(vm),
+            None => Ok(BTreeMap::new()),
+        }
+    });
     let mut registered = BTreeSet::new();
 
     for route in routes {
@@ -2966,10 +3004,88 @@ fn host_is_local(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request;
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
+    }
+
+    #[tokio::test]
+    async fn mvc_controller_can_use_dynamic_import() {
+        let temp = tempfile::tempdir().expect("temp app dir should be created");
+        let root = temp.path();
+        fs::create_dir_all(root.join("config")).expect("config dir should be created");
+        fs::create_dir_all(root.join("app").join("Controllers"))
+            .expect("controllers dir should be created");
+        fs::create_dir_all(root.join("app").join("Support"))
+            .expect("support dir should be created");
+        fs::write(
+            root.join("ricochet.toml"),
+            r#"
+[package]
+name = "dynamic_mvc"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+        )
+        .expect("manifest should be written");
+        fs::write(
+            root.join("config").join("routes.rco"),
+            r#"GET "/" HomeController "index" route
+"#,
+        )
+        .expect("routes should be written");
+        fs::write(
+            root.join("app").join("Support").join("Greeter.rco"),
+            r#"
+greeting function
+  "dynamic mvc"
+end
+"#,
+        )
+        .expect("support module should be written");
+        fs::write(
+            root.join("app")
+                .join("Controllers")
+                .join("HomeController.rco"),
+            r#"
+HomeController Controller Subclass
+  [
+    "app/Support/Greeter" import_dynamic value helper var
+    args array
+    helper get "greeting" args get module_call value text
+  ] "index" Method
+end
+"#,
+        )
+        .expect("controller should be written");
+
+        let app = build_app_from_dir(root).expect("dynamic MVC app should build");
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should complete");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("body should be readable");
+        let body = String::from_utf8(body.to_vec()).expect("body should be utf8");
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "dynamic mvc");
     }
 
     #[tokio::test]

@@ -47,10 +47,31 @@ Use `rco search QUERY --registry-url URL` to discover static registry packages,
 and use `rco audit` or `rco audit --json` for dependency reports in CI and
 release tooling.
 
-Local package dependencies can be imported by package name:
+Static imports load dependencies at compile time and remain the preferred
+default for ordinary module sharing:
 
 ```forth
 "forms/validation" import
 "email" "ada@example.com" form_field
 "value" at
 ```
+
+Dynamic imports load a module from a runtime string while using the same
+resolver, path containment, and lock integrity checks:
+
+```forth
+"forms/validation" import_dynamic value forms var
+args array
+args get "email" push! drop
+args get "ada@example.com" push! drop
+forms get "form_field" args get module_call value
+"value" at
+```
+
+`import_dynamic` returns a `Result` containing a module map with `id`,
+`specifier`, `path`, `variables`, `functions`, and `classes`. Use
+`module_call` for functions and `module_get` for exported variables or classes.
+Import failures, missing functions, and lock/containment failures are returned
+as `Result` errors so request handlers and scripts can report them explicitly.
+Loaded modules are cached for the life of the VM; restart the VM or request
+snapshot to reload changed module code.

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::mem;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
@@ -110,6 +111,51 @@ pub struct RuntimeErrorSite {
 type DebugSink = Rc<RefCell<dyn FnMut(&DebugEvent)>>;
 type DebugController = Rc<RefCell<dyn FnMut(&DebugPause) -> DebugAction>>;
 type InputReader = Rc<RefCell<dyn FnMut() -> Result<Option<String>, String>>>;
+type DynamicModuleLoader = Arc<dyn Fn(&str) -> Result<DynamicModuleSource, String> + Send + Sync>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DynamicModuleSource {
+    pub specifier: String,
+    pub module_id: String,
+    pub path: Option<PathBuf>,
+    pub chunk: Chunk,
+}
+
+impl DynamicModuleSource {
+    pub fn new(
+        specifier: impl Into<String>,
+        module_id: impl Into<String>,
+        path: Option<PathBuf>,
+        chunk: Chunk,
+    ) -> Self {
+        Self {
+            specifier: specifier.into(),
+            module_id: module_id.into(),
+            path,
+            chunk,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct LanguageState {
+    stack: Vec<Value>,
+    variables: BTreeMap<String, Value>,
+    local_variables: Vec<BTreeMap<String, Value>>,
+    last_call_variables: BTreeMap<String, Value>,
+    functions: BTreeMap<String, BytecodeCallable>,
+    classes: BTreeMap<String, Class>,
+    current_class: Option<String>,
+    self_stack: Vec<Value>,
+}
+
+#[derive(Clone)]
+struct DynamicModuleState {
+    specifier: String,
+    module_id: String,
+    path: Option<PathBuf>,
+    language: LanguageState,
+}
 
 #[derive(Clone)]
 pub struct Vm {
@@ -121,6 +167,10 @@ pub struct Vm {
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
+    dynamic_module_loader: Option<DynamicModuleLoader>,
+    dynamic_modules: BTreeMap<String, DynamicModuleState>,
+    dynamic_module_aliases: BTreeMap<String, String>,
+    dynamic_modules_loading: BTreeSet<String>,
     pub(super) output_lines: Vec<String>,
     pub(super) stdout: String,
     pub(super) stderr: String,
@@ -179,6 +229,10 @@ impl Default for Vm {
             classes: BTreeMap::new(),
             current_class: None,
             self_stack: Vec::new(),
+            dynamic_module_loader: None,
+            dynamic_modules: BTreeMap::new(),
+            dynamic_module_aliases: BTreeMap::new(),
+            dynamic_modules_loading: BTreeSet::new(),
             output_lines: Vec::new(),
             stdout: String::new(),
             stderr: String::new(),
@@ -237,6 +291,10 @@ struct Task {
     classes: BTreeMap<String, Class>,
     current_class: Option<String>,
     self_stack: Vec<Value>,
+    dynamic_module_loader: Option<DynamicModuleLoader>,
+    dynamic_modules: BTreeMap<String, DynamicModuleState>,
+    dynamic_module_aliases: BTreeMap<String, String>,
+    dynamic_modules_loading: BTreeSet<String>,
     program_args: Vec<String>,
     filesystem_enabled: bool,
     filesystem_root: Option<PathBuf>,
@@ -452,10 +510,15 @@ fn run_task_to_completion(task: Task) -> TaskCompletion {
     let mut task_vm = Vm {
         variables: task.variables,
         local_variables: task.local_variables,
+        last_call_variables: BTreeMap::new(),
         functions: task.functions,
         classes: task.classes,
         current_class: task.current_class,
         self_stack: task.self_stack,
+        dynamic_module_loader: task.dynamic_module_loader,
+        dynamic_modules: task.dynamic_modules,
+        dynamic_module_aliases: task.dynamic_module_aliases,
+        dynamic_modules_loading: task.dynamic_modules_loading,
         program_args: task.program_args,
         filesystem_enabled: task.filesystem_enabled,
         filesystem_root: task.filesystem_root,
@@ -592,6 +655,9 @@ impl Vm {
         self.classes.clear();
         self.current_class = None;
         self.self_stack.clear();
+        self.dynamic_modules.clear();
+        self.dynamic_module_aliases.clear();
+        self.dynamic_modules_loading.clear();
 
         for class in classes {
             self.restore_image_class(class)?;
@@ -636,6 +702,7 @@ impl Vm {
         ensure_no_retained_resources("process", self.process_registry.len())?;
         ensure_no_retained_resources("PTY", self.pty_registry.len())?;
         ensure_no_retained_resources("approval", self.approval_registry.len())?;
+        ensure_no_retained_resources("dynamic module", self.dynamic_modules.len())?;
         Ok(())
     }
 
@@ -668,6 +735,17 @@ impl Vm {
         F: FnMut() -> Result<Option<String>, String> + 'static,
     {
         self.input_reader = Some(Rc::new(RefCell::new(reader)));
+    }
+
+    pub fn set_dynamic_module_loader<F>(&mut self, loader: F)
+    where
+        F: Fn(&str) -> Result<DynamicModuleSource, String> + Send + Sync + 'static,
+    {
+        self.dynamic_module_loader = Some(Arc::new(loader));
+    }
+
+    pub fn clear_dynamic_module_loader(&mut self) {
+        self.dynamic_module_loader = None;
     }
 
     pub fn enable_cli_capabilities(&mut self) {
@@ -1521,6 +1599,9 @@ impl Vm {
             "await_all" => self.call_await_all(word),
             "release_task" => self.call_release_task(word),
             "tasks" => self.call_tasks(word),
+            "import_dynamic" => self.call_import_dynamic(word),
+            "module_call" => self.call_module_call(word),
+            "module_get" => self.call_module_get(word),
             "send" => self.call_send(word),
             "at" => self.call_receiver_argument_method(word, "at"),
             "has?" | "contains?" => self.call_receiver_argument_method(word, word),
@@ -2207,6 +2288,10 @@ impl Vm {
             classes: self.classes.clone(),
             current_class: self.current_class.clone(),
             self_stack: self.self_stack.clone(),
+            dynamic_module_loader: self.dynamic_module_loader.clone(),
+            dynamic_modules: self.dynamic_modules.clone(),
+            dynamic_module_aliases: self.dynamic_module_aliases.clone(),
+            dynamic_modules_loading: self.dynamic_modules_loading.clone(),
             program_args: self.program_args.clone(),
             filesystem_enabled: self.filesystem_enabled,
             filesystem_root: self.filesystem_root.clone(),
@@ -3029,6 +3114,293 @@ impl Vm {
             Some(value) => Ok(self.builtin_method_exists(value, name)),
             None => Ok(false),
         }
+    }
+
+    fn call_import_dynamic(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let specifier = match self.pop(word)? {
+            Value::String(specifier) => specifier,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "module specifier string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let result = match self.import_dynamic_module(&specifier) {
+            Ok(module) => Value::result_ok(module),
+            Err(message) => Value::result_err("ImportError", message),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn call_module_get(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        self.ensure_stack(word, 2)?;
+        let name = match self.pop_unchecked() {
+            Value::String(name) => name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "module binding name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let module_id = match self.pop_unchecked() {
+            Value::Map(module) => match module_id_from_map(word, &module) {
+                Ok(module_id) => module_id,
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            },
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "module map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let result = match self.dynamic_modules.get(&module_id) {
+            Some(module) => module_get_value(module, &name),
+            None => Value::result_err(
+                "ModuleError",
+                format!("dynamic module {module_id:?} is not loaded"),
+            ),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn call_module_call(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        self.ensure_stack(word, 3)?;
+        let args = match self.pop_unchecked() {
+            Value::Array(values) => values.snapshot(),
+            Value::List(values) => values.snapshot(),
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "array or list of function arguments".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let name = match self.pop_unchecked() {
+            Value::String(name) => name,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "module function name string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let module_id = match self.pop_unchecked() {
+            Value::Map(module) => match module_id_from_map(word, &module) {
+                Ok(module_id) => module_id,
+                Err(error) => {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+            },
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "module map".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+
+        let result = match self.call_dynamic_module_function(&module_id, &name, args) {
+            Ok(value) => Value::result_ok(value),
+            Err(message) => Value::result_err("ModuleError", message),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    fn import_dynamic_module(&mut self, specifier: &str) -> Result<Value, String> {
+        if let Some(module_id) = self.dynamic_module_aliases.get(specifier) {
+            if let Some(module) = self.dynamic_modules.get(module_id) {
+                return Ok(self.dynamic_module_descriptor(module));
+            }
+        }
+        if !self.dynamic_modules_loading.insert(specifier.to_string()) {
+            return Err(format!("cyclic dynamic import involving {specifier:?}"));
+        }
+
+        let result = self.import_dynamic_module_inner(specifier);
+        self.dynamic_modules_loading.remove(specifier);
+        result
+    }
+
+    fn import_dynamic_module_inner(&mut self, specifier: &str) -> Result<Value, String> {
+        let loader = self
+            .dynamic_module_loader
+            .clone()
+            .ok_or_else(|| "dynamic module loading is not configured for this VM".to_string())?;
+        let source = loader(specifier)?;
+        if source.module_id.trim().is_empty() {
+            return Err(format!(
+                "dynamic module loader returned an empty module id for {specifier:?}"
+            ));
+        }
+        if let Some(module) = self.dynamic_modules.get(&source.module_id) {
+            self.dynamic_module_aliases
+                .insert(specifier.to_string(), source.module_id.clone());
+            return Ok(self.dynamic_module_descriptor(module));
+        }
+        if !self
+            .dynamic_modules_loading
+            .insert(source.module_id.clone())
+        {
+            return Err(format!(
+                "cyclic dynamic import involving module {:?}",
+                source.module_id
+            ));
+        }
+
+        let previous_error_site = self.last_error_site.clone();
+        let caller_language = self.take_language_state();
+        let frame = format!("<module:{}>", source.module_id);
+        let run_result = self.run_chunk_with_frame(&source.chunk, &frame, false);
+        let module_language = self.take_language_state();
+        self.restore_language_state(caller_language);
+        self.last_error_site = previous_error_site;
+        self.dynamic_modules_loading.remove(&source.module_id);
+
+        if let Err(error) = run_result {
+            return Err(error.to_string());
+        }
+
+        let module_id = source.module_id.clone();
+        let module = DynamicModuleState {
+            specifier: source.specifier,
+            module_id: source.module_id,
+            path: source.path,
+            language: module_language,
+        };
+        self.dynamic_modules.insert(module_id.clone(), module);
+        self.dynamic_module_aliases
+            .insert(specifier.to_string(), module_id.clone());
+        let module = self
+            .dynamic_modules
+            .get(&module_id)
+            .expect("dynamic module was inserted before descriptor");
+        Ok(self.dynamic_module_descriptor(module))
+    }
+
+    fn call_dynamic_module_function(
+        &mut self,
+        module_id: &str,
+        name: &str,
+        args: Vec<Value>,
+    ) -> Result<Value, String> {
+        let Some(mut module) = self.dynamic_modules.remove(module_id) else {
+            return Err(format!("dynamic module {module_id:?} is not loaded"));
+        };
+        if !module.language.functions.contains_key(name) {
+            let functions = module_function_names(&module).join(", ");
+            self.dynamic_modules.insert(module_id.to_string(), module);
+            return Err(if functions.is_empty() {
+                format!("dynamic module {module_id:?} has no function {name:?}")
+            } else {
+                format!(
+                    "dynamic module {module_id:?} has no function {name:?}; available: {functions}"
+                )
+            });
+        }
+
+        let previous_error_site = self.last_error_site.clone();
+        let caller_language = self.take_language_state();
+        self.restore_language_state(module.language);
+        self.stack.extend(args);
+        let call_result = self.call_function(name);
+        let value = call_result.and_then(|()| {
+            self.pop(name).or_else(|error| match error {
+                VmError::StackUnderflow { .. } => Ok(Value::Nil),
+                error => Err(error),
+            })
+        });
+        let module_language = self.take_language_state();
+        self.restore_language_state(caller_language);
+        self.last_error_site = previous_error_site;
+        module.language = module_language;
+        self.dynamic_modules.insert(module_id.to_string(), module);
+
+        value.map_err(|error| error.to_string())
+    }
+
+    fn take_language_state(&mut self) -> LanguageState {
+        LanguageState {
+            stack: mem::take(&mut self.stack),
+            variables: mem::take(&mut self.variables),
+            local_variables: mem::take(&mut self.local_variables),
+            last_call_variables: mem::take(&mut self.last_call_variables),
+            functions: mem::take(&mut self.functions),
+            classes: mem::take(&mut self.classes),
+            current_class: self.current_class.take(),
+            self_stack: mem::take(&mut self.self_stack),
+        }
+    }
+
+    fn restore_language_state(&mut self, state: LanguageState) {
+        self.stack = state.stack;
+        self.variables = state.variables;
+        self.local_variables = state.local_variables;
+        self.last_call_variables = state.last_call_variables;
+        self.functions = state.functions;
+        self.classes = state.classes;
+        self.current_class = state.current_class;
+        self.self_stack = state.self_stack;
+    }
+
+    fn dynamic_module_descriptor(&self, module: &DynamicModuleState) -> Value {
+        Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("module".to_string())),
+                ("id".to_string(), Value::String(module.module_id.clone())),
+                (
+                    "specifier".to_string(),
+                    Value::String(module.specifier.clone()),
+                ),
+                (
+                    "path".to_string(),
+                    module
+                        .path
+                        .as_ref()
+                        .map(|path| Value::String(path.to_string_lossy().replace('\\', "/")))
+                        .unwrap_or(Value::Nil),
+                ),
+                (
+                    "variables".to_string(),
+                    string_array(module.language.variables.keys().cloned()),
+                ),
+                (
+                    "functions".to_string(),
+                    string_array(module.language.functions.keys().cloned()),
+                ),
+                (
+                    "classes".to_string(),
+                    string_array(module.language.classes.keys().cloned()),
+                ),
+            ])
+            .into(),
+        )
     }
 
     fn call_top_receiver_method(&mut self, name: &str) -> Result<(), VmError> {
@@ -3916,6 +4288,74 @@ impl Vm {
         }
         Ok(None)
     }
+}
+
+fn module_id_from_map(word: &str, module: &MapValue) -> Result<String, VmError> {
+    match module.get("type") {
+        Some(Value::String(kind)) if kind == "module" => {}
+        Some(value) => {
+            return Err(VmError::TypeError {
+                word: word.to_string(),
+                expected: "module map".to_string(),
+                actual: value_kind(&value).to_string(),
+            });
+        }
+        None => {
+            return Err(VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "module map is missing type".to_string(),
+            });
+        }
+    }
+
+    match module.get("id") {
+        Some(Value::String(id)) if !id.is_empty() => Ok(id),
+        Some(value) => Err(VmError::TypeError {
+            word: word.to_string(),
+            expected: "module id string".to_string(),
+            actual: value_kind(&value).to_string(),
+        }),
+        None => Err(VmError::InvalidArgument {
+            word: word.to_string(),
+            message: "module map is missing id".to_string(),
+        }),
+    }
+}
+
+fn module_get_value(module: &DynamicModuleState, name: &str) -> Value {
+    if let Some(value) = module.language.variables.get(name) {
+        return Value::result_ok(value.clone());
+    }
+    if module.language.classes.contains_key(name) {
+        return Value::result_ok(Value::Class(name.to_string()));
+    }
+    if module.language.functions.contains_key(name) {
+        return Value::result_err(
+            "ModuleError",
+            format!("module binding {name:?} is a function; use module_call"),
+        );
+    }
+    Value::result_err(
+        "ModuleError",
+        format!(
+            "dynamic module {:?} has no binding {name:?}",
+            module.module_id
+        ),
+    )
+}
+
+fn module_function_names(module: &DynamicModuleState) -> Vec<String> {
+    module.language.functions.keys().cloned().collect()
+}
+
+fn string_array(values: impl IntoIterator<Item = String>) -> Value {
+    Value::Array(
+        values
+            .into_iter()
+            .map(Value::String)
+            .collect::<Vec<_>>()
+            .into(),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

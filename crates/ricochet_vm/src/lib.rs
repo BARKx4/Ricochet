@@ -33,7 +33,7 @@ pub use socket_runtime::{
 };
 pub use upload_runtime::{UploadStreamMetadata, UploadStreamRegistry};
 pub use value::{TruthinessError, Value};
-pub use vm::{Vm, VmError};
+pub use vm::{DynamicModuleSource, Vm, VmError};
 
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

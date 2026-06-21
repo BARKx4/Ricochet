@@ -61,10 +61,18 @@ rco audit --json</code></pre>
           <p><code>rco registry rebuild PATH</code> writes a static <code>index.toml</code>, package metadata, and release-style archives, while <code>rco registry check PATH</code> verifies the generated hashes. <code>rco add registry:name --registry PATH</code> installs from the local registry layout, or uses <code>RICOCHET_REGISTRY</code> when <code>--registry</code> is omitted.</p>
           <p><code>rco add registry:@scope/name --registry-url URL --as alias</code> installs from a static HTTP/file registry index with required <code>sha256:</code> archive verification. <code>rco install</code> and <code>rco verify</code> reject packages whose <code>[package] version</code> does not satisfy the manifest requirement, and <code>rco verify</code> recomputes the package tree hash while ignoring VCS metadata, so it catches local path changes, registry cache drift, or cached Git package drift without fetching or rewriting anything. Locked static-registry installs also reject same-version registry metadata changes instead of accepting replacement archives during ordinary <code>rco install</code>.</p>
           <p>Use <code>rco search QUERY --registry-url URL</code> to discover static registry packages, and use <code>rco audit</code> or <code>rco audit --json</code> for dependency reports in CI and release tooling.</p>
-          <p>Local package dependencies can be imported by package name:</p>
+          <p>Static imports load dependencies at compile time and remain the preferred default for ordinary module sharing:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import
 &quot;email&quot; &quot;ada@example.com&quot; form_field
 &quot;value&quot; at</code></pre>
+          <p>Dynamic imports load a module from a runtime string while using the same resolver, path containment, and lock integrity checks:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import_dynamic value forms var
+args array
+args get &quot;email&quot; push! drop
+args get &quot;ada@example.com&quot; push! drop
+forms get &quot;form_field&quot; args get module_call value
+&quot;value&quot; at</code></pre>
+          <p><code>import_dynamic</code> returns a <code>Result</code> containing a module map with <code>id</code>, <code>specifier</code>, <code>path</code>, <code>variables</code>, <code>functions</code>, and <code>classes</code>. Use <code>module_call</code> for functions and <code>module_get</code> for exported variables or classes. Import failures, missing functions, and lock/containment failures are returned as <code>Result</code> errors so request handlers and scripts can report them explicitly. Loaded modules are cached for the life of the VM; restart the VM or request snapshot to reload changed module code.</p>
         </article>
       </section>
     </main>

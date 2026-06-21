@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use ricochet_bytecode::{Chunk, Op};
+use sha2::{Digest, Sha256};
 
 use crate::{
     compile_source_with_imported_macros_and_module_id, expand_source_with_imported_macros,
@@ -15,6 +16,32 @@ pub fn compile_file_with_imports(source_path: impl AsRef<Path>) -> Result<Chunk>
     SourceResolver::default()
         .compile_file(source_path.as_ref())
         .map(|compiled| compiled.chunk)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedImportKind {
+    Local,
+    Package { package: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedImport {
+    pub path: PathBuf,
+    pub kind: ResolvedImportKind,
+}
+
+pub fn resolve_import_with_metadata(
+    parent: impl AsRef<Path>,
+    import: &str,
+) -> Result<ResolvedImport> {
+    resolve_import_metadata(parent.as_ref(), import)
+}
+
+pub fn verify_runtime_import_locks_for_parent(parent: impl AsRef<Path>) -> Result<()> {
+    let Some(manifest_path) = find_nearest_manifest(parent.as_ref()) else {
+        return Ok(());
+    };
+    verify_manifest_dependency_locks(&manifest_path)
 }
 
 pub struct FileMacroExpansion {
@@ -315,20 +342,34 @@ fn parse_string_prefix(source: &str) -> Result<Option<(String, &str)>> {
 }
 
 fn resolve_import(parent: &Path, import: &str) -> Result<PathBuf> {
+    resolve_import_metadata(parent, import).map(|resolved| resolved.path)
+}
+
+fn resolve_import_metadata(parent: &Path, import: &str) -> Result<ResolvedImport> {
     validate_import_path(import)?;
     let import_root = import_root_for_parent(parent)?;
     let relative_path = relative_import_path(parent, import);
     if relative_path.is_file() {
-        return contained_file(&import_root, &relative_path, import);
+        return contained_file(&import_root, &relative_path, import).map(|path| ResolvedImport {
+            path,
+            kind: ResolvedImportKind::Local,
+        });
     }
 
     if let Some(package_import) = parse_package_import(import) {
+        let package = package_import.package.to_string();
         if let Some(package_path) = resolve_package_import(parent, package_import)? {
-            return Ok(package_path);
+            return Ok(ResolvedImport {
+                path: package_path,
+                kind: ResolvedImportKind::Package { package },
+            });
         }
     }
 
-    Ok(relative_path)
+    Ok(ResolvedImport {
+        path: relative_path,
+        kind: ResolvedImportKind::Local,
+    })
 }
 
 fn import_root_for_parent(parent: &Path) -> Result<PathBuf> {
@@ -458,6 +499,233 @@ fn dependency_base_path(manifest_path: &Path, package: &str) -> Result<Option<Pa
     }
 
     Ok(None)
+}
+
+fn verify_manifest_dependency_locks(manifest_path: &Path) -> Result<()> {
+    let manifest_dir = manifest_path
+        .parent()
+        .expect("manifest path should have a parent");
+    let source = fs::read_to_string(manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest: toml::Value = toml::from_str(&source)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let lock_path = manifest_dir.join("ricochet.lock");
+    let lock = if lock_path.is_file() {
+        let source = fs::read_to_string(&lock_path)
+            .with_context(|| format!("failed to read {}", lock_path.display()))?;
+        Some(
+            toml::from_str::<toml::Value>(&source)
+                .with_context(|| format!("failed to parse {}", lock_path.display()))?,
+        )
+    } else {
+        None
+    };
+
+    let Some(dependencies) = manifest.get("dependencies").and_then(toml::Value::as_table) else {
+        verify_no_stale_runtime_locks(&lock_path, lock.as_ref(), &BTreeSet::new())?;
+        return Ok(());
+    };
+
+    let mut declared = BTreeSet::new();
+    for (name, dependency) in dependencies {
+        declared.insert(name.clone());
+        verify_runtime_dependency_lock(manifest_path, &lock_path, lock.as_ref(), name, dependency)?;
+    }
+    verify_no_stale_runtime_locks(&lock_path, lock.as_ref(), &declared)
+}
+
+fn verify_runtime_dependency_lock(
+    manifest_path: &Path,
+    lock_path: &Path,
+    lock: Option<&toml::Value>,
+    name: &str,
+    dependency: &toml::Value,
+) -> Result<()> {
+    let dependency = dependency.as_table().with_context(|| {
+        format!(
+            "dependency {name} in {} must be a table",
+            manifest_path.display()
+        )
+    })?;
+    let Some(base_path) = dependency_base_path(manifest_path, name)? else {
+        return Ok(());
+    };
+    let package_dir = contained_dependency_base(manifest_path, &base_path, name)?;
+    let lock_entry = lock
+        .and_then(|lock| lock.get("package"))
+        .and_then(toml::Value::as_table)
+        .and_then(|packages| packages.get(name))
+        .and_then(toml::Value::as_table)
+        .with_context(|| {
+            format!(
+                "dependency {name} is missing from {}; run rco install",
+                lock_path.display()
+            )
+        })?;
+
+    let expected_path = expected_dependency_lock_path(name, dependency);
+    let lock_path_value = lock_entry
+        .get("path")
+        .and_then(toml::Value::as_str)
+        .with_context(|| format!("lock entry for {name} must include a string path"))?;
+    if lock_path_value != expected_path {
+        bail!("lock entry for {name} has path {lock_path_value:?}, expected {expected_path:?}");
+    }
+
+    if dependency.get("git").is_some()
+        && lock_entry
+            .get("commit")
+            .and_then(toml::Value::as_str)
+            .is_none()
+    {
+        bail!("git dependency {name} is not pinned; run rco install");
+    }
+
+    if let Some(registry) = dependency.get("registry").and_then(toml::Value::as_str) {
+        let locked_registry = lock_entry.get("registry").and_then(toml::Value::as_str);
+        if locked_registry != Some(registry) {
+            bail!(
+                "lock entry for {name} has registry {:?}, expected {:?}",
+                locked_registry,
+                registry
+            );
+        }
+    }
+
+    let expected_integrity = lock_entry
+        .get("integrity")
+        .and_then(toml::Value::as_str)
+        .with_context(|| format!("lock entry for {name} is missing package integrity"))?;
+    validate_package_integrity(expected_integrity)?;
+    let actual_integrity = package_tree_integrity(&package_dir)?;
+    if actual_integrity != expected_integrity {
+        bail!(
+            "package integrity for {name} changed: expected {expected_integrity}, got {actual_integrity}; run rco install if this update is intentional"
+        );
+    }
+
+    Ok(())
+}
+
+fn expected_dependency_lock_path(name: &str, dependency: &toml::Table) -> String {
+    dependency
+        .get("path")
+        .and_then(toml::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!(".ricochet/packages/{name}"))
+}
+
+fn verify_no_stale_runtime_locks(
+    lock_path: &Path,
+    lock: Option<&toml::Value>,
+    declared: &BTreeSet<String>,
+) -> Result<()> {
+    let Some(packages) = lock
+        .and_then(|lock| lock.get("package"))
+        .and_then(toml::Value::as_table)
+    else {
+        return Ok(());
+    };
+
+    for name in packages.keys() {
+        if !declared.contains(name) {
+            bail!(
+                "{} contains package {name:?}, but ricochet.toml does not declare it",
+                lock_path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn package_tree_integrity(package_dir: &Path) -> Result<String> {
+    if !package_dir.is_dir() {
+        bail!(
+            "cannot compute package integrity for non-directory {}",
+            package_dir.display()
+        );
+    }
+
+    let mut files = Vec::new();
+    collect_package_integrity_files(package_dir, package_dir, &mut files)?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"ricochet-package-integrity-v1\0");
+    for (relative, path) in files {
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read package file {}", path.display()))?;
+        hasher.update(relative.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(bytes.len().to_string().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(&bytes);
+        hasher.update(b"\0");
+    }
+
+    let digest = hasher.finalize();
+    Ok(format!("sha256:{}", hex_digest(&digest)))
+}
+
+fn collect_package_integrity_files(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to read entry in {}", current.display()))?;
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!(
+                "package integrity cannot include symlink {}; copy the target file into the package",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            if file_name == ".git" {
+                continue;
+            }
+            collect_package_integrity_files(root, &path, files)?;
+        } else if metadata.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to make {} package-relative", path.display()))?;
+            files.push((path_to_slash(relative), path));
+        }
+    }
+    Ok(())
+}
+
+fn validate_package_integrity(integrity: &str) -> Result<()> {
+    let Some(hex) = integrity.strip_prefix("sha256:") else {
+        bail!("invalid package integrity {integrity:?}; expected sha256:<64 hex chars>");
+    };
+    if hex.len() != 64 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        bail!("invalid package integrity {integrity:?}; expected sha256:<64 hex chars>");
+    }
+    Ok(())
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write;
+        write!(&mut output, "{byte:02x}").expect("writing to String should not fail");
+    }
+    output
+}
+
+fn path_to_slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn package_import_candidates(base_path: &Path, module: &str) -> Vec<PathBuf> {

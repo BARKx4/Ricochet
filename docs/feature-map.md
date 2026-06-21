@@ -489,6 +489,9 @@ Implemented:
   replacement.
 - Static imports shaped like `package/module` resolve through
   `[dependencies.package]` when no relative file exists.
+- Dynamic runtime imports are available through `import_dynamic`,
+  `module_call`, and `module_get`. Host loaders reuse the compiler resolver,
+  enforce path containment, and verify package lock integrity before loading.
 - Release packages include the first-party package catalog.
 
 Evidence:
@@ -504,7 +507,6 @@ Evidence:
 
 Remaining:
 
-- Dynamic runtime imports are future work.
 - A central hosted package registry is future work; current registry support is
   local file-backed registries plus static file/HTTP indexes.
 
@@ -616,6 +618,7 @@ Implemented foundations that should not be listed as missing:
 - Beta compile-time expression macros, including local/static-import/package
   path lookup and `rco expand` inspection.
 - Persistent REPL images, image inspection, and source-like bytecode emission.
+- Dynamic runtime imports with module metadata and lock/path enforcement.
 
 Still real remaining work:
 
@@ -623,7 +626,6 @@ Still real remaining work:
   expression-item rows, full source-map/cache schema, package lockfile
   canonical IDs, public examples, and reference docs.
 - Central hosted package registry.
-- Dynamic runtime imports.
 - Richer suspended-task debugger views and request-fault pause before MVC HTTP
   500.
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.

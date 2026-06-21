@@ -446,13 +446,13 @@ CLI tests save an image, restart a REPL or script from it, call preserved functi
 
 **Implementation Path:**
 
-- [ ] Split reusable package/module resolution into a library path callable by CLI, VM, and web runtime.
-- [ ] Add tests proving dynamic import cannot escape workspace/package roots.
-- [ ] Add lock verification before loading package modules.
-- [ ] Add VM module registry with explicit loaded-module metadata.
-- [ ] Define import caching and reload behavior.
-- [ ] Add MVC tests for dynamic import inside request handlers.
-- [ ] Add docs that distinguish static imports from dynamic imports.
+- [x] Split reusable package/module resolution into a library path callable by CLI, VM, and web runtime.
+- [x] Add tests proving dynamic import cannot escape workspace/package roots.
+- [x] Add lock verification before loading package modules.
+- [x] Add VM module registry with explicit loaded-module metadata.
+- [x] Define import caching and reload behavior.
+- [x] Add MVC tests for dynamic import inside request handlers.
+- [x] Add docs that distinguish static imports from dynamic imports.
 - [ ] Commit as `feat: add dynamic runtime imports`.
 
 **Verification Gate:**

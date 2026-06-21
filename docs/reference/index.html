@@ -777,7 +777,13 @@ rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-regi
 rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
 rco install
 rco verify
-rco audit --json</code></pre>
+rco audit --json
+
+"forms/validation" import_dynamic value forms var
+args array
+args get "email" push! drop
+args get "ada@example.com" push! drop
+forms get "form_field" args get module_call value</code></pre>
           </article>
           <article class="example-panel">
             <h3>Tasks</h3>

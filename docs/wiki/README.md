@@ -20,7 +20,7 @@ reference: [Reference Guides](../reference/guides/index.html).
 - [Host Capabilities And Safety](host-capabilities.md) - filesystem, HTTP,
   workspace, process, PTY, sockets, approvals, and sandboxing controls.
 - [Packages And Registries](packages.md) - local packages, registry publishing,
-  lockfiles, integrity, and import examples.
+  lockfiles, integrity, static imports, and dynamic runtime imports.
 - [Editor And Debugging](editor-debugging.md) - VS Code extension, LSP, linting,
   formatting, tracing, DAP, and word inventory checks.
 - [Development And Release](development-release.md) - benchmarks, contributor

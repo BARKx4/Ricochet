@@ -2973,6 +2973,159 @@ fn run_rejects_manifest_dependency_paths_outside_project_root() {
 }
 
 #[test]
+fn run_loads_dynamic_local_module_and_calls_function() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "lib/dynamic.rco",
+        r#"
+"from dynamic module" label var
+
+( value -> Number ) triple function
+  value var
+  value get 3 *
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+"lib/dynamic" import_dynamic value loaded var
+args array
+args get 7 push! drop
+loaded get "triple" args get module_call value println
+loaded get "label" module_get value println
+loaded get "triple" module_get error "message" at println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("21")
+            && stdout.contains("from dynamic module")
+            && stdout.contains("use module_call"),
+        "stdout should show dynamic module call/get behavior, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_dynamic_import_returns_error_for_parent_escape() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "outside.rco", "secret function\n  \"secret\"\nend\n");
+    write_source_at(
+        root,
+        "app/main.rco",
+        r#"
+"../outside" import_dynamic error "message" at println
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(root.join("app/main.rco"))
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("resolves outside allowed root"),
+        "stdout should expose dynamic import containment failure, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_dynamic_package_import_verifies_lock_integrity() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "ricochet.toml",
+        "[package]\nname = \"app\"\n\n[dependencies.greeter]\npath = \"./packages/greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/ricochet.toml",
+        "[package]\nname = \"greeter\"\n",
+    );
+    write_source_at(
+        root,
+        "packages/greeter/greeting.rco",
+        r#"
+packageHello function
+  "hello from dynamic package"
+end
+"#,
+    );
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+"greeter/greeting" import_dynamic value package var
+args array
+package get "packageHello" args get module_call value println
+"#,
+    );
+
+    let install = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("install")
+        .current_dir(root)
+        .output()
+        .expect("rco install should launch");
+    assert_run_success_for("rco install", "dynamic package fixture", &install);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("main.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success_for("rco run", "dynamic package import", &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("hello from dynamic package"),
+        "stdout should show dynamic package import result, got:\n{stdout}"
+    );
+
+    write_source_at(
+        root,
+        "packages/greeter/greeting.rco",
+        "packageHello function\n  \"tampered\"\nend\n",
+    );
+    write_source_at(
+        root,
+        "tampered.rco",
+        r#"
+"greeter/greeting" import_dynamic error "message" at println
+"#,
+    );
+
+    let tampered = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("tampered.rco")
+        .current_dir(root)
+        .output()
+        .expect("rco run should launch");
+    assert_run_success_for("rco run", "tampered dynamic package import", &tampered);
+    let stdout = String::from_utf8_lossy(&tampered.stdout);
+    assert!(
+        stdout.contains("package integrity for greeter changed"),
+        "stdout should expose package lock integrity failure, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn add_records_local_path_dependency_and_package_imports_are_runnable() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");

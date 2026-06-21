@@ -9,7 +9,10 @@ pub use compiler::{
     format_compile_error, CompileError, ImportedMacroTable, MacroExpansion,
     MacroExpansionTraceEntry, MacroImportSummary, MacroSummary, MacroTableSummary,
 };
-pub use imports::{compile_file_with_imports, expand_file_with_imports, FileMacroExpansion};
+pub use imports::{
+    compile_file_with_imports, expand_file_with_imports, resolve_import_with_metadata,
+    verify_runtime_import_locks_for_parent, FileMacroExpansion, ResolvedImport, ResolvedImportKind,
+};
 
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
