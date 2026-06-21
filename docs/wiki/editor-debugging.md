@@ -33,6 +33,12 @@ nested DAP variable references, so the `Tasks` scope opens into task detail
 fields and worker-frame snapshots instead of stopping at the top-level task
 summary.
 
+`rco debug-tui --smoke` renders a deterministic read-only terminal snapshot of
+the first debugger pause, including source line, stack, locals, globals, and
+task snapshots. `rco debug-web --smoke` writes the same snapshot as standalone
+HTML, while `rco debug-web` serves the snapshot from a loopback-only local
+server for browser inspection.
+
 `rco serve --debug` also installs an MVC request-fault pause hook. Before a
 controller action, view render, or response metadata failure becomes an HTTP
 500 response, the server prints a `FAULT request ...` line with the method,

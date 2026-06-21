@@ -7303,6 +7303,163 @@ fn debug_json_streams_json_lines_events() {
 }
 
 #[test]
+fn debug_tui_smoke_renders_read_only_pause_snapshot() {
+    let source_path = write_source("[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--smoke")
+        .arg("--breakpoint")
+        .arg("3")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --smoke --breakpoint", "task source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Ricochet Debug TUI"),
+        "debug-tui smoke should render a title, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("status: paused (breakpoint)"),
+        "debug-tui smoke should render pause reason, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("source line: task get id"),
+        "debug-tui smoke should render source line text, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("task = Task(0)") && stdout.contains("tasks:"),
+        "debug-tui smoke should render globals and task snapshots, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("preview: read-only snapshot"),
+        "debug-tui smoke should describe the preview contract, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_smoke_without_breakpoint_steps_first_instruction() {
+    let source_path = write_source("2\n3\n+\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg("--smoke")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+    assert_run_success_for("rco debug-tui --smoke", "source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("status: paused (step)") && stdout.contains("source line: 2"),
+        "debug-tui smoke without breakpoints should step to the first instruction, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_tui_without_smoke_fails_loudly_until_interactive_ui_exists() {
+    let source_path = write_source("2\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-tui")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-tui should launch");
+
+    assert!(
+        !output.status.success(),
+        "debug-tui without --smoke should fail until the interactive TUI is implemented"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("interactive debug-tui is not implemented yet"),
+        "stderr should explain the temporary smoke-only contract, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn debug_web_smoke_renders_read_only_html_snapshot() {
+    let source_path = write_source("2\n3\n+\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-web")
+        .arg("--smoke")
+        .arg("--breakpoint")
+        .arg("3")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-web should launch");
+    assert_run_success_for("rco debug-web --smoke --breakpoint", "source", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("<!doctype html>") && stdout.contains("Ricochet Debug Web"),
+        "debug-web smoke should render HTML, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Paused: breakpoint") && stdout.contains("Source line:"),
+        "debug-web smoke should render pause details, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Number(2)") && stdout.contains("Number(3)"),
+        "debug-web smoke should render stack values, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Read-only debugger web preview"),
+        "debug-web smoke should describe the preview contract, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn debug_web_serves_read_only_snapshot_on_loopback() {
+    let source_path = write_source("2\n3\n+\n");
+    let server = DebugWebPreviewServer::start(&source_path, 3);
+    assert!(
+        server.base_url().starts_with("http://127.0.0.1:"),
+        "debug-web should bind to loopback by default, got {}",
+        server.base_url()
+    );
+
+    let response = http_get_text_for_test(server.base_url());
+    assert!(
+        response.starts_with("HTTP/1.1 200 OK"),
+        "debug-web should serve the root route, got:\n{response}"
+    );
+    assert!(
+        response.contains("Ricochet Debug Web")
+            && response.contains("Paused: breakpoint")
+            && response.contains("Number(2)")
+            && response.contains("Read-only debugger web preview"),
+        "debug-web root should render the read-only snapshot, got:\n{response}"
+    );
+}
+
+#[test]
+fn debug_web_rejects_non_loopback_host_before_running_source() {
+    let source_path = write_source("\"should not print\" println\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("debug-web")
+        .arg("--host")
+        .arg("0.0.0.0")
+        .arg(&source_path)
+        .output()
+        .expect("rco debug-web should launch");
+
+    assert!(
+        !output.status.success(),
+        "debug-web should reject non-loopback hosts"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "debug-web should reject unsafe bind hosts before running source, got:\n{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("debug-web only binds loopback addresses by default"),
+        "stderr should explain loopback-only binding, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn debug_json_pause_includes_task_snapshot() {
     let source_path = write_source("[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
@@ -11587,6 +11744,27 @@ fn file_url_for_test(path: &Path) -> String {
     format!("file:///{}", path_to_slash_for_test(path))
 }
 
+fn http_get_text_for_test(url: &str) -> String {
+    let without_scheme = url
+        .strip_prefix("http://")
+        .expect("test URL should use http");
+    let (authority, path) = without_scheme
+        .split_once('/')
+        .unwrap_or((without_scheme, ""));
+    let path = format!("/{path}");
+    let mut stream =
+        std::net::TcpStream::connect(authority).expect("test HTTP server should accept connection");
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .expect("test HTTP request should write");
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("test HTTP response should read");
+    response
+}
+
 #[derive(Clone)]
 struct HostedTestResponse {
     status: u16,
@@ -11739,6 +11917,67 @@ impl Drop for HostedRegistryTestServer {
 struct ReferenceHostedRegistryServer {
     child: Child,
     base_url: String,
+}
+
+struct DebugWebPreviewServer {
+    child: Child,
+    base_url: String,
+}
+
+impl DebugWebPreviewServer {
+    fn start(source_path: &Path, breakpoint: usize) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("debug-web")
+            .arg("--port")
+            .arg("0")
+            .arg("--breakpoint")
+            .arg(breakpoint.to_string())
+            .arg(source_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("rco debug-web should launch");
+        let mut line = String::new();
+        {
+            let stdout = child
+                .stdout
+                .as_mut()
+                .expect("debug-web stdout should be piped");
+            let mut reader = BufReader::new(stdout);
+            reader
+                .read_line(&mut line)
+                .expect("debug-web should print startup line");
+        }
+        if line.is_empty() {
+            let _ = child.kill();
+            let output = child
+                .wait_with_output()
+                .expect("failed debug-web server should return output");
+            panic!(
+                "rco debug-web exited before reporting its URL\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let base_url = line
+            .split_whitespace()
+            .last()
+            .filter(|url| url.starts_with("http://"))
+            .map(str::to_string)
+            .unwrap_or_else(|| panic!("debug-web startup line should include URL, got {line:?}"));
+        Self { child, base_url }
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+}
+
+impl Drop for DebugWebPreviewServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 impl ReferenceHostedRegistryServer {

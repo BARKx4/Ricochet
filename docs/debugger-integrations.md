@@ -9,6 +9,9 @@ Current CLI surface:
 rco run --debug --step app.rco
 rco run --breakpoint 12 app.rco
 rco debug --json app.rco
+rco debug-tui --smoke app.rco
+rco debug-web --smoke app.rco
+rco debug-web app.rco
 rco debug-adapter
 rco run --trace-file trace.json app.rco
 rco run-bytecode --trace-file trace.json build/app.rcob
@@ -100,6 +103,13 @@ Editor integration guidance:
   can show task detail fields and worker-frame snapshots as a tree.
 - Other IDEs should consume the same event contract through either saved traces,
   `rco debug --json`, or `rco debug-adapter`.
+- `rco debug-tui --smoke` renders a deterministic read-only terminal snapshot
+  of the first debugger pause. The interactive full-screen TUI is still tracked
+  as debugger UI polish.
+- `rco debug-web --smoke` writes the same first-pause snapshot as standalone
+  HTML. Without `--smoke`, `rco debug-web` serves that snapshot from a local
+  loopback-only Axum server; live controls and event streaming remain future
+  browser-debugger work.
 - Stack visualizers should treat `debug` strings as the stable beta display
   fallback. Future structured fields can be added without removing `debug`.
 - Source breakpoints should stay line-based at the protocol boundary until the

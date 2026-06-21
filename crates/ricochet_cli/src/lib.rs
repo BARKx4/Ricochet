@@ -5,14 +5,14 @@ use std::fmt::Write as _;
 use std::fs;
 use std::hint::black_box;
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use axum::{body::Body, http::Request};
+use axum::{body::Body, http::Request, response::Html, routing::get, Router};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use ricochet_bytecode::{Chunk, Op, SourceSpan};
 use ricochet_compiler::{
@@ -126,6 +126,39 @@ enum Command {
             help = "Also write recorded debug events to a JSON trace file"
         )]
         trace_file: Option<PathBuf>,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    DebugTui {
+        #[arg(long, help = "Render one read-only debugger snapshot and exit")]
+        smoke: bool,
+        #[arg(long)]
+        step: bool,
+        #[arg(long = "breakpoint", value_name = "LINE")]
+        breakpoints: Vec<usize>,
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    DebugWeb {
+        #[arg(
+            long,
+            help = "Render one read-only debugger HTML snapshot to stdout and exit"
+        )]
+        smoke: bool,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        #[arg(long)]
+        step: bool,
+        #[arg(long = "breakpoint", value_name = "LINE")]
+        breakpoints: Vec<usize>,
         #[command(flatten)]
         capabilities: CapabilityOptions,
         path: String,
@@ -906,6 +939,38 @@ pub async fn run_cli() -> Result<()> {
             args,
             capabilities,
         )?,
+        Command::DebugTui {
+            smoke,
+            step,
+            breakpoints,
+            capabilities,
+            path,
+            args,
+        } => run_debug_tui(&path, smoke, step, &breakpoints, args, capabilities)?,
+        Command::DebugWeb {
+            smoke,
+            host,
+            port,
+            step,
+            breakpoints,
+            capabilities,
+            path,
+            args,
+        } => {
+            run_debug_web(
+                &path,
+                DebugWebOptions {
+                    smoke,
+                    host: &host,
+                    port,
+                    step,
+                    breakpoints: &breakpoints,
+                },
+                args,
+                capabilities,
+            )
+            .await?
+        }
         Command::DebugAdapter => run_debug_adapter()?,
         Command::Bench {
             iterations,
@@ -7898,6 +7963,402 @@ fn print_debug_event_json_line(event: &DebugEvent) {
 fn emit_json_line(value: serde_json::Value) -> Result<()> {
     println!("{}", serde_json::to_string(&value)?);
     Ok(())
+}
+
+struct DebugUiSnapshot {
+    pause: DebugPause,
+    source_line: Option<String>,
+    stdout: String,
+    stderr: String,
+}
+
+struct DebugWebOptions<'a> {
+    smoke: bool,
+    host: &'a str,
+    port: u16,
+    step: bool,
+    breakpoints: &'a [usize],
+}
+
+fn run_debug_tui(
+    path: &str,
+    smoke: bool,
+    step: bool,
+    breakpoints: &[usize],
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
+    if !smoke {
+        bail!("interactive debug-tui is not implemented yet; use --smoke for a read-only debugger snapshot");
+    }
+    let snapshot = collect_debug_ui_snapshot(path, step, breakpoints, args, capabilities)?;
+    print!("{}", render_debug_tui_snapshot(&snapshot));
+    Ok(())
+}
+
+async fn run_debug_web(
+    path: &str,
+    options: DebugWebOptions<'_>,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<()> {
+    let bind_address = if options.smoke {
+        None
+    } else {
+        let ip: IpAddr = options.host.parse().with_context(|| {
+            format!(
+                "debug-web host must be an IP address, got {:?}",
+                options.host
+            )
+        })?;
+        if !ip.is_loopback() {
+            bail!("debug-web only binds loopback addresses by default");
+        }
+        Some(SocketAddr::new(ip, options.port))
+    };
+
+    let snapshot =
+        collect_debug_ui_snapshot(path, options.step, options.breakpoints, args, capabilities)?;
+    let html = render_debug_web_snapshot(&snapshot);
+    if options.smoke {
+        println!("{html}");
+        return Ok(());
+    }
+
+    let bind_address = bind_address.expect("debug-web bind address set for non-smoke mode");
+    let listener = tokio::net::TcpListener::bind(bind_address)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to bind debug-web server on {}:{}",
+                options.host, options.port
+            )
+        })?;
+    let address = listener
+        .local_addr()
+        .context("failed to read debug-web listener address")?;
+    let html = Arc::new(html);
+    let app = Router::new().route(
+        "/",
+        get({
+            let html = Arc::clone(&html);
+            move || {
+                let html = Arc::clone(&html);
+                async move { Html((*html).clone()) }
+            }
+        }),
+    );
+    println!("Ricochet debug web listening on http://{address}/");
+    axum::serve(listener, app)
+        .await
+        .context("debug-web server stopped unexpectedly")
+}
+
+fn collect_debug_ui_snapshot(
+    path: &str,
+    step: bool,
+    breakpoints: &[usize],
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+) -> Result<DebugUiSnapshot> {
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
+    let mut vm = cli_vm(args, &capabilities)?;
+    install_dynamic_module_loader(&mut vm, dynamic_import_parent_for_source(source_path)?);
+    vm.enable_debug();
+    if step || breakpoints.is_empty() {
+        vm.enable_step_debugging();
+    }
+    for &line in breakpoints {
+        if line == 0 {
+            bail!("breakpoint lines are 1-based");
+        }
+        vm.add_line_breakpoint(chunk.file.clone(), line);
+    }
+
+    let first_pause = Rc::new(RefCell::new(None::<DebugPause>));
+    let pause_slot = Rc::clone(&first_pause);
+    vm.set_debug_controller(move |pause| {
+        let mut slot = pause_slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(pause.clone());
+        }
+        DebugAction::Abort
+    });
+
+    let result = vm.run_chunk(&chunk);
+    match result {
+        Ok(()) | Err(ricochet_vm::VmError::ExecutionAborted { .. }) => {}
+        Err(error) => bail!("{}", runtime_error_message(&vm, &error)),
+    }
+
+    let pause = first_pause
+        .borrow_mut()
+        .take()
+        .context("debug UI did not observe a debugger pause")?;
+    let source_line = debug_source_line(source_path, &pause);
+    Ok(DebugUiSnapshot {
+        pause,
+        source_line,
+        stdout: vm.stdout().to_string(),
+        stderr: vm.stderr().to_string(),
+    })
+}
+
+fn debug_source_line(source_path: &Path, pause: &DebugPause) -> Option<String> {
+    let line_number = pause.source.rsplit_once(':')?.1.parse::<usize>().ok()?;
+    let source = fs::read_to_string(source_path).ok()?;
+    source
+        .lines()
+        .nth(line_number.saturating_sub(1))
+        .map(str::trim_end)
+        .map(str::to_string)
+}
+
+fn render_debug_tui_snapshot(snapshot: &DebugUiSnapshot) -> String {
+    let pause = &snapshot.pause;
+    let mut output = String::new();
+    let reason = match pause.reason {
+        DebugPauseReason::Step => "step",
+        DebugPauseReason::Breakpoint => "breakpoint",
+    };
+    writeln!(&mut output, "Ricochet Debug TUI").expect("write to string");
+    writeln!(&mut output, "status: paused ({reason})").expect("write to string");
+    writeln!(&mut output, "source: {}", pause.source).expect("write to string");
+    if let Some(source_line) = &snapshot.source_line {
+        writeln!(&mut output, "source line: {source_line}").expect("write to string");
+    }
+    writeln!(&mut output, "frame: {}", pause.frame).expect("write to string");
+    writeln!(&mut output, "opcode: {}", pause.opcode).expect("write to string");
+    write_debug_tui_values(&mut output, "stack", &pause.stack);
+    write_debug_tui_bindings(&mut output, "locals", &pause.locals);
+    write_debug_tui_bindings(&mut output, "globals", &pause.globals);
+    if let Some(current_self) = &pause.current_self {
+        writeln!(&mut output, "self: {current_self:?}").expect("write to string");
+    }
+    write_debug_tui_tasks(&mut output, &pause.tasks);
+    if !snapshot.stdout.is_empty() {
+        writeln!(&mut output, "stdout:\n{}", snapshot.stdout).expect("write to string");
+    }
+    if !snapshot.stderr.is_empty() {
+        writeln!(&mut output, "stderr:\n{}", snapshot.stderr).expect("write to string");
+    }
+    writeln!(
+        &mut output,
+        "preview: read-only snapshot; interactive stepping is the next debugger UI slice"
+    )
+    .expect("write to string");
+    output
+}
+
+fn write_debug_tui_values(output: &mut String, label: &str, values: &[Value]) {
+    writeln!(output, "{label}:").expect("write to string");
+    if values.is_empty() {
+        writeln!(output, "  <empty>").expect("write to string");
+    } else {
+        for (index, value) in values.iter().enumerate() {
+            writeln!(output, "  [{index}] {}", debug_value_label(value)).expect("write to string");
+        }
+    }
+}
+
+fn write_debug_tui_bindings(output: &mut String, label: &str, bindings: &[(String, Value)]) {
+    writeln!(output, "{label}:").expect("write to string");
+    if bindings.is_empty() {
+        writeln!(output, "  <empty>").expect("write to string");
+    } else {
+        for (name, value) in bindings {
+            writeln!(output, "  {name} = {}", debug_value_label(value)).expect("write to string");
+        }
+    }
+}
+
+fn write_debug_tui_tasks(output: &mut String, tasks: &[DebugTask]) {
+    writeln!(output, "tasks:").expect("write to string");
+    if tasks.is_empty() {
+        writeln!(output, "  <empty>").expect("write to string");
+        return;
+    }
+    for task in tasks {
+        writeln!(
+            output,
+            "  task {}: {} operation={} pending={} running={} completed={} failed={} frames={}",
+            task.id,
+            task.status,
+            task.operation,
+            task.pending,
+            task.running,
+            task.completed,
+            task.failed,
+            task.frames.len()
+        )
+        .expect("write to string");
+        if let Some(fault) = &task.fault {
+            writeln!(output, "    fault: {fault}").expect("write to string");
+        }
+        for (index, frame) in task.frames.iter().enumerate() {
+            writeln!(
+                output,
+                "    frame {index}: {} {} {}",
+                frame.frame, frame.source, frame.opcode
+            )
+            .expect("write to string");
+        }
+    }
+}
+
+fn render_debug_web_snapshot(snapshot: &DebugUiSnapshot) -> String {
+    let pause = &snapshot.pause;
+    let reason = match pause.reason {
+        DebugPauseReason::Step => "step",
+        DebugPauseReason::Breakpoint => "breakpoint",
+    };
+    let mut html = String::new();
+    html.push_str("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+    html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+    html.push_str("<title>Ricochet Debug Web</title>");
+    html.push_str(
+        "<style>body{font:14px system-ui,sans-serif;margin:24px;max-width:1100px}\
+         header{border-bottom:1px solid #ccc;margin-bottom:16px}\
+         section{margin:16px 0}pre{background:#111;color:#f5f5f5;padding:12px;overflow:auto}\
+         table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6px;text-align:left}\
+         .muted{color:#666}</style>",
+    );
+    html.push_str("</head><body><header><h1>Ricochet Debug Web</h1>");
+    write!(
+        &mut html,
+        "<p>Paused: {} at <code>{}</code></p>",
+        html_escape(reason),
+        html_escape(&pause.source)
+    )
+    .expect("write to string");
+    if let Some(source_line) = &snapshot.source_line {
+        write!(
+            &mut html,
+            "<p><strong>Source line:</strong> <code>{}</code></p>",
+            html_escape(source_line)
+        )
+        .expect("write to string");
+    }
+    html.push_str("</header>");
+    write!(
+        &mut html,
+        "<section><h2>Frame</h2><table><tr><th>Frame</th><td>{}</td></tr>\
+         <tr><th>Opcode</th><td><code>{}</code></td></tr></table></section>",
+        html_escape(&pause.frame),
+        html_escape(&pause.opcode)
+    )
+    .expect("write to string");
+    write_debug_web_values(&mut html, "Stack", &pause.stack);
+    write_debug_web_bindings(&mut html, "Locals", &pause.locals);
+    write_debug_web_bindings(&mut html, "Globals", &pause.globals);
+    write_debug_web_tasks(&mut html, &pause.tasks);
+    if !snapshot.stdout.is_empty() {
+        write!(
+            &mut html,
+            "<section><h2>Stdout</h2><pre>{}</pre></section>",
+            html_escape(&snapshot.stdout)
+        )
+        .expect("write to string");
+    }
+    if !snapshot.stderr.is_empty() {
+        write!(
+            &mut html,
+            "<section><h2>Stderr</h2><pre>{}</pre></section>",
+            html_escape(&snapshot.stderr)
+        )
+        .expect("write to string");
+    }
+    html.push_str("<p class=\"muted\">Read-only debugger web preview. Interactive stepping and live event streaming are the next Epic 10 slice.</p>");
+    html.push_str("</body></html>");
+    html
+}
+
+fn write_debug_web_values(html: &mut String, label: &str, values: &[Value]) {
+    write!(html, "<section><h2>{}</h2>", html_escape(label)).expect("write to string");
+    if values.is_empty() {
+        html.push_str("<p class=\"muted\">&lt;empty&gt;</p></section>");
+        return;
+    }
+    html.push_str("<table><tr><th>Index</th><th>Value</th></tr>");
+    for (index, value) in values.iter().enumerate() {
+        write!(
+            html,
+            "<tr><td>{index}</td><td><code>{}</code></td></tr>",
+            html_escape(&debug_value_label(value))
+        )
+        .expect("write to string");
+    }
+    html.push_str("</table></section>");
+}
+
+fn write_debug_web_bindings(html: &mut String, label: &str, bindings: &[(String, Value)]) {
+    write!(html, "<section><h2>{}</h2>", html_escape(label)).expect("write to string");
+    if bindings.is_empty() {
+        html.push_str("<p class=\"muted\">&lt;empty&gt;</p></section>");
+        return;
+    }
+    html.push_str("<table><tr><th>Name</th><th>Value</th></tr>");
+    for (name, value) in bindings {
+        write!(
+            html,
+            "<tr><td>{}</td><td><code>{}</code></td></tr>",
+            html_escape(name),
+            html_escape(&debug_value_label(value))
+        )
+        .expect("write to string");
+    }
+    html.push_str("</table></section>");
+}
+
+fn write_debug_web_tasks(html: &mut String, tasks: &[DebugTask]) {
+    html.push_str("<section><h2>Tasks</h2>");
+    if tasks.is_empty() {
+        html.push_str("<p class=\"muted\">&lt;empty&gt;</p></section>");
+        return;
+    }
+    html.push_str("<table><tr><th>ID</th><th>Status</th><th>Operation</th><th>Frames</th></tr>");
+    for task in tasks {
+        write!(
+            html,
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            task.id,
+            html_escape(&task.status),
+            html_escape(&task.operation),
+            task.frames.len()
+        )
+        .expect("write to string");
+        for (index, frame) in task.frames.iter().enumerate() {
+            write!(
+                html,
+                "<tr><td></td><td colspan=\"3\"><strong>frame {index}</strong>: {} \
+                 <code>{}</code><br><span class=\"muted\">{}</span></td></tr>",
+                html_escape(&frame.frame),
+                html_escape(&frame.opcode),
+                html_escape(&frame.source)
+            )
+            .expect("write to string");
+        }
+    }
+    html.push_str("</table></section>");
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn debug_value_label(value: &Value) -> String {
+    let debug_value = debug_value_json(value);
+    debug_value
+        .get("debug")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{value:?}"))
 }
 
 fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
