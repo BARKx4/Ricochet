@@ -1244,7 +1244,7 @@ const WORDS = [
     "aliases": [],
     "group": "math",
     "stack": "value -> result(number)",
-    "body": "Checked non-negative Number conversion using Ricochet's signed i64 storage (0..9223372036854775807). Full u64 storage is future work.",
+    "body": "Checked non-negative Number conversion using Ricochet's signed i64 storage (0..9223372036854775807). Full u64 storage is outside the v1 beta storage model.",
     "example": "42 to_unsigned_bigint value"
   },
   {

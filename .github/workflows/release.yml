@@ -276,18 +276,21 @@ jobs:
           grep -q 'Exec=rco repl' "$package_dir/share/applications/ricochet-repl.desktop"
           test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
-          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" | grep -q 'usr/share/applications/ricochet-repl.desktop'
-          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" | grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml'
+          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" > "$tmp/ricochet-deb-contents.txt"
+          grep -q 'usr/share/applications/ricochet-repl.desktop' "$tmp/ricochet-deb-contents.txt"
+          grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml' "$tmp/ricochet-deb-contents.txt"
           "$package_dir/rco" package examples/basic-oop.rco \
             --output "$tmp/basic-oop" \
             --linux-package tar \
             --linux-package deb \
             --package-name basic-oop \
             --package-version "$version"
-          "$tmp/basic-oop" | grep -q 'ada@example.com'
+          "$tmp/basic-oop" > "$tmp/basic-oop.out"
+          grep -q 'ada@example.com' "$tmp/basic-oop.out"
           test -f "$tmp/basic-oop-v${version}-linux-x64.tar.gz"
           test -f "$tmp/basic-oop_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" | grep -q 'Package: basic-oop'
+          dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
+          grep -q 'Package: basic-oop' "$tmp/basic-oop-deb-info.txt"
 
           "$package_dir/rco" package examples/webview_ui.rco \
             --gui \
@@ -298,9 +301,11 @@ jobs:
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
           test -f "$tmp/webview-ui_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'Depends: libwebkit2gtk-4.1-0, libgtk-3-0'
-          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/applications/webview-ui.desktop'
-          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/metainfo/webview-ui.metainfo.xml'
+          dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
+          grep -q 'Depends: libwebkit2gtk-4.1-0, libgtk-3-0' "$tmp/webview-ui-deb-info.txt"
+          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
+          grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
+          grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"
 
       - name: Validate release artifact manifest
         shell: pwsh

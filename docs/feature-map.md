@@ -1,16 +1,16 @@
 # Ricochet Feature Map
 
 This is the agent-facing map of what Ricochet currently does, where to verify
-it, and what is still partial. Use it before making roadmap claims or adding a
-new feature. If this file conflicts with code, tests, or `docs/reference`, trust
-the live code and update this map.
+it, and what is intentionally outside the current roadmap. Use it before making
+roadmap claims or adding a new feature. If this file conflicts with code,
+tests, or `docs/reference`, trust the live code and update this map.
 
 Status labels:
 
 - `implemented`: shipped in code, docs, and tests or examples.
 - `beta`: usable, but intentionally scoped for the v1 developer beta.
-- `polish`: the foundation exists; remaining work is ergonomics, completeness,
-  or production hardening.
+- `polish`: the foundation exists; additional work is ergonomics,
+  completeness, or production hardening.
 - `future`: not currently implemented as a Ricochet surface.
 
 ## Orientation
@@ -232,10 +232,10 @@ Evidence:
 - `README.md`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
 
-Remaining:
+Future extensions (not current roadmap):
 
 - Exact decimal, money/smallmoney, arbitrary precision integers, and full u64
-  unsigned-bigint storage are future work.
+  unsigned-bigint storage are outside the v1 beta storage model.
 
 ## Host Capabilities
 
@@ -288,7 +288,7 @@ Evidence:
 - `crates/ricochet_web/tests/web_mvc.rs`
 - `docs/reference/app.js`
 
-Remaining:
+Explicit boundaries (not current roadmap):
 
 - HTTP redirects remain disabled; `follow_redirects=true` is explicitly not
   supported.
@@ -344,7 +344,7 @@ Evidence:
 - `README.md`
 - `docs/reference/index.html`
 
-Remaining:
+Implemented upload behavior:
 
 - MVC multipart uploads preserve small-file `text`/`data_base64` compatibility
   and expose large files through bounded temporary upload streams with explicit
@@ -405,7 +405,7 @@ Evidence:
 - `crates/ricochet_web/tests/web_mvc.rs`
 - `docs/reference/app.js`
 
-Remaining:
+Roadmap closure:
 
 - None for the v1 beta database lifecycle.
 
@@ -471,7 +471,7 @@ Evidence:
 - `examples/showcase/package_auth_forms`
 - `examples/showcase/ai_provider_probe`
 
-Remaining: none currently tracked for the beta AI package layer.
+Roadmap closure: none currently tracked for the beta AI package layer.
 
 Do not assume:
 
@@ -539,7 +539,7 @@ Evidence:
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
 
-Remaining:
+Roadmap closure:
 
 - None for the v1 beta package and registry workflow.
 
@@ -601,10 +601,10 @@ Evidence:
 - `editors/vscode/syntaxes/ricochet.tmLanguage.json`
 - `scripts/validate-editor-assets.ps1`
 
-Remaining:
+Future polish (not roadmap blockers):
 
 - Richer full-screen TUI layout and screenshot-quality browser styling are
-  future polish.
+  deferred polish.
 - Source breakpoints are line-based until stable instruction IDs exist.
 
 Do not assume:
@@ -686,7 +686,7 @@ Evidence:
 - `docs/releases`
 - `docs/wiki/store-packaging.md`
 
-Remaining:
+External boundaries (not current roadmap):
 
 - No production distribution polish remains in the current roadmap. External
   marketplace uploads still require operator-owned publisher accounts and review
@@ -696,7 +696,7 @@ Do not assume:
 
 - Native packaging is missing.
 
-## Current Limits And Roadmap
+## Roadmap Closure And Non-Goals
 
 Implemented foundations that should not be listed as missing:
 
@@ -716,9 +716,12 @@ Implemented foundations that should not be listed as missing:
 - Persistent REPL images, image inspection, and source-like bytecode emission.
 - Dynamic runtime imports with module metadata and lock/path enforcement.
 
-Still real remaining work:
+Roadmap closure status:
 
-- Central roadmap closure audit before claiming every roadmap item is complete.
+- No current roadmap implementation items are tracked. External
+  marketplace submissions, deeper numeric domains, policy-auth frameworks, and
+  richer debugger visuals are explicit future extensions rather than current
+  roadmap blockers.
 
 ## Maintenance Rules
 
