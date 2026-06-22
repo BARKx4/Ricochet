@@ -21,10 +21,10 @@ foundation that developers can scaffold, run, inspect, and extend.
   execution uses `process_spawn`, `process_spawn_task`, or retained
   `process_start` jobs.
 - Desktop GUI beta: trusted local scripts can build escaped `webview` document
-  maps, preview them with `rco gui`, and package them as native Windows, Linux,
-  or macOS WebView executables with `rco package --gui`. MVC projects can also
-  be packaged as local-server desktop WebView apps with `rco package --gui
-  --mvc`.
+  maps, preview them with `rco gui`, and package them as native Windows/macOS
+  WebView executables or Linux system-browser GUI launchers with
+  `rco package --gui`. MVC projects can also be packaged as local-server
+  desktop GUI apps with `rco package --gui --mvc`.
 - Terminal UI beta: trusted local scripts can use the `tui` capability for
   alternate-screen terminal apps with drawing, cursor movement, flushing, size
   checks, and key polling/reading through `rco tui` or `rco package --tui`.

@@ -247,10 +247,7 @@ enum Command {
             help = "Package as a terminal UI app using the console launcher without final stack output"
         )]
         tui: bool,
-        #[arg(
-            long,
-            help = "Package as a native desktop GUI app using the rco-gui launcher"
-        )]
+        #[arg(long, help = "Package as a desktop GUI app using the rco-gui launcher")]
         gui: bool,
         #[arg(
             long,
@@ -7727,144 +7724,187 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
 
 #[cfg(any(windows, target_os = "macos"))]
 fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    use tao::dpi::LogicalSize;
-    use tao::event::{Event, WindowEvent};
-    use tao::event_loop::{ControlFlow, EventLoop};
-    use tao::window::WindowBuilder;
-    use wry::WebViewBuilder;
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(document.title.clone())
-        .with_inner_size(LogicalSize::new(
-            f64::from(document.width),
-            f64::from(document.height),
-        ))
-        .build(&event_loop)
-        .context("failed to create native GUI window")?;
-    let _webview = WebViewBuilder::new()
-        .with_html(document.html)
-        .build(&window)
-        .context("failed to create native WebView")?;
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
-        }
-    });
+    open_platform_webview(
+        document.title,
+        document.width,
+        document.height,
+        NativeWebviewSource::Html(document.html),
+    )
 }
 
 #[cfg(any(windows, target_os = "macos"))]
 fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
-    use tao::dpi::LogicalSize;
-    use tao::event::{Event, WindowEvent};
-    use tao::event_loop::{ControlFlow, EventLoop};
-    use tao::window::WindowBuilder;
+    open_platform_webview(
+        title.to_string(),
+        width,
+        height,
+        NativeWebviewSource::Url(url.to_string()),
+    )
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+enum NativeWebviewSource {
+    Html(String),
+    Url(String),
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn open_platform_webview(
+    title: String,
+    width: u32,
+    height: u32,
+    source: NativeWebviewSource,
+) -> Result<()> {
+    use winit::{
+        application::ApplicationHandler,
+        dpi::LogicalSize,
+        event::WindowEvent,
+        event_loop::{ActiveEventLoop, EventLoop},
+        window::{Window, WindowId},
+    };
     use wry::WebViewBuilder;
 
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(title.to_string())
-        .with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
-        .build(&event_loop)
-        .context("failed to create native GUI window")?;
-    let _webview = WebViewBuilder::new()
-        .with_url(url)
-        .build(&window)
-        .context("failed to create native WebView")?;
+    struct NativeWebviewState {
+        title: String,
+        width: u32,
+        height: u32,
+        source: Option<NativeWebviewSource>,
+        window: Option<Window>,
+        webview: Option<wry::WebView>,
+        error: Option<String>,
+    }
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
+    impl ApplicationHandler for NativeWebviewState {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            if self.window.is_some() || self.error.is_some() {
+                return;
+            }
+
+            let mut attributes = Window::default_attributes();
+            attributes.title = self.title.clone();
+            attributes.inner_size =
+                Some(LogicalSize::new(f64::from(self.width), f64::from(self.height)).into());
+
+            let window = match event_loop.create_window(attributes) {
+                Ok(window) => window,
+                Err(error) => {
+                    self.error = Some(format!("failed to create native GUI window: {error}"));
+                    event_loop.exit();
+                    return;
+                }
+            };
+
+            let Some(source) = self.source.take() else {
+                self.error = Some("native GUI source was already consumed".to_string());
+                event_loop.exit();
+                return;
+            };
+            let builder = match source {
+                NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
+                NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
+            };
+            let webview = match builder.build(&window) {
+                Ok(webview) => webview,
+                Err(error) => {
+                    self.error = Some(format!("failed to create native WebView: {error}"));
+                    event_loop.exit();
+                    return;
+                }
+            };
+
+            self.webview = Some(webview);
+            self.window = Some(window);
         }
-    });
+
+        fn window_event(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+            _window_id: WindowId,
+            event: WindowEvent,
+        ) {
+            if let WindowEvent::CloseRequested = event {
+                event_loop.exit();
+            }
+        }
+    }
+
+    let event_loop = EventLoop::new().context("failed to create native GUI event loop")?;
+    let mut state = NativeWebviewState {
+        title,
+        width,
+        height,
+        source: Some(source),
+        window: None,
+        webview: None,
+        error: None,
+    };
+    event_loop
+        .run_app(&mut state)
+        .context("native GUI event loop failed")?;
+    if let Some(error) = state.error {
+        bail!("{error}");
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
 fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    use tao::dpi::LogicalSize;
-    use tao::event::{Event, WindowEvent};
-    use tao::event_loop::{ControlFlow, EventLoop};
-    use tao::platform::unix::WindowExtUnix;
-    use tao::window::WindowBuilder;
-    use wry::{WebViewBuilder, WebViewBuilderExtUnix};
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(document.title.clone())
-        .with_inner_size(LogicalSize::new(
-            f64::from(document.width),
-            f64::from(document.height),
-        ))
-        .build(&event_loop)
-        .context("failed to create native GUI window")?;
-    let _webview = WebViewBuilder::new()
-        .with_html(document.html)
-        .build_gtk(window.gtk_window())
-        .context("failed to create native WebView")?;
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
-        }
-    });
+    let path = write_linux_webview_document(&document)?;
+    open_linux_gui_target(path.as_os_str())?;
+    wait_for_linux_browser_session(&format!("file {}", path.display()))
 }
 
 #[cfg(target_os = "linux")]
-fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
-    use tao::dpi::LogicalSize;
-    use tao::event::{Event, WindowEvent};
-    use tao::event_loop::{ControlFlow, EventLoop};
-    use tao::platform::unix::WindowExtUnix;
-    use tao::window::WindowBuilder;
-    use wry::{WebViewBuilder, WebViewBuilderExtUnix};
+fn open_native_webview_url(_title: &str, url: &str, _width: u32, _height: u32) -> Result<()> {
+    open_linux_gui_target(OsStr::new(url))?;
+    wait_for_linux_browser_session(url)
+}
 
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(title.to_string())
-        .with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
-        .build(&event_loop)
-        .context("failed to create native GUI window")?;
-    let _webview = WebViewBuilder::new()
-        .with_url(url)
-        .build_gtk(window.gtk_window())
-        .context("failed to create native WebView")?;
+#[cfg(target_os = "linux")]
+fn write_linux_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let file_name = format!("ricochet-gui-{}-{timestamp}.html", std::process::id());
+    let path = std::env::temp_dir().join(file_name);
+    fs::write(&path, &document.html)
+        .with_context(|| format!("failed to write GUI HTML file {}", path.display()))?;
+    Ok(path)
+}
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
-        }
-    });
+#[cfg(target_os = "linux")]
+fn open_linux_gui_target(target: &OsStr) -> Result<()> {
+    let status = std::process::Command::new("xdg-open")
+        .arg(target)
+        .status()
+        .context(
+            "failed to launch `xdg-open`; install `xdg-utils` to open Ricochet GUI apps on Linux",
+        )?;
+    if !status.success() {
+        bail!("`xdg-open` failed with status {status}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_linux_browser_session(target_label: &str) -> Result<()> {
+    eprintln!(
+        "Ricochet opened {target_label} with your system browser. Press Ctrl+C in this terminal to stop the GUI host when finished."
+    );
+    loop {
+        std::thread::park_timeout(Duration::from_secs(3600));
+    }
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn open_native_webview(_document: WebviewDocument) -> Result<()> {
-    bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
+    bail!("GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn open_native_webview_url(_title: &str, _url: &str, _width: u32, _height: u32) -> Result<()> {
-    bail!("native GUI hosting is currently implemented for Windows, Linux, and macOS builds")
+    bail!("GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11297,7 +11337,7 @@ fn create_linux_tarball(
         format!(
             "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n{}",
             if gui {
-                "\nLinux GUI apps require the WebKitGTK 4.1 runtime package, for example `libwebkit2gtk-4.1-0` on Debian/Ubuntu.\n"
+                "\nLinux GUI apps open through the system browser and require `xdg-open`, usually provided by the `xdg-utils` package.\n"
             } else {
                 ""
             }
@@ -11377,7 +11417,7 @@ fn create_linux_deb(
         format!(
             "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
             if gui {
-                "Depends: libwebkit2gtk-4.1-0, libgtk-3-0\n"
+                "Depends: xdg-utils\n"
             } else {
                 ""
             }

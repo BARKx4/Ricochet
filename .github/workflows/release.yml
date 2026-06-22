@@ -248,12 +248,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux GUI build dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev
-
       - name: Import Linux GPG signing key
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash
@@ -315,7 +309,7 @@ jobs:
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
           test -f "$tmp/webview-ui_${version}_amd64.deb"
           dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
-          grep -q 'Depends: libwebkit2gtk-4.1-0, libgtk-3-0' "$tmp/webview-ui-deb-info.txt"
+          grep -q 'Depends: xdg-utils' "$tmp/webview-ui-deb-info.txt"
           dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"

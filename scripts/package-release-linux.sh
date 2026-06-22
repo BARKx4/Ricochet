@@ -489,13 +489,13 @@ Version: $version
 Section: devel
 Priority: optional
 Architecture: amd64
-Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Depends: xdg-utils
 Maintainer: Ricochet <noreply@ricochet.today>
 Installed-Size: $installed_size
 Description: Ricochet stack-based web language CLI
  Ricochet is a pure-postfix, stack-based programming language with a Rust
  bytecode VM, CLI scripting, MVC web scaffolding, beta Active Record support,
- and a desktop WebView GUI launcher.
+ and a desktop GUI launcher that opens Linux GUI apps in the system browser.
 EOF
 
   dpkg-deb --build "$deb_root" "$deb_path"

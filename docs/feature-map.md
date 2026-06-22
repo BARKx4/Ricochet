@@ -269,7 +269,9 @@ Implemented:
 - TUI words cover alternate screen, cursor movement, writes, flush, size, and key
   polling/reading.
 - Webview words build escaped GUI document fragments and state/action documents
-  for `rco gui` and `rco package --gui`.
+  for `rco gui` and `rco package --gui`; Windows/macOS hosts use native Wry
+  WebView windows, while Linux hosts open through the system browser with
+  `xdg-open` to avoid the vulnerable GTK/WebKitGTK Rust binding stack.
 - Approval words provide runtime-local records with exactly-once token claiming.
 - Environment/config/secret words cover env get/set, secret references,
   secret resolution, and nested config lookup.
@@ -624,8 +626,8 @@ Implemented:
 - `rco run-bytecode` executes `.rcob`.
 - `rco package` creates standalone launcher executables by embedding bytecode
   or MVC bundles.
-- `rco package --tui`, `--gui`, and `--gui --mvc` cover console, WebView, and
-  local-server desktop apps.
+- `rco package --tui`, `--gui`, and `--gui --mvc` cover console, native
+  WebView or Linux system-browser GUI launchers, and local-server desktop apps.
 - Linux `rco package` can also emit tarballs and Debian packages.
 - Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and macOS
   tarballs with explicit signing or detached-signature

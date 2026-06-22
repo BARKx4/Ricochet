@@ -327,7 +327,7 @@ switch ($Target) {
                             "Section: devel",
                             "Architecture: amd64",
                             "Maintainer: Ricochet <noreply@ricochet.today>",
-                            "Depends: libwebkit2gtk-4.1-0, libgtk-3-0"
+                            "Depends: xdg-utils"
                         )) {
                         if (-not $fields.Contains($requiredField)) {
                             Add-Error $errors "Debian package control metadata is missing '$requiredField'."
