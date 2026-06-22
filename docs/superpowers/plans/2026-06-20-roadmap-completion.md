@@ -718,13 +718,21 @@ controller-level fake-provider integration test that imports `ai/openai` from a
 vendored `@ricochet/ai` dependency, retries a fake 503, normalizes a fake
 OpenAI-compatible success response, and returns MVC JSON. The showcase now has
 offline fake-provider and local OpenAI-compatible request examples. Richer
-provider packages and deeper provider-level streaming integration remain open.
+provider packages and deeper provider-level streaming integration remained open
+at that point.
 
 **Progress Note (2026-06-21):** The local/Ollama package helper slice adds
 native Ollama `/api/chat` request builders, fake-executor chat normalization,
 and NDJSON stream event parsing in `@ricochet/ai`, plus a native Ollama
 dry-run showcase. Anthropic-compatible helpers and deeper provider-level
-streaming integration remain open.
+streaming integration remained open at that point.
+
+**Progress Note (2026-06-21):** The Anthropic-compatible package helper slice
+adds Messages API request builders with top-level system-message lifting,
+`x-api-key` and `anthropic-version` headers, fake-executor chat normalization,
+`tool_use` extraction, and Anthropic SSE parsing for text deltas, tool-input
+JSON deltas, done events, and stream error events. Provider-level runtime and
+streaming integration beyond package executor boundaries remains open.
 
 **Verification Gate:**
 

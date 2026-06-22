@@ -1,0 +1,27 @@
+"ai/openai" import
+
+"ANTHROPIC_API_KEY" ai_secret_ref apiKeyRef var
+
+messages array
+$messages "Keep the answer brief." ai_system_message push! drop
+$messages "Return the word ricochet." ai_user_message push! drop
+
+"https://api.anthropic.com/v1" "dry-run-token" "2023-06-01" "claude-sonnet-4-5" $messages 256 ai_anthropic_chat_request request var
+
+hosts array
+$hosts "api.anthropic.com" push! drop
+$request "allowed_hosts" $hosts put! drop
+
+schemes array
+$schemes "https" push! drop
+$request "allowed_schemes" $schemes put! drop
+
+$request 30000 http_timeout value request set
+$request "max_response_bytes" 1048576 put! drop
+$request "api_key_ref" $apiKeyRef put! drop
+
+$request "method" at "POST" assert_equals
+$request "url" at "https://api.anthropic.com/v1/messages" assert_equals
+$request "api_key_ref" at "name" at "ANTHROPIC_API_KEY" assert_equals
+
+$request json_encode println

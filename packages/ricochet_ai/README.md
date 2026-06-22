@@ -1,16 +1,17 @@
 # @ricochet/ai
 
 Beta helpers for building provider-neutral AI contracts,
-OpenAI-compatible HTTP calls, and local/Ollama-compatible request flows in
-Ricochet apps.
+OpenAI-compatible HTTP calls, Anthropic-compatible Messages API calls, and
+local/Ollama-compatible request flows in Ricochet apps.
 
 This package keeps provider workflows outside Ricochet core. It builds
 provider, message, request, response, error, stream-event, retry-policy, tool,
 schema-validation maps, retry predicates/delay helpers, local tool-dispatch
-helpers, and fake-provider-testable OpenAI-compatible response normalization.
-It also provides OpenAI-compatible and Ollama request maps on top of core
-`secret_env`, `secret_resolve`, and HTTP request-map helpers, plus SSE and
-NDJSON response-body parsers for providers that return streaming payloads.
+helpers, and fake-provider-testable provider response normalization. It also
+provides OpenAI-compatible, Anthropic-compatible, and Ollama request maps on
+top of core `secret_env`, `secret_resolve`, and HTTP request-map helpers, plus
+SSE and NDJSON response-body parsers for providers that return streaming
+payloads.
 
 Apps still own provider selection, long-running stream orchestration, and
 user-facing agent behavior. The package-level executor helpers let apps wire
@@ -193,6 +194,50 @@ Use `ai_openai_stream_events` when tests or small responses need structured
 stream events instead of only concatenated text. It returns a `Result` whose ok
 value is an array of `ai_stream_event` maps and whose error value reports
 malformed SSE JSON without crashing the caller.
+
+## Anthropic-compatible helpers
+
+Anthropic's Messages API uses `POST /v1/messages`, the `x-api-key` header, and
+an explicit `anthropic-version` header. System messages from the neutral
+message list are moved to the top-level `system` field, while user and
+assistant messages remain in the `messages` array:
+
+```ricochet
+"ai/openai" import
+
+messages array
+$messages "Keep the answer brief." ai_system_message push! drop
+$messages "Return the word ricochet." ai_user_message push! drop
+
+"ANTHROPIC_API_KEY" ai_secret_ref secret_resolve value token var
+"https://api.anthropic.com/v1" $token "2023-06-01" "claude-sonnet-4-5" $messages 256 ai_anthropic_chat_request request var
+```
+
+For fake-provider-testable runtime flows, use the same neutral contract and
+executor shape as the OpenAI-compatible helpers:
+
+```ricochet
+"https://api.anthropic.com/v1" "claude-sonnet-4-5" ai_anthropic_provider provider var
+options map
+tools array
+3 0 0 ai_retry_policy retry var
+$provider "claude-sonnet-4-5" $messages $options $tools $retry ai_chat_request contract var
+
+[
+  attempt var
+  chatRequest var
+  $provider "base_url" at $token "2023-06-01" $chatRequest "model" at $chatRequest "messages" at 256 ai_anthropic_chat_request request var
+  $request http_request
+] executor var
+
+$contract $executor ai_anthropic_execute_chat result var
+```
+
+`ai_anthropic_execute_chat` normalizes text content blocks and `tool_use`
+blocks into the package-neutral `ai_chat_response` shape. Use
+`ai_anthropic_stream_events` for small Anthropic SSE bodies; text deltas become
+`delta` events, streamed tool input JSON becomes `tool_delta`, and
+`message_stop` becomes `done`. Stream error events return a failed `Result`.
 
 ## Local/Ollama helpers
 

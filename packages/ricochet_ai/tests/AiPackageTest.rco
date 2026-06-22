@@ -481,4 +481,111 @@ AiPackageTest TestCase Subclass
     $result ok? false assert_equals
     $result error "kind" at "AiProviderMalformedEvent" assert_equals
   ] "testOllamaStreamEventsReportMalformedEvents" Method
+  [
+    "https://api.anthropic.com/v1" "claude-test" ai_anthropic_provider provider var
+    $provider "provider" at "anthropic" assert_equals
+    $provider "base_url" at "https://api.anthropic.com/v1" assert_equals
+    $provider "model" at "claude-test" assert_equals
+
+    messages array
+    $messages "Follow policy." ai_system_message push! drop
+    $messages "hello anthropic" ai_user_message push! drop
+    "https://api.anthropic.com/v1" "TOKEN" "2023-06-01" "claude-test" $messages 1024 ai_anthropic_chat_request request var
+    $request "method" at "POST" assert_equals
+    $request "url" at "https://api.anthropic.com/v1/messages" assert_equals
+    $request "headers" at "x-api-key" at "TOKEN" assert_equals
+    $request "headers" at "anthropic-version" at "2023-06-01" assert_equals
+    $request "json" at "model" at "claude-test" assert_equals
+    $request "json" at "max_tokens" at 1024 assert_equals
+    $request "json" at "system" at "Follow policy." assert_equals
+    $request "json" at "messages" at count 1 assert_equals
+    $request "json" at "messages" at first "role" at "user" assert_equals
+    $request "json" at "stream" at false assert_equals
+
+    "https://api.anthropic.com/v1" "TOKEN" "2023-06-01" "claude-test" $messages 1024 ai_anthropic_chat_stream_request streamRequest var
+    $streamRequest "headers" at "Accept" at "text/event-stream" assert_equals
+    $streamRequest "json" at "stream" at true assert_equals
+  ] "testAnthropicProviderAndRequestMaps" Method
+  [
+    "https://api.anthropic.com/v1" "claude-test" ai_anthropic_provider provider var
+    messages array
+    $messages "hello" ai_user_message push! drop
+    options map
+    tools array
+    2 0 0 ai_retry_policy retry var
+    $provider "claude-test" $messages $options $tools $retry ai_chat_request request var
+    attempts array
+
+    [
+      attempt var
+      providerRequest var
+      $attempts $attempt push! drop
+      response map
+      $attempt 1 = if
+        $response "status" 529 put! drop
+        $response "body" "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}" put! drop
+      else
+        $response "status" 200 put! drop
+        $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"anthropic ready\"}]}" put! drop
+      end
+      $response ok
+    ] executor var
+
+    $request $executor ai_anthropic_execute_chat result var
+    $result ok? true assert_equals
+    $result value "text" at "anthropic ready" assert_equals
+    $result value "model" at "claude-test" assert_equals
+    $attempts count 2 assert_equals
+  ] "testAnthropicExecuteChatRetriesFakeProviderStatus" Method
+  [
+    "https://api.anthropic.com/v1" "claude-test" ai_anthropic_provider provider var
+    messages array
+    options map
+    tools array
+    1 0 0 ai_retry_policy retry var
+    $provider "claude-test" $messages $options $tools $retry ai_chat_request request var
+
+    [
+      drop
+      drop
+      response map
+      $response "status" 200 put! drop
+      $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"checking tool\"},{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{\"city\":\"Chicago\"}}]}" put! drop
+      $response ok
+    ] executor var
+
+    $request $executor ai_anthropic_execute_chat result var
+    $result ok? true assert_equals
+    $result value "text" at "checking tool" assert_equals
+    $result value "tool_calls" at toolCalls var
+    $toolCalls count 1 assert_equals
+    $toolCalls first "id" at "toolu_1" assert_equals
+    $toolCalls first "name" at "get_weather" assert_equals
+    $toolCalls first "arguments" at "city" at "Chicago" assert_equals
+  ] "testAnthropicExecuteChatExtractsToolUse" Method
+  [
+    "data: {\"type\":\"message_start\",\"message\":{\"content\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n" body var
+    $body ai_anthropic_stream_events result var
+    $result ok? true assert_equals
+    $result value events var
+    $events count 4 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hel" assert_equals
+    $events 1 at "kind" at "tool_delta" assert_equals
+    $events 1 at "data" at "{\"city\":" assert_equals
+    $events 2 at "data" at "lo" assert_equals
+    $events 3 at "kind" at "done" assert_equals
+    $events 3 at "done" at true assert_equals
+  ] "testAnthropicStreamEventsReturnChunksToolDeltasAndDone" Method
+  [
+    "data: {bad-json}\n\n" ai_anthropic_stream_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "AiProviderMalformedEvent" assert_equals
+  ] "testAnthropicStreamEventsReportMalformedEvents" Method
+  [
+    "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n" ai_anthropic_stream_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "overloaded_error" assert_equals
+    $result error "message" at "Overloaded" assert_equals
+  ] "testAnthropicStreamEventsReportProviderErrors" Method
 end

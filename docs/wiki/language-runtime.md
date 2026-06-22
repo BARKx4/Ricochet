@@ -212,7 +212,11 @@ $contract $executor ai_openai_execute_chat value "text" at println
 The same executor boundary is used by
 `examples/showcase/ai_provider_probe/fake_provider.rco` for offline provider
 tests and by `local_model_request.rco` for local OpenAI-compatible endpoints.
-Native Ollama `/api/chat` flows use the same contract shape with
+Anthropic Messages API flows use `ai_anthropic_provider`,
+`ai_anthropic_chat_request`, `ai_anthropic_execute_chat`, and
+`ai_anthropic_stream_events`; see
+`examples/showcase/ai_provider_probe/anthropic_request.rco` for a dry-run
+request shape. Native Ollama `/api/chat` flows use the same contract shape with
 `ai_ollama_provider`, `ai_ollama_chat_request`, `ai_ollama_execute_chat`, and
 `ai_ollama_stream_events`; see
 `examples/showcase/ai_provider_probe/ollama_native_request.rco`.
