@@ -2,4 +2,3 @@ exclude:
   - feature-map.md
   - reviews/
   - superpowers/
-  - SOLACE_AGENT_HANDOFF.md
