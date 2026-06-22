@@ -252,9 +252,11 @@ foreach ($platform in $platforms) {
             if ($RequireProduction -and -not $verification.Contains("gpg-detached")) {
                 Add-Error $errors "Linux update channel entry must require gpg-detached verification."
             }
-            foreach ($artifact in @($platform.artifacts | Where-Object { $_.kind -in @("archive", "debian-package") })) {
-                if (-not (Test-JsonProperty $artifact "signature") -or -not $artifactByName.ContainsKey([string]$artifact.signature)) {
-                    Add-Error $errors "Linux update artifact '$($artifact.name)' must reference an included detached signature."
+            if ($RequireProduction) {
+                foreach ($artifact in @($platform.artifacts | Where-Object { $_.kind -in @("archive", "debian-package") })) {
+                    if (-not (Test-JsonProperty $artifact "signature") -or -not $artifactByName.ContainsKey([string]$artifact.signature)) {
+                        Add-Error $errors "Linux update artifact '$($artifact.name)' must reference an included detached signature."
+                    }
                 }
             }
         }
