@@ -126,7 +126,7 @@ jobs:
           Write-Host "Using NSIS at $makensis"
 
       - name: Import Windows signing certificate
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: pwsh
         env:
           RICOCHET_WINDOWS_CERT_PFX_BASE64: ${{ secrets.RICOCHET_WINDOWS_CERT_PFX_BASE64 }}
@@ -141,7 +141,7 @@ jobs:
           RICOCHET_WINDOWS_TIMESTAMP_URL: ${{ vars.RICOCHET_WINDOWS_TIMESTAMP_URL }}
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') {
             $signingMode = 'require'
           } elseif ('${{ needs.resolve-version.outputs.is_nightly }}' -eq 'true') {
             $signingMode = 'auto'
@@ -210,14 +210,14 @@ jobs:
       - name: Validate store-ready packaging
         shell: pwsh
         run: |
-          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true'
           .\scripts\validate-store-packaging.ps1 `
             -Target windows-x64 `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: pwsh
         run: |
           .\scripts\verify-release-signatures.ps1 `
@@ -255,7 +255,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: Import Linux GPG signing key
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash
         env:
           RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64 }}
@@ -269,7 +269,7 @@ jobs:
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
           signature_mode='dry-run'
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          if [[ "$GITHUB_REF_TYPE" == "tag" && '${{ needs.resolve-version.outputs.is_prerelease }}' != "true" ]]; then
             signature_mode='require'
           elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
             signature_mode='auto'
@@ -331,14 +331,14 @@ jobs:
       - name: Validate store-ready packaging
         shell: pwsh
         run: |
-          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true'
           ./scripts/validate-store-packaging.ps1 `
             -Target linux-x64 `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: pwsh
         run: |
           ./scripts/verify-release-signatures.ps1 `
@@ -379,7 +379,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare macOS signing keychain
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash
         env:
           RICOCHET_MACOS_CERT_P12_BASE64: ${{ secrets.RICOCHET_MACOS_CERT_P12_BASE64 }}
@@ -402,7 +402,7 @@ jobs:
           version='${{ needs.resolve-version.outputs.version }}'
           signing_mode='dry-run'
           notarization_mode='dry-run'
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          if [[ "$GITHUB_REF_TYPE" == "tag" && '${{ needs.resolve-version.outputs.is_prerelease }}' != "true" ]]; then
             signing_mode='require'
             notarization_mode='require'
           elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
@@ -413,7 +413,7 @@ jobs:
           bash scripts/package-release-macos.sh "${args[@]}"
 
       - name: Cleanup macOS signing keychain
-        if: always() && github.ref_type == 'tag'
+        if: always() && github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash
         run: |
           bash scripts/cleanup-macos-signing-keychain.sh
@@ -440,14 +440,14 @@ jobs:
       - name: Validate store-ready packaging
         shell: pwsh
         run: |
-          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true'
           ./scripts/validate-store-packaging.ps1 `
             -Target '${{ matrix.target }}' `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: pwsh
         run: |
           ./scripts/verify-release-signatures.ps1 `
@@ -498,7 +498,7 @@ jobs:
             -DistDir dist `
             -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
             -Version '${{ needs.resolve-version.outputs.version }}' `
-            -RequireProduction
+            -RequireProduction:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
 
       - name: Write checksums
         shell: bash

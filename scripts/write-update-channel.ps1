@@ -113,6 +113,10 @@ function Get-FirstArtifactName {
 function Get-RequiredVerification {
     param([string] $Target)
 
+    if ($Channel -ne "stable") {
+        return @("sha256")
+    }
+
     switch ($Target) {
         "windows-x64" { @("authenticode", "sha256") }
         "linux-x64" { @("gpg-detached", "sha256") }

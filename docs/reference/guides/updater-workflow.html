@@ -46,7 +46,7 @@
           <p>Ricochet's production updater workflow is channel metadata plus platform verification. The v1 beta does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
 
           <h2 id="channel-metadata">Channel Metadata</h2>
-          <p>Production stable tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts. Semver prerelease tags such as <code>v0.1.19-rc.1</code> publish <code>UPDATE-CHANNEL-candidate.json</code> and are marked as GitHub prereleases. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
+          <p>Production stable tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts and require platform signature/notarization verification. Semver prerelease tags such as <code>v0.1.19-rc.1</code> publish <code>UPDATE-CHANNEL-candidate.json</code>, are marked as GitHub prereleases, and record SHA-256 verification metadata for dry-run signed candidate artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel candidate `

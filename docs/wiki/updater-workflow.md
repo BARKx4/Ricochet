@@ -9,8 +9,10 @@ runtime.
 ## Channel Metadata
 
 Production stable tag releases publish `UPDATE-CHANNEL-stable.json` beside the
-release artifacts. Semver prerelease tags such as `v0.1.19-rc.1` publish
-`UPDATE-CHANNEL-candidate.json` and are marked as GitHub prereleases. The file
+release artifacts and require platform signature/notarization verification.
+Semver prerelease tags such as `v0.1.19-rc.1` publish
+`UPDATE-CHANNEL-candidate.json`, are marked as GitHub prereleases, and record
+SHA-256 verification metadata for dry-run signed candidate artifacts. The file
 uses schema `ricochet.update-channel` version `1` and is written by:
 
 ```powershell

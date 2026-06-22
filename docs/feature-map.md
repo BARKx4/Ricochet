@@ -663,7 +663,9 @@ Implemented:
   `UPDATE-CHANNEL-candidate.json` for semver prerelease tags. The document
   records release version, platform manifests, required verification methods,
   artifact hashes, rollout percentage, and the default reject-older-or-equal
-  rollback policy for external installers or future elevated updaters.
+  rollback policy for external installers or future elevated updaters. Stable
+  channels require production signature/notarization verification; candidate
+  channels record SHA-256 verification metadata for dry-run signed artifacts.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 

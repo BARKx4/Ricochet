@@ -284,8 +284,10 @@ Windows, Linux, and macOS packages, validates artifact manifests, validates
 store-ready packaging, verifies production signatures, writes the update channel
 metadata, writes the combined checksum file, and creates the GitHub release.
 Semver prerelease tags such as `v0.1.19-rc.1` are published as GitHub
-prereleases, are not marked latest, and write `UPDATE-CHANNEL-candidate.json`
-instead of the stable channel file.
+prereleases, are not marked latest, use the dry-run signing/notarization path,
+and write `UPDATE-CHANNEL-candidate.json` with SHA-256 verification metadata
+instead of the stable channel file. Stable tag releases continue to require the
+production signing and notarization secrets before publishing.
 
 For a manual production package dry run before tagging, run the platform
 packaging commands on their native operating systems with production modes:
