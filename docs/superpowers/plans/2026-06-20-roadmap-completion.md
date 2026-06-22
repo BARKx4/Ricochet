@@ -927,7 +927,7 @@ closure audit.
 - [x] Run the full local gate: fmt, clippy, workspace tests, audit, docs validation, editor validation, words check, acceptance.
 - [x] Run release dry-run workflow if available.
 - [x] Update `docs/feature-map.md` to mark roadmap complete and move non-goals to a separate section.
-- [ ] Publish a release candidate after selecting the next public version/tag.
+- [x] Publish a release candidate after selecting the next public version/tag.
 - [x] Watch GitHub CI and release workflow to completion.
 
 **Verification Gate:**
@@ -959,9 +959,18 @@ early and `dpkg-deb`/tar exited with code 2. Commit `f08b70c` fixes the root
 cause by writing `dpkg-deb` output to temp files before grepping. Follow-up
 Release dry-run `27937637432` passed on Windows, Linux, macOS arm64, and macOS
 x64. Branch CI run `27937634579` passed on Windows, Ubuntu, and macOS. The
-existing latest public release is `v0.1.18`; publishing the next release
-candidate remains a release-management step that needs the next version/tag
-selected instead of reusing an existing tag.
+existing latest public release is `v0.1.18`.
+
+**Progress Note (2026-06-22):** Release candidate `v0.1.19-rc.1` is published
+as a GitHub prerelease at
+`https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.1`; the stable
+`/releases/latest` pointer remains `v0.1.18`. The published tag now points at
+commit `f4f775a`, after removing the private handoff artifact from the
+tracked tree and replacing the first RC release/tag so generated source archives
+no longer include it. Verification runs for the cleaned commit passed: Release
+`27943367474`, tag CI `27943367462`, main CI `27943346681`, Pages
+`27943345346`, and CodeQL `27943344504`. The obsolete
+`codex/roadmap-execution` branch was deleted after merging into `main`.
 
 ---
 
