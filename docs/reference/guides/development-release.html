@@ -42,6 +42,7 @@
           <a href="#developing-ricochet">Developing Ricochet</a>
           <a href="#verification">Verification</a>
           <a href="#release-packaging">Release Packaging</a>
+          <a href="#production-release-commands">Production Release Commands</a>
           <a href="#reference-docs">Reference Docs</a>
         </aside>
         <article class="guide-content">
@@ -74,7 +75,8 @@ $envFile = Join-Path ([IO.Path]::GetTempPath()) ("ricochet-windows-signing-" + [
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-windows-signing-certificate.ps1 -Required -EnvFile $envFile
 . $envFile</code></pre>
           <p>Validate a Windows output directory with:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -RequireInstaller</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64</code></pre>
           <p>Omit <code>-RequireInstaller</code> for local dry-runs on machines without NSIS; CI keeps it enabled because release jobs install NSIS and require the installer artifact.</p>
           <p>For production tag outputs, verify the Authenticode signatures on the portable ZIP contents and installer before upload:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
@@ -92,7 +94,8 @@ set -a
 . "$env_file"
 set +a</code></pre>
           <p>Validate a Linux output directory with:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64</code></pre>
           <p>For production tag outputs, verify every detached GPG signature against the selected signing key before upload:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey $env:RICOCHET_LINUX_GPG_KEY</code></pre>
           <p>macOS release tarballs are built on macOS with:</p>
@@ -116,16 +119,58 @@ trap 'bash scripts/cleanup-macos-signing-keychain.sh' EXIT</code></pre>
           <p>For App Store Connect API key notarization, use <code>RICOCHET_MACOS_NOTARY_API_KEY_BASE64</code>, <code>RICOCHET_MACOS_NOTARY_KEY_ID</code>, and <code>RICOCHET_MACOS_NOTARY_ISSUER_ID</code> instead of the Apple ID variables.</p>
           <p>Validate a macOS output directory with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64
-pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64</code></pre>
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-x64</code></pre>
           <p>For production tag outputs, verify the extracted binaries' codesign signatures and the <code>NOTARY-&lt;target&gt;.json</code> accepted notarization report before upload:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
-          <p>To publish a GitHub release, push a version tag:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>git tag vX.Y.Z
-git push origin vX.Y.Z</code></pre>
-          <p>The release workflow packages the Windows, Linux, and macOS artifacts, writes a validated <code>UPDATE-CHANNEL-stable.json</code>, writes a combined <code>SHA256SUMS.txt</code>, and attaches the ZIP, Windows installer, Linux tarball, Debian package, macOS tarballs, checksums, signing-status reports, per-target JSON manifests, notary reports, and update-channel metadata to the GitHub release. The combined checksum file includes the uploaded JSON manifests, macOS notary reports, and update-channel metadata. Each package job validates its <code>ARTIFACTS-&lt;target&gt;.json</code> manifest after the package smoke test and before uploading artifacts, including installer/deb requirements in CI and detached Linux <code>.asc</code> signature relationships when signatures are present. Production tag package jobs also verify signatures before upload: Windows checks the portable ZIP executables and installer Authenticode signatures, Linux verifies detached GPG signatures, and macOS verifies codesign plus the accepted notarytool response. See <a href="updater-workflow.html">Updater Workflow</a> for channel metadata, version-check, verification, and rollback rules.</p>
+          <h2 id="production-release-commands">Production Release Commands</h2>
+          <p>Production releases are tag-driven. With the GitHub repository secrets from this guide configured, the normal release path is:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>$version = "0.1.18"
+$tag = "v$version"
+
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git status --short
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+
+git tag -a $tag -m "Ricochet $tag"
+git push origin $tag
+gh run list --workflow Release --limit 5
+gh run watch &lt;run-id&gt; --exit-status
+gh release view $tag --json tagName,name,isDraft,isPrerelease,url</code></pre>
+          <p>The release workflow imports production signing credentials on tag jobs, builds Windows, Linux, and macOS packages, validates artifact manifests, validates store-ready packaging, verifies production signatures, writes the update channel metadata, writes the combined checksum file, and creates the GitHub release.</p>
+          <p>For a manual production package dry run before tagging, run the platform packaging commands on their native operating systems with production modes:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># Windows, with NSIS and the Authenticode certificate already available.
+$version = "0.1.18"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># Linux, with GPG credentials imported.
+version="0.1.18"
+bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey "$RICOCHET_LINUX_GPG_KEY"</code></pre>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># macOS, once for each native target with the signing keychain prepared.
+version="0.1.18"
+bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
+          <p>After all platform artifacts are collected in one <code>dist</code> directory, validate the release channel and combined artifact set:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 0.1.18 -ReleaseTag v0.1.18 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.18
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 0.1.18 -RequireProduction</code></pre>
+          <p>The release workflow packages the Windows, Linux, and macOS artifacts, writes a validated <code>UPDATE-CHANNEL-stable.json</code>, writes a combined <code>SHA256SUMS.txt</code>, and attaches the ZIP, Windows installer, Linux tarball, Debian package, macOS tarballs, checksums, signing-status reports, per-target JSON manifests, notary reports, and update-channel metadata to the GitHub release. The combined checksum file includes the uploaded JSON manifests, macOS notary reports, and update-channel metadata. Each package job validates its <code>ARTIFACTS-&lt;target&gt;.json</code> manifest after the package smoke test and before uploading artifacts, validates store-ready package contents and metadata, including installer/deb requirements in CI and detached Linux <code>.asc</code> signature relationships when signatures are present. Production tag package jobs also verify signatures before upload: Windows checks the portable ZIP executables and installer Authenticode signatures, Linux verifies detached GPG signatures, and macOS verifies codesign plus the accepted notarytool response. See <a href="store-packaging.html">Store Packaging</a> for marketplace handoff rules and <a href="updater-workflow.html">Updater Workflow</a> for channel metadata, version-check, verification, and rollback rules.</p>
           <p>The same workflow also runs nightly from <code>main</code>. Nightly builds use a version like <code>X.Y.Z-nightly.N</code>, build the same Windows, Linux, and macOS packages, and upload them as GitHub Actions artifacts for 30 days. Nightlies do not create public GitHub releases.</p>
-          <p>Store packaging and exact production release command documentation remain open.</p>
           <h2 id="reference-docs">Reference Docs</h2>
           <p>The documentation website is static and lives at <code>docs/reference/index.html</code>. Open it directly in a browser; there is no build step.</p>
         </article>

@@ -650,6 +650,9 @@ Implemented:
   after package smoke tests and before upload, including required installer/deb
   artifacts in CI and Linux detached-signature relationships when signatures
   exist.
+- Release workflow package jobs also validate store-ready packaging before
+  upload: Windows ZIP/installer shape, Linux tarball and Debian desktop/AppStream
+  metadata, and macOS tarball plus production notarization readiness.
 - Production tag package jobs verify release signatures before upload: Windows
   checks Authenticode signatures on the portable ZIP executables and installer,
   Linux verifies detached GPG signatures against the selected signing key, and
@@ -670,6 +673,7 @@ Evidence:
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
 - `scripts/verify-release-signatures.ps1`
+- `scripts/validate-store-packaging.ps1`
 - `scripts/write-update-channel.ps1`
 - `scripts/validate-update-channel.ps1`
 - `scripts/setup-windows-signing-certificate.ps1`
@@ -680,11 +684,13 @@ Evidence:
 - `.github/workflows/release.yml`
 - `README.md`
 - `docs/releases`
+- `docs/wiki/store-packaging.md`
 
 Remaining:
 
-- Production-grade app distribution polish remains: app store packaging and
-  exact production release command documentation.
+- No production distribution polish remains in the current roadmap. External
+  marketplace uploads still require operator-owned publisher accounts and review
+  flows, starting from the validated release artifacts.
 
 Do not assume:
 
@@ -712,8 +718,7 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Production app distribution polish: store packaging and exact production
-  release command documentation.
+- Central roadmap closure audit before claiming every roadmap item is complete.
 
 ## Maintenance Rules
 

@@ -92,6 +92,7 @@ Validate a Windows output directory with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64
 ```
 
 Omit `-RequireInstaller` for local dry-runs on machines without NSIS; CI keeps
@@ -153,6 +154,7 @@ Validate a Linux output directory with:
 
 ```powershell
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64
 ```
 
 For production tag outputs, verify every detached GPG signature against the
@@ -237,7 +239,9 @@ Validate a macOS output directory with:
 
 ```bash
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-x64
 ```
 
 For production tag outputs, verify the extracted binaries' codesign signatures
@@ -248,11 +252,74 @@ pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm6
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
 ```
 
-To publish a GitHub release, push a version tag:
+## Production Release Commands
+
+Production releases are tag-driven. With the GitHub repository secrets from
+this guide configured, the normal release path is:
 
 ```powershell
-git tag vX.Y.Z
-git push origin vX.Y.Z
+$version = "0.1.18"
+$tag = "v$version"
+
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git status --short
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+
+git tag -a $tag -m "Ricochet $tag"
+git push origin $tag
+gh run list --workflow Release --limit 5
+gh run watch <run-id> --exit-status
+gh release view $tag --json tagName,name,isDraft,isPrerelease,url
+```
+
+The release workflow imports production signing credentials on tag jobs, builds
+Windows, Linux, and macOS packages, validates artifact manifests, validates
+store-ready packaging, verifies production signatures, writes the update channel
+metadata, writes the combined checksum file, and creates the GitHub release.
+
+For a manual production package dry run before tagging, run the platform
+packaging commands on their native operating systems with production modes:
+
+```powershell
+# Windows, with NSIS and the Authenticode certificate already available.
+$version = "0.1.18"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1
+```
+
+```bash
+# Linux, with GPG credentials imported.
+version="0.1.18"
+bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey "$RICOCHET_LINUX_GPG_KEY"
+```
+
+```bash
+# macOS, once for each native target with the signing keychain prepared.
+version="0.1.18"
+bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
+```
+
+After all platform artifacts are collected in one `dist` directory, validate the
+release channel and combined artifact set:
+
+```powershell
+pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 0.1.18 -ReleaseTag v0.1.18 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.18
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 0.1.18 -RequireProduction
 ```
 
 The release workflow packages the Windows, Linux, and macOS artifacts, writes a
@@ -263,20 +330,20 @@ reports, and update-channel metadata to the GitHub release. The combined
 checksum file includes the uploaded JSON manifests, macOS notary reports, and
 update-channel metadata. Each package job validates its
 `ARTIFACTS-<target>.json` manifest after the package smoke test and before
-uploading artifacts, including installer/deb requirements in CI and detached
-Linux `.asc` signature relationships when signatures are present. Production
-tag package jobs also verify signatures before upload: Windows checks the
-portable ZIP executables and installer Authenticode signatures, Linux verifies
-detached GPG signatures, and macOS verifies codesign plus the accepted
-notarytool response. See [Updater Workflow](updater-workflow.md) for channel
-metadata, version-check, verification, and rollback rules.
+uploading artifacts, validates store-ready package contents and metadata,
+including installer/deb requirements in CI and detached Linux `.asc` signature
+relationships when signatures are present. Production tag package jobs also
+verify signatures before upload: Windows checks the portable ZIP executables
+and installer Authenticode signatures, Linux verifies detached GPG signatures,
+and macOS verifies codesign plus the accepted notarytool response. See
+[Store Packaging](store-packaging.md) for marketplace handoff rules and
+[Updater Workflow](updater-workflow.md) for channel metadata, version-check,
+verification, and rollback rules.
 
 The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and
 upload them as GitHub Actions artifacts for 30 days. Nightlies do not create
 public GitHub releases.
-
-Store packaging and exact production release command documentation remain open.
 
 ## Reference Docs
 

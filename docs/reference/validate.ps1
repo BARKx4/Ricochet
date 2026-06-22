@@ -18,6 +18,7 @@ $requiredFiles = @(
     "guides/packages.html",
     "guides/editor-debugging.html",
     "guides/development-release.html",
+    "guides/store-packaging.html",
     "guides/updater-workflow.html"
 )
 
@@ -69,6 +70,7 @@ if ($failures.Count -eq 0) {
         "Packages And Registries",
         "Editor And Debugging",
         "Development And Release",
+        "Store Packaging",
         "Updater Workflow"
     )
 

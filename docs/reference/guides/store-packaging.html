@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Store Packaging - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Production distribution</p>
+          <h1>Store Packaging</h1>
+          <p class="lede">Store-ready release inputs, metadata validation, and marketplace handoff rules for production Ricochet packages.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/store-packaging.html</code>
+            <code>docs/wiki/store-packaging.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Store Packaging content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#supported-release-inputs">Supported Release Inputs</a>
+          <a href="#store-readiness-gate">Store Readiness Gate</a>
+          <a href="#marketplace-submission">Marketplace Submission</a>
+        </aside>
+        <article class="guide-content">
+          <p>Ricochet publishes store-ready release inputs, not marketplace account uploads. The repository-owned boundary is packaging, metadata, signing, notarization, checksums, manifests, and update-channel metadata. Microsoft Partner Center, Apple App Store Connect, Flathub, Snapcraft, and distro repository uploads stay operator-owned because they require external publisher accounts, review flows, and account-specific legal metadata.</p>
+
+          <h2 id="supported-release-inputs">Supported Release Inputs</h2>
+          <p>Windows releases provide a portable ZIP, an NSIS setup executable, Authenticode signing for production tags, an artifact manifest, a signing report, and checksums.</p>
+          <p>Linux releases provide a portable tarball, a Debian package, desktop launcher metadata, SVG icon, AppStream metainfo, changelog, maintainer metadata, bundled docs/examples/packages, detached GPG signatures for production tags, a manifest, a signing report, and checksums.</p>
+          <p>macOS releases provide Apple Silicon and Intel tarballs, codesigned binaries, accepted notarization reports for production tags, manifests, signing reports, notary reports, and checksums.</p>
+
+          <h2 id="store-readiness-gate">Store Readiness Gate</h2>
+          <p>Run the store packaging validator after artifact manifest validation:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target windows-x64 `
+  -PackageVersion 0.1.18
+
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target linux-x64 `
+  -PackageVersion 0.1.18
+
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target macos-arm64 `
+  -PackageVersion 0.1.18</code></pre>
+          <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
+          <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball metadata and Debian package metadata, and macOS tarball contents plus accepted notarization reports for production tags.</p>
+
+          <h2 id="marketplace-submission">Marketplace Submission</h2>
+          <p>Marketplace submission starts from the validated GitHub release artifacts. Windows uses the signed installer or a future Partner Center/MSIX pass tied to the publisher identity. Linux uses the Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging. macOS uses the signed and notarized tarballs for direct distribution; a Mac App Store SKU would need a separate sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</p>
+          <p>Do not publish marketplace artifacts that failed manifest validation, store-packaging validation, signature verification, or update-channel validation.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

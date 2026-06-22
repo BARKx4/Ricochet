@@ -194,6 +194,15 @@ jobs:
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireInstaller
 
+      - name: Validate store-ready packaging
+        shell: pwsh
+        run: |
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          .\scripts\validate-store-packaging.ps1 `
+            -Target windows-x64 `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction:$requireProduction
+
       - name: Verify production release signatures
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -301,6 +310,15 @@ jobs:
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireDeb
 
+      - name: Validate store-ready packaging
+        shell: pwsh
+        run: |
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          ./scripts/validate-store-packaging.ps1 `
+            -Target linux-x64 `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction:$requireProduction
+
       - name: Verify production release signatures
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -400,6 +418,15 @@ jobs:
           ./scripts/validate-release-artifacts.ps1 `
             -Target '${{ matrix.target }}' `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}'
+
+      - name: Validate store-ready packaging
+        shell: pwsh
+        run: |
+          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag'
+          ./scripts/validate-store-packaging.ps1 `
+            -Target '${{ matrix.target }}' `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
         if: github.ref_type == 'tag'

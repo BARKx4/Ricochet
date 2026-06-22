@@ -800,7 +800,8 @@ without requiring real external API calls.
 - [x] Implement updater only after signing/signature verification is stable.
 - [x] Add release workflow tests or dry-run jobs for package metadata.
 - [x] Document exact CI secret names and local credential import setup.
-- [ ] Update release docs with exact production release commands.
+- [x] Add store-ready packaging validation and marketplace handoff docs.
+- [x] Update release docs with exact production release commands.
 
 **Verification Gate:**
 
@@ -855,9 +856,9 @@ keychain, import `RICOCHET_MACOS_CERT_P12_BASE64`, configure codesign access,
 create a notarytool profile from Apple ID or App Store Connect API key secrets,
 submit a temporary ZIP copy for notarization, and run an `always()` cleanup step
 that restores the previous keychain state and removes the generated keychain.
-Branch/manual dry-runs and scheduled nightlies still run without secrets.
-Remaining Epic 12 work is store packaging and exact production release command
-documentation.
+Branch/manual dry-runs and scheduled nightlies still run without secrets. At
+that point, remaining Epic 12 work was store packaging and exact production
+release command documentation.
 
 **Progress Note (2026-06-22):** The updater workflow slice adds
 `UPDATE-CHANNEL-stable.json` generation and validation for tag publish jobs.
@@ -867,8 +868,9 @@ artifact manifests, primary artifacts, checksum/signing/notary reports, required
 verification methods, and per-artifact SHA-256 values. The public updater guide
 documents the version check, platform signature verification, staged install,
 and rollback contract for installers or future elevated updaters while keeping a
-self-replacing `rco update` command out of the v1 beta runtime. Remaining Epic
-12 work is store packaging and exact production release command documentation.
+self-replacing `rco update` command out of the v1 beta runtime. At that point,
+remaining Epic 12 work was store packaging and exact production release command
+documentation.
 
 **Progress Note (2026-06-22):** Production tag package jobs now verify release
 signatures before uploading artifacts. Windows verification extracts the
@@ -880,6 +882,18 @@ packaging preserves notarytool's accepted submission response as
 checks both extracted binary codesign signatures and the accepted notary report.
 Remaining Epic 12 work is updater design/implementation, store packaging, and
 exact production release command documentation.
+
+**Progress Note (2026-06-22):** Store-ready packaging validation now runs in
+each release package job after artifact manifest validation and before upload.
+`scripts/validate-store-packaging.ps1` checks Windows ZIP/installer shape, Linux
+tarball desktop/AppStream metadata and Debian control/filesystem metadata, and
+macOS tarball contents plus accepted notarization reports for production tags.
+The public store packaging guide defines the repo-owned boundary as validated
+release inputs rather than marketplace account uploads, and the development
+release guide now includes exact production tag, platform package, signature
+verification, update-channel, and GitHub release commands. Epic 12 production
+distribution polish is complete; remaining roadmap work moves to the central
+closure audit.
 
 ---
 
