@@ -965,12 +965,14 @@ existing latest public release is `v0.1.18`.
 as a GitHub prerelease at
 `https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.1`; the stable
 `/releases/latest` pointer remains `v0.1.18`. The published tag now points at
-commit `f4f775a`, after removing the private handoff artifact from the
-tracked tree and replacing the first RC release/tag so generated source archives
-no longer include it. Verification runs for the cleaned commit passed: Release
-`27943367474`, tag CI `27943367462`, main CI `27943346681`, Pages
-`27943345346`, and CodeQL `27943344504`. The obsolete
-`codex/roadmap-execution` branch was deleted after merging into `main`.
+commit `24950a2`, after removing the private handoff artifact and private
+placeholder references from the tracked tree and replacing the first RC
+release/tag so generated source archives no longer include them. The final
+GitHub-generated source zip was scanned for those private markers and came back
+clean. Verification runs for the cleaned commit passed: Release `27944200657`,
+tag CI `27944200652`, main CI `27944183944`, Pages `27944182932`, and CodeQL
+`27944183068`. The obsolete `codex/roadmap-execution` branch was deleted after
+merging into `main`.
 
 ---
 
