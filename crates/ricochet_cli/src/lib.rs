@@ -7851,7 +7851,11 @@ fn open_platform_webview(
 fn open_native_webview(document: WebviewDocument) -> Result<()> {
     let path = write_linux_webview_document(&document)?;
     open_linux_gui_target(path.as_os_str())?;
-    wait_for_linux_browser_session(&format!("file {}", path.display()))
+    eprintln!(
+        "Ricochet opened file {} with your system browser.",
+        path.display()
+    );
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -7868,7 +7872,17 @@ fn write_linux_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
         .as_millis();
     let file_name = format!("ricochet-gui-{}-{timestamp}.html", std::process::id());
     let path = std::env::temp_dir().join(file_name);
-    fs::write(&path, &document.html)
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .with_context(|| format!("failed to create GUI HTML file {}", path.display()))?;
+    file.write_all(document.html.as_bytes())
         .with_context(|| format!("failed to write GUI HTML file {}", path.display()))?;
     Ok(path)
 }
