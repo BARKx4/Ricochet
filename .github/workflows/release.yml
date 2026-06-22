@@ -24,6 +24,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_nightly: ${{ steps.version.outputs.is_nightly }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      release_channel: ${{ steps.version.outputs.release_channel }}
 
     steps:
       - name: Check out
@@ -43,6 +45,8 @@ jobs:
 
           version="${REQUESTED_VERSION#v}"
           is_nightly=false
+          is_prerelease=false
+          release_channel=stable
 
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             version="${workspace_version}-nightly.${GITHUB_RUN_NUMBER}"
@@ -64,14 +68,23 @@ jobs:
             exit 1
           fi
 
+          if [[ "$is_nightly" != "true" && "$version" == *-* ]]; then
+            is_prerelease=true
+            release_channel=candidate
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "is_nightly=$is_nightly" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+          echo "release_channel=$release_channel" >> "$GITHUB_OUTPUT"
           {
             echo "### Ricochet package version"
             echo
             echo "- Version: \`$version\`"
             echo "- Workspace version: \`$workspace_version\`"
             echo "- Nightly: \`$is_nightly\`"
+            echo "- Prerelease: \`$is_prerelease\`"
+            echo "- Release channel: \`$release_channel\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   package-windows:
@@ -477,13 +490,13 @@ jobs:
         run: |
           ./scripts/write-update-channel.ps1 `
             -DistDir dist `
-            -Channel stable `
+            -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
             -Version '${{ needs.resolve-version.outputs.version }}' `
             -ReleaseTag $env:GITHUB_REF_NAME `
             -ReleaseUrl "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME"
           ./scripts/validate-update-channel.ps1 `
             -DistDir dist `
-            -Channel stable `
+            -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
             -Version '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction
 
@@ -501,7 +514,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -t assets < <(find dist -maxdepth 1 -type f | sort)
+          release_flags=()
+          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' == 'true' ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Ricochet $GITHUB_REF_NAME" \
+            "${release_flags[@]}" \
             --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum, signing-status, artifact manifest, and update-channel reports."

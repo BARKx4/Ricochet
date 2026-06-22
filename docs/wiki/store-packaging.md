@@ -44,15 +44,15 @@ Run the store packaging validator after artifact manifest validation:
 ```powershell
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 0.1.18
+  -PackageVersion 0.1.19-rc.1
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 0.1.18
+  -PackageVersion 0.1.19-rc.1
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 0.1.18
+  -PackageVersion 0.1.19-rc.1
 ```
 
 Add `-RequireProduction` for production tag artifacts. That rejects dry-run,

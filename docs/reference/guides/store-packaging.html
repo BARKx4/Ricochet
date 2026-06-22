@@ -54,15 +54,15 @@
           <p>Run the store packaging validator after artifact manifest validation:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 0.1.18
+  -PackageVersion 0.1.19-rc.1
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 0.1.18
+  -PackageVersion 0.1.19-rc.1
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 0.1.18</code></pre>
+  -PackageVersion 0.1.19-rc.1</code></pre>
           <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
           <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball metadata and Debian package metadata, and macOS tarball contents plus accepted notarization reports for production tags.</p>
 

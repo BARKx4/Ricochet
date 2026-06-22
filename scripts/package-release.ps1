@@ -72,6 +72,30 @@ function Assert-NewPath {
     }
 }
 
+function Compress-ReleaseArchive {
+    param(
+        [string] $SourcePath,
+        [string] $DestinationPath
+    )
+
+    $maxAttempts = 5
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            if (Test-Path -LiteralPath $DestinationPath) {
+                Remove-Item -LiteralPath $DestinationPath -Force
+            }
+            Compress-Archive -Path $SourcePath -DestinationPath $DestinationPath -ErrorAction Stop
+            return
+        } catch {
+            if ($attempt -eq $maxAttempts) {
+                throw
+            }
+            Write-Warning "Compress-Archive failed on attempt $attempt of ${maxAttempts}: $($_.Exception.Message)"
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+}
+
 function Copy-ReleaseDirectory {
     param(
         [string] $Source,
@@ -400,7 +424,7 @@ cmd /K
 '@
 Set-Content -LiteralPath (Join-Path $PackageDir "Ricochet Shell.cmd") -Value $shellLauncher -NoNewline
 
-Compress-Archive -Path (Join-Path $PackageDir "*") -DestinationPath $ArchivePath
+Compress-ReleaseArchive -SourcePath (Join-Path $PackageDir "*") -DestinationPath $ArchivePath
 
 $Assets = @($ArchivePath)
 $makensis = Resolve-Nsis -RequestedPath $NsisPath

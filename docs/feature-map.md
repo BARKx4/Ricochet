@@ -658,11 +658,12 @@ Implemented:
   Linux verifies detached GPG signatures against the selected signing key, and
   macOS verifies codesign signatures plus Apple notarytool's accepted submission
   report.
-- Tag publish jobs write and validate `UPDATE-CHANNEL-stable.json`, a v1
-  updater channel document that records release version, platform manifests,
-  required verification methods, artifact hashes, rollout percentage, and the
-  default reject-older-or-equal rollback policy for external installers or
-  future elevated updaters.
+- Tag publish jobs write and validate a v1 updater channel document:
+  `UPDATE-CHANNEL-stable.json` for stable tags or
+  `UPDATE-CHANNEL-candidate.json` for semver prerelease tags. The document
+  records release version, platform manifests, required verification methods,
+  artifact hashes, rollout percentage, and the default reject-older-or-equal
+  rollback policy for external installers or future elevated updaters.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 

@@ -8,7 +8,7 @@ reference: [Reference Guides](../reference/guides/index.html).
 
 ## Start Here
 
-- [Feature Overview](features.md) - current beta surface area and project scope.
+- [Feature Overview](features.md) - current release-candidate surface area and project scope.
 - [Getting Started](getting-started.md) - common `rco` workflows after install.
 - [Language And Runtime](language-runtime.md) - postfix syntax, runtime values,
   persistent images, source emission, tasks, HTTP helpers, date/time, secrets,
@@ -37,4 +37,4 @@ reference: [Reference Guides](../reference/guides/index.html).
 - [Reference Website Notes](../reference/README.md)
 - [Adding Public Words](../adding-words.md)
 - [Debugger Integrations](../debugger-integrations.md)
-- [Current Beta Release Notes](../releases/v0.1.18-beta.md)
+- [Current Release Candidate Notes](../releases/v0.1.19-rc.1.md)
