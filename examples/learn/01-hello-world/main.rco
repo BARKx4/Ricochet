@@ -1,0 +1,3 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/01-hello-world/main.rco ))
+
+"Hello, Ricochet!" println

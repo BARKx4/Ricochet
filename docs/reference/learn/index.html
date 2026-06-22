@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Learn Ricochet</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Learn</a>
+        <a href="../guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Manual preview</p>
+          <h1>Learn Ricochet</h1>
+          <p class="lede">A planned guided manual for learning Ricochet from the stack model through real MVC apps, packages, and release workflows.</p>
+          <div class="command-strip" aria-label="Manual anchors">
+            <code>values first</code>
+            <code>postfix flow</code>
+            <code>MVC apps</code>
+            <code>safe host powers</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band" aria-labelledby="learn-status-title">
+        <div class="section-heading">
+          <p class="eyebrow">Available now</p>
+          <h2 id="learn-status-title">The Manual Is Being Integrated</h2>
+          <p class="guide-kicker">This landing page establishes the Learn Ricochet entry point for the reference site. The chapter links below describe the intended path at a high level while the full manual pages are prepared.</p>
+        </div>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="../index.html"><strong>Use The Reference Today</strong><span>Look up syntax, words, OOP, MVC, Active Record, CLI commands, debugger behavior, and current beta limits.</span></a>
+          <a class="guide-card" href="../guides/index.html"><strong>Browse The Guides</strong><span>Read production-facing guides for the current toolchain, including getting started, web/data, packages, and host capabilities.</span></a>
+          <a class="guide-card" href="#manual-path"><strong>Preview The Learning Path</strong><span>See the planned chapter sequence without leaving this page or assuming unfinished chapters are published.</span></a>
+        </div>
+      </section>
+
+      <section id="manual-path" class="section-band" aria-labelledby="manual-path-title">
+        <div class="section-heading">
+          <p class="eyebrow">Planned path</p>
+          <h2 id="manual-path-title">Manual Chapters</h2>
+          <p class="guide-kicker">The first Learn Ricochet manual will be organized around the way a new developer naturally builds confidence: small stack programs, named code, app structure, then production-minded tooling.</p>
+        </div>
+        <div class="guide-card-grid">
+          <article id="chapter-orientation" class="guide-card">
+            <strong>1. Orientation</strong>
+            <span>What Ricochet is for, how postfix programs read, and how the `rco` toolchain fits scripts, MVC apps, packages, and desktop builds.</span>
+          </article>
+          <article id="chapter-stack" class="guide-card">
+            <strong>2. Stack And Values</strong>
+            <span>Numbers, strings, booleans, arrays, maps, results, and the core habit of keeping inputs below the word that consumes them.</span>
+          </article>
+          <article id="chapter-control" class="guide-card">
+            <strong>3. Flow And Functions</strong>
+            <span>Blocks, conditionals, loops, named functions, argument metadata, error handling, and readable public word naming.</span>
+          </article>
+          <article id="chapter-objects" class="guide-card">
+            <strong>4. Objects And Records</strong>
+            <span>Classes, fields, accessors, methods, model table mappings, and the receiver-before-selector style used across the language.</span>
+          </article>
+          <article id="chapter-web" class="guide-card">
+            <strong>5. Web Apps</strong>
+            <span>Routes, controllers, views, request data, sessions, uploads, hot reload, static assets, and local app development with `rco serve`.</span>
+          </article>
+          <article id="chapter-data" class="guide-card">
+            <strong>6. Data And Migrations</strong>
+            <span>SQLite, PostgreSQL, MySQL, Active Record queries, inserts, updates, schema migrations, rollback, dump, and seed workflows.</span>
+          </article>
+          <article id="chapter-host" class="guide-card">
+            <strong>7. Host Capabilities</strong>
+            <span>Filesystem, HTTP, process, PTY, sockets, environment, secrets, approvals, and the difference between trusted and sandboxed runs.</span>
+          </article>
+          <article id="chapter-packages" class="guide-card">
+            <strong>8. Packages And Registries</strong>
+            <span>Dependencies, lockfiles, audits, static and hosted registries, package publishing, static imports, and dynamic runtime imports.</span>
+          </article>
+          <article id="chapter-tools" class="guide-card">
+            <strong>9. Tools And Release</strong>
+            <span>Formatting, linting, tests, debugging, editor support, packaging, release artifacts, update channels, and validation before shipping.</span>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Learn Ricochet</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

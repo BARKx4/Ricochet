@@ -1,0 +1,18 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/03-stack/main.rco ))
+
+"Stack receipt" println
+
+4 price var
+3 quantity var
+
+$price $quantity * subtotal var
+$subtotal 2 + total var
+
+"items:" print
+$quantity println
+
+"subtotal:" print
+$subtotal println
+
+"total:" print
+$total println

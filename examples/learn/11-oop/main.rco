@@ -1,0 +1,21 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/11-oop/main.rco ))
+
+Contact Object Subclass
+  "name" Accessor
+  "email" Accessor
+
+  [
+    self name.get
+    " <" concat
+    self email.get concat
+    ">" concat
+  ] "card" Method
+end
+
+Contact new contact var
+
+"Ada Lovelace" $contact name.set contact set
+"ada@example.com" $contact email.set contact set
+
+"Contact book" println
+$contact card println

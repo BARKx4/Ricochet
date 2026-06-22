@@ -9,13 +9,17 @@ $requiredFiles = @(
     "styles.css",
     "app.js",
     "README.md",
+    "learn/index.html",
     "guides/index.html",
     "guides/features.html",
     "guides/getting-started.html",
     "guides/language-runtime.html",
+    "guides/images-source.html",
+    "guides/macros.html",
     "guides/web-and-data.html",
     "guides/host-capabilities.html",
     "guides/packages.html",
+    "guides/hosted-registry-protocol.html",
     "guides/editor-debugging.html",
     "guides/development-release.html",
     "guides/store-packaging.html",
@@ -36,6 +40,7 @@ if ($failures.Count -eq 0) {
     $styles = Get-Content -LiteralPath (Join-Path $Root "styles.css") -Raw
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
     $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
+    $learnIndex = Get-Content -LiteralPath (Join-Path $Root "learn/index.html") -Raw
     $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
     $editorDebuggingGuide = Get-Content -LiteralPath (Join-Path $Root "guides/editor-debugging.html") -Raw
     $webAndDataGuide = Get-Content -LiteralPath (Join-Path $Root "guides/web-and-data.html") -Raw
@@ -51,6 +56,7 @@ if ($failures.Count -eq 0) {
         "id=""debugging""",
         "id=""cli""",
         "id=""limits""",
+        "learn/index.html",
         "guides/index.html"
     )
 
@@ -65,9 +71,12 @@ if ($failures.Count -eq 0) {
         "Feature Overview",
         "Getting Started",
         "Language And Runtime",
+        "Images And Source Emission",
+        "Compile-Time Macros",
         "Web And Data",
         "Host Capabilities And Safety",
         "Packages And Registries",
+        "Hosted Registry Protocol",
         "Editor And Debugging",
         "Development And Release",
         "Store Packaging",
@@ -77,6 +86,20 @@ if ($failures.Count -eq 0) {
     foreach ($marker in $requiredGuideMarkers) {
         if (-not $guidesIndex.Contains($marker)) {
             $failures.Add("guides/index.html is missing marker: $marker")
+        }
+    }
+
+    $requiredLearnMarkers = @(
+        "Learn Ricochet",
+        "Manual Chapters",
+        "planned guided manual",
+        "Use The Reference Today",
+        "../guides/index.html"
+    )
+
+    foreach ($marker in $requiredLearnMarkers) {
+        if (-not $learnIndex.Contains($marker)) {
+            $failures.Add("learn/index.html is missing marker: $marker")
         }
     }
 

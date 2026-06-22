@@ -1,0 +1,24 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/08-collections/main.rco ))
+
+"Task list" println
+
+tasks array
+$tasks "read the chapter" push! drop
+$tasks "run the example" push! drop
+$tasks "change one line" push! drop
+
+details map
+$details "owner" "Ada" put! drop
+$details "status" "open" put! drop
+
+"count:" print
+$tasks count println
+
+"first:" print
+$tasks 0 at println
+
+"owner:" print
+$details "owner" at println
+
+"tasks:" print
+$tasks ", " join println

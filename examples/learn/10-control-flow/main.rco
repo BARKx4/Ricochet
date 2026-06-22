@@ -1,0 +1,45 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/10-control-flow/main.rco ))
+
+"Gradebook" println
+
+scores array
+$scores 96 push! drop
+$scores 84 push! drop
+$scores 72 push! drop
+
+0 index var
+0 passed var
+0 score var
+"" grade var
+
+$index $scores count < while
+  $scores $index at score set
+
+  $score 90 >= if
+    "A" grade set
+  else
+    $score 80 >= if
+      "B" grade set
+    else
+      $score 70 >= if
+        "C" grade set
+      else
+        "Needs practice" grade set
+      end
+    end
+  end
+
+  "score " print
+  $score print
+  " -> " print
+  $grade println
+
+  $score 70 >= if
+    $passed 1 + passed set
+  end
+
+  $index 1 + index set
+end
+
+"passed:" print
+$passed println

@@ -1,0 +1,37 @@
+[
+  {
+    "chapter": "01-hello-world",
+    "path": "examples/learn/01-hello-world/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/01-hello-world/main.rco",
+    "expected_status": "success",
+    "notes": "Prints the first Ricochet line with no setup or host capabilities."
+  },
+  {
+    "chapter": "03-stack",
+    "path": "examples/learn/03-stack/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/03-stack/main.rco",
+    "expected_status": "success",
+    "notes": "Builds a tiny receipt with postfix arithmetic and named values."
+  },
+  {
+    "chapter": "08-collections",
+    "path": "examples/learn/08-collections/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/08-collections/main.rco",
+    "expected_status": "success",
+    "notes": "Uses an array and a map for a small in-memory task list."
+  },
+  {
+    "chapter": "10-control-flow",
+    "path": "examples/learn/10-control-flow/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/10-control-flow/main.rco",
+    "expected_status": "success",
+    "notes": "Loops through scores and assigns letter grades with if/else."
+  },
+  {
+    "chapter": "11-oop",
+    "path": "examples/learn/11-oop/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/11-oop/main.rco",
+    "expected_status": "success",
+    "notes": "Defines a small Contact class with accessors and a display method."
+  }
+]
