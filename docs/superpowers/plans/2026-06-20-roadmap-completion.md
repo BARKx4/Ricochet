@@ -921,18 +921,47 @@ closure audit.
 
 **Implementation Path:**
 
-- [ ] Re-read `AGENTS.md` and `docs/feature-map.md`.
-- [ ] Search for `future work`, `remaining`, `not implemented`, `planned`, and stale version claims.
-- [ ] Run `rco words --json` and compare against `docs/reference/app.js`, LSP, and grammar.
-- [ ] Run the full local gate: fmt, clippy, workspace tests, audit, docs validation, editor validation, words check, acceptance.
-- [ ] Run release dry-run workflow if available.
-- [ ] Update `docs/feature-map.md` to mark roadmap complete and move non-goals to a separate section.
-- [ ] Publish a release candidate.
-- [ ] Watch GitHub CI and release workflow to completion.
+- [x] Re-read `AGENTS.md` and `docs/feature-map.md`.
+- [x] Search for `future work`, `remaining`, `not implemented`, `planned`, and stale version claims.
+- [x] Run `rco words --json` and compare against `docs/reference/app.js`, LSP, and grammar.
+- [x] Run the full local gate: fmt, clippy, workspace tests, audit, docs validation, editor validation, words check, acceptance.
+- [x] Run release dry-run workflow if available.
+- [x] Update `docs/feature-map.md` to mark roadmap complete and move non-goals to a separate section.
+- [ ] Publish a release candidate after selecting the next public version/tag.
+- [x] Watch GitHub CI and release workflow to completion.
 
 **Verification Gate:**
 
-No stale roadmap claims remain; release candidate CI is green; feature-map evidence matches live code, tests, and docs.
+No stale roadmap claims remain; branch CI and release dry-run are green;
+feature-map evidence matches live code, tests, and docs. Public release
+candidate CI is verified after selecting and tagging the next version.
+
+**Progress Note (2026-06-22):** Central closure audit is complete for the
+implementation branch. The public README/reference/wiki scan found no
+stale local-agent language in the primary docs; old v0.1.15/v0.1.16 release
+notes now use production-facing "maintenance feature map" wording. The
+feature map now separates implemented surfaces, future extensions, explicit
+boundaries, and roadmap closure instead of listing open "Remaining" buckets.
+`rco words --json` generated the source inventory, and
+`rco words --check --docs-app docs/reference/app.js --grammar
+editors/vscode/syntaxes/ricochet.tmLanguage.json` passed with 333 documented
+words, 330 TextMate token literals, 346 built-in LSP entries, zero documented
+token words missing from LSP, and zero duplicate reference entries. Local gate
+passed: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+-- -D warnings`, `cargo test --workspace` (677 passed), `cargo audit --deny
+warnings`, docs reference validation, editor asset validation, word inventory
+check, `git diff --check`, and `scripts/acceptance.ps1`.
+
+The first Release workflow dry-run on commit `7cdb8ed` failed Linux package
+smoke in run `27937121872` because `dpkg-deb --contents ... | grep -q ...`
+ran under `bash -o pipefail`; when `grep -q` found a match, it closed the pipe
+early and `dpkg-deb`/tar exited with code 2. Commit `f08b70c` fixes the root
+cause by writing `dpkg-deb` output to temp files before grepping. Follow-up
+Release dry-run `27937637432` passed on Windows, Linux, macOS arm64, and macOS
+x64. Branch CI run `27937634579` passed on Windows, Ubuntu, and macOS. The
+existing latest public release is `v0.1.18`; publishing the next release
+candidate remains a release-management step that needs the next version/tag
+selected instead of reusing an existing tag.
 
 ---
 
