@@ -62,9 +62,10 @@ rco new my_desktop_app
 rco package my_desktop_app --gui --mvc --output my-desktop-app.exe
 ```
 
-Use `--output webview-ui` on Linux and macOS. GUI launchers open through the
-system browser. Debian packages generated for GUI apps declare an `xdg-utils`
-runtime dependency.
+Use `--output webview-ui` on Linux and macOS. Windows/macOS GUI launchers open
+native WebView windows. Linux GUI launchers open through the system browser, and
+Debian packages generated for GUI apps declare an `xdg-utils` runtime
+dependency.
 
 On Linux, the same `package` command can also create portable tarballs or
 Debian packages for a `.rco` file:

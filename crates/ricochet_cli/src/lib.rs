@@ -247,10 +247,7 @@ enum Command {
             help = "Package as a terminal UI app using the console launcher without final stack output"
         )]
         tui: bool,
-        #[arg(
-            long,
-            help = "Package as a system-browser desktop GUI app using the rco-gui launcher"
-        )]
+        #[arg(long, help = "Package as a desktop GUI app using the rco-gui launcher")]
         gui: bool,
         #[arg(
             long,
@@ -7725,21 +7722,146 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
     }
 }
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos"))]
 fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    let path = write_webview_document(&document)?;
-    open_gui_target(path.as_os_str())?;
-    wait_for_browser_session(&format!("file {}", path.display()))
+    open_platform_webview(
+        document.title,
+        document.width,
+        document.height,
+        NativeWebviewSource::Html(document.html),
+    )
 }
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos"))]
+fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
+    open_platform_webview(
+        title.to_string(),
+        width,
+        height,
+        NativeWebviewSource::Url(url.to_string()),
+    )
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+enum NativeWebviewSource {
+    Html(String),
+    Url(String),
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn open_platform_webview(
+    title: String,
+    width: u32,
+    height: u32,
+    source: NativeWebviewSource,
+) -> Result<()> {
+    use winit::{
+        application::ApplicationHandler,
+        dpi::LogicalSize,
+        event::WindowEvent,
+        event_loop::{ActiveEventLoop, EventLoop},
+        window::{Window, WindowId},
+    };
+    use wry::WebViewBuilder;
+
+    struct NativeWebviewState {
+        title: String,
+        width: u32,
+        height: u32,
+        source: Option<NativeWebviewSource>,
+        window: Option<Window>,
+        webview: Option<wry::WebView>,
+        error: Option<String>,
+    }
+
+    impl ApplicationHandler for NativeWebviewState {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            if self.window.is_some() || self.error.is_some() {
+                return;
+            }
+
+            let mut attributes = Window::default_attributes();
+            attributes.title = self.title.clone();
+            attributes.inner_size =
+                Some(LogicalSize::new(f64::from(self.width), f64::from(self.height)).into());
+
+            let window = match event_loop.create_window(attributes) {
+                Ok(window) => window,
+                Err(error) => {
+                    self.error = Some(format!("failed to create native GUI window: {error}"));
+                    event_loop.exit();
+                    return;
+                }
+            };
+
+            let Some(source) = self.source.take() else {
+                self.error = Some("native GUI source was already consumed".to_string());
+                event_loop.exit();
+                return;
+            };
+            let builder = match source {
+                NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
+                NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
+            };
+            let webview = match builder.build(&window) {
+                Ok(webview) => webview,
+                Err(error) => {
+                    self.error = Some(format!("failed to create native WebView: {error}"));
+                    event_loop.exit();
+                    return;
+                }
+            };
+
+            self.webview = Some(webview);
+            self.window = Some(window);
+        }
+
+        fn window_event(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+            _window_id: WindowId,
+            event: WindowEvent,
+        ) {
+            if let WindowEvent::CloseRequested = event {
+                event_loop.exit();
+            }
+        }
+    }
+
+    let event_loop = EventLoop::new().context("failed to create native GUI event loop")?;
+    let mut state = NativeWebviewState {
+        title,
+        width,
+        height,
+        source: Some(source),
+        window: None,
+        webview: None,
+        error: None,
+    };
+    event_loop
+        .run_app(&mut state)
+        .context("native GUI event loop failed")?;
+    if let Some(error) = state.error {
+        bail!("{error}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn open_native_webview(document: WebviewDocument) -> Result<()> {
+    let path = write_linux_webview_document(&document)?;
+    open_linux_gui_target(path.as_os_str())?;
+    wait_for_linux_browser_session(&format!("file {}", path.display()))
+}
+
+#[cfg(target_os = "linux")]
 fn open_native_webview_url(_title: &str, url: &str, _width: u32, _height: u32) -> Result<()> {
-    open_gui_target(OsStr::new(url))?;
-    wait_for_browser_session(url)
+    open_linux_gui_target(OsStr::new(url))?;
+    wait_for_linux_browser_session(url)
 }
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-fn write_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
+#[cfg(target_os = "linux")]
+fn write_linux_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -7751,33 +7873,8 @@ fn write_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
     Ok(path)
 }
 
-#[cfg(windows)]
-fn open_gui_target(target: &OsStr) -> Result<()> {
-    let status = std::process::Command::new("rundll32")
-        .arg("url.dll,FileProtocolHandler")
-        .arg(target)
-        .status()
-        .context("failed to launch the Windows default browser for Ricochet GUI app")?;
-    if !status.success() {
-        bail!("Windows default browser launch failed with status {status}");
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn open_gui_target(target: &OsStr) -> Result<()> {
-    let status = std::process::Command::new("open")
-        .arg(target)
-        .status()
-        .context("failed to launch `open` for Ricochet GUI app")?;
-    if !status.success() {
-        bail!("`open` failed with status {status}");
-    }
-    Ok(())
-}
-
 #[cfg(target_os = "linux")]
-fn open_gui_target(target: &OsStr) -> Result<()> {
+fn open_linux_gui_target(target: &OsStr) -> Result<()> {
     let status = std::process::Command::new("xdg-open")
         .arg(target)
         .status()
@@ -7790,8 +7887,8 @@ fn open_gui_target(target: &OsStr) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-fn wait_for_browser_session(target_label: &str) -> Result<()> {
+#[cfg(target_os = "linux")]
+fn wait_for_linux_browser_session(target_label: &str) -> Result<()> {
     eprintln!(
         "Ricochet opened {target_label} with your system browser. Press Ctrl+C in this terminal to stop the GUI host when finished."
     );
