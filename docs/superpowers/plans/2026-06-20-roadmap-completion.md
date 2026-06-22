@@ -795,7 +795,7 @@ without requiring real external API calls.
 - [x] Add checksums and signature/provenance metadata for every artifact.
 - [ ] Add updater design: channel metadata, version checks, signature verification, rollback story.
 - [ ] Implement updater only after signing/signature verification is stable.
-- [ ] Add release workflow tests or dry-run jobs for package metadata.
+- [x] Add release workflow tests or dry-run jobs for package metadata.
 - [ ] Update release docs with exact local and CI commands.
 
 **Verification Gate:**
@@ -829,6 +829,17 @@ combined GitHub release checksum file. Remaining Epic 12 work is
 certificate/keychain/GPG import setup on runners, signed/notarized tag
 verification, updater design/implementation, store packaging, and release
 dry-run workflow hardening.
+
+**Progress Note (2026-06-22):** Release package metadata validation now runs in
+the Windows, Linux, and macOS release workflow package jobs after package smoke
+tests and before artifact upload. The reusable PowerShell validator parses each
+`ARTIFACTS-<target>.json` manifest, checks schema/version/target/package
+version, ensures top-level files are represented, verifies listed file sizes and
+SHA-256 hashes, enforces CI-required installer/deb artifacts, and validates
+Linux detached `.asc` signature relationships when signatures exist. Remaining
+Epic 12 work is certificate/keychain/GPG import setup on runners,
+signed/notarized tag verification, updater design/implementation, store
+packaging, and exact production release command documentation.
 
 ---
 

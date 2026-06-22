@@ -67,6 +67,14 @@ tag releases use `require` in CI so missing `signtool.exe`,
 `RICOCHET_WINDOWS_CERT_SHA1`, or a certificate installed in
 `Cert:\CurrentUser\My` fails loudly instead of publishing unsigned artifacts.
 Set `RICOCHET_WINDOWS_TIMESTAMP_URL` to override the default timestamp server.
+Validate a Windows output directory with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -RequireInstaller
+```
+
+Omit `-RequireInstaller` for local dry-runs on machines without NSIS; CI keeps
+it enabled because release jobs install NSIS and require the installer artifact.
 
 Linux release packages are built on Linux with:
 
@@ -90,6 +98,11 @@ Linux detached artifact signatures are controlled with
 `--signature-mode auto|require|skip|dry-run`. Dry-run mode writes
 `SIGNING-linux-x64.txt`; production tag releases use `require` in CI and expect
 `RICOCHET_LINUX_GPG_KEY` to name an imported GPG key.
+Validate a Linux output directory with:
+
+```powershell
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
+```
 
 macOS release tarballs are built on macOS with:
 
@@ -111,6 +124,12 @@ use `require` in CI; scheduled nightlies use `auto` so unsigned beta artifacts
 are allowed only with an explicit report. Configure
 `RICOCHET_MACOS_SIGN_IDENTITY` and `RICOCHET_MACOS_NOTARY_PROFILE` when signing
 and notarization credentials are available on the runner.
+Validate a macOS output directory with:
+
+```bash
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64
+```
 
 To publish a GitHub release, push a version tag:
 
@@ -123,7 +142,10 @@ The release workflow packages the Windows, Linux, and macOS artifacts, writes a
 combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
 tarball, Debian package, macOS tarballs, checksums, signing-status reports, and
 per-target JSON manifests to the GitHub release. The combined checksum file
-includes the uploaded JSON manifests.
+includes the uploaded JSON manifests. Each package job validates its
+`ARTIFACTS-<target>.json` manifest after the package smoke test and before
+uploading artifacts, including installer/deb requirements in CI and detached
+Linux `.asc` signature relationships when signatures are present.
 
 The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and

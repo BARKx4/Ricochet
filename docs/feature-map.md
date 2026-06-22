@@ -641,6 +641,10 @@ Implemented:
   builds require Windows signing, Linux detached-signature, and macOS
   signing/notarization prerequisites instead of silently producing unsigned
   production artifacts.
+- Release workflow package jobs validate each per-target artifact manifest
+  after package smoke tests and before upload, including required installer/deb
+  artifacts in CI and Linux detached-signature relationships when signatures
+  exist.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 
@@ -658,8 +662,8 @@ Evidence:
 Remaining:
 
 - Production-grade app distribution polish remains: certificate import/keychain
-  setup, signed/notarized production tag verification, app store packaging,
-  updater workflows, and release dry-run workflow hardening.
+  setup, signed/notarized production tag verification, app store packaging, and
+  updater workflows.
 
 Do not assume:
 
@@ -688,8 +692,7 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Production app distribution polish: certificate import/keychain setup,
-  signed/notarized release verification, store or updater workflows, and
-  release dry-run workflow hardening.
+  signed/notarized release verification, and store or updater workflows.
 
 ## Maintenance Rules
 

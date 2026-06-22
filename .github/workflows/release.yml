@@ -177,6 +177,14 @@ jobs:
             throw "Packaged webview-ui HTML export did not contain the expected title."
           }
 
+      - name: Validate release artifact manifest
+        shell: pwsh
+        run: |
+          .\scripts\validate-release-artifacts.ps1 `
+            -Target windows-x64 `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
+            -RequireInstaller
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -259,6 +267,14 @@ jobs:
           dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/applications/webview-ui.desktop'
           dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/metainfo/webview-ui.metainfo.xml'
 
+      - name: Validate release artifact manifest
+        shell: pwsh
+        run: |
+          ./scripts/validate-release-artifacts.ps1 `
+            -Target linux-x64 `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
+            -RequireDeb
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -321,6 +337,13 @@ jobs:
           "$package_dir/rco" package examples/webview_ui.rco --gui --output "$tmp/webview-ui"
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
+
+      - name: Validate release artifact manifest
+        shell: pwsh
+        run: |
+          ./scripts/validate-release-artifacts.ps1 `
+            -Target '${{ matrix.target }}' `
+            -PackageVersion '${{ needs.resolve-version.outputs.version }}'
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
