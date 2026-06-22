@@ -627,10 +627,18 @@ Implemented:
 - `rco package --tui`, `--gui`, and `--gui --mvc` cover console, WebView, and
   local-server desktop apps.
 - Linux `rco package` can also emit tarballs and Debian packages.
-- Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and unsigned
-  macOS tarballs.
-- Release workflow uploads Windows, Linux, macOS, checksum, and installer
-  artifacts and runs nightly builds.
+- Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and macOS
+  tarballs with explicit signing or detached-signature
+  dry-run/auto/required modes and signing-status reports.
+- Linux release packages include a terminal desktop launcher, SVG icon,
+  AppStream metainfo, changelog, maintainer metadata, bundled docs, bundled
+  examples, and the first-party package catalog. User-built
+  `rco package --gui --linux-package tar|deb` apps include per-app desktop,
+  icon, AppStream, and changelog metadata.
+- Release workflow uploads Windows, Linux, macOS, checksum, signing-status, and
+  installer artifacts and runs nightly builds. Tag builds require Windows
+  signing, Linux detached-signature, and macOS signing/notarization
+  prerequisites instead of silently producing unsigned production artifacts.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 
@@ -647,8 +655,9 @@ Evidence:
 
 Remaining:
 
-- Production-grade app distribution polish remains: signing, notarization,
-  platform metadata, app store packaging, and updater workflows.
+- Production-grade app distribution polish remains: certificate import/keychain
+  setup, signed/notarized production tag verification, detached
+  signature/provenance metadata, app store packaging, and updater workflows.
 
 Do not assume:
 
@@ -676,9 +685,9 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Production app distribution polish: signing, notarization, metadata, store or
-  updater workflows.
+- Production app distribution polish: certificate import/keychain setup,
+  signed/notarized release verification, detached signature/provenance
+  metadata, store or updater workflows.
 
 ## Maintenance Rules
 

@@ -6,6 +6,10 @@ target="macos-arm64"
 out_dir="dist"
 configuration="release"
 skip_build=0
+signing_mode="auto"
+sign_identity="${RICOCHET_MACOS_SIGN_IDENTITY:-}"
+notarization_mode="auto"
+notary_profile="${RICOCHET_MACOS_NOTARY_PROFILE:-}"
 
 usage() {
   cat <<'EOF'
@@ -17,6 +21,11 @@ Options:
   --out-dir <path>          Output directory. Defaults to dist.
   --configuration <name>    Cargo profile directory. Defaults to release.
   --skip-build              Reuse existing target/<configuration> binaries.
+  --signing-mode <mode>     auto, require, skip, or dry-run. Defaults to auto.
+  --sign-identity <name>    codesign identity. Defaults to RICOCHET_MACOS_SIGN_IDENTITY.
+  --notarization-mode <mode>
+                            auto, require, skip, or dry-run. Defaults to auto.
+  --notary-profile <name>   notarytool keychain profile. Defaults to RICOCHET_MACOS_NOTARY_PROFILE.
   -h, --help                Show this help.
 EOF
 }
@@ -42,6 +51,22 @@ while [[ $# -gt 0 ]]; do
     --skip-build)
       skip_build=1
       shift
+      ;;
+    --signing-mode)
+      signing_mode="${2:?--signing-mode requires a value}"
+      shift 2
+      ;;
+    --sign-identity)
+      sign_identity="${2:?--sign-identity requires a value}"
+      shift 2
+      ;;
+    --notarization-mode)
+      notarization_mode="${2:?--notarization-mode requires a value}"
+      shift 2
+      ;;
+    --notary-profile)
+      notary_profile="${2:?--notary-profile requires a value}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -91,6 +116,18 @@ assert_new_path() {
   fi
 }
 
+validate_mode() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    auto|require|skip|dry-run) ;;
+    *)
+      echo "$name must be one of: auto, require, skip, dry-run." >&2
+      exit 2
+      ;;
+  esac
+}
+
 copy_release_directory() {
   local source="$1"
   local destination="$2"
@@ -99,6 +136,102 @@ copy_release_directory() {
     mkdir -p "$(dirname -- "$destination")"
     cp -R "$source" "$destination"
   fi
+}
+
+append_signing_report() {
+  printf '%s\n' "$@" >> "$signing_report_path"
+}
+
+sign_macos_binaries() {
+  local paths=("$@")
+  append_signing_report "[staged executables]"
+  append_signing_report "mode = $signing_mode"
+
+  case "$signing_mode" in
+    skip)
+      append_signing_report "status = skipped" "reason = signing mode is skip"
+      return
+      ;;
+    dry-run)
+      append_signing_report "status = dry-run"
+      if [[ -n "$sign_identity" ]]; then
+        append_signing_report "identity = $sign_identity"
+      fi
+      for path in "${paths[@]}"; do
+        append_signing_report "would_sign = $path"
+      done
+      return
+      ;;
+  esac
+
+  missing=()
+  if [[ -z "$sign_identity" ]]; then
+    missing+=("RICOCHET_MACOS_SIGN_IDENTITY or --sign-identity is not set")
+  fi
+  if ! command -v codesign >/dev/null 2>&1; then
+    missing+=("codesign is not available")
+  fi
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    local reason
+    reason="$(IFS='; '; echo "${missing[*]}")"
+    if [[ "$signing_mode" == "require" ]]; then
+      echo "macOS signing prerequisites missing: $reason" >&2
+      exit 1
+    fi
+    echo "Warning: macOS signing skipped: $reason. Continuing unsigned because --signing-mode auto permits beta/nightly fallback." >&2
+    append_signing_report "status = unsigned-fallback" "reason = $reason"
+    return
+  fi
+
+  for path in "${paths[@]}"; do
+    codesign --force --timestamp --options runtime --sign "$sign_identity" "$path"
+    append_signing_report "signed = $path"
+  done
+  append_signing_report "status = signed" "identity = $sign_identity"
+}
+
+notarize_macos_archive() {
+  local archive="$1"
+  append_signing_report "[notarization]"
+  append_signing_report "mode = $notarization_mode"
+
+  case "$notarization_mode" in
+    skip)
+      append_signing_report "status = skipped" "reason = notarization mode is skip"
+      return
+      ;;
+    dry-run)
+      append_signing_report "status = dry-run" "would_notarize = $archive"
+      if [[ -n "$notary_profile" ]]; then
+        append_signing_report "notary_profile = $notary_profile"
+      fi
+      return
+      ;;
+  esac
+
+  missing=()
+  if [[ -z "$notary_profile" ]]; then
+    missing+=("RICOCHET_MACOS_NOTARY_PROFILE or --notary-profile is not set")
+  fi
+  if ! command -v xcrun >/dev/null 2>&1; then
+    missing+=("xcrun is not available")
+  fi
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    local reason
+    reason="$(IFS='; '; echo "${missing[*]}")"
+    if [[ "$notarization_mode" == "require" ]]; then
+      echo "macOS notarization prerequisites missing: $reason" >&2
+      exit 1
+    fi
+    echo "Warning: macOS notarization skipped: $reason. Continuing because --notarization-mode auto permits beta/nightly fallback." >&2
+    append_signing_report "status = skipped" "reason = $reason"
+    return
+  fi
+
+  xcrun notarytool submit "$archive" --keychain-profile "$notary_profile" --wait
+  append_signing_report "status = notarized" "archive = $archive" "notary_profile = $notary_profile"
 }
 
 package_name="ricochet-v${version}-${target}"
@@ -110,12 +243,21 @@ fi
 package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
+signing_report_path="$out_dir_path/SIGNING-${target}.txt"
 
 assert_new_path "$package_dir"
 assert_new_path "$archive_path"
 assert_new_path "$checksums_path"
+assert_new_path "$signing_report_path"
 
 mkdir -p "$out_dir_path"
+validate_mode "--signing-mode" "$signing_mode"
+validate_mode "--notarization-mode" "$notarization_mode"
+{
+  echo "Ricochet macOS signing report"
+  echo "version = $version"
+  echo "target = $target"
+} > "$signing_report_path"
 
 if [[ "$skip_build" -eq 0 ]]; then
   pushd "$repo_root" >/dev/null
@@ -141,6 +283,7 @@ mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
 install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
 install -m 755 "${binaries[2]}" "$package_dir/ricochet"
+sign_macos_binaries "$package_dir/rco" "$package_dir/rco-gui" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
@@ -191,9 +334,11 @@ EOF
 chmod 755 "$package_dir/install.sh"
 
 tar -czf "$archive_path" -C "$out_dir_path" "$package_name"
+notarize_macos_archive "$archive_path"
 
-shasum -a 256 "$archive_path" | sed "s#  .*/#  #" > "$checksums_path"
+shasum -a 256 "$archive_path" "$signing_report_path" | sed "s#  .*/#  #" > "$checksums_path"
 
 echo "Release assets written to $out_dir_path"
 echo " - $archive_path"
+echo " - $signing_report_path"
 echo " - $checksums_path"

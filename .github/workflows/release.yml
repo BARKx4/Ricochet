@@ -114,9 +114,19 @@ jobs:
 
       - name: Build release package
         shell: pwsh
+        env:
+          RICOCHET_WINDOWS_CERT_SHA1: ${{ secrets.RICOCHET_WINDOWS_CERT_SHA1 }}
+          RICOCHET_WINDOWS_TIMESTAMP_URL: ${{ vars.RICOCHET_WINDOWS_TIMESTAMP_URL }}
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
-          .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -NsisPath $env:NSIS_PATH
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $signingMode = 'require'
+          } elseif ('${{ needs.resolve-version.outputs.is_nightly }}' -eq 'true') {
+            $signingMode = 'auto'
+          } else {
+            $signingMode = 'dry-run'
+          }
+          .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -NsisPath $env:NSIS_PATH -SigningMode $signingMode
 
       - name: Smoke-test package executable
         shell: pwsh
@@ -174,6 +184,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*-setup.exe
+            dist/*.txt
           retention-days: 30
 
   package-linux:
@@ -196,9 +207,17 @@ jobs:
 
       - name: Build release package
         shell: bash
+        env:
+          RICOCHET_LINUX_GPG_KEY: ${{ secrets.RICOCHET_LINUX_GPG_KEY }}
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
-          args=(--target linux-x64 --version "$version")
+          signature_mode='dry-run'
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            signature_mode='require'
+          elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
+            signature_mode='auto'
+          fi
+          args=(--target linux-x64 --version "$version" --signature-mode "$signature_mode")
           bash scripts/package-release-linux.sh "${args[@]}"
 
       - name: Smoke-test package executable
@@ -209,6 +228,12 @@ jobs:
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -f "$package_dir/share/applications/ricochet-repl.desktop"
+          grep -q 'Exec=rco repl' "$package_dir/share/applications/ricochet-repl.desktop"
+          test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
+          test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
+          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" | grep -q 'usr/share/applications/ricochet-repl.desktop'
+          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" | grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml'
           "$package_dir/rco" package examples/basic-oop.rco \
             --output "$tmp/basic-oop" \
             --linux-package tar \
@@ -230,6 +255,8 @@ jobs:
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
           test -f "$tmp/webview-ui_${version}_amd64.deb"
           dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'Depends: libwebkit2gtk-4.1-0, libgtk-3-0'
+          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/applications/webview-ui.desktop'
+          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" | grep -q 'usr/share/metainfo/webview-ui.metainfo.xml'
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
@@ -238,6 +265,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.deb
+            dist/*.asc
+            dist/*.txt
           retention-days: 30
 
   package-macos:
@@ -262,9 +291,21 @@ jobs:
 
       - name: Build release package
         shell: bash
+        env:
+          RICOCHET_MACOS_SIGN_IDENTITY: ${{ secrets.RICOCHET_MACOS_SIGN_IDENTITY }}
+          RICOCHET_MACOS_NOTARY_PROFILE: ${{ secrets.RICOCHET_MACOS_NOTARY_PROFILE }}
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
-          args=(--target '${{ matrix.target }}' --version "$version")
+          signing_mode='dry-run'
+          notarization_mode='dry-run'
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            signing_mode='require'
+            notarization_mode='require'
+          elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
+            signing_mode='auto'
+            notarization_mode='auto'
+          fi
+          args=(--target '${{ matrix.target }}' --version "$version" --signing-mode "$signing_mode" --notarization-mode "$notarization_mode")
           bash scripts/package-release-macos.sh "${args[@]}"
 
       - name: Smoke-test package executable
@@ -285,6 +326,7 @@ jobs:
           name: ricochet-${{ needs.resolve-version.outputs.version }}-${{ matrix.target }}
           path: |
             dist/*.tar.gz
+            dist/*.txt
           retention-days: 30
 
   publish-release:
@@ -321,4 +363,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Ricochet $GITHUB_REF_NAME" \
-            --notes "Windows, Linux, and unsigned macOS release packages for Ricochet $GITHUB_REF_NAME."
+            --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum and signing-status reports."

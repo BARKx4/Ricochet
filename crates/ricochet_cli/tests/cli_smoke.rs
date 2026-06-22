@@ -6814,6 +6814,122 @@ fn package_rejects_linux_package_artifacts_on_non_linux_hosts() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn package_gui_linux_artifacts_include_desktop_metadata() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"Linux GUI Smoke\" \"<main><p>desktop metadata</p></main>\" webview_window value drop\n",
+    );
+    let output_path = root.join("linux-gui-app");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--gui")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--linux-package")
+        .arg("tar")
+        .arg("--linux-package")
+        .arg("deb")
+        .arg("--package-name")
+        .arg("linux-gui-app")
+        .arg("--package-version")
+        .arg("1.2.3")
+        .arg("--package-description")
+        .arg("Linux GUI package test")
+        .current_dir(root)
+        .output()
+        .expect("rco package --gui --linux-package should launch");
+    assert_run_success_for(
+        "rco package --gui --linux-package",
+        "desktop metadata",
+        &package_output,
+    );
+
+    let tar_path = root.join("linux-gui-app-v1.2.3-linux-x64.tar.gz");
+    let tar_list = Command::new("tar")
+        .arg("-tzf")
+        .arg(&tar_path)
+        .output()
+        .expect("tar should list package metadata");
+    assert_run_success_for("tar -tzf", "linux-gui-app", &tar_list);
+    let tar_stdout = String::from_utf8_lossy(&tar_list.stdout);
+    for expected in [
+        "linux-gui-app-v1.2.3-linux-x64/share/applications/linux-gui-app.desktop",
+        "linux-gui-app-v1.2.3-linux-x64/share/metainfo/linux-gui-app.metainfo.xml",
+        "linux-gui-app-v1.2.3-linux-x64/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
+    ] {
+        assert!(
+            tar_stdout.contains(expected),
+            "tar artifact should include {expected}, got:\n{tar_stdout}"
+        );
+    }
+
+    let extract_dir = root.join("linux-gui-extract");
+    fs::create_dir(&extract_dir).expect("extract dir should be created");
+    let extract = Command::new("tar")
+        .arg("-xzf")
+        .arg(&tar_path)
+        .arg("-C")
+        .arg(&extract_dir)
+        .output()
+        .expect("tar should extract package metadata");
+    assert_run_success_for("tar -xzf", "linux-gui-app", &extract);
+    let desktop = fs::read_to_string(
+        extract_dir
+            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("share/applications/linux-gui-app.desktop"),
+    )
+    .expect("desktop file should be readable");
+    assert!(
+        desktop.contains("Name=Linux Gui App")
+            && desktop.contains("Comment=Linux GUI package test")
+            && desktop.contains("Exec=linux-gui-app")
+            && desktop.contains("Icon=linux-gui-app"),
+        "desktop file should describe the packaged GUI app, got:\n{desktop}"
+    );
+
+    let metainfo = fs::read_to_string(
+        extract_dir
+            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("share/metainfo/linux-gui-app.metainfo.xml"),
+    )
+    .expect("metainfo should be readable");
+    assert!(
+        metainfo.contains("<id>today.ricochet.linux-gui-app</id>")
+            && metainfo
+                .contains("<launchable type=\"desktop-id\">linux-gui-app.desktop</launchable>")
+            && metainfo.contains("<release version=\"1.2.3\" />"),
+        "AppStream metainfo should describe the packaged GUI app, got:\n{metainfo}"
+    );
+
+    let deb_path = root.join("linux-gui-app_1.2.3_amd64.deb");
+    let deb_contents = Command::new("dpkg-deb")
+        .arg("--contents")
+        .arg(&deb_path)
+        .output()
+        .expect("dpkg-deb should list package contents");
+    assert_run_success_for("dpkg-deb --contents", "linux-gui-app", &deb_contents);
+    let deb_stdout = String::from_utf8_lossy(&deb_contents.stdout);
+    for expected in [
+        "usr/share/applications/linux-gui-app.desktop",
+        "usr/share/metainfo/linux-gui-app.metainfo.xml",
+        "usr/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
+    ] {
+        assert!(
+            deb_stdout.contains(expected),
+            "deb artifact should include {expected}, got:\n{deb_stdout}"
+        );
+    }
+}
+
 #[test]
 fn run_debug_prints_readable_stack_trace() {
     let source_path = temp_source_path();

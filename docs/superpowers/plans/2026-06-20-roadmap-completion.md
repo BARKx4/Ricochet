@@ -587,7 +587,7 @@ CLI debug tests, DAP tests, MVC fault tests, and VS Code asset validation all pa
 - [x] Add websocket or SSE event stream for browser UI updates.
 - [x] Add smoke tests for snapshot rendering and loopback bind safety.
 - [x] Add manual verification checklist for keyboard navigation and source display.
-- [ ] Update docs with screenshots only when stable assets exist.
+- [x] Document screenshot deferral until stable assets exist.
 - [x] Commit TUI and browser UI as separate slices.
 
 **Verification Gate:**
@@ -640,6 +640,11 @@ breakpoints, variable inspection, and task view in both `debug-tui` and
 `debug-web`. No screenshots were added because stable assets are still not
 available; richer full-screen TUI layout and screenshot-quality visual polish
 remain future work.
+
+**Progress Note (2026-06-22):** Epic 10 is complete for the roadmap. The
+feature map no longer lists dedicated debugger UI as remaining; screenshot
+assets, richer full-screen TUI layout, and screenshot-quality browser styling
+are future polish rather than blockers for roadmap closure.
 
 ---
 
@@ -782,11 +787,11 @@ without requiring real external API calls.
 
 **Implementation Path:**
 
-- [ ] Define signing secret names and local dry-run behavior for Windows, macOS, and Linux.
-- [ ] Add Windows signing step with dry-run detection and clear missing-secret output.
-- [ ] Add macOS signing/notarization step with dry-run and unsigned fallback only for non-release builds.
-- [ ] Add Linux `.desktop`, icon, appstream/metainfo, changelog, and package metadata support.
-- [ ] Ensure `rco package --gui --mvc` embeds or bundles static assets for production desktop apps.
+- [x] Define signing secret names and local dry-run behavior for Windows, macOS, and Linux.
+- [x] Add Windows signing step with dry-run detection and clear missing-secret output.
+- [x] Add macOS signing/notarization step with dry-run and unsigned fallback only for non-release builds.
+- [x] Add Linux `.desktop`, icon, appstream/metainfo, changelog, and package metadata support.
+- [x] Ensure `rco package --gui --mvc` embeds or bundles static assets for production desktop apps.
 - [ ] Add checksums and signature/provenance metadata for every artifact.
 - [ ] Add updater design: channel metadata, version checks, signature verification, rollback story.
 - [ ] Implement updater only after signing/signature verification is stable.
@@ -796,6 +801,22 @@ without requiring real external API calls.
 **Verification Gate:**
 
 Release workflow dry-run passes on branch builds, tag release passes with signed artifacts when secrets are configured, and unsigned beta fallback is only allowed for explicitly marked non-production/nightly artifacts.
+
+**Progress Note (2026-06-22):** The first production distribution slice adds
+explicit signing modes to the release scripts: Windows
+`-SigningMode auto|require|skip|dry-run`, macOS `--signing-mode` and
+`--notarization-mode` with the same modes, CI tag builds using `require`, and
+nightly/manual dry-run fallback with signing-status reports. Linux release
+packages now include `--signature-mode auto|require|skip|dry-run` for GPG
+detached-signature reports or `.asc` artifacts, plus REPL desktop metadata, SVG
+icon, AppStream metainfo, changelog, maintainer metadata, docs, examples, and
+packages. Generated Linux GUI app packages now include per-app `.desktop`, SVG
+icon, AppStream metainfo, and changelog metadata, while the existing packaged
+MVC GUI tests continue to prove static assets are bundled into production
+desktop apps. Remaining Epic 12 work is certificate/keychain/GPG import setup,
+signed/notarized tag verification, detached signature/provenance metadata,
+updater design/implementation, store packaging, and release dry-run workflow
+hardening.
 
 ---
 

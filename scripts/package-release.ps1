@@ -5,7 +5,12 @@ param(
     [string] $Configuration = "release",
     [string] $NsisPath,
     [switch] $SkipBuild,
-    [switch] $RequireInstaller
+    [switch] $RequireInstaller,
+    [ValidateSet("auto", "require", "skip", "dry-run")]
+    [string] $SigningMode = "auto",
+    [string] $SignToolPath,
+    [string] $SigningCertificateThumbprint,
+    [string] $SigningTimestampUrl
 )
 
 Set-StrictMode -Version Latest
@@ -96,6 +101,118 @@ function Get-Sha256Hex {
     }
 }
 
+function Resolve-SignTool {
+    param([string] $RequestedPath)
+
+    if ($RequestedPath) {
+        if (-not (Test-Path -LiteralPath $RequestedPath)) {
+            throw "signtool.exe was not found at $RequestedPath"
+        }
+        return (Resolve-Path -LiteralPath $RequestedPath).Path
+    }
+
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) {
+        $kitsRoot = Join-Path $programFilesX86 "Windows Kits\10\bin"
+        if (Test-Path -LiteralPath $kitsRoot) {
+            $candidate = Get-ChildItem -LiteralPath $kitsRoot -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($candidate) {
+                return $candidate.FullName
+            }
+        }
+    }
+
+    return $null
+}
+
+function Invoke-WindowsSigning {
+    param(
+        [string[]] $Paths,
+        [string] $Stage
+    )
+
+    $mode = $SigningMode.ToLowerInvariant()
+    $report = @("[$Stage]")
+    if ($mode -eq "skip") {
+        $report += "status = skipped"
+        $report += "reason = signing mode is skip"
+        return $report
+    }
+
+    $thumbprint = $SigningCertificateThumbprint
+    if (-not $thumbprint) {
+        $thumbprint = [Environment]::GetEnvironmentVariable("RICOCHET_WINDOWS_CERT_SHA1")
+    }
+    $timestampUrl = $SigningTimestampUrl
+    if (-not $timestampUrl) {
+        $timestampUrl = [Environment]::GetEnvironmentVariable("RICOCHET_WINDOWS_TIMESTAMP_URL")
+    }
+    if (-not $timestampUrl) {
+        $timestampUrl = "http://timestamp.digicert.com"
+    }
+
+    $signTool = Resolve-SignTool -RequestedPath $SignToolPath
+    $missing = @()
+    if (-not $signTool) {
+        $missing += "signtool.exe is not available on PATH, in the Windows SDK, or via -SignToolPath"
+    }
+    if (-not $thumbprint) {
+        $missing += "RICOCHET_WINDOWS_CERT_SHA1 or -SigningCertificateThumbprint is not set"
+    } else {
+        $certPath = "Cert:\CurrentUser\My\$thumbprint"
+        if (-not (Test-Path -LiteralPath $certPath)) {
+            $missing += "certificate $thumbprint is not installed in Cert:\CurrentUser\My"
+        }
+    }
+
+    if ($mode -eq "dry-run") {
+        $report += "status = dry-run"
+        $report += "timestamp_url = $timestampUrl"
+        if ($thumbprint) {
+            $report += "certificate_thumbprint = $thumbprint"
+        }
+        foreach ($path in $Paths) {
+            $report += "would_sign = $path"
+        }
+        if ($missing.Count -gt 0) {
+            $report += "missing = $($missing -join '; ')"
+        }
+        return $report
+    }
+
+    if ($missing.Count -gt 0) {
+        $message = "Windows signing prerequisites missing for ${Stage}: $($missing -join '; ')."
+        if ($mode -eq "require") {
+            throw "$message Import the production signing certificate into Cert:\CurrentUser\My before running with -SigningMode require."
+        }
+        Write-Warning "$message Continuing unsigned because -SigningMode auto permits beta/nightly fallback."
+        $report += "status = unsigned-fallback"
+        $report += "reason = $($missing -join '; ')"
+        return $report
+    }
+
+    foreach ($path in $Paths) {
+        $signArgs = @("sign", "/fd", "SHA256", "/td", "SHA256", "/tr", $timestampUrl, "/sha1", $thumbprint, $path)
+        & $signTool @signArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "signtool failed for $path with exit code $LASTEXITCODE"
+        }
+        $report += "signed = $path"
+    }
+    $report += "status = signed"
+    $report += "timestamp_url = $timestampUrl"
+    $report += "certificate_thumbprint = $thumbprint"
+    return $report
+}
+
 if (-not $Version) {
     $Version = Get-WorkspaceVersion
 }
@@ -117,11 +234,13 @@ $PackageDir = Join-Path $OutDirPath $PackageName
 $ArchivePath = Join-Path $OutDirPath "$PackageName.zip"
 $InstallerPath = Join-Path $OutDirPath "$PackageName-setup.exe"
 $ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS.txt"
+$SigningReportPath = Join-Path $OutDirPath "SIGNING-$Target.txt"
 
 Assert-NewPath $PackageDir
 Assert-NewPath $ArchivePath
 Assert-NewPath $InstallerPath
 Assert-NewPath $ChecksumsPath
+Assert-NewPath $SigningReportPath
 
 if (-not $SkipBuild) {
     Push-Location $RepoRoot
@@ -153,6 +272,16 @@ New-Item -ItemType Directory -Path $PackageDir | Out-Null
 foreach ($binary in $Binaries) {
     Copy-Item -LiteralPath $binary -Destination $PackageDir
 }
+$PackageBinaries = foreach ($binary in $Binaries) {
+    Join-Path $PackageDir (Split-Path -Leaf $binary)
+}
+$SigningReport = @(
+    "Ricochet Windows signing report",
+    "version = $Version",
+    "target = $Target",
+    "mode = $SigningMode"
+)
+$SigningReport += Invoke-WindowsSigning -Paths $PackageBinaries -Stage "staged executables"
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot "README.md") -Destination $PackageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot "LICENSE") -Destination $PackageDir
@@ -205,12 +334,16 @@ if ($makensis) {
     if ($LASTEXITCODE -ne 0) {
         throw "NSIS installer build failed with exit code $LASTEXITCODE"
     }
+    $SigningReport += Invoke-WindowsSigning -Paths @($InstallerPath) -Stage "installer"
     $Assets += $InstallerPath
 } elseif ($RequireInstaller) {
     throw "NSIS makensis.exe was not found. Install NSIS or pass -NsisPath."
 } else {
     Write-Warning "NSIS makensis.exe was not found; skipping Windows installer."
 }
+
+Set-Content -LiteralPath $SigningReportPath -Value $SigningReport
+$Assets += $SigningReportPath
 
 $checksumLines = foreach ($asset in $Assets) {
     "{0}  {1}" -f (Get-Sha256Hex -Path $asset), (Split-Path -Leaf $asset)

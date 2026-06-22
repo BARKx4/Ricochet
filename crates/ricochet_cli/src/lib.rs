@@ -11304,7 +11304,20 @@ fn create_linux_tarball(
         ),
     )
     .with_context(|| format!("failed to write {}", package_dir.join("README.txt").display()))?;
-    write_linux_install_script(&package_dir.join("install.sh"), name)?;
+    fs::write(
+        package_dir.join("CHANGELOG.txt"),
+        format!("{name} ({version})\n\n  * Packaged Ricochet application release.\n"),
+    )
+    .with_context(|| {
+        format!(
+            "failed to write {}",
+            package_dir.join("CHANGELOG.txt").display()
+        )
+    })?;
+    if gui {
+        write_linux_gui_metadata(&package_dir.join("share"), name, version, description)?;
+    }
+    write_linux_install_script(&package_dir.join("install.sh"), name, gui)?;
 
     let output = std::process::Command::new("tar")
         .arg("-czf")
@@ -11336,6 +11349,7 @@ fn create_linux_deb(
     let control_dir = deb_root.join("DEBIAN");
     let bin_dir = deb_root.join("usr/bin");
     let doc_dir = deb_root.join("usr/share/doc").join(name);
+    let share_dir = deb_root.join("usr/share");
 
     fs::create_dir_all(&control_dir)
         .with_context(|| format!("failed to create {}", control_dir.display()))?;
@@ -11350,6 +11364,14 @@ fn create_linux_deb(
         format!("{description}\n\nThis package was generated from a Ricochet .rco file.\n"),
     )
     .with_context(|| format!("failed to write {}", doc_dir.join("README.txt").display()))?;
+    fs::write(
+        doc_dir.join("changelog"),
+        format!("{name} ({version})\n\n  * Packaged Ricochet application release.\n"),
+    )
+    .with_context(|| format!("failed to write {}", doc_dir.join("changelog").display()))?;
+    if gui {
+        write_linux_gui_metadata(&share_dir, name, version, description)?;
+    }
     fs::write(
         control_dir.join("control"),
         format!(
@@ -11416,7 +11438,183 @@ fn set_executable_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_linux_install_script(path: &Path, binary_name: &str) -> Result<()> {
+fn write_linux_gui_metadata(
+    share_dir: &Path,
+    name: &str,
+    version: &str,
+    description: &str,
+) -> Result<()> {
+    let applications_dir = share_dir.join("applications");
+    let icons_dir = share_dir.join("icons/hicolor/scalable/apps");
+    let metainfo_dir = share_dir.join("metainfo");
+    fs::create_dir_all(&applications_dir)
+        .with_context(|| format!("failed to create {}", applications_dir.display()))?;
+    fs::create_dir_all(&icons_dir)
+        .with_context(|| format!("failed to create {}", icons_dir.display()))?;
+    fs::create_dir_all(&metainfo_dir)
+        .with_context(|| format!("failed to create {}", metainfo_dir.display()))?;
+
+    fs::write(
+        applications_dir.join(format!("{name}.desktop")),
+        linux_desktop_entry(name, description),
+    )
+    .with_context(|| {
+        format!(
+            "failed to write {}",
+            applications_dir.join(format!("{name}.desktop")).display()
+        )
+    })?;
+    fs::write(
+        icons_dir.join(format!("{name}.svg")),
+        linux_app_icon_svg(name),
+    )
+    .with_context(|| {
+        format!(
+            "failed to write {}",
+            icons_dir.join(format!("{name}.svg")).display()
+        )
+    })?;
+    fs::write(
+        metainfo_dir.join(format!("{name}.metainfo.xml")),
+        linux_app_metainfo(name, version, description),
+    )
+    .with_context(|| {
+        format!(
+            "failed to write {}",
+            metainfo_dir.join(format!("{name}.metainfo.xml")).display()
+        )
+    })?;
+    Ok(())
+}
+
+fn linux_desktop_entry(name: &str, description: &str) -> String {
+    let display_name = linux_app_display_name(name);
+    format!(
+        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\nIcon={}\nTerminal=false\nCategories=Development;Utility;\nStartupNotify=true\n",
+        desktop_entry_escape(&display_name),
+        desktop_entry_escape(description),
+        desktop_entry_escape(name),
+        desktop_entry_escape(name)
+    )
+}
+
+fn linux_app_metainfo(name: &str, version: &str, description: &str) -> String {
+    let component_id = appstream_component_id(name);
+    let display_name = linux_app_display_name(name);
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<component type=\"desktop-application\">\n  <id>{}</id>\n  <metadata_license>CC0-1.0</metadata_license>\n  <project_license>MIT</project_license>\n  <name>{}</name>\n  <summary>{}</summary>\n  <description>\n    <p>{}</p>\n  </description>\n  <launchable type=\"desktop-id\">{}.desktop</launchable>\n  <provides>\n    <binary>{}</binary>\n  </provides>\n  <releases>\n    <release version=\"{}\" />\n  </releases>\n</component>\n",
+        xml_escape(&component_id),
+        xml_escape(&display_name),
+        xml_escape(description),
+        xml_escape(description),
+        xml_escape(name),
+        xml_escape(name),
+        xml_escape(version)
+    )
+}
+
+fn linux_app_icon_svg(name: &str) -> String {
+    let letters = linux_app_display_name(name)
+        .split_whitespace()
+        .filter_map(|part| part.chars().next())
+        .take(2)
+        .collect::<String>();
+    let letters = if letters.is_empty() {
+        "Rc".to_string()
+    } else {
+        letters
+    };
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 128\">\n  <rect width=\"128\" height=\"128\" rx=\"24\" fill=\"#1f2937\"/>\n  <path d=\"M28 36h72v16H48v18h42v16H48v30H28z\" fill=\"#f8fafc\"/>\n  <text x=\"64\" y=\"112\" text-anchor=\"middle\" font-family=\"Arial, sans-serif\" font-size=\"22\" font-weight=\"700\" fill=\"#38bdf8\">{}</text>\n</svg>\n",
+        xml_escape(&letters)
+    )
+}
+
+fn linux_app_display_name(name: &str) -> String {
+    let mut output = String::new();
+    for part in name
+        .split(|ch: char| !(ch.is_ascii_alphanumeric()))
+        .filter(|part| !part.is_empty())
+    {
+        if !output.is_empty() {
+            output.push(' ');
+        }
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            output.push(first.to_ascii_uppercase());
+            for ch in chars {
+                output.push(ch.to_ascii_lowercase());
+            }
+        }
+    }
+    if output.is_empty() {
+        "Ricochet App".to_string()
+    } else {
+        output
+    }
+}
+
+fn appstream_component_id(name: &str) -> String {
+    let mut suffix = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '.') {
+            suffix.push(ch);
+        } else if ch == '+' {
+            suffix.push('-');
+        }
+    }
+    if suffix.is_empty() {
+        "today.ricochet.ricochet-app".to_string()
+    } else {
+        format!("today.ricochet.{suffix}")
+    }
+}
+
+fn desktop_entry_escape(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\n' | '\r' => ' ',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn xml_escape(value: &str) -> String {
+    let mut output = String::new();
+    for ch in value.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&apos;"),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
+fn write_linux_install_script(path: &Path, binary_name: &str, gui: bool) -> Result<()> {
+    let metadata_install = if gui {
+        r#"
+share_dir="$prefix/share"
+if [ -d "$script_dir/share/applications" ]; then
+  mkdir -p "$share_dir/applications"
+  cp "$script_dir/share/applications/"*.desktop "$share_dir/applications/"
+fi
+if [ -d "$script_dir/share/metainfo" ]; then
+  mkdir -p "$share_dir/metainfo"
+  cp "$script_dir/share/metainfo/"*.metainfo.xml "$share_dir/metainfo/"
+fi
+if [ -d "$script_dir/share/icons/hicolor/scalable/apps" ]; then
+  mkdir -p "$share_dir/icons/hicolor/scalable/apps"
+  cp "$script_dir/share/icons/hicolor/scalable/apps/"*.svg "$share_dir/icons/hicolor/scalable/apps/"
+fi
+"#
+    } else {
+        ""
+    };
     fs::write(
         path,
         format!(
@@ -11430,6 +11628,7 @@ bin_dir="$prefix/bin"
 mkdir -p "$bin_dir"
 cp "$script_dir/{binary_name}" "$bin_dir/{binary_name}"
 chmod 755 "$bin_dir/{binary_name}"
+{metadata_install}
 
 printf 'Installed {binary_name} to %s\n' "$bin_dir"
 printf 'Make sure %s is on your PATH.\n' "$bin_dir"

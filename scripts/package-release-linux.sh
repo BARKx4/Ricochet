@@ -7,6 +7,8 @@ out_dir="dist"
 configuration="release"
 skip_build=0
 build_deb=1
+signature_mode="auto"
+linux_gpg_key="${RICOCHET_LINUX_GPG_KEY:-}"
 
 usage() {
   cat <<'EOF'
@@ -19,6 +21,8 @@ Options:
   --configuration <name>    Cargo profile directory. Defaults to release.
   --skip-build              Reuse existing target/<configuration> binaries.
   --no-deb                  Skip Debian package creation.
+  --signature-mode <mode>   auto, require, skip, or dry-run. Defaults to auto.
+  --gpg-key <key-id>        GPG signing key. Defaults to RICOCHET_LINUX_GPG_KEY.
   -h, --help                Show this help.
 EOF
 }
@@ -48,6 +52,14 @@ while [[ $# -gt 0 ]]; do
     --no-deb)
       build_deb=0
       shift
+      ;;
+    --signature-mode)
+      signature_mode="${2:?--signature-mode requires a value}"
+      shift 2
+      ;;
+    --gpg-key)
+      linux_gpg_key="${2:?--gpg-key requires a value}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -97,6 +109,18 @@ assert_new_path() {
   fi
 }
 
+validate_mode() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    auto|require|skip|dry-run) ;;
+    *)
+      echo "$name must be one of: auto, require, skip, dry-run." >&2
+      exit 2
+      ;;
+  esac
+}
+
 copy_release_directory() {
   local source="$1"
   local destination="$2"
@@ -105,6 +129,116 @@ copy_release_directory() {
     mkdir -p "$(dirname -- "$destination")"
     cp -R "$source" "$destination"
   fi
+}
+
+append_signing_report() {
+  printf '%s\n' "$@" >> "$signing_report_path"
+}
+
+sign_linux_assets() {
+  local paths=("$@")
+  signature_assets=()
+  append_signing_report "[detached signatures]"
+  append_signing_report "mode = $signature_mode"
+
+  case "$signature_mode" in
+    skip)
+      append_signing_report "status = skipped" "reason = signature mode is skip"
+      return
+      ;;
+    dry-run)
+      append_signing_report "status = dry-run"
+      if [[ -n "$linux_gpg_key" ]]; then
+        append_signing_report "gpg_key = $linux_gpg_key"
+      fi
+      for path in "${paths[@]}"; do
+        append_signing_report "would_sign = $path"
+      done
+      return
+      ;;
+  esac
+
+  missing=()
+  if [[ -z "$linux_gpg_key" ]]; then
+    missing+=("RICOCHET_LINUX_GPG_KEY or --gpg-key is not set")
+  fi
+  if ! command -v gpg >/dev/null 2>&1; then
+    missing+=("gpg is not available")
+  fi
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    local reason
+    reason="$(IFS='; '; echo "${missing[*]}")"
+    if [[ "$signature_mode" == "require" ]]; then
+      echo "Linux signing prerequisites missing: $reason" >&2
+      exit 1
+    fi
+    echo "Warning: Linux detached signatures skipped: $reason. Continuing unsigned because --signature-mode auto permits beta/nightly fallback." >&2
+    append_signing_report "status = unsigned-fallback" "reason = $reason"
+    return
+  fi
+
+  for path in "${paths[@]}"; do
+    local signature_path="${path}.asc"
+    assert_new_path "$signature_path"
+    gpg --batch --yes --armor --detach-sign --local-user "$linux_gpg_key" --output "$signature_path" "$path"
+    append_signing_report "signed = $path" "signature = $signature_path"
+    signature_assets+=("$signature_path")
+  done
+  append_signing_report "status = signed" "gpg_key = $linux_gpg_key"
+}
+
+write_linux_metadata() {
+  local root="$1"
+  local version="$2"
+  local share_dir="$root/share"
+
+  mkdir -p \
+    "$share_dir/applications" \
+    "$share_dir/icons/hicolor/scalable/apps" \
+    "$share_dir/metainfo"
+
+  cat > "$share_dir/applications/ricochet-repl.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Ricochet REPL
+Comment=Open the Ricochet interactive language shell
+Exec=rco repl
+Icon=ricochet
+Terminal=true
+Categories=Development;Utility;
+StartupNotify=false
+EOF
+
+  cat > "$share_dir/icons/hicolor/scalable/apps/ricochet.svg" <<'EOF'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#1f2937"/>
+  <path d="M28 36h72v16H48v18h42v16H48v30H28z" fill="#f8fafc"/>
+  <text x="64" y="112" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#38bdf8">Rc</text>
+</svg>
+EOF
+
+  cat > "$share_dir/metainfo/today.ricochet.rco.metainfo.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>today.ricochet.rco</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Ricochet</name>
+  <summary>Pure-postfix language, MVC web framework, and desktop app toolkit</summary>
+  <description>
+    <p>Ricochet packages the rco command-line tools, local reference documentation, examples, and first-party package catalog.</p>
+  </description>
+  <provides>
+    <binary>rco</binary>
+    <binary>ricochet</binary>
+    <binary>rco-gui</binary>
+  </provides>
+  <releases>
+    <release version="$version" />
+  </releases>
+</component>
+EOF
 }
 
 package_name="ricochet-v${version}-${target}"
@@ -117,15 +251,23 @@ package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
 deb_path="$out_dir_path/ricochet_${version}_amd64.deb"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
+signing_report_path="$out_dir_path/SIGNING-${target}.txt"
 
 assert_new_path "$package_dir"
 assert_new_path "$archive_path"
 assert_new_path "$checksums_path"
+assert_new_path "$signing_report_path"
 if [[ "$build_deb" -eq 1 ]]; then
   assert_new_path "$deb_path"
 fi
 
 mkdir -p "$out_dir_path"
+validate_mode "--signature-mode" "$signature_mode"
+{
+  echo "Ricochet Linux signing report"
+  echo "version = $version"
+  echo "target = $target"
+} > "$signing_report_path"
 
 if [[ "$skip_build" -eq 0 ]]; then
   pushd "$repo_root" >/dev/null
@@ -158,6 +300,7 @@ copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
 copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
+write_linux_metadata "$package_dir" "$version"
 
 cat > "$package_dir/RELEASE.txt" <<EOF
 Ricochet v$version ($target)
@@ -174,6 +317,11 @@ Install locally:
 Set PREFIX to install somewhere other than \$HOME/.local:
   PREFIX=/usr/local sudo -E ./install.sh
 EOF
+cat > "$package_dir/CHANGELOG.txt" <<EOF
+ricochet ($version)
+
+  * Ricochet release package for $target.
+EOF
 
 cat > "$package_dir/install.sh" <<'EOF'
 #!/usr/bin/env sh
@@ -188,6 +336,20 @@ cp "$script_dir/rco" "$bin_dir/rco"
 cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
 chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
+
+share_dir="$prefix/share"
+if [ -d "$script_dir/share/applications" ]; then
+  mkdir -p "$share_dir/applications"
+  cp "$script_dir/share/applications/"*.desktop "$share_dir/applications/"
+fi
+if [ -d "$script_dir/share/metainfo" ]; then
+  mkdir -p "$share_dir/metainfo"
+  cp "$script_dir/share/metainfo/"*.metainfo.xml "$share_dir/metainfo/"
+fi
+if [ -d "$script_dir/share/icons/hicolor/scalable/apps" ]; then
+  mkdir -p "$share_dir/icons/hicolor/scalable/apps"
+  cp "$script_dir/share/icons/hicolor/scalable/apps/"*.svg "$share_dir/icons/hicolor/scalable/apps/"
+fi
 
 printf 'Installed Ricochet CLI tools to %s\n' "$bin_dir"
 printf 'Make sure %s is on your PATH.\n' "$bin_dir"
@@ -213,10 +375,16 @@ if [[ "$build_deb" -eq 1 ]]; then
   install -m 755 "${binaries[2]}" "$deb_root/usr/bin/ricochet"
   cp "$repo_root/README.md" "$deb_root/usr/share/doc/ricochet/README.md"
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
+  cat > "$deb_root/usr/share/doc/ricochet/changelog" <<EOF
+ricochet ($version)
+
+  * Ricochet release package for $target.
+EOF
   copy_release_directory "$repo_root/examples" "$deb_root/usr/share/ricochet/examples"
   copy_release_directory "$repo_root/packages" "$deb_root/usr/share/ricochet/packages"
   copy_release_directory "$repo_root/docs/reference" "$deb_root/usr/share/doc/ricochet/reference"
   copy_release_directory "$repo_root/editors/vscode" "$deb_root/usr/share/ricochet/editors/vscode"
+  write_linux_metadata "$deb_root/usr" "$version"
 
   installed_size="$(du -sk "$deb_root/usr" | awk '{ print $1 }')"
   cat > "$deb_root/DEBIAN/control" <<EOF
@@ -237,6 +405,9 @@ EOF
   dpkg-deb --build "$deb_root" "$deb_path"
   assets+=("$deb_path")
 fi
+
+sign_linux_assets "${assets[@]}"
+assets+=("${signature_assets[@]}" "$signing_report_path")
 
 {
   for asset in "${assets[@]}"; do
