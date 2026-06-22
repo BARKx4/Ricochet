@@ -62,9 +62,9 @@ rco new my_desktop_app
 rco package my_desktop_app --gui --mvc --output my-desktop-app.exe
 ```
 
-Use `--output webview-ui` on Linux and macOS. Linux GUI launchers use
-WebKitGTK 4.1; Debian packages generated for GUI apps declare the
-`libwebkit2gtk-4.1-0` and `libgtk-3-0` runtime dependencies.
+Use `--output webview-ui` on Linux and macOS. GUI launchers open through the
+system browser. Debian packages generated for GUI apps declare an `xdg-utils`
+runtime dependency.
 
 On Linux, the same `package` command can also create portable tarballs or
 Debian packages for a `.rco` file:

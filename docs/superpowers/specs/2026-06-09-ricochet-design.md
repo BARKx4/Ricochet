@@ -694,11 +694,11 @@ $heading $button concat body var
 
 `webview_window` and `webview_window_state` return a `Result` whose ok value contains
 `type = "webview"`, `title`, raw `body`, full `html`, and default `width` and
-`height` fields. `rco gui` can preview these documents in the native desktop
-host, and `rco package --gui` embeds the app into the dedicated `rco-gui`
-launcher. The native launcher host targets Windows, Linux, and macOS; Linux uses
-the GTK-backed Wry path and therefore requires WebKitGTK 4.1. The VM surface
-stays portable and testable while GUI host details live in the CLI layer.
+`height` fields. `rco gui` can preview these documents through the platform
+system browser, and `rco package --gui` embeds the app into the dedicated
+`rco-gui` launcher. The launcher host targets Windows, Linux, and macOS without
+pulling in Wry/Tao or the GTK/WebKitGTK Rust binding stack. The VM surface stays
+portable and testable while GUI host details live in the CLI layer.
 
 The standard library can include broad pure/common utilities, but dangerous or environment-dependent effects should flow through capability objects where practical.
 
