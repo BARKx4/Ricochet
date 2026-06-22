@@ -67,6 +67,27 @@ tag releases use `require` in CI so missing `signtool.exe`,
 `RICOCHET_WINDOWS_CERT_SHA1`, or a certificate installed in
 `Cert:\CurrentUser\My` fails loudly instead of publishing unsigned artifacts.
 Set `RICOCHET_WINDOWS_TIMESTAMP_URL` to override the default timestamp server.
+
+For production tag builds, GitHub Actions imports the Authenticode certificate
+before packaging with `scripts/setup-windows-signing-certificate.ps1`. Configure
+these repository secrets:
+
+- `RICOCHET_WINDOWS_CERT_PFX_BASE64`: base64 of the `.pfx` signing certificate.
+- `RICOCHET_WINDOWS_CERT_PASSWORD`: password for the `.pfx`.
+- `RICOCHET_WINDOWS_CERT_SHA1`: optional expected SHA-1 thumbprint to validate;
+  the setup step also writes the imported thumbprint back to
+  `RICOCHET_WINDOWS_CERT_SHA1` for the package script.
+
+Local credential setup uses the same environment variables:
+
+```powershell
+$env:RICOCHET_WINDOWS_CERT_PFX_BASE64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\ricochet-signing.pfx"))
+$env:RICOCHET_WINDOWS_CERT_PASSWORD = "<pfx password>"
+$envFile = Join-Path ([IO.Path]::GetTempPath()) ("ricochet-windows-signing-" + [guid]::NewGuid().ToString("N") + ".ps1")
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-windows-signing-certificate.ps1 -Required -EnvFile $envFile
+. $envFile
+```
+
 Validate a Windows output directory with:
 
 ```powershell
@@ -98,6 +119,30 @@ Linux detached artifact signatures are controlled with
 `--signature-mode auto|require|skip|dry-run`. Dry-run mode writes
 `SIGNING-linux-x64.txt`; production tag releases use `require` in CI and expect
 `RICOCHET_LINUX_GPG_KEY` to name an imported GPG key.
+
+For production tag builds, GitHub Actions imports the GPG private key before
+packaging with `scripts/setup-linux-gpg-key.sh`. Configure these repository
+secrets:
+
+- `RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64`: base64 of an armored or binary GPG
+  secret-key export.
+- `RICOCHET_LINUX_GPG_KEY`: optional key id or fingerprint to validate and use;
+  when omitted and exactly one secret key is imported, the setup step writes the
+  imported fingerprint to `RICOCHET_LINUX_GPG_KEY`.
+- `RICOCHET_LINUX_GPG_OWNERTRUST_BASE64`: optional base64 ownertrust export.
+
+Local credential setup uses the same environment variables:
+
+```bash
+export RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64="$(gpg --armor --export-secret-keys KEYID | base64 -w0)"
+export RICOCHET_LINUX_GPG_KEY="KEYID"
+env_file="$(mktemp)"
+bash scripts/setup-linux-gpg-key.sh --required --env-file "$env_file"
+set -a
+. "$env_file"
+set +a
+```
+
 Validate a Linux output directory with:
 
 ```powershell
@@ -124,6 +169,54 @@ use `require` in CI; scheduled nightlies use `auto` so unsigned beta artifacts
 are allowed only with an explicit report. Configure
 `RICOCHET_MACOS_SIGN_IDENTITY` and `RICOCHET_MACOS_NOTARY_PROFILE` when signing
 and notarization credentials are available on the runner.
+
+For production tag builds, GitHub Actions creates an ephemeral keychain, imports
+the P12 signing certificate, configures codesign access, and stores a
+notarytool profile before packaging with
+`scripts/setup-macos-signing-keychain.sh`. The package script submits a
+temporary ZIP copy to Apple notarization and keeps the tarball as the published
+artifact. An `always()` cleanup step runs
+`scripts/cleanup-macos-signing-keychain.sh` after packaging to restore the
+previous keychain state and remove the generated keychain. Configure these
+repository secrets:
+
+- `RICOCHET_MACOS_CERT_P12_BASE64`: base64 of the signing certificate `.p12`.
+- `RICOCHET_MACOS_CERT_PASSWORD`: password for the `.p12`.
+- `RICOCHET_MACOS_KEYCHAIN_PASSWORD`: optional password for the ephemeral
+  keychain; the setup script generates one when omitted.
+- `RICOCHET_MACOS_SIGN_IDENTITY`: optional expected codesign identity to
+  validate; when omitted, the setup step selects an imported identity and writes
+  it for the package script.
+- `RICOCHET_MACOS_NOTARY_PROFILE`: required notarytool profile name to create
+  and pass to packaging.
+- Apple ID notarization path: `RICOCHET_MACOS_NOTARY_APPLE_ID`,
+  `RICOCHET_MACOS_NOTARY_TEAM_ID`, and
+  `RICOCHET_MACOS_NOTARY_PASSWORD`.
+- App Store Connect API key notarization path:
+  `RICOCHET_MACOS_NOTARY_API_KEY_BASE64`, `RICOCHET_MACOS_NOTARY_KEY_ID`, and
+  `RICOCHET_MACOS_NOTARY_ISSUER_ID`.
+
+Local credential setup uses the same environment variables:
+
+```bash
+export RICOCHET_MACOS_CERT_P12_BASE64="$(base64 -i /path/ricochet-signing.p12 | tr -d '\n')"
+export RICOCHET_MACOS_CERT_PASSWORD="<p12 password>"
+export RICOCHET_MACOS_NOTARY_PROFILE="ricochet-release"
+export RICOCHET_MACOS_NOTARY_APPLE_ID="release@example.com"
+export RICOCHET_MACOS_NOTARY_TEAM_ID="TEAMID1234"
+export RICOCHET_MACOS_NOTARY_PASSWORD="<app-specific password>"
+env_file="$(mktemp)"
+bash scripts/setup-macos-signing-keychain.sh --env-file "$env_file"
+set -a
+. "$env_file"
+set +a
+trap 'bash scripts/cleanup-macos-signing-keychain.sh' EXIT
+```
+
+For App Store Connect API key notarization, use
+`RICOCHET_MACOS_NOTARY_API_KEY_BASE64`, `RICOCHET_MACOS_NOTARY_KEY_ID`, and
+`RICOCHET_MACOS_NOTARY_ISSUER_ID` instead of the Apple ID variables.
+
 Validate a macOS output directory with:
 
 ```bash
@@ -151,6 +244,10 @@ The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and
 upload them as GitHub Actions artifacts for 30 days. Nightlies do not create
 public GitHub releases.
+
+This credential setup only imports and wires signing material for package
+scripts. Signed/notarized tag artifact verification, updater workflows, store
+packaging, and exact production release command documentation remain open.
 
 ## Reference Docs
 

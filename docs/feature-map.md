@@ -641,6 +641,11 @@ Implemented:
   builds require Windows signing, Linux detached-signature, and macOS
   signing/notarization prerequisites instead of silently producing unsigned
   production artifacts.
+- Tag release package jobs import production signing credentials into
+  runner-local stores before packaging: Windows PFX to `Cert:\CurrentUser\My`,
+  Linux GPG private key to an ephemeral `GNUPGHOME`, and macOS P12/notarytool
+  credentials to an ephemeral keychain. Branch/manual dry-runs and scheduled
+  nightlies still run without secrets.
 - Release workflow package jobs validate each per-target artifact manifest
   after package smoke tests and before upload, including required installer/deb
   artifacts in CI and Linux detached-signature relationships when signatures
@@ -654,6 +659,10 @@ Evidence:
 - `scripts/package-release.ps1`
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
+- `scripts/setup-windows-signing-certificate.ps1`
+- `scripts/setup-linux-gpg-key.sh`
+- `scripts/setup-macos-signing-keychain.sh`
+- `scripts/cleanup-macos-signing-keychain.sh`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
 - `README.md`
@@ -661,9 +670,9 @@ Evidence:
 
 Remaining:
 
-- Production-grade app distribution polish remains: certificate import/keychain
-  setup, signed/notarized production tag verification, app store packaging, and
-  updater workflows.
+- Production-grade app distribution polish remains: signed/notarized
+  production tag verification, app store packaging, updater workflows, and
+  exact production release command documentation.
 
 Do not assume:
 
@@ -691,8 +700,9 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Production app distribution polish: certificate import/keychain setup,
-  signed/notarized release verification, and store or updater workflows.
+- Production app distribution polish: signed/notarized release verification,
+  store or updater workflows, and exact production release command
+  documentation.
 
 ## Maintenance Rules
 

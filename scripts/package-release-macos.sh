@@ -264,7 +264,12 @@ sign_macos_binaries() {
   fi
 
   for path in "${paths[@]}"; do
-    codesign --force --timestamp --options runtime --sign "$sign_identity" "$path"
+    codesign_args=(--force --timestamp --options runtime --sign "$sign_identity")
+    if [[ -n "${RICOCHET_MACOS_KEYCHAIN_PATH:-}" ]]; then
+      codesign_args+=(--keychain "$RICOCHET_MACOS_KEYCHAIN_PATH")
+    fi
+    codesign_args+=("$path")
+    codesign "${codesign_args[@]}"
     append_signing_report "signed = $path"
   done
   append_signing_report "status = signed" "identity = $sign_identity"
@@ -272,6 +277,7 @@ sign_macos_binaries() {
 
 notarize_macos_archive() {
   local archive="$1"
+  local package_dir="$2"
   append_signing_report "[notarization]"
   append_signing_report "mode = $notarization_mode"
 
@@ -296,6 +302,9 @@ notarize_macos_archive() {
   if ! command -v xcrun >/dev/null 2>&1; then
     missing+=("xcrun is not available")
   fi
+  if ! command -v ditto >/dev/null 2>&1; then
+    missing+=("ditto is not available")
+  fi
 
   if [[ "${#missing[@]}" -gt 0 ]]; then
     local reason
@@ -309,8 +318,32 @@ notarize_macos_archive() {
     return
   fi
 
-  xcrun notarytool submit "$archive" --keychain-profile "$notary_profile" --wait
-  append_signing_report "status = notarized" "archive = $archive" "notary_profile = $notary_profile"
+  local notary_dir notary_zip status
+  notary_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ricochet-macos-notary.XXXXXX")"
+  notary_zip="$notary_dir/$(basename -- "$package_dir").zip"
+  ditto -c -k --keepParent "$package_dir" "$notary_zip" || {
+    status=$?
+    rm -rf "$notary_dir"
+    return "$status"
+  }
+
+  notary_args=(notarytool submit "$notary_zip" --keychain-profile "$notary_profile" --wait)
+  if [[ -n "${RICOCHET_MACOS_KEYCHAIN_PATH:-}" ]]; then
+    notary_args+=(--keychain "$RICOCHET_MACOS_KEYCHAIN_PATH")
+  fi
+  set +e
+  xcrun "${notary_args[@]}"
+  status=$?
+  set -e
+  rm -rf "$notary_dir"
+  if [[ "$status" -ne 0 ]]; then
+    return "$status"
+  fi
+  append_signing_report \
+    "status = notarized" \
+    "published_archive = $archive" \
+    "submitted_notary_archive = $notary_zip" \
+    "notary_profile = $notary_profile"
 }
 
 package_name="ricochet-v${version}-${target}"
@@ -382,7 +415,8 @@ Commands:
   rco package examples/webview_ui.rco --gui --output webview-ui
   ricochet --help
 
-This is an unsigned developer beta tarball. It is not notarized by Apple.
+Signing and notarization status is recorded in SIGNING-$target.txt beside this
+archive.
 
 Install locally:
   ./install.sh
@@ -415,7 +449,7 @@ EOF
 chmod 755 "$package_dir/install.sh"
 
 tar -czf "$archive_path" -C "$out_dir_path" "$package_name"
-notarize_macos_archive "$archive_path"
+notarize_macos_archive "$archive_path" "$package_dir"
 
 shasum -a 256 "$archive_path" "$signing_report_path" | sed "s#  .*/#  #" > "$checksums_path"
 write_artifact_manifest "$manifest_path" "$archive_path" "$signing_report_path" "$checksums_path"

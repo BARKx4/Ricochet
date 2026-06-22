@@ -793,10 +793,13 @@ without requiring real external API calls.
 - [x] Add Linux `.desktop`, icon, appstream/metainfo, changelog, and package metadata support.
 - [x] Ensure `rco package --gui --mvc` embeds or bundles static assets for production desktop apps.
 - [x] Add checksums and signature/provenance metadata for every artifact.
+- [x] Add release runner credential import setup for Windows PFX, Linux GPG,
+  and macOS P12/keychain/notarytool profile secrets.
 - [ ] Add updater design: channel metadata, version checks, signature verification, rollback story.
 - [ ] Implement updater only after signing/signature verification is stable.
 - [x] Add release workflow tests or dry-run jobs for package metadata.
-- [ ] Update release docs with exact local and CI commands.
+- [x] Document exact CI secret names and local credential import setup.
+- [ ] Update release docs with exact production release commands.
 
 **Verification Gate:**
 
@@ -840,6 +843,21 @@ Linux detached `.asc` signature relationships when signatures exist. Remaining
 Epic 12 work is certificate/keychain/GPG import setup on runners,
 signed/notarized tag verification, updater design/implementation, store
 packaging, and exact production release command documentation.
+
+**Progress Note (2026-06-22):** Release credential import setup now runs before
+tag packaging jobs only. Windows tag jobs import
+`RICOCHET_WINDOWS_CERT_PFX_BASE64`/`RICOCHET_WINDOWS_CERT_PASSWORD` into
+`Cert:\CurrentUser\My` and write `RICOCHET_WINDOWS_CERT_SHA1`; Linux tag jobs
+import `RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64`, optional ownertrust, and write
+or validate `RICOCHET_LINUX_GPG_KEY`; macOS tag jobs create an ephemeral
+keychain, import `RICOCHET_MACOS_CERT_P12_BASE64`, configure codesign access,
+create a notarytool profile from Apple ID or App Store Connect API key secrets,
+submit a temporary ZIP copy for notarization, and run an `always()` cleanup step
+that restores the previous keychain state and removes the generated keychain.
+Branch/manual dry-runs and scheduled nightlies still run without secrets.
+Remaining Epic 12 work is signed/notarized tag verification, updater
+design/implementation, store packaging, and exact production release command
+documentation.
 
 ---
 

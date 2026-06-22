@@ -112,10 +112,19 @@ jobs:
           "NSIS_PATH=$makensis" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Using NSIS at $makensis"
 
+      - name: Import Windows signing certificate
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          RICOCHET_WINDOWS_CERT_PFX_BASE64: ${{ secrets.RICOCHET_WINDOWS_CERT_PFX_BASE64 }}
+          RICOCHET_WINDOWS_CERT_PASSWORD: ${{ secrets.RICOCHET_WINDOWS_CERT_PASSWORD }}
+          RICOCHET_WINDOWS_CERT_SHA1: ${{ secrets.RICOCHET_WINDOWS_CERT_SHA1 }}
+        run: |
+          .\scripts\setup-windows-signing-certificate.ps1 -Required
+
       - name: Build release package
         shell: pwsh
         env:
-          RICOCHET_WINDOWS_CERT_SHA1: ${{ secrets.RICOCHET_WINDOWS_CERT_SHA1 }}
           RICOCHET_WINDOWS_TIMESTAMP_URL: ${{ vars.RICOCHET_WINDOWS_TIMESTAMP_URL }}
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
@@ -214,10 +223,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev
 
-      - name: Build release package
+      - name: Import Linux GPG signing key
+        if: github.ref_type == 'tag'
         shell: bash
         env:
+          RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64 }}
+          RICOCHET_LINUX_GPG_OWNERTRUST_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_OWNERTRUST_BASE64 }}
           RICOCHET_LINUX_GPG_KEY: ${{ secrets.RICOCHET_LINUX_GPG_KEY }}
+        run: |
+          bash scripts/setup-linux-gpg-key.sh --required
+
+      - name: Build release package
+        shell: bash
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
           signature_mode='dry-run'
@@ -307,11 +324,26 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release package
+      - name: Prepare macOS signing keychain
+        if: github.ref_type == 'tag'
         shell: bash
         env:
+          RICOCHET_MACOS_CERT_P12_BASE64: ${{ secrets.RICOCHET_MACOS_CERT_P12_BASE64 }}
+          RICOCHET_MACOS_CERT_PASSWORD: ${{ secrets.RICOCHET_MACOS_CERT_PASSWORD }}
+          RICOCHET_MACOS_KEYCHAIN_PASSWORD: ${{ secrets.RICOCHET_MACOS_KEYCHAIN_PASSWORD }}
           RICOCHET_MACOS_SIGN_IDENTITY: ${{ secrets.RICOCHET_MACOS_SIGN_IDENTITY }}
           RICOCHET_MACOS_NOTARY_PROFILE: ${{ secrets.RICOCHET_MACOS_NOTARY_PROFILE }}
+          RICOCHET_MACOS_NOTARY_APPLE_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_APPLE_ID }}
+          RICOCHET_MACOS_NOTARY_TEAM_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_TEAM_ID }}
+          RICOCHET_MACOS_NOTARY_PASSWORD: ${{ secrets.RICOCHET_MACOS_NOTARY_PASSWORD }}
+          RICOCHET_MACOS_NOTARY_API_KEY_BASE64: ${{ secrets.RICOCHET_MACOS_NOTARY_API_KEY_BASE64 }}
+          RICOCHET_MACOS_NOTARY_KEY_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_KEY_ID }}
+          RICOCHET_MACOS_NOTARY_ISSUER_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          bash scripts/setup-macos-signing-keychain.sh
+
+      - name: Build release package
+        shell: bash
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
           signing_mode='dry-run'
@@ -325,6 +357,12 @@ jobs:
           fi
           args=(--target '${{ matrix.target }}' --version "$version" --signing-mode "$signing_mode" --notarization-mode "$notarization_mode")
           bash scripts/package-release-macos.sh "${args[@]}"
+
+      - name: Cleanup macOS signing keychain
+        if: always() && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          bash scripts/cleanup-macos-signing-keychain.sh
 
       - name: Smoke-test package executable
         shell: bash
