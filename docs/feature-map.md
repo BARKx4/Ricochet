@@ -655,6 +655,11 @@ Implemented:
   Linux verifies detached GPG signatures against the selected signing key, and
   macOS verifies codesign signatures plus Apple notarytool's accepted submission
   report.
+- Tag publish jobs write and validate `UPDATE-CHANNEL-stable.json`, a v1
+  updater channel document that records release version, platform manifests,
+  required verification methods, artifact hashes, rollout percentage, and the
+  default reject-older-or-equal rollback policy for external installers or
+  future elevated updaters.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 
@@ -665,6 +670,8 @@ Evidence:
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
 - `scripts/verify-release-signatures.ps1`
+- `scripts/write-update-channel.ps1`
+- `scripts/validate-update-channel.ps1`
 - `scripts/setup-windows-signing-certificate.ps1`
 - `scripts/setup-linux-gpg-key.sh`
 - `scripts/setup-macos-signing-keychain.sh`
@@ -676,8 +683,8 @@ Evidence:
 
 Remaining:
 
-- Production-grade app distribution polish remains: app store packaging, updater
-  workflows, and exact production release command documentation.
+- Production-grade app distribution polish remains: app store packaging and
+  exact production release command documentation.
 
 Do not assume:
 
@@ -705,8 +712,8 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Production app distribution polish: store or updater workflows and exact
-  production release command documentation.
+- Production app distribution polish: store packaging and exact production
+  release command documentation.
 
 ## Maintenance Rules
 

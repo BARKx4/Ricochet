@@ -17,7 +17,8 @@ $requiredFiles = @(
     "guides/host-capabilities.html",
     "guides/packages.html",
     "guides/editor-debugging.html",
-    "guides/development-release.html"
+    "guides/development-release.html",
+    "guides/updater-workflow.html"
 )
 
 $failures = New-Object System.Collections.Generic.List[string]
@@ -67,7 +68,8 @@ if ($failures.Count -eq 0) {
         "Host Capabilities And Safety",
         "Packages And Registries",
         "Editor And Debugging",
-        "Development And Release"
+        "Development And Release",
+        "Updater Workflow"
     )
 
     foreach ($marker in $requiredGuideMarkers) {

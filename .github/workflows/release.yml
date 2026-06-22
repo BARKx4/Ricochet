@@ -431,11 +431,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+
+      - name: Write update channel metadata
+        shell: pwsh
+        run: |
+          ./scripts/write-update-channel.ps1 `
+            -DistDir dist `
+            -Channel stable `
+            -Version '${{ needs.resolve-version.outputs.version }}' `
+            -ReleaseTag $env:GITHUB_REF_NAME `
+            -ReleaseUrl "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME"
+          ./scripts/validate-update-channel.ps1 `
+            -DistDir dist `
+            -Channel stable `
+            -Version '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction
 
       - name: Write checksums
         shell: bash
@@ -454,4 +472,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Ricochet $GITHUB_REF_NAME" \
-            --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum and signing-status reports."
+            --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum, signing-status, artifact manifest, and update-channel reports."

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Updater Workflow - Ricochet Guides</title>
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../index.html#syntax">Syntax</a>
+        <a href="../index.html#words">Words</a>
+        <a href="../index.html#oop">OOP</a>
+        <a href="../index.html#mvc">MVC</a>
+        <a href="../index.html#cli">CLI</a>
+        <a href="index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Production distribution</p>
+          <h1>Updater Workflow</h1>
+          <p class="lede">Signed-artifact channel metadata, version checks, platform verification, and rollback rules for production Ricochet releases.</p>
+          <div class="command-strip" aria-label="Guide links">
+            <code>docs/reference/guides/updater-workflow.html</code>
+            <code>docs/wiki/updater-workflow.md</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band guide-layout" aria-label="Updater Workflow content">
+        <aside class="guide-toc" aria-label="On this page">
+          <strong>On This Page</strong>
+          <a href="#channel-metadata">Channel Metadata</a>
+          <a href="#update-check-contract">Update Check Contract</a>
+          <a href="#rollback-story">Rollback Story</a>
+        </aside>
+        <article class="guide-content">
+          <p>Ricochet's production updater workflow is channel metadata plus platform verification. The v1 beta does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
+
+          <h2 id="channel-metadata">Channel Metadata</h2>
+          <p>Production tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
+  -DistDir dist `
+  -Channel stable `
+  -Version 0.1.18 `
+  -ReleaseTag v0.1.18 `
+  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.18</code></pre>
+          <p>The channel document records release identity, rollout percentage, rollback policy, target manifests, primary artifacts, checksum files, signing reports, optional notary reports, required verification methods, and per-artifact SHA-256 metadata.</p>
+          <p>Validate channel metadata before publishing it:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 `
+  -DistDir dist `
+  -Channel stable `
+  -Version 0.1.18 `
+  -RequireProduction</code></pre>
+          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle.</p>
+
+          <h2 id="update-check-contract">Update Check Contract</h2>
+          <p>A Ricochet-compatible updater fetches the channel over HTTPS, requires the expected schema and channel, rejects older or equal versions unless an operator explicitly chooses a rollback, selects the local platform target, downloads the referenced manifest and artifacts, verifies all SHA-256 values, then runs platform verification before install.</p>
+          <ul>
+            <li>Windows: Authenticode verification on the portable ZIP executables and installer.</li>
+            <li>Linux: detached GPG signature verification for the tarball and Debian package.</li>
+            <li>macOS: codesign verification for extracted binaries plus <code>NOTARY-&lt;target&gt;.json</code> with Apple notarytool status <code>Accepted</code>.</li>
+          </ul>
+          <p>Installers should stage the new install outside the active installation path and keep a backup of the previous install until the new <code>rco --help</code> or a stronger product smoke test succeeds.</p>
+
+          <h2 id="rollback-story">Rollback Story</h2>
+          <p>Automatic rollback means reverting from a failed staged install back to the previous local install. It does not mean silently downgrading from the public channel.</p>
+          <p>By default, channel consumers reject older or equal versions. Manual rollback uses the immutable GitHub release for the desired older version, then repeats the same manifest, checksum, signature, and notarization checks before installing.</p>
+          <p>Updater state should live outside Ricochet VM images, application state, and project workspaces. Ricochet scripts should not delete an existing installation unless the updater has already staged and verified the replacement.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Reference Guides</span>
+      <a href="../index.html">Back to Reference</a>
+    </footer>
+    <script src="../app.js"></script>
+  </body>
+</html>

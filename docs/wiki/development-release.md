@@ -256,26 +256,27 @@ git push origin vX.Y.Z
 ```
 
 The release workflow packages the Windows, Linux, and macOS artifacts, writes a
-combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
-tarball, Debian package, macOS tarballs, checksums, signing-status reports, and
-per-target JSON manifests to the GitHub release. The combined checksum file
-includes the uploaded JSON manifests and macOS notary reports. Each package job
-validates its
+validated `UPDATE-CHANNEL-stable.json`, writes a combined `SHA256SUMS.txt`, and
+attaches the ZIP, Windows installer, Linux tarball, Debian package, macOS
+tarballs, checksums, signing-status reports, per-target JSON manifests, notary
+reports, and update-channel metadata to the GitHub release. The combined
+checksum file includes the uploaded JSON manifests, macOS notary reports, and
+update-channel metadata. Each package job validates its
 `ARTIFACTS-<target>.json` manifest after the package smoke test and before
 uploading artifacts, including installer/deb requirements in CI and detached
 Linux `.asc` signature relationships when signatures are present. Production
 tag package jobs also verify signatures before upload: Windows checks the
 portable ZIP executables and installer Authenticode signatures, Linux verifies
 detached GPG signatures, and macOS verifies codesign plus the accepted
-notarytool response.
+notarytool response. See [Updater Workflow](updater-workflow.md) for channel
+metadata, version-check, verification, and rollback rules.
 
 The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and
 upload them as GitHub Actions artifacts for 30 days. Nightlies do not create
 public GitHub releases.
 
-Updater workflows, store packaging, and exact production release command
-documentation remain open.
+Store packaging and exact production release command documentation remain open.
 
 ## Reference Docs
 

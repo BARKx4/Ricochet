@@ -25,6 +25,9 @@ reference: [Reference Guides](../reference/guides/index.html).
   formatting, tracing, DAP, and word inventory checks.
 - [Development And Release](development-release.md) - benchmarks, contributor
   verification, release packaging, nightlies, and reference docs.
+- [Updater Workflow](updater-workflow.md) - signed-artifact channel metadata,
+  version checks, platform verification, and rollback policy for production
+  updates.
 
 ## Other Docs
 
