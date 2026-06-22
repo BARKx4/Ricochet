@@ -536,9 +536,9 @@ if ($failures.Count -eq 0) {
         "runtime_capabilities",
         "tui_write",
         "{ `$user name.get }",
-        "{% show get if %}",
-        "{% users get &quot;user&quot; each %}",
-        "{% &quot;Featured users&quot; &quot;heading&quot; var do %}"
+        "{&#37; show get if &#37;}",
+        "{&#37; users get &quot;user&quot; each &#37;}",
+        "{&#37; &quot;Featured users&quot; &quot;heading&quot; var do &#37;}"
     )
 
     foreach ($example in $requiredExamples) {

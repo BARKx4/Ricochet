@@ -187,18 +187,18 @@ end</code></pre>
           <article>
             <h3>Templates</h3>
             <pre><code>&lt;strong&gt;{ $user name.get }&lt;/strong&gt;
-{% &quot;Featured users&quot; &quot;heading&quot; var do %}
+{&#37; &quot;Featured users&quot; &quot;heading&quot; var do &#37;}
 &lt;h1&gt;{ heading get }&lt;/h1&gt;
-{% show get if %}
+{&#37; show get if &#37;}
   &lt;ul&gt;
-    {% users get &quot;user&quot; each %}
+    {&#37; users get &quot;user&quot; each &#37;}
       &lt;li&gt;{ user get &quot;name&quot; at }&lt;/li&gt;
-    {% end %}
+    {&#37; end &#37;}
   &lt;/ul&gt;
-{% else %}
+{&#37; else &#37;}
   &lt;p&gt;No users&lt;/p&gt;
-{% end %}</code></pre>
-            <p>Each `{ ... }` expression runs Ricochet and must leave exactly one renderable value. `{% ... do %}` runs non-rendering setup code, while `{% if %}` and `{% each %}` blocks keep control flow postfix inside the template.</p>
+{&#37; end &#37;}</code></pre>
+            <p>Each `{ ... }` expression runs Ricochet and must leave exactly one renderable value. `{&#37; ... do &#37;}` runs non-rendering setup code, while `{&#37; if &#37;}` and `{&#37; each &#37;}` blocks keep control flow postfix inside the template.</p>
           </article>
           <article>
             <h3>Desktop Webview</h3>
@@ -491,17 +491,17 @@ end</code></pre>
           <article class="example-panel wide">
             <h3>View</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy view example" title="Copy">copy</button><code>&lt;main&gt;
-  {% &quot;Featured users&quot; &quot;heading&quot; var do %}
+  {&#37; &quot;Featured users&quot; &quot;heading&quot; var do &#37;}
   &lt;h1&gt;{ heading get }&lt;/h1&gt;
-  {% show get if %}
+  {&#37; show get if &#37;}
     &lt;ul&gt;
-      {% users get &quot;user&quot; each %}
+      {&#37; users get &quot;user&quot; each &#37;}
         &lt;li&gt;{ user get }&lt;/li&gt;
-      {% end %}
+      {&#37; end &#37;}
     &lt;/ul&gt;
-  {% else %}
+  {&#37; else &#37;}
     &lt;p&gt;No users&lt;/p&gt;
-  {% end %}
+  {&#37; end &#37;}
 &lt;/main&gt;</code></pre>
           </article>
         </div>

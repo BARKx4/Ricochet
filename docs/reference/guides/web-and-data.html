@@ -62,19 +62,19 @@ rco serve --watch --fs-root . --http-allow-host 127.0.0.1</code></pre>
           <p><code>rco serve</code> keeps MVC process environment access disabled unless you pass <code>--allow-env</code> or one or more <code>--env-allow NAME</code> entries. Prefer <code>--env-allow</code> for trusted local beta apps that store secret references as environment variable names. <code>--no-env</code> keeps the default disabled behavior explicit, and conflicts with both env-opening flags.</p>
           <h2 id="templates">Templates</h2>
           <p>MVC views use ordinary HTML files with Ricochet template markers. <code>{ ... }</code> runs an expression and renders exactly one scalar value: nil, bool, number, float, or string. Values are HTML-escaped by default.</p>
-          <p>Use <code>{% ... do %}</code> for non-rendering setup code. Script blocks share template locals with later expressions and blocks, and they must leave no values on the stack. Use postfix <code>{% condition if %}</code>, <code>{% else %}</code>, and <code>{% end %}</code> for conditionals. Use <code>{% collection &quot;item&quot; each %}</code> and <code>{% end %}</code> to loop arrays, lists, sets, or maps; map items expose <code>key</code> and <code>value</code>.</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>{% &quot;Featured users&quot; &quot;heading&quot; var do %}
+          <p>Use <code>{&#37; ... do &#37;}</code> for non-rendering setup code. Script blocks share template locals with later expressions and blocks, and they must leave no values on the stack. Use postfix <code>{&#37; condition if &#37;}</code>, <code>{&#37; else &#37;}</code>, and <code>{&#37; end &#37;}</code> for conditionals. Use <code>{&#37; collection &quot;item&quot; each &#37;}</code> and <code>{&#37; end &#37;}</code> to loop arrays, lists, sets, or maps; map items expose <code>key</code> and <code>value</code>.</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>{&#37; &quot;Featured users&quot; &quot;heading&quot; var do &#37;}
 &lt;h1&gt;{ heading get }&lt;/h1&gt;
-{% show get if %}
+{&#37; show get if &#37;}
   &lt;ul&gt;
-    {% users get &quot;user&quot; each %}
+    {&#37; users get &quot;user&quot; each &#37;}
       &lt;li&gt;{ user get &quot;name&quot; at }&lt;/li&gt;
-    {% end %}
+    {&#37; end &#37;}
   &lt;/ul&gt;
-{% else %}
+{&#37; else &#37;}
   &lt;p&gt;No users&lt;/p&gt;
-{% end %}</code></pre>
-          <p>Template directives are compiled only by the template renderer; <code>do</code>, <code>if</code>, <code>else</code>, <code>each</code>, and <code>end</code> in <code>{% ... %}</code> are not new global VM words. Template markers are rejected inside HTML attributes, <code>&lt;script&gt;</code>, and <code>&lt;style&gt;</code> so untrusted view data stays in text context.</p>
+{&#37; end &#37;}</code></pre>
+          <p>Template directives are compiled only by the template renderer; <code>do</code>, <code>if</code>, <code>else</code>, <code>each</code>, and <code>end</code> in <code>{&#37; ... &#37;}</code> are not new global VM words. Template markers are rejected inside HTML attributes, <code>&lt;script&gt;</code>, and <code>&lt;style&gt;</code> so untrusted view data stays in text context.</p>
           <h2 id="sqlite-scaffold">SQLite Scaffold</h2>
           <p>For a zero-service local beta app, <code>rco new --with-sqlite my_beta_app</code> creates <code>db/development.sqlite3</code>, seeds <code>users</code>, configures Active Record, and adds <code>/login</code>, <code>/me</code>, and <code>/logout</code> routes that exercise form params and the session cookie. The manifest shape is:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]

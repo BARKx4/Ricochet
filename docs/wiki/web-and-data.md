@@ -43,6 +43,7 @@ conflicts with both env-opening flags.
 
 ## Templates
 
+{% raw %}
 MVC views use ordinary HTML files with Ricochet template markers. `{ ... }`
 runs an expression and renders exactly one scalar value: nil, bool, number,
 float, or string. Values are HTML-escaped by default.
@@ -71,6 +72,7 @@ Template directives are compiled only by the template renderer; `do`, `if`,
 `else`, `each`, and `end` in `{% ... %}` are not new global VM words. Template
 markers are rejected inside HTML attributes, `<script>`, and `<style>` so
 untrusted view data stays in text context.
+{% endraw %}
 
 ## SQLite Scaffold
 
