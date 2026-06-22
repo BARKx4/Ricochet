@@ -4828,6 +4828,120 @@ end
 }
 
 #[tokio::test]
+async fn mvc_controller_imports_ai_package_and_runs_stream_state_flow() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    let ai_package_dir = project_root.join(".ricochet/packages/ai");
+    fs::create_dir_all(&ai_package_dir).expect("AI package directory should be created");
+    fs::write(
+        ai_package_dir.join("ricochet.toml"),
+        r#"
+[package]
+name = "@ricochet/ai"
+version = "0.1.0"
+"#,
+    )
+    .expect("AI package manifest should be written");
+    fs::copy(
+        repo_root_for_test().join("packages/ricochet_ai/openai.rco"),
+        ai_package_dir.join("openai.rco"),
+    )
+    .expect("AI package source should be copied into the test app");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "ai_stream_package_mvc"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[dependencies.ai]
+path = ".ricochet/packages/ai"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/ai-stream-package" AiStreamPackageController "index" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/AiStreamPackageController.rco"),
+        r#"
+"ai/openai" import
+
+AiStreamPackageController Controller Subclass
+  [
+    ai_openai_stream_state state var
+
+    firstRead map
+    $firstRead "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put! drop
+    $firstRead "next_offset" 12 put! drop
+    $firstRead "done" false put! drop
+    $state $firstRead ai_openai_stream_read_events firstResult var
+    $firstResult ok? false = if
+      $firstResult error "message" at text
+    else
+      $firstResult value "state" at state set
+
+      secondRead map
+      $secondRead "body" "lo\"}}]}\n\ndata: [DONE]\n\n" put! drop
+      $secondRead "next_offset" 40 put! drop
+      $secondRead "done" true put! drop
+      $state $secondRead ai_openai_stream_read_events secondResult var
+      $secondResult ok? if
+        $secondResult value "events" at events var
+        output map
+        $output "count" $events count put! drop
+        $output "text" $events first "data" at put! drop
+        $output "done" $secondResult value "done" at put! drop
+        $output "offset" $secondResult value "offset" at put! drop
+        $output "event_offset" $secondResult value "state" at "event_offset" at put! drop
+        $output json
+      else
+        $secondResult error "message" at text
+      end
+    end
+  ] "index" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/ai-stream-package")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    let payload: serde_json::Value =
+        serde_json::from_str(body).expect("body should be a JSON response");
+
+    assert_eq!(payload["text"], "Hello");
+    assert_eq!(payload["count"], 2);
+    assert_eq!(payload["done"], true);
+    assert_eq!(payload["offset"], 40);
+    assert_eq!(payload["event_offset"], 2);
+}
+
+#[tokio::test]
 async fn serves_logger_capability_to_ricochet_controllers() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");

@@ -74,7 +74,9 @@ foundation that developers can scaffold, run, inspect, and extend.
   `/assets/app.css`.
 - AI integration: MVC apps can opt into an OpenAI-compatible `[ai.default]`
   provider and receive an `ai` controller capability whose `chat` method
-  returns `Result` maps.
+  returns `Result` maps. The first-party `@ricochet/ai` package also provides
+  provider-neutral contracts, fake-provider execution helpers, and stateful
+  OpenAI/Anthropic SSE plus Ollama NDJSON consumers for retained HTTP streams.
 - Result contracts: stack `Result` values use `ok?`, `value`, and `error`;
   `result_envelope` converts them to `{ ok, data, error, meta }` maps for
   app/API boundaries that need stable structured responses.

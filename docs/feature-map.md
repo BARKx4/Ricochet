@@ -447,8 +447,9 @@ Implemented:
   OpenAI-compatible fake-provider-testable chat execution,
   Anthropic-compatible Messages API request/execution/tool-use helpers, native
   local/Ollama request/execution helpers, OpenAI/Anthropic SSE and Ollama
-  NDJSON parsing, stream event maps, stream text extraction, MVC fake-provider
-  integration coverage, and offline/local provider examples.
+  NDJSON parsing, retained-stream state/read-event consumers, stream event
+  maps, stream text extraction, MVC fake-provider integration coverage, MVC
+  stream-state import coverage, and offline/local provider examples.
 - Retained HTTP stream reads expose bounded `max_bytes` consumption,
   `from_offset`, `next_offset`, backward-compatible `offset`, `bytes_len`, and
   `done` metadata for incremental consumers.
@@ -470,10 +471,7 @@ Evidence:
 - `examples/showcase/package_auth_forms`
 - `examples/showcase/ai_provider_probe`
 
-Remaining:
-
-- Provider-level runtime integration beyond package executor boundaries and
-  provider-level AI streaming integration remain future package/core work.
+Remaining: none currently tracked for the beta AI package layer.
 
 Do not assume:
 
@@ -679,8 +677,6 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Dedicated TUI/browser debugger UI beyond terminal, DAP, and VS Code.
-- Provider-level AI runtime/streaming integration beyond package executor
-  boundaries.
 - Production app distribution polish: signing, notarization, metadata, store or
   updater workflows.
 

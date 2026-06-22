@@ -195,6 +195,10 @@ stream events instead of only concatenated text. It returns a `Result` whose ok
 value is an array of `ai_stream_event` maps and whose error value reports
 malformed SSE JSON without crashing the caller.
 
+For retained HTTP streams, use `ai_openai_stream_state` with
+`ai_openai_stream_read_events` so SSE frames can be split across
+`http_stream_read` chunks without being parsed too early.
+
 ## Anthropic-compatible helpers
 
 Anthropic's Messages API uses `POST /v1/messages`, the `x-api-key` header, and
@@ -238,6 +242,8 @@ blocks into the package-neutral `ai_chat_response` shape. Use
 `ai_anthropic_stream_events` for small Anthropic SSE bodies; text deltas become
 `delta` events, streamed tool input JSON becomes `tool_delta`, and
 `message_stop` becomes `done`. Stream error events return a failed `Result`.
+For retained HTTP streams, use `ai_anthropic_stream_state` and
+`ai_anthropic_stream_read_events`.
 
 ## Local/Ollama helpers
 
@@ -267,17 +273,38 @@ $contract $executor ai_ollama_execute_chat result var
 
 Use `ai_ollama_stream_events` for small native Ollama NDJSON stream bodies. It
 returns the same `ai_stream_event` map shape as the OpenAI-compatible stream
-parser.
+parser. For retained HTTP streams, use `ai_ollama_stream_state` and
+`ai_ollama_stream_read_events` so partial NDJSON lines are buffered until they
+are complete.
 
 For long-running streams, hand the same request map to Ricochet's retained HTTP
-stream words and parse chunks as you read offsets:
+stream words and parse chunks through provider stream state:
 
 ```ricochet
 $request http_stream_start value stream var
-options map
-$stream "id" at $options http_stream_read value chunk var
-$chunk "body" at ai_openai_stream_text
+ai_openai_stream_state state var
+false done var
+
+$done false = while
+  $state 4096 ai_stream_read_options options var
+  $stream "id" at $options http_stream_read value chunk var
+  $state $chunk ai_openai_stream_read_events value read var
+  $read "events" at [
+    event var
+    $event "kind" at "delta" = if
+      $event "data" at print
+    end
+  ] each drop
+  $read "state" at state set
+  $read "done" at done set
+end
 ```
+
+The retained-stream helpers track `offset`, `event_offset`, `buffer`,
+`protocol_done`, `http_done`, and `done`. They parse only complete SSE frames or
+NDJSON lines, flush a final unterminated event when `http_stream_read` reports
+`done`, and keep malformed completed events on the existing failed `Result`
+path.
 
 See `examples/showcase/ai_provider_probe/fake_provider.rco` for an offline
 provider executor flow and

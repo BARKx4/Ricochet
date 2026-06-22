@@ -221,6 +221,36 @@ request shape. Native Ollama `/api/chat` flows use the same contract shape with
 `ai_ollama_stream_events`; see
 `examples/showcase/ai_provider_probe/ollama_native_request.rco`.
 
+For long-running AI streams, pair retained `http_stream_read` chunks with
+provider stream state instead of parsing each chunk body directly:
+
+```forth
+$request http_stream_start value stream var
+ai_openai_stream_state state var
+false done var
+
+$done false = while
+  $state 4096 ai_stream_read_options options var
+  $stream "id" at $options http_stream_read value chunk var
+  $state $chunk ai_openai_stream_read_events value read var
+  $read "events" at [
+    event var
+    $event "kind" at "delta" = if
+      $event "data" at print
+    end
+  ] each drop
+  $read "state" at state set
+  $read "done" at done set
+end
+```
+
+Use `ai_anthropic_stream_state` with
+`ai_anthropic_stream_read_events` for Anthropic SSE, and
+`ai_ollama_stream_state` with `ai_ollama_stream_read_events` for Ollama NDJSON.
+The state keeps the next `offset`, parser `buffer`, monotonically increasing
+`event_offset`, provider `protocol_done`, transport `http_done`, and final
+`done` flag.
+
 ## Webview Documents
 
 Build a webview document for desktop UI hosts:

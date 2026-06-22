@@ -669,7 +669,7 @@ remain future work.
 
 **Public Surface Candidate:**
 
-- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_retryable_error?`, `ai_retry_delay_ms`, `ai_execute_with_retry`, `ai_openai_execute_chat`, `ai_openai_stream_events`, `ai_error_result`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`, `ai_tool_handlers`, `ai_tool_handler_put`, `ai_execute_tool_call`, `ai_execute_tool_calls`.
+- Package words: `ai_provider`, `ai_chat_request`, `ai_chat_stream`, `ai_retry_policy`, `ai_retryable_error?`, `ai_retry_delay_ms`, `ai_execute_with_retry`, `ai_openai_execute_chat`, `ai_openai_stream_events`, `ai_openai_stream_state`, `ai_openai_stream_read_events`, `ai_anthropic_stream_state`, `ai_anthropic_stream_read_events`, `ai_ollama_stream_state`, `ai_ollama_stream_read_events`, `ai_stream_read_options`, `ai_error_result`, `ai_schema`, `ai_validate_schema`, `ai_tool_call`, `ai_tool_result`, `ai_tool_handlers`, `ai_tool_handler_put`, `ai_execute_tool_call`, `ai_execute_tool_calls`.
 - Core changes only if current HTTP stream words cannot support incremental consumption ergonomically.
 
 **Implementation Path:**
@@ -732,7 +732,19 @@ adds Messages API request builders with top-level system-message lifting,
 `x-api-key` and `anthropic-version` headers, fake-executor chat normalization,
 `tool_use` extraction, and Anthropic SSE parsing for text deltas, tool-input
 JSON deltas, done events, and stream error events. Provider-level runtime and
-streaming integration beyond package executor boundaries remains open.
+streaming integration beyond package executor boundaries remained open after
+that slice.
+
+**Progress Note (2026-06-22):** The retained AI stream-state slice adds
+provider-specific state helpers and `http_stream_read` chunk consumers for
+OpenAI SSE, Anthropic SSE, and Ollama NDJSON. The helpers carry parser buffers
+across reads, expose the next HTTP `offset`, keep monotonic `event_offset`
+values, flush final unterminated frames when the retained stream reports
+`done`, and preserve malformed completed events on the existing failed
+`Result` path. Package tests now cover split frames/lines, done markers,
+malformed completed events, and Anthropic tool deltas; MVC fake-provider
+coverage now imports the package and runs a split retained-stream flow inside a
+controller.
 
 **Verification Gate:**
 

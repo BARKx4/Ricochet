@@ -535,6 +535,239 @@ end
   $events
 end
 
+( provider format -> Map ) ai_stream_state_for function
+  format var
+  provider var
+  state map
+  $state "provider" $provider put! drop
+  $state "format" $format put! drop
+  $state "buffer" "" put! drop
+  $state "offset" 0 put! drop
+  $state "event_offset" 0 put! drop
+  $state "done" false put! drop
+  $state "protocol_done" false put! drop
+  $state "http_done" false put! drop
+  events array
+  $state "events" $events put! drop
+  $state
+end
+
+( -> Map ) ai_openai_stream_state function
+  "openai" "sse" ai_stream_state_for
+end
+
+( -> Map ) ai_anthropic_stream_state function
+  "anthropic" "sse" ai_stream_state_for
+end
+
+( -> Map ) ai_ollama_stream_state function
+  "ollama" "ndjson" ai_stream_state_for
+end
+
+( state maxBytes -> Map ) ai_stream_read_options function
+  maxBytes var
+  state var
+  options map
+  $options "offset" $state "offset" at put! drop
+  $maxBytes nil? false = if
+    $options "max_bytes" $maxBytes put! drop
+  end
+  $options
+end
+
+( read -> String ) ai_stream_read_body function
+  read var
+  $read "body" at body var
+  $body nil? if
+    ""
+  else
+    $body
+  end
+end
+
+( state read -> Number ) ai_stream_read_next_offset function
+  read var
+  state var
+  $read "next_offset" at nextOffset var
+  $nextOffset nil? if
+    $read "offset" at nextOffset set
+  end
+  $nextOffset nil? if
+    $state "offset" at nextOffset set
+  end
+  $nextOffset nil? if
+    0
+  else
+    $nextOffset
+  end
+end
+
+( read -> Bool ) ai_stream_read_done function
+  read var
+  $read "done" at true =
+end
+
+( body buffer done -> Map ) ai_stream_flush_buffer_if_done function
+  done var
+  buffer var
+  body var
+  output map
+  $done $buffer length 0 > and if
+    $body length 0 > if
+      $body "\n" concat $buffer concat body set
+    else
+      $buffer body set
+    end
+    "" buffer set
+  end
+  $output "body" $body put! drop
+  $output "buffer" $buffer put! drop
+  $output
+end
+
+( text -> Map ) ai_sse_complete_body function
+  text var
+  completeLines array
+  currentLines array
+
+  [
+    line var
+    $line trim length 0 = if
+      $currentLines count 0 > if
+        [
+          frameLine var
+          $completeLines $frameLine push! drop
+        ] $currentLines each drop
+        $completeLines "" push! drop
+        nextLines array
+        $nextLines currentLines set
+      end
+    else
+      $currentLines $line push! drop
+    end
+  ] $text lines each drop
+
+  output map
+  $output "body" $completeLines "\n" join put! drop
+  $output "buffer" $currentLines "\n" join put! drop
+  $output
+end
+
+( text -> Map ) ai_ndjson_complete_body function
+  text var
+  completeLines array
+  "" pending var
+  $text lines bodyLines var
+  $text "\n" ends_with? $text "\r" ends_with? or ended var
+  0 index var
+  $bodyLines count total var
+  $total 1 - lastIndex var
+
+  $index $total < while
+    $bodyLines $index at line var
+    $index $lastIndex = isLast var
+    $ended $isLast false = or if
+      $completeLines $line push! drop
+    else
+      $line pending set
+    end
+    $index 1 + index set
+  end
+
+  output map
+  $output "body" $completeLines "\n" join put! drop
+  $output "buffer" $pending put! drop
+  $output
+end
+
+( state events -> Bool ) ai_stream_events_include_done function
+  events var
+  state var
+  $state "protocol_done" at true = protocolDone var
+  0 index var
+  $events count total var
+
+  $index $total < while
+    $events $index at event var
+    $event "done" at true = if
+      true protocolDone set
+      break
+    end
+    $index 1 + index set
+  end
+
+  $protocolDone
+end
+
+( state events -> Map ) ai_stream_rebase_events function
+  events var
+  state var
+  $state "event_offset" at baseOffset var
+  $baseOffset nil? if
+    0 baseOffset set
+  end
+  0 index var
+  $events count total var
+
+  $index $total < while
+    $events $index at event var
+    $event "offset" $baseOffset $index + put! drop
+    $index 1 + index set
+  end
+
+  $state "event_offset" $baseOffset $total + put! drop
+  $state
+end
+
+( state events -> Map ) ai_stream_append_events function
+  events var
+  state var
+  $state "events" at allEvents var
+  $allEvents nil? if
+    emptyEvents array
+    $emptyEvents allEvents set
+    $state "events" $allEvents put! drop
+  end
+
+  [
+    event var
+    $allEvents $event push! drop
+  ] $events each drop
+
+  $state
+end
+
+( state read events -> Map ) ai_stream_commit_read function
+  events var
+  read var
+  state var
+  $state $read ai_stream_read_next_offset nextOffset var
+  $read ai_stream_read_done httpDone var
+  $state $events ai_stream_events_include_done protocolDone var
+  $protocolDone $httpDone or streamDone var
+
+  $state "offset" $nextOffset put! drop
+  $state "http_done" $httpDone put! drop
+  $state "protocol_done" $protocolDone put! drop
+  $state "done" $streamDone put! drop
+  $state $events ai_stream_rebase_events drop
+  $state $events ai_stream_append_events drop
+  $state
+end
+
+( state events -> Map ) ai_stream_read_event_result function
+  events var
+  state var
+  output map
+  $output "state" $state put! drop
+  $output "events" $events put! drop
+  $output "offset" $state "offset" at put! drop
+  $output "done" $state "done" at put! drop
+  $output "protocol_done" $state "protocol_done" at put! drop
+  $output "http_done" $state "http_done" at put! drop
+  $output
+end
+
 ( event -> String ) ai_openai_stream_delta function
   event var
   $event "choices" at choices var
@@ -1359,6 +1592,102 @@ end
     $events ok
   else
     $finalResult
+  end
+end
+
+( state read -> Result ) ai_openai_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_sse_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_openai_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
+  end
+end
+
+( state read -> Result ) ai_anthropic_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_sse_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_anthropic_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
+  end
+end
+
+( state read -> Result ) ai_ollama_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_ndjson_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_ollama_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
   end
 end
 

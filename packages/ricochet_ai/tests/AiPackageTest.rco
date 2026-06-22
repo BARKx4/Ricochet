@@ -393,6 +393,78 @@ AiPackageTest TestCase Subclass
     $result error "kind" at "AiProviderMalformedEvent" assert_equals
   ] "testOpenAiStreamEventsReportMalformedEvents" Method
   [
+    ai_openai_stream_state state var
+    $state "offset" 17 put! drop
+    $state 4096 ai_stream_read_options options var
+    $options "offset" at 17 assert_equals
+    $options "max_bytes" at 4096 assert_equals
+    $state nil ai_stream_read_options nilOptions var
+    $nilOptions "offset" at 17 assert_equals
+    $nilOptions "max_bytes" at nil? true assert_equals
+  ] "testAiStreamReadOptionsUseStateOffset" Method
+  [
+    ai_openai_stream_state state var
+
+    read1 map
+    $read1 "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put! drop
+    $read1 "next_offset" 10 put! drop
+    $read1 "done" false put! drop
+    $state $read1 ai_openai_stream_read_events firstResult var
+    $firstResult ok? true assert_equals
+    $firstResult value "events" at count 0 assert_equals
+    $firstResult value "offset" at 10 assert_equals
+    $firstResult value "state" at state set
+    $state "buffer" at length 0 > true assert_equals
+
+    read2 map
+    $read2 "body" "lo\"}}]}\n\n" put! drop
+    $read2 "next_offset" 20 put! drop
+    $read2 "done" false put! drop
+    $state $read2 ai_openai_stream_read_events secondResult var
+    $secondResult ok? true assert_equals
+    $secondResult value "events" at events var
+    $events count 1 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hello" assert_equals
+    $events first "offset" at 0 assert_equals
+    $secondResult value "state" at state set
+    $state "buffer" at "" assert_equals
+
+    read3 map
+    $read3 "body" "data: [DONE]\n\n" put! drop
+    $read3 "next_offset" 35 put! drop
+    $read3 "done" true put! drop
+    $state $read3 ai_openai_stream_read_events thirdResult var
+    $thirdResult ok? true assert_equals
+    $thirdResult value "events" at doneEvents var
+    $doneEvents count 1 assert_equals
+    $doneEvents first "kind" at "done" assert_equals
+    $doneEvents first "offset" at 1 assert_equals
+    $thirdResult value "done" at true assert_equals
+    $thirdResult value "protocol_done" at true assert_equals
+    $thirdResult value "offset" at 35 assert_equals
+    $thirdResult value "state" at "event_offset" at 2 assert_equals
+  ] "testOpenAiStreamReadEventsConsumeSplitFramesAndDone" Method
+  [
+    ai_openai_stream_state state var
+    read1 map
+    $read1 "body" "data: {bad" put! drop
+    $read1 "next_offset" 10 put! drop
+    $read1 "done" false put! drop
+    $state $read1 ai_openai_stream_read_events firstResult var
+    $firstResult ok? true assert_equals
+    $firstResult value "events" at count 0 assert_equals
+    $firstResult value "state" at state set
+
+    read2 map
+    $read2 "body" "-json}\n\n" put! drop
+    $read2 "next_offset" 20 put! drop
+    $read2 "done" false put! drop
+    $state $read2 ai_openai_stream_read_events secondResult var
+    $secondResult ok? false assert_equals
+    $secondResult error "kind" at "AiProviderMalformedEvent" assert_equals
+  ] "testOpenAiStreamReadEventsDeferMalformedPartialFrames" Method
+  [
     "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
     messages array
     options map
@@ -481,6 +553,43 @@ AiPackageTest TestCase Subclass
     $result ok? false assert_equals
     $result error "kind" at "AiProviderMalformedEvent" assert_equals
   ] "testOllamaStreamEventsReportMalformedEvents" Method
+  [
+    ai_ollama_stream_state state var
+    read1 map
+    $read1 "body" "{\"model\":\"llama3.2\",\"message\":{\"content\":\"Hel\"" put! drop
+    $read1 "next_offset" 12 put! drop
+    $read1 "done" false put! drop
+    $state $read1 ai_ollama_stream_read_events firstResult var
+    $firstResult ok? true assert_equals
+    $firstResult value "events" at count 0 assert_equals
+    $firstResult value "state" at state set
+
+    read2 map
+    $read2 "body" "},\"done\":false}\n{\"model\":\"llama3.2\",\"done\":true}" put! drop
+    $read2 "next_offset" 64 put! drop
+    $read2 "done" true put! drop
+    $state $read2 ai_ollama_stream_read_events secondResult var
+    $secondResult ok? true assert_equals
+    $secondResult value "events" at events var
+    $events count 2 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hel" assert_equals
+    $events first "offset" at 0 assert_equals
+    $events 1 at "kind" at "done" assert_equals
+    $events 1 at "offset" at 1 assert_equals
+    $secondResult value "done" at true assert_equals
+    $secondResult value "state" at "buffer" at "" assert_equals
+  ] "testOllamaStreamReadEventsConsumeSplitNdjsonAndFinalLine" Method
+  [
+    ai_ollama_stream_state state var
+    read map
+    $read "body" "{bad-json}\n" put! drop
+    $read "next_offset" 11 put! drop
+    $read "done" false put! drop
+    $state $read ai_ollama_stream_read_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "AiProviderMalformedEvent" assert_equals
+  ] "testOllamaStreamReadEventsReportCompletedMalformedLines" Method
   [
     "https://api.anthropic.com/v1" "claude-test" ai_anthropic_provider provider var
     $provider "provider" at "anthropic" assert_equals
@@ -588,4 +697,42 @@ AiPackageTest TestCase Subclass
     $result error "kind" at "overloaded_error" assert_equals
     $result error "message" at "Overloaded" assert_equals
   ] "testAnthropicStreamEventsReportProviderErrors" Method
+  [
+    ai_anthropic_stream_state state var
+    read1 map
+    $read1 "body" "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel" put! drop
+    $read1 "next_offset" 30 put! drop
+    $read1 "done" false put! drop
+    $state $read1 ai_anthropic_stream_read_events firstResult var
+    $firstResult ok? true assert_equals
+    $firstResult value "events" at count 0 assert_equals
+    $firstResult value "state" at state set
+
+    read2 map
+    $read2 "body" "lo\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n" put! drop
+    $read2 "next_offset" 90 put! drop
+    $read2 "done" false put! drop
+    $state $read2 ai_anthropic_stream_read_events secondResult var
+    $secondResult ok? true assert_equals
+    $secondResult value "events" at events var
+    $events count 2 assert_equals
+    $events first "kind" at "delta" assert_equals
+    $events first "data" at "Hello" assert_equals
+    $events first "offset" at 0 assert_equals
+    $events 1 at "kind" at "tool_delta" assert_equals
+    $events 1 at "data" at "{\"city\":" assert_equals
+    $events 1 at "offset" at 1 assert_equals
+    $secondResult value "state" at "event_offset" at 2 assert_equals
+  ] "testAnthropicStreamReadEventsConsumeSplitTextAndToolDeltas" Method
+  [
+    ai_anthropic_stream_state state var
+    read map
+    $read "body" "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n" put! drop
+    $read "next_offset" 80 put! drop
+    $read "done" false put! drop
+    $state $read ai_anthropic_stream_read_events result var
+    $result ok? false assert_equals
+    $result error "kind" at "overloaded_error" assert_equals
+    $result error "message" at "Overloaded" assert_equals
+  ] "testAnthropicStreamReadEventsReportProviderErrors" Method
 end
