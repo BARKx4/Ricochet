@@ -194,6 +194,15 @@ jobs:
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireInstaller
 
+      - name: Verify production release signatures
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          .\scripts\verify-release-signatures.ps1 `
+            -Target windows-x64 `
+            -RequireProduction `
+            -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -292,6 +301,15 @@ jobs:
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireDeb
 
+      - name: Verify production release signatures
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          ./scripts/verify-release-signatures.ps1 `
+            -Target linux-x64 `
+            -RequireProduction `
+            -GpgKey $env:RICOCHET_LINUX_GPG_KEY
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -382,6 +400,15 @@ jobs:
           ./scripts/validate-release-artifacts.ps1 `
             -Target '${{ matrix.target }}' `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}'
+
+      - name: Verify production release signatures
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          ./scripts/verify-release-signatures.ps1 `
+            -Target '${{ matrix.target }}' `
+            -RequireProduction `
+            -ExpectedMacosIdentity $env:RICOCHET_MACOS_SIGN_IDENTITY
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7

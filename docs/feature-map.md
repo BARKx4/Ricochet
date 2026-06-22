@@ -650,6 +650,11 @@ Implemented:
   after package smoke tests and before upload, including required installer/deb
   artifacts in CI and Linux detached-signature relationships when signatures
   exist.
+- Production tag package jobs verify release signatures before upload: Windows
+  checks Authenticode signatures on the portable ZIP executables and installer,
+  Linux verifies detached GPG signatures against the selected signing key, and
+  macOS verifies codesign signatures plus Apple notarytool's accepted submission
+  report.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 
@@ -659,6 +664,7 @@ Evidence:
 - `scripts/package-release.ps1`
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
+- `scripts/verify-release-signatures.ps1`
 - `scripts/setup-windows-signing-certificate.ps1`
 - `scripts/setup-linux-gpg-key.sh`
 - `scripts/setup-macos-signing-keychain.sh`
@@ -670,9 +676,8 @@ Evidence:
 
 Remaining:
 
-- Production-grade app distribution polish remains: signed/notarized
-  production tag verification, app store packaging, updater workflows, and
-  exact production release command documentation.
+- Production-grade app distribution polish remains: app store packaging, updater
+  workflows, and exact production release command documentation.
 
 Do not assume:
 
@@ -700,9 +705,8 @@ Implemented foundations that should not be listed as missing:
 
 Still real remaining work:
 
-- Production app distribution polish: signed/notarized release verification,
-  store or updater workflows, and exact production release command
-  documentation.
+- Production app distribution polish: store or updater workflows and exact
+  production release command documentation.
 
 ## Maintenance Rules
 

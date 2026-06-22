@@ -96,6 +96,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-relea
 
 Omit `-RequireInstaller` for local dry-runs on machines without NSIS; CI keeps
 it enabled because release jobs install NSIS and require the installer artifact.
+For production tag outputs, verify the Authenticode signatures on the portable
+ZIP contents and installer before upload:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1
+```
 
 Linux release packages are built on Linux with:
 
@@ -149,6 +155,13 @@ Validate a Linux output directory with:
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
 ```
 
+For production tag outputs, verify every detached GPG signature against the
+selected signing key before upload:
+
+```powershell
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey $env:RICOCHET_LINUX_GPG_KEY
+```
+
 macOS release tarballs are built on macOS with:
 
 ```bash
@@ -175,7 +188,10 @@ the P12 signing certificate, configures codesign access, and stores a
 notarytool profile before packaging with
 `scripts/setup-macos-signing-keychain.sh`. The package script submits a
 temporary ZIP copy to Apple notarization and keeps the tarball as the published
-artifact. An `always()` cleanup step runs
+artifact. It preserves Apple notarytool's accepted submission response as
+`NOTARY-<target>.json`, includes that report in the checksum file and artifact
+manifest, and records the relationship in `SIGNING-<target>.txt`. An `always()`
+cleanup step runs
 `scripts/cleanup-macos-signing-keychain.sh` after packaging to restore the
 previous keychain state and remove the generated keychain. Configure these
 repository secrets:
@@ -224,6 +240,14 @@ pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64
 ```
 
+For production tag outputs, verify the extracted binaries' codesign signatures
+and the `NOTARY-<target>.json` accepted notarization report before upload:
+
+```bash
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
+```
+
 To publish a GitHub release, push a version tag:
 
 ```powershell
@@ -235,19 +259,23 @@ The release workflow packages the Windows, Linux, and macOS artifacts, writes a
 combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
 tarball, Debian package, macOS tarballs, checksums, signing-status reports, and
 per-target JSON manifests to the GitHub release. The combined checksum file
-includes the uploaded JSON manifests. Each package job validates its
+includes the uploaded JSON manifests and macOS notary reports. Each package job
+validates its
 `ARTIFACTS-<target>.json` manifest after the package smoke test and before
 uploading artifacts, including installer/deb requirements in CI and detached
-Linux `.asc` signature relationships when signatures are present.
+Linux `.asc` signature relationships when signatures are present. Production
+tag package jobs also verify signatures before upload: Windows checks the
+portable ZIP executables and installer Authenticode signatures, Linux verifies
+detached GPG signatures, and macOS verifies codesign plus the accepted
+notarytool response.
 
 The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and
 upload them as GitHub Actions artifacts for 30 days. Nightlies do not create
 public GitHub releases.
 
-This credential setup only imports and wires signing material for package
-scripts. Signed/notarized tag artifact verification, updater workflows, store
-packaging, and exact production release command documentation remain open.
+Updater workflows, store packaging, and exact production release command
+documentation remain open.
 
 ## Reference Docs
 

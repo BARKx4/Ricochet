@@ -795,6 +795,7 @@ without requiring real external API calls.
 - [x] Add checksums and signature/provenance metadata for every artifact.
 - [x] Add release runner credential import setup for Windows PFX, Linux GPG,
   and macOS P12/keychain/notarytool profile secrets.
+- [x] Add signed/notarized production tag verification before artifact upload.
 - [ ] Add updater design: channel metadata, version checks, signature verification, rollback story.
 - [ ] Implement updater only after signing/signature verification is stable.
 - [x] Add release workflow tests or dry-run jobs for package metadata.
@@ -855,9 +856,19 @@ create a notarytool profile from Apple ID or App Store Connect API key secrets,
 submit a temporary ZIP copy for notarization, and run an `always()` cleanup step
 that restores the previous keychain state and removes the generated keychain.
 Branch/manual dry-runs and scheduled nightlies still run without secrets.
-Remaining Epic 12 work is signed/notarized tag verification, updater
-design/implementation, store packaging, and exact production release command
-documentation.
+Remaining Epic 12 work is updater design/implementation, store packaging, and
+exact production release command documentation.
+
+**Progress Note (2026-06-22):** Production tag package jobs now verify release
+signatures before uploading artifacts. Windows verification extracts the
+portable ZIP and checks Authenticode signatures on `rco.exe`, `rco-gui.exe`,
+and `ricochet.exe`, then checks the installer signature. Linux verification
+checks every detached `.asc` signature against the selected GPG key. macOS
+packaging preserves notarytool's accepted submission response as
+`NOTARY-<target>.json`, includes it in the manifest/checksums, and verification
+checks both extracted binary codesign signatures and the accepted notary report.
+Remaining Epic 12 work is updater design/implementation, store packaging, and
+exact production release command documentation.
 
 ---
 

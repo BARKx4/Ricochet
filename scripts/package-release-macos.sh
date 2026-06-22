@@ -152,6 +152,7 @@ artifact_kind() {
   local path="$1"
   case "$(basename -- "$path")" in
     *.tar.gz) echo "archive" ;;
+    NOTARY-*.json) echo "notary-report" ;;
     SIGNING-*.txt) echo "signing-report" ;;
     SHA256SUMS*.txt) echo "checksums" ;;
     *) echo "artifact" ;;
@@ -327,12 +328,12 @@ notarize_macos_archive() {
     return "$status"
   }
 
-  notary_args=(notarytool submit "$notary_zip" --keychain-profile "$notary_profile" --wait)
+  notary_args=(notarytool submit "$notary_zip" --keychain-profile "$notary_profile" --wait --output-format json)
   if [[ -n "${RICOCHET_MACOS_KEYCHAIN_PATH:-}" ]]; then
     notary_args+=(--keychain "$RICOCHET_MACOS_KEYCHAIN_PATH")
   fi
   set +e
-  xcrun "${notary_args[@]}"
+  xcrun "${notary_args[@]}" > "$notary_report_path"
   status=$?
   set -e
   rm -rf "$notary_dir"
@@ -343,6 +344,7 @@ notarize_macos_archive() {
     "status = notarized" \
     "published_archive = $archive" \
     "submitted_notary_archive = $notary_zip" \
+    "notary_report = $notary_report_path" \
     "notary_profile = $notary_profile"
 }
 
@@ -356,12 +358,14 @@ package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
 signing_report_path="$out_dir_path/SIGNING-${target}.txt"
+notary_report_path="$out_dir_path/NOTARY-${target}.json"
 manifest_path="$out_dir_path/ARTIFACTS-${target}.json"
 
 assert_new_path "$package_dir"
 assert_new_path "$archive_path"
 assert_new_path "$checksums_path"
 assert_new_path "$signing_report_path"
+assert_new_path "$notary_report_path"
 assert_new_path "$manifest_path"
 
 mkdir -p "$out_dir_path"
@@ -451,11 +455,17 @@ chmod 755 "$package_dir/install.sh"
 tar -czf "$archive_path" -C "$out_dir_path" "$package_name"
 notarize_macos_archive "$archive_path" "$package_dir"
 
-shasum -a 256 "$archive_path" "$signing_report_path" | sed "s#  .*/#  #" > "$checksums_path"
-write_artifact_manifest "$manifest_path" "$archive_path" "$signing_report_path" "$checksums_path"
+assets=("$archive_path" "$signing_report_path")
+if [[ -f "$notary_report_path" ]]; then
+  assets+=("$notary_report_path")
+fi
+
+shasum -a 256 "${assets[@]}" | sed "s#  .*/#  #" > "$checksums_path"
+write_artifact_manifest "$manifest_path" "${assets[@]}" "$checksums_path"
 
 echo "Release assets written to $out_dir_path"
-echo " - $archive_path"
-echo " - $signing_report_path"
+for asset in "${assets[@]}"; do
+  echo " - $asset"
+done
 echo " - $checksums_path"
 echo " - $manifest_path"
