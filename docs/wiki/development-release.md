@@ -44,7 +44,7 @@ inventory drift check, examples, scaffolded project checks/tests, and a live
 
 ## Release Packaging
 
-See `docs/releases/v0.1.19-rc.1.md` for the current release-candidate notes,
+See `docs/releases/v0.1.19-rc.2.md` for the current release-candidate notes,
 hardening checklist, and artifact smoke-test expectations.
 
 Windows release packages are built from this repository with:
@@ -258,7 +258,7 @@ Production releases are tag-driven. With the GitHub repository secrets from
 this guide configured, the normal release path is:
 
 ```powershell
-$version = "0.1.19-rc.1"
+$version = "0.1.19-rc.2"
 $tag = "v$version"
 
 git fetch origin
@@ -283,7 +283,7 @@ The release workflow imports production signing credentials on tag jobs, builds
 Windows, Linux, and macOS packages, validates artifact manifests, validates
 store-ready packaging, verifies production signatures, writes the update channel
 metadata, writes the combined checksum file, and creates the GitHub release.
-Semver prerelease tags such as `v0.1.19-rc.1` are published as GitHub
+Semver prerelease tags such as `v0.1.19-rc.2` are published as GitHub
 prereleases, are not marked latest, use the dry-run signing/notarization path,
 and write `UPDATE-CHANNEL-candidate.json` with SHA-256 verification metadata
 instead of the stable channel file. Stable tag releases continue to require the
@@ -294,7 +294,7 @@ packaging commands on their native operating systems with production modes:
 
 ```powershell
 # Windows, with NSIS and the Authenticode certificate already available.
-$version = "0.1.19-rc.1"
+$version = "0.1.19-rc.2"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
@@ -303,7 +303,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release
 
 ```bash
 # Linux, with GPG credentials imported.
-version="0.1.19-rc.1"
+version="0.1.19-rc.2"
 bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode require
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction
@@ -312,7 +312,7 @@ pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 
 
 ```bash
 # macOS, once for each native target with the signing keychain prepared.
-version="0.1.19-rc.1"
+version="0.1.19-rc.2"
 bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
@@ -323,8 +323,8 @@ After all platform artifacts are collected in one `dist` directory, validate the
 release channel and combined artifact set:
 
 ```powershell
-pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.1 -ReleaseTag v0.1.19-rc.1 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.1
-pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.1 -RequireProduction
+pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.2 -ReleaseTag v0.1.19-rc.2 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.2
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.2 -RequireProduction
 ```
 
 The release workflow packages the Windows, Linux, and macOS artifacts, writes a

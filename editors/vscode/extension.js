@@ -24,6 +24,14 @@ function ricochetCommand() {
   return config.get("server.path", "rco");
 }
 
+function ensureTrustedWorkspace(action) {
+  if (vscode.workspace.isTrusted) {
+    return true;
+  }
+  vscode.window.showWarningMessage(`Trust this workspace before using Ricochet ${action}.`);
+  return false;
+}
+
 function workspaceFolderForPath(documentPath) {
   return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(documentPath));
 }
@@ -73,7 +81,12 @@ async function restartLanguageServer() {
 }
 
 async function runWithStackVisualizer(context) {
+  let tracePath;
   try {
+    if (!ensureTrustedWorkspace("stack visualizer")) {
+      return;
+    }
+
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== "ricochet") {
       vscode.window.showWarningMessage("Open a Ricochet .rco file before running the stack visualizer.");
@@ -88,7 +101,7 @@ async function runWithStackVisualizer(context) {
       }
     }
 
-    const tracePath = path.join(
+    tracePath = path.join(
       os.tmpdir(),
       `ricochet-stack-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
     );
@@ -118,6 +131,10 @@ async function runWithStackVisualizer(context) {
     const message = error instanceof Error ? error.message : String(error);
     outputChannel.show(true);
     vscode.window.showErrorMessage(`Ricochet stack visualizer failed: ${message}`);
+  } finally {
+    if (tracePath) {
+      await fs.unlink(tracePath).catch(() => {});
+    }
   }
 }
 
@@ -426,6 +443,9 @@ function stackVisualizerHtml(webview, documentPath, tracePath, events) {
 function debugAdapterDescriptorFactory() {
   return {
     createDebugAdapterDescriptor(session) {
+      if (!ensureTrustedWorkspace("debugging")) {
+        throw new Error("Ricochet debugging requires a trusted workspace.");
+      }
       const command = ricochetCommand();
       const cwd = session.workspaceFolder?.uri.fsPath;
       return new vscode.DebugAdapterExecutable(

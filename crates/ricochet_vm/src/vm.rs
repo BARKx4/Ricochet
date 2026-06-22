@@ -1921,6 +1921,7 @@ impl Vm {
             "approval_complete" => self.call_approval_complete(word),
             "approval_reject" => self.call_approval_reject(word),
             "approval_detail" => self.call_approval_detail(word),
+            "approval_release" => self.call_approval_release(word),
             "tui_enter" => self.call_capability_method_word(word, Capability::Terminal, "enter!"),
             "tui_leave" => self.call_capability_method_word(word, Capability::Terminal, "leave!"),
             "tui_clear" => self.call_capability_method_word(word, Capability::Terminal, "clear!"),

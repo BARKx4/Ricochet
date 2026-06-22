@@ -37,4 +37,4 @@ reference: [Reference Guides](../reference/guides/index.html).
 - [Reference Website Notes](../reference/README.md)
 - [Adding Public Words](../adding-words.md)
 - [Debugger Integrations](../debugger-integrations.md)
-- [Current Release Candidate Notes](../releases/v0.1.19-rc.1.md)
+- [Current Release Candidate Notes](../releases/v0.1.19-rc.2.md)

@@ -56,6 +56,7 @@ struct AppRuntime {
     session_signing_key: Option<SessionSigningKey>,
     session_encryption_key: Option<SessionEncryptionKey>,
     session_secure: SessionSecure,
+    session_auto_allows_insecure_loopback: bool,
     routes: Vec<Route>,
     controllers: ControllerRegistry,
 }
@@ -683,6 +684,9 @@ fn build_runtime_from_dir_internal_with_options(
         session_signing_key,
         session_encryption_key,
         session_secure: manifest.web.session.secure,
+        session_auto_allows_insecure_loopback: options
+            .map(|options| host_is_local(&options.host))
+            .unwrap_or(false),
         routes,
         controllers,
     })
@@ -1898,6 +1902,7 @@ fn render_action(
                 runtime.session_signing_key.as_ref(),
                 runtime.session_encryption_key.as_ref(),
                 runtime.session_secure,
+                runtime.session_auto_allows_insecure_loopback,
                 &ctx.headers,
             )
             .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?,
@@ -2175,9 +2180,14 @@ fn session_cookie_header(
     signing_key: Option<&SessionSigningKey>,
     encryption_key: Option<&SessionEncryptionKey>,
     secure_policy: SessionSecure,
+    auto_allows_insecure_loopback: bool,
     request_headers: &BTreeMap<String, String>,
 ) -> Result<String> {
-    let attributes = session_cookie_attributes(secure_policy, request_headers);
+    let attributes = session_cookie_attributes(
+        secure_policy,
+        auto_allows_insecure_loopback,
+        request_headers,
+    );
     if session.is_empty() {
         return Ok(format!("{SESSION_COOKIE_NAME}=; Max-Age=0; {attributes}"));
     }
@@ -2202,12 +2212,15 @@ fn session_cookie_header(
 
 fn session_cookie_attributes(
     secure_policy: SessionSecure,
+    auto_allows_insecure_loopback: bool,
     request_headers: &BTreeMap<String, String>,
 ) -> String {
     let secure = match secure_policy {
         SessionSecure::Always => true,
         SessionSecure::Never => false,
-        SessionSecure::Auto => session_request_requires_secure_cookie(request_headers),
+        SessionSecure::Auto => {
+            session_request_requires_secure_cookie(auto_allows_insecure_loopback, request_headers)
+        }
     };
     if secure {
         "Path=/; HttpOnly; SameSite=Lax; Secure".to_string()
@@ -2216,22 +2229,17 @@ fn session_cookie_attributes(
     }
 }
 
-fn session_request_requires_secure_cookie(request_headers: &BTreeMap<String, String>) -> bool {
+fn session_request_requires_secure_cookie(
+    auto_allows_insecure_loopback: bool,
+    request_headers: &BTreeMap<String, String>,
+) -> bool {
     if request_headers
         .get("x-forwarded-proto")
         .is_some_and(|value| value.eq_ignore_ascii_case("https"))
     {
         return true;
     }
-    let Some(host) = request_headers.get("host") else {
-        return true;
-    };
-    let host = host
-        .rsplit_once(':')
-        .map(|(host, _)| host)
-        .unwrap_or(host.as_str())
-        .trim_matches(['[', ']']);
-    !matches!(host, "localhost" | "127.0.0.1" | "::1")
+    !auto_allows_insecure_loopback
 }
 
 fn session_json_from_cookie(
@@ -3540,6 +3548,20 @@ end
         };
 
         assert_eq!(values.get("id"), Some(Value::String(id.to_string())));
+    }
+
+    #[test]
+    fn session_auto_secure_does_not_trust_host_header_for_downgrade() {
+        let headers = BTreeMap::from([("host".to_string(), "localhost".to_string())]);
+
+        assert!(
+            session_request_requires_secure_cookie(false, &headers),
+            "Auto secure sessions should not let a request Host header disable Secure"
+        );
+        assert!(
+            !session_request_requires_secure_cookie(true, &headers),
+            "Auto secure sessions should preserve explicit loopback development behavior"
+        );
     }
 
     fn test_manifest_with_capabilities(capabilities: &str) -> Manifest {

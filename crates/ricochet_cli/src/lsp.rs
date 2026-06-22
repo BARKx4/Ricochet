@@ -424,6 +424,11 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Release a completed retained PTY session.",
     ),
     WordDoc::new(
+        "approval_release",
+        "approvals",
+        "Release a retained approval record.",
+    ),
+    WordDoc::new(
         "timestamp_parse",
         "time",
         "Parse an RFC3339 timestamp into UTC epoch milliseconds.",

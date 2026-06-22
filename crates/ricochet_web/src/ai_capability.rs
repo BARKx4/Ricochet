@@ -65,6 +65,7 @@ fn chat_blocking(config: AiProviderConfig, prompt: String) -> Result<Value> {
         let body = read_capped_response(response, AI_MAX_ERROR_BYTES)
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             .unwrap_or_else(|error| format!("failed to read error body: {error}"));
+        let body = redact_ai_error_body(&body, &config.api_key);
         bail!("AI provider returned {status}: {body}");
     }
 
@@ -91,6 +92,16 @@ fn chat_blocking(config: AiProviderConfig, prompt: String) -> Result<Value> {
         ])
         .into(),
     ))
+}
+
+fn redact_ai_error_body(body: &str, api_key: &str) -> String {
+    let mut redacted = body.to_string();
+    if !api_key.is_empty() {
+        redacted = redacted
+            .replace(&format!("Bearer {api_key}"), "Bearer [redacted token]")
+            .replace(api_key, "[redacted token]");
+    }
+    redacted
 }
 
 fn read_capped_response(
@@ -202,6 +213,26 @@ mod tests {
         assert!(
             error.to_string().contains("AI provider response exceeded"),
             "oversized response error was: {error:#}"
+        );
+    }
+
+    #[test]
+    fn ai_chat_redacts_api_key_from_provider_error_body() {
+        let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 80\r\nConnection: close\r\n\r\nprovider echoed Authorization: Bearer test-key and raw token test-key in diagnostics"
+            .to_vec();
+        let (address, server) = spawn_ai_response_server(response);
+        let error = chat_blocking(test_config(address), "hello".to_string())
+            .expect_err("provider error should fail");
+        server.join().expect("AI test server should finish");
+        let error = error.to_string();
+
+        assert!(
+            !error.contains("test-key"),
+            "AI provider errors must redact API keys, got: {error}"
+        );
+        assert!(
+            error.contains("Bearer [redacted token]"),
+            "redacted bearer marker should remain, got: {error}"
         );
     }
 

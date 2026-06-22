@@ -1696,6 +1696,14 @@ const WORDS = [
     "example": "$approval \"id\" at approval_detail value"
   },
   {
+    "word": "approval_release",
+    "aliases": [],
+    "group": "system",
+    "stack": "id:string -> result(bool)",
+    "body": "Releases a retained approval record when an app no longer needs to inspect it. Approval registries are capped and also prune expired or final records under pressure.",
+    "example": "$approval \"id\" at approval_release value drop"
+  },
+  {
     "word": "now",
     "aliases": [],
     "group": "system",

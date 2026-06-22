@@ -340,6 +340,12 @@ jobs:
             -RequireProduction `
             -GpgKey $env:RICOCHET_LINUX_GPG_KEY
 
+      - name: Cleanup Linux GPG signing key
+        if: always() && github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        shell: bash
+        run: |
+          bash scripts/cleanup-linux-gpg-key.sh
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:

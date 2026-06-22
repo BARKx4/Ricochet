@@ -99,8 +99,10 @@ fi
 runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 secret_dir="$(mktemp -d "$runner_temp/ricochet-linux-gpg-import.XXXXXX")"
 gnupg_home="${GNUPGHOME:-}"
+gnupg_home_generated="false"
 if [[ -z "$gnupg_home" ]]; then
   gnupg_home="$(mktemp -d "$runner_temp/ricochet-linux-gnupg.XXXXXX")"
+  gnupg_home_generated="true"
 fi
 key_file="$secret_dir/private-key.gpg"
 ownertrust_file="$secret_dir/ownertrust.txt"
@@ -144,5 +146,6 @@ fi
 
 append_env_output "GNUPGHOME" "$GNUPGHOME"
 append_env_output "RICOCHET_LINUX_GPG_KEY" "$selected_key"
+append_env_output "RICOCHET_LINUX_GPG_HOME_GENERATED" "$gnupg_home_generated"
 echo "Imported Linux GPG release signing key."
 echo "RICOCHET_LINUX_GPG_KEY=$selected_key"

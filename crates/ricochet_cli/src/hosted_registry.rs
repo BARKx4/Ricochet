@@ -546,8 +546,22 @@ fn discover(registry_url: &str) -> Result<HostedRegistryDiscovery> {
         .as_deref()
         .map(validate_base_url)
         .transpose()?
-        .unwrap_or(requested_base);
+        .unwrap_or_else(|| requested_base.clone());
+    ensure_discovered_base_same_origin(&requested_base, &base_url)?;
     Ok(HostedRegistryDiscovery { base_url })
+}
+
+fn ensure_discovered_base_same_origin(requested_base: &str, discovered_base: &str) -> Result<()> {
+    let requested = Url::parse(requested_base)
+        .with_context(|| format!("invalid hosted registry base URL {requested_base:?}"))?;
+    let discovered = Url::parse(discovered_base)
+        .with_context(|| format!("invalid hosted registry base URL {discovered_base:?}"))?;
+    if !same_origin(&requested, &discovered) {
+        bail!(
+            "hosted registry discovery base_url {discovered_base:?} must stay on requested registry origin {requested_base:?}"
+        );
+    }
+    Ok(())
 }
 
 fn search_packages(
@@ -1440,4 +1454,31 @@ fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
         && left.port_or_known_default() == right.port_or_known_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_base_url_must_stay_on_requested_origin() {
+        ensure_discovered_base_same_origin(
+            "https://registry.example.test/api",
+            "https://registry.example.test/api/v2",
+        )
+        .expect("same-origin discovery base should be accepted");
+
+        let error = ensure_discovered_base_same_origin(
+            "https://registry.example.test/api",
+            "https://attacker.example.test/api",
+        )
+        .expect_err("cross-origin discovery base should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("must stay on requested registry origin"),
+            "unexpected error: {error:#}"
+        );
+    }
 }

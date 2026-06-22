@@ -10,7 +10,7 @@ runtime.
 
 Production stable tag releases publish `UPDATE-CHANNEL-stable.json` beside the
 release artifacts and require platform signature/notarization verification.
-Semver prerelease tags such as `v0.1.19-rc.1` publish
+Semver prerelease tags such as `v0.1.19-rc.2` publish
 `UPDATE-CHANNEL-candidate.json`, are marked as GitHub prereleases, and record
 SHA-256 verification metadata for dry-run signed candidate artifacts. The file
 uses schema `ricochet.update-channel` version `1` and is written by:
@@ -19,9 +19,9 @@ uses schema `ricochet.update-channel` version `1` and is written by:
 pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel candidate `
-  -Version 0.1.19-rc.1 `
-  -ReleaseTag v0.1.19-rc.1 `
-  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.1
+  -Version 0.1.19-rc.2 `
+  -ReleaseTag v0.1.19-rc.2 `
+  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.2
 ```
 
 The channel document records:
@@ -41,7 +41,7 @@ Validate channel metadata before publishing it:
 pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 `
   -DistDir dist `
   -Channel candidate `
-  -Version 0.1.19-rc.1 `
+  -Version 0.1.19-rc.2 `
   -RequireProduction
 ```
 

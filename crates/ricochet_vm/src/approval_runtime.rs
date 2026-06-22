@@ -4,14 +4,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::value::Value;
 
-#[derive(Clone, Default)]
+const MAX_RETAINED_APPROVAL_RECORDS: usize = 1024;
+
+#[derive(Clone)]
 pub struct ApprovalRegistry {
     inner: Arc<Mutex<ApprovalRegistryState>>,
 }
 
-#[derive(Default)]
 struct ApprovalRegistryState {
     next_id: u64,
+    max_retained: usize,
     approvals: BTreeMap<String, ApprovalRecord>,
 }
 
@@ -87,12 +89,36 @@ impl ApprovalRuntimeError {
 }
 
 impl ApprovalRegistry {
+    pub fn new() -> Self {
+        Self::with_max_retained(MAX_RETAINED_APPROVAL_RECORDS)
+    }
+
+    pub fn with_max_retained(max_retained: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ApprovalRegistryState {
+                next_id: 0,
+                max_retained,
+                approvals: BTreeMap::new(),
+            })),
+        }
+    }
+
     pub fn create(
         &self,
         request: ApprovalCreateRequest,
     ) -> Result<ApprovalSnapshot, ApprovalRuntimeError> {
         let now = now_ms();
         let mut state = self.inner.lock().expect("approval registry lock poisoned");
+        state.prune_releasable(now);
+        if state.approvals.len() >= state.max_retained {
+            return Err(ApprovalRuntimeError::new(
+                "ApprovalRegistryFull",
+                format!(
+                    "approval registry reached its retained record limit of {}",
+                    state.max_retained
+                ),
+            ));
+        }
         let id = match request.id {
             Some(id) => id,
             None => {
@@ -256,6 +282,11 @@ impl ApprovalRegistry {
         Ok(record.snapshot(false))
     }
 
+    pub fn release(&self, id: &str) -> Result<bool, ApprovalRuntimeError> {
+        let mut state = self.inner.lock().expect("approval registry lock poisoned");
+        Ok(state.approvals.remove(id).is_some())
+    }
+
     pub fn len(&self) -> usize {
         self.inner
             .lock()
@@ -270,6 +301,32 @@ impl ApprovalRegistry {
             .expect("approval registry lock poisoned")
             .approvals
             .is_empty()
+    }
+}
+
+impl Default for ApprovalRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ApprovalRegistryState {
+    fn prune_releasable(&mut self, now: i64) {
+        for record in self.approvals.values_mut() {
+            record.expire_if_needed(now);
+        }
+        while self.approvals.len() >= self.max_retained {
+            let Some(key) = self
+                .approvals
+                .iter()
+                .filter(|(_, record)| record.is_releasable())
+                .min_by_key(|(_, record)| record.finalized_at_ms().unwrap_or(record.created_at_ms))
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            self.approvals.remove(&key);
+        }
     }
 }
 
@@ -305,6 +362,22 @@ impl ApprovalRecord {
             self.status = ApprovalStatus::Expired;
         }
     }
+
+    fn is_releasable(&self) -> bool {
+        matches!(
+            self.status,
+            ApprovalStatus::Completed | ApprovalStatus::Rejected | ApprovalStatus::Expired
+        )
+    }
+
+    fn finalized_at_ms(&self) -> Option<i64> {
+        match self.status {
+            ApprovalStatus::Completed => self.completed_at_ms,
+            ApprovalStatus::Rejected => self.rejected_at_ms,
+            ApprovalStatus::Expired => self.expires_at_ms,
+            ApprovalStatus::Pending | ApprovalStatus::Claimed => None,
+        }
+    }
 }
 
 impl ApprovalStatus {
@@ -335,4 +408,58 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_request(id: &str, ttl_ms: Option<i64>) -> ApprovalCreateRequest {
+        ApprovalCreateRequest {
+            id: Some(id.to_string()),
+            token: Some("token".to_string()),
+            operation: Value::Map(BTreeMap::new().into()),
+            metadata: Value::Map(BTreeMap::new().into()),
+            ttl_ms,
+            expires_at_ms: None,
+        }
+    }
+
+    #[test]
+    fn approval_release_removes_retained_record() {
+        let registry = ApprovalRegistry::new();
+        registry
+            .create(create_request("approval-one", None))
+            .expect("approval should be created");
+
+        assert_eq!(registry.len(), 1);
+        assert!(registry
+            .release("approval-one")
+            .expect("release should work"));
+        assert_eq!(registry.len(), 0);
+        assert!(!registry
+            .release("approval-one")
+            .expect("release should work"));
+    }
+
+    #[test]
+    fn approval_registry_prunes_expired_records_before_limit_error() {
+        let registry = ApprovalRegistry::with_max_retained(1);
+        registry
+            .create(create_request("expired", Some(-1)))
+            .expect("expired approval should be created");
+
+        registry
+            .create(create_request("replacement", None))
+            .expect("expired approval should be pruned for a replacement");
+
+        assert!(matches!(
+            registry.detail("expired"),
+            Err(ApprovalRuntimeError {
+                kind: "ApprovalNotFound",
+                ..
+            })
+        ));
+        assert_eq!(registry.len(), 1);
+    }
 }

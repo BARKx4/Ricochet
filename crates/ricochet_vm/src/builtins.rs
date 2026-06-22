@@ -3720,6 +3720,24 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_approval_release(&mut self, word: &str) -> Result<(), VmError> {
+        let stack_before = self.stack.clone();
+        let id = match self.pop_string(word, "approval id string") {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.approval_registry().release(&id) {
+            Ok(true) => Value::result_ok(Value::Bool(true)),
+            Ok(false) => Value::result_err("ApprovalNotFound", format!("unknown approval: {id}")),
+            Err(error) => approval_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     fn pop_pty_request(&mut self, word: &str) -> Result<Result<PtyRequest, Value>, VmError> {
         let options = self.pop(word)?;
         let args = self.pop(word)?;
@@ -5806,6 +5824,8 @@ fn process_request_from_values(
             ));
         }
     };
+    validate_child_environment_policy(vm, "process", &env)?;
+    let clear_env = child_process_must_clear_environment(vm) || clear_env;
 
     let stdout_max_bytes = match options.remove("stdout_max_bytes") {
         Some(value) => process_max_bytes_from_value("stdout_max_bytes", value)?,
@@ -5935,6 +5955,8 @@ fn pty_request_from_values(
             ));
         }
     };
+    validate_child_environment_policy(vm, "PTY", &env)?;
+    let clear_env = child_process_must_clear_environment(vm) || clear_env;
 
     let rows = match options.remove("rows") {
         Some(value) => pty_u16_from_value("rows", value)?,
@@ -7283,6 +7305,35 @@ fn process_env_from_map(
             )),
         })
         .collect()
+}
+
+fn child_process_must_clear_environment(vm: &Vm) -> bool {
+    !vm.environment_enabled || vm.environment_allowed_names.is_some()
+}
+
+fn validate_child_environment_policy(
+    vm: &Vm,
+    label: &str,
+    env: &BTreeMap<String, String>,
+) -> Result<(), Value> {
+    if env.is_empty() {
+        return Ok(());
+    }
+    if !vm.environment_enabled {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            format!("{label} env requires the environment capability"),
+        ));
+    }
+    if let Some(allowed_names) = &vm.environment_allowed_names {
+        if let Some(name) = env.keys().find(|name| !allowed_names.contains(*name)) {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!("{label} environment variable is not allowed: {name}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_environment_assignment(name: &str, value: &str) -> Option<String> {
@@ -8977,5 +9028,118 @@ mod tests {
                 if error.kind == "PermissionError"
                     && error.message.contains("process executable")
         ));
+    }
+
+    #[test]
+    fn process_and_pty_requests_clear_parent_env_when_env_capability_is_restricted() {
+        let vm = Vm::default();
+
+        let process = process_request_from_values(
+            &vm,
+            "process_spawn",
+            std::env::current_exe()
+                .expect("current exe should resolve")
+                .to_string_lossy()
+                .into_owned(),
+            Vec::new(),
+            Value::Map(BTreeMap::new().into()),
+        )
+        .expect("process request should parse");
+        assert!(
+            process.clear_env,
+            "processes must not inherit parent env when env capability is disabled"
+        );
+
+        let pty = pty_request_from_values(
+            &vm,
+            "pty_start",
+            std::env::current_exe()
+                .expect("current exe should resolve")
+                .to_string_lossy()
+                .into_owned(),
+            Vec::new(),
+            Value::Map(BTreeMap::new().into()),
+        )
+        .expect("PTY request should parse");
+        assert!(
+            pty.clear_env,
+            "PTYs must not inherit parent env when env capability is disabled"
+        );
+    }
+
+    #[test]
+    fn process_and_pty_options_env_follow_vm_allowlist() {
+        let command = std::env::current_exe()
+            .expect("current exe should resolve")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_environment_enabled(true);
+        vm.set_environment_allowed_names(["ALLOWED_CHILD_ENV".to_string()]);
+        let denied_options = Value::Map(
+            BTreeMap::from([(
+                "env".to_string(),
+                Value::Map(
+                    BTreeMap::from([(
+                        "DENIED_CHILD_ENV".to_string(),
+                        Value::String("secret".to_string()),
+                    )])
+                    .into(),
+                ),
+            )])
+            .into(),
+        );
+
+        let process_error = process_request_from_values(
+            &vm,
+            "process_spawn",
+            command.clone(),
+            Vec::new(),
+            denied_options.clone(),
+        )
+        .expect_err("denied process env should fail");
+        assert!(matches!(
+            process_error,
+            Value::Result(RicochetResult::Err(error))
+                if error.kind == "ProcessRequestError"
+                    && error.message.contains("DENIED_CHILD_ENV")
+        ));
+
+        let pty_error = pty_request_from_values(
+            &vm,
+            "pty_start",
+            command.clone(),
+            Vec::new(),
+            denied_options,
+        )
+        .expect_err("denied PTY env should fail");
+        assert!(matches!(
+            pty_error,
+            Value::Result(RicochetResult::Err(error))
+                if error.kind == "ProcessRequestError"
+                    && error.message.contains("DENIED_CHILD_ENV")
+        ));
+
+        let allowed_options = Value::Map(
+            BTreeMap::from([(
+                "env".to_string(),
+                Value::Map(
+                    BTreeMap::from([(
+                        "ALLOWED_CHILD_ENV".to_string(),
+                        Value::String("safe".to_string()),
+                    )])
+                    .into(),
+                ),
+            )])
+            .into(),
+        );
+        let process =
+            process_request_from_values(&vm, "process_spawn", command, Vec::new(), allowed_options)
+                .expect("allowed process env should parse");
+        assert!(process.clear_env);
+        assert_eq!(
+            process.env.get("ALLOWED_CHILD_ENV"),
+            Some(&"safe".to_string())
+        );
     }
 }

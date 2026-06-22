@@ -38,6 +38,7 @@ const REGISTRY_STATE_FILE: &str = "registry.json";
 const MAX_METADATA_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PUBLISH_BODY_BYTES: usize = MAX_ARCHIVE_BYTES + MAX_METADATA_BYTES + 4 * 1024 * 1024;
+const MAX_IDEMPOTENCY_RECORDS: usize = 4096;
 
 pub(super) struct HostedRegistryServeOptions<'a> {
     pub(super) root: &'a Path,
@@ -176,6 +177,7 @@ struct IdempotencyRecord {
     method: &'static str,
     path: String,
     body_digest: String,
+    stored_at_ms: i64,
     response: StoredHttpResponse,
 }
 
@@ -1226,21 +1228,36 @@ fn store_idempotency(
     body_digest: String,
     response: StoredHttpResponse,
 ) -> std::result::Result<(), RegistryHttpError> {
-    state
+    let mut records = state
         .idempotency
         .lock()
-        .map_err(|_| internal_error("hosted registry idempotency state is poisoned"))?
-        .insert(
-            key,
-            IdempotencyRecord {
-                token_hash,
-                method,
-                path,
-                body_digest,
-                response,
-            },
-        );
+        .map_err(|_| internal_error("hosted registry idempotency state is poisoned"))?;
+    records.insert(
+        key,
+        IdempotencyRecord {
+            token_hash,
+            method,
+            path,
+            body_digest,
+            stored_at_ms: Utc::now().timestamp_millis(),
+            response,
+        },
+    );
+    prune_idempotency_records(&mut records);
     Ok(())
+}
+
+fn prune_idempotency_records(records: &mut BTreeMap<String, IdempotencyRecord>) {
+    while records.len() > MAX_IDEMPOTENCY_RECORDS {
+        let Some(oldest_key) = records
+            .iter()
+            .min_by_key(|(key, record)| (record.stored_at_ms, *key))
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        records.remove(&oldest_key);
+    }
 }
 
 fn publish_body_digest(
@@ -1418,5 +1435,43 @@ fn format_base_url(address: SocketAddr) -> String {
         format!("http://[{}]:{}", address.ip(), address.port())
     } else {
         format!("http://{}:{}", address.ip(), address.port())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_response() -> StoredHttpResponse {
+        StoredHttpResponse {
+            status: StatusCode::OK,
+            media_type: PACKAGE_MEDIA_TYPE,
+            body: b"{}".to_vec(),
+        }
+    }
+
+    #[test]
+    fn idempotency_records_are_pruned_to_retention_cap() {
+        let mut records = BTreeMap::new();
+        for index in 0..(MAX_IDEMPOTENCY_RECORDS + 2) {
+            records.insert(
+                format!("key-{index:04}"),
+                IdempotencyRecord {
+                    token_hash: "token".to_string(),
+                    method: "POST",
+                    path: "/v1/packages/demo".to_string(),
+                    body_digest: index.to_string(),
+                    stored_at_ms: index as i64,
+                    response: stored_response(),
+                },
+            );
+        }
+
+        prune_idempotency_records(&mut records);
+
+        assert_eq!(records.len(), MAX_IDEMPOTENCY_RECORDS);
+        assert!(!records.contains_key("key-0000"));
+        assert!(!records.contains_key("key-0001"));
+        assert!(records.contains_key("key-0002"));
     }
 }
