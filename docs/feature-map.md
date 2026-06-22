@@ -629,16 +629,18 @@ Implemented:
 - Linux `rco package` can also emit tarballs and Debian packages.
 - Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and macOS
   tarballs with explicit signing or detached-signature
-  dry-run/auto/required modes and signing-status reports.
+  dry-run/auto/required modes, signing-status reports, checksum files, and
+  per-target JSON artifact/provenance manifests.
 - Linux release packages include a terminal desktop launcher, SVG icon,
   AppStream metainfo, changelog, maintainer metadata, bundled docs, bundled
   examples, and the first-party package catalog. User-built
   `rco package --gui --linux-package tar|deb` apps include per-app desktop,
   icon, AppStream, and changelog metadata.
-- Release workflow uploads Windows, Linux, macOS, checksum, signing-status, and
-  installer artifacts and runs nightly builds. Tag builds require Windows
-  signing, Linux detached-signature, and macOS signing/notarization
-  prerequisites instead of silently producing unsigned production artifacts.
+- Release workflow uploads Windows, Linux, macOS, checksum, signing-status,
+  per-target manifest, and installer artifacts and runs nightly builds. Tag
+  builds require Windows signing, Linux detached-signature, and macOS
+  signing/notarization prerequisites instead of silently producing unsigned
+  production artifacts.
 - CI validates formatting, clippy, tests, audit policy, benchmarks, reference
   docs, editor assets, and acceptance.
 
@@ -656,8 +658,8 @@ Evidence:
 Remaining:
 
 - Production-grade app distribution polish remains: certificate import/keychain
-  setup, signed/notarized production tag verification, detached
-  signature/provenance metadata, app store packaging, and updater workflows.
+  setup, signed/notarized production tag verification, app store packaging,
+  updater workflows, and release dry-run workflow hardening.
 
 Do not assume:
 
@@ -686,8 +688,8 @@ Implemented foundations that should not be listed as missing:
 Still real remaining work:
 
 - Production app distribution polish: certificate import/keychain setup,
-  signed/notarized release verification, detached signature/provenance
-  metadata, store or updater workflows.
+  signed/notarized release verification, store or updater workflows, and
+  release dry-run workflow hardening.
 
 ## Maintenance Rules
 

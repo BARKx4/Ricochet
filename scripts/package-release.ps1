@@ -101,6 +101,86 @@ function Get-Sha256Hex {
     }
 }
 
+function Get-SourceInfo {
+    $commit = [Environment]::GetEnvironmentVariable("GITHUB_SHA")
+    if (-not $commit) {
+        $git = Get-Command git -ErrorAction SilentlyContinue
+        if ($git) {
+            $commit = (& $git.Source -C $RepoRoot rev-parse HEAD 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+                $commit = $null
+            }
+        }
+    }
+
+    $ref = [Environment]::GetEnvironmentVariable("GITHUB_REF_NAME")
+    if (-not $ref) {
+        $ref = [Environment]::GetEnvironmentVariable("GITHUB_REF")
+    }
+    if (-not $ref) {
+        $git = Get-Command git -ErrorAction SilentlyContinue
+        if ($git) {
+            $ref = (& $git.Source -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+                $ref = $null
+            }
+        }
+    }
+
+    [ordered]@{
+        commit = if ($commit) { ($commit | Select-Object -First 1).Trim() } else { $null }
+        ref = if ($ref) { ($ref | Select-Object -First 1).Trim() } else { $null }
+    }
+}
+
+function Get-ArtifactKind {
+    param([string] $Path)
+
+    $name = Split-Path -Leaf $Path
+    if ($name -like "*.zip") { return "archive" }
+    if ($name -like "*-setup.exe") { return "installer" }
+    if ($name -like "SIGNING-*.txt") { return "signing-report" }
+    if ($name -like "SHA256SUMS*.txt") { return "checksums" }
+    return "artifact"
+}
+
+function Write-ArtifactManifest {
+    param(
+        [string] $Path,
+        [string[]] $Artifacts,
+        [string] $SigningReportPath
+    )
+
+    $source = Get-SourceInfo
+    $signingReportName = Split-Path -Leaf $SigningReportPath
+    $entries = foreach ($artifact in $Artifacts) {
+        $item = Get-Item -LiteralPath $artifact
+        $entry = [ordered]@{
+            name = $item.Name
+            path = $item.Name
+            kind = Get-ArtifactKind -Path $item.FullName
+            size_bytes = $item.Length
+            sha256 = Get-Sha256Hex -Path $item.FullName
+        }
+        if ($item.Name -ne $signingReportName) {
+            $entry.signing_report = $signingReportName
+        }
+        [pscustomobject]$entry
+    }
+
+    $manifest = [ordered]@{
+        schema = "ricochet.release-artifacts"
+        schema_version = 1
+        target = $Target
+        package_version = $Version
+        generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        source = $source
+        artifacts = @($entries)
+    }
+
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
 function Resolve-SignTool {
     param([string] $RequestedPath)
 
@@ -235,12 +315,14 @@ $ArchivePath = Join-Path $OutDirPath "$PackageName.zip"
 $InstallerPath = Join-Path $OutDirPath "$PackageName-setup.exe"
 $ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS.txt"
 $SigningReportPath = Join-Path $OutDirPath "SIGNING-$Target.txt"
+$ManifestPath = Join-Path $OutDirPath "ARTIFACTS-$Target.json"
 
 Assert-NewPath $PackageDir
 Assert-NewPath $ArchivePath
 Assert-NewPath $InstallerPath
 Assert-NewPath $ChecksumsPath
 Assert-NewPath $SigningReportPath
+Assert-NewPath $ManifestPath
 
 if (-not $SkipBuild) {
     Push-Location $RepoRoot
@@ -349,9 +431,11 @@ $checksumLines = foreach ($asset in $Assets) {
     "{0}  {1}" -f (Get-Sha256Hex -Path $asset), (Split-Path -Leaf $asset)
 }
 Set-Content -LiteralPath $ChecksumsPath -Value $checksumLines
+Write-ArtifactManifest -Path $ManifestPath -Artifacts @($Assets + $ChecksumsPath) -SigningReportPath $SigningReportPath
 
 Write-Host "Release assets written to $OutDirPath"
 foreach ($asset in $Assets) {
     Write-Host " - $asset"
 }
 Write-Host " - $ChecksumsPath"
+Write-Host " - $ManifestPath"

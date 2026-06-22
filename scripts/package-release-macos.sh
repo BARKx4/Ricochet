@@ -138,6 +138,85 @@ copy_release_directory() {
   fi
 }
 
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
+artifact_kind() {
+  local path="$1"
+  case "$(basename -- "$path")" in
+    *.tar.gz) echo "archive" ;;
+    SIGNING-*.txt) echo "signing-report" ;;
+    SHA256SUMS*.txt) echo "checksums" ;;
+    *) echo "artifact" ;;
+  esac
+}
+
+source_value() {
+  local env_value="$1"
+  local git_args="$2"
+  if [[ -n "$env_value" ]]; then
+    printf '%s' "$env_value"
+    return
+  fi
+  git -C "$repo_root" $git_args 2>/dev/null || true
+}
+
+write_artifact_manifest() {
+  local manifest_path="$1"
+  shift
+  local artifacts=("$@")
+  local source_commit source_ref generated_at
+  source_commit="$(source_value "${GITHUB_SHA:-}" "rev-parse HEAD")"
+  source_ref="$(source_value "${GITHUB_REF_NAME:-${GITHUB_REF:-}}" "rev-parse --abbrev-ref HEAD")"
+  generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  {
+    printf '{\n'
+    printf '  "schema": "ricochet.release-artifacts",\n'
+    printf '  "schema_version": 1,\n'
+    printf '  "target": "%s",\n' "$(json_escape "$target")"
+    printf '  "package_version": "%s",\n' "$(json_escape "$version")"
+    printf '  "generated_at": "%s",\n' "$(json_escape "$generated_at")"
+    printf '  "source": {\n'
+    printf '    "commit": %s,\n' "$(if [[ -n "$source_commit" ]]; then printf '"%s"' "$(json_escape "$source_commit")"; else printf 'null'; fi)"
+    printf '    "ref": %s\n' "$(if [[ -n "$source_ref" ]]; then printf '"%s"' "$(json_escape "$source_ref")"; else printf 'null'; fi)"
+    printf '  },\n'
+    printf '  "artifacts": [\n'
+    local first=1
+    for artifact in "${artifacts[@]}"; do
+      local name kind size sha
+      name="$(basename -- "$artifact")"
+      kind="$(artifact_kind "$artifact")"
+      size="$(stat -f '%z' "$artifact")"
+      sha="$(shasum -a 256 "$artifact" | awk '{ print $1 }')"
+
+      if [[ "$first" -eq 0 ]]; then
+        printf ',\n'
+      fi
+      first=0
+      printf '    {\n'
+      printf '      "name": "%s",\n' "$(json_escape "$name")"
+      printf '      "path": "%s",\n' "$(json_escape "$name")"
+      printf '      "kind": "%s",\n' "$(json_escape "$kind")"
+      printf '      "size_bytes": %s,\n' "$size"
+      printf '      "sha256": "%s"' "$(json_escape "$sha")"
+      if [[ "$name" != "$(basename -- "$signing_report_path")" ]]; then
+        printf ',\n      "signing_report": "%s"' "$(json_escape "$(basename -- "$signing_report_path")")"
+      fi
+      printf '\n    }'
+    done
+    printf '\n  ]\n'
+    printf '}\n'
+  } > "$manifest_path"
+}
+
 append_signing_report() {
   printf '%s\n' "$@" >> "$signing_report_path"
 }
@@ -244,11 +323,13 @@ package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
 signing_report_path="$out_dir_path/SIGNING-${target}.txt"
+manifest_path="$out_dir_path/ARTIFACTS-${target}.json"
 
 assert_new_path "$package_dir"
 assert_new_path "$archive_path"
 assert_new_path "$checksums_path"
 assert_new_path "$signing_report_path"
+assert_new_path "$manifest_path"
 
 mkdir -p "$out_dir_path"
 validate_mode "--signing-mode" "$signing_mode"
@@ -337,8 +418,10 @@ tar -czf "$archive_path" -C "$out_dir_path" "$package_name"
 notarize_macos_archive "$archive_path"
 
 shasum -a 256 "$archive_path" "$signing_report_path" | sed "s#  .*/#  #" > "$checksums_path"
+write_artifact_manifest "$manifest_path" "$archive_path" "$signing_report_path" "$checksums_path"
 
 echo "Release assets written to $out_dir_path"
 echo " - $archive_path"
 echo " - $signing_report_path"
 echo " - $checksums_path"
+echo " - $manifest_path"

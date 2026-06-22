@@ -55,8 +55,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-releas
 
 The script builds `rco.exe`, `rco-gui.exe`, and `ricochet.exe`, creates a
 portable ZIP, writes `SHA256SUMS.txt`, and creates a Windows `.exe` installer
-when NSIS `makensis.exe` is installed. GitHub Actions installs NSIS
-automatically in the release workflow.
+when NSIS `makensis.exe` is installed. It also writes
+`ARTIFACTS-windows-x64.json`, a machine-readable release manifest covering the
+ZIP, installer when present, checksum file, and signing-status report. GitHub
+Actions installs NSIS automatically in the release workflow.
 
 Windows signing is controlled with `-SigningMode auto|require|skip|dry-run`.
 Local and branch dry-runs can use `-SigningMode dry-run` to write a
@@ -74,7 +76,9 @@ bash scripts/package-release-linux.sh
 
 The script builds `rco`, `rco-gui`, and `ricochet`, creates a portable tarball
 with an `install.sh` helper, writes `SHA256SUMS-linux-x64.txt`, and creates a
-Debian `.deb` package with `dpkg-deb`.
+Debian `.deb` package with `dpkg-deb`. It also writes
+`ARTIFACTS-linux-x64.json`, including SHA-256, size, source, signing report, and
+detached `.asc` signature relationships when signatures are produced.
 
 Linux release packages include a terminal desktop launcher for `rco repl`, an
 SVG icon, AppStream metainfo, a changelog, maintainer metadata, and the bundled
@@ -95,8 +99,10 @@ bash scripts/package-release-macos.sh --target macos-x64
 ```
 
 The script builds `rco`, `rco-gui`, and `ricochet`, creates a portable tarball
-with an `install.sh` helper, and writes a target-specific checksum file. GitHub
-Actions builds Apple Silicon and Intel tarballs on separate macOS runners.
+with an `install.sh` helper, writes a target-specific checksum file, and writes
+`ARTIFACTS-<target>.json` for the tarball, checksum file, and signing-status
+report. GitHub Actions builds Apple Silicon and Intel tarballs on separate
+macOS runners.
 
 macOS signing and notarization are controlled with `--signing-mode` and
 `--notarization-mode`, each accepting `auto`, `require`, `skip`, or `dry-run`.
@@ -115,8 +121,9 @@ git push origin vX.Y.Z
 
 The release workflow packages the Windows, Linux, and macOS artifacts, writes a
 combined `SHA256SUMS.txt`, and attaches the ZIP, Windows installer, Linux
-tarball, Debian package, macOS tarballs, checksums, and signing-status reports
-to the GitHub release.
+tarball, Debian package, macOS tarballs, checksums, signing-status reports, and
+per-target JSON manifests to the GitHub release. The combined checksum file
+includes the uploaded JSON manifests.
 
 The same workflow also runs nightly from `main`. Nightly builds use a version
 like `X.Y.Z-nightly.N`, build the same Windows, Linux, and macOS packages, and

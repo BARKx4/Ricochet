@@ -792,7 +792,7 @@ without requiring real external API calls.
 - [x] Add macOS signing/notarization step with dry-run and unsigned fallback only for non-release builds.
 - [x] Add Linux `.desktop`, icon, appstream/metainfo, changelog, and package metadata support.
 - [x] Ensure `rco package --gui --mvc` embeds or bundles static assets for production desktop apps.
-- [ ] Add checksums and signature/provenance metadata for every artifact.
+- [x] Add checksums and signature/provenance metadata for every artifact.
 - [ ] Add updater design: channel metadata, version checks, signature verification, rollback story.
 - [ ] Implement updater only after signing/signature verification is stable.
 - [ ] Add release workflow tests or dry-run jobs for package metadata.
@@ -813,10 +813,22 @@ icon, AppStream metainfo, changelog, maintainer metadata, docs, examples, and
 packages. Generated Linux GUI app packages now include per-app `.desktop`, SVG
 icon, AppStream metainfo, and changelog metadata, while the existing packaged
 MVC GUI tests continue to prove static assets are bundled into production
-desktop apps. Remaining Epic 12 work is certificate/keychain/GPG import setup,
-signed/notarized tag verification, detached signature/provenance metadata,
-updater design/implementation, store packaging, and release dry-run workflow
-hardening.
+desktop apps. Remaining Epic 12 work after that slice was
+certificate/keychain/GPG import setup, signed/notarized tag verification,
+detached signature/provenance metadata, updater design/implementation, store
+packaging, and release dry-run workflow hardening.
+
+**Progress Note (2026-06-22):** The artifact manifest/provenance slice adds
+per-target `ARTIFACTS-<target>.json` manifests to the Windows, Linux, and macOS
+release packaging scripts. Each manifest records schema/version metadata,
+target, package version, generation time, source commit/ref when available,
+artifact names/paths, sizes, SHA-256 hashes, kinds, signing-status report
+relationships, and Linux detached `.asc` signature relationships when present.
+The release workflow uploads the JSON manifests and includes them in the
+combined GitHub release checksum file. Remaining Epic 12 work is
+certificate/keychain/GPG import setup on runners, signed/notarized tag
+verification, updater design/implementation, store packaging, and release
+dry-run workflow hardening.
 
 ---
 
