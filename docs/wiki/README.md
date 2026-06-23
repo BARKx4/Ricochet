@@ -6,13 +6,13 @@ examples, safety notes, contributor workflows, and release packaging.
 The same guide set is also available as static HTML beside the official
 reference: [Reference Guides](../reference/guides/index.html).
 
-For an ordered learning path, start with the Learn Ricochet landing page:
-[Learn Ricochet](../reference/learn/index.html).
+For an ordered learning path, start with the Learn Ricochet manual:
+[Learn Ricochet](../learn/).
 
 ## Start Here
 
 - [Feature Overview](features.html) - current release-candidate surface area and project scope.
-- [Learn Ricochet](../reference/learn/index.html) - drafted manual path from the stack model through apps, packages, and release workflows.
+- [Learn Ricochet](../learn/) - beginner manual path from the stack model through apps, packages, and release workflows.
 - [Getting Started](getting-started.html) - common `rco` workflows after install.
 - [Language And Runtime](language-runtime.html) - postfix syntax, runtime values,
   persistent images, source emission, tasks, HTTP helpers, date/time, secrets,

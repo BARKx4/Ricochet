@@ -284,7 +284,7 @@ def build_page(source_md: Path, rendered: RenderedDoc) -> str:
     stylesheet = rel_url(html_path, DOCS_ROOT / "reference" / "styles.css")
     app_js = rel_url(html_path, DOCS_ROOT / "reference" / "app.js")
     home = rel_url(html_path, DOCS_ROOT / "reference" / "index.html") + "#top"
-    learn = rel_url(html_path, DOCS_ROOT / "reference" / "learn" / "index.html")
+    learn = rel_url(html_path, DOCS_ROOT / "learn") + "/"
     guides = rel_url(html_path, DOCS_ROOT / "reference" / "guides" / "index.html")
 
     toc_items = "\n".join(
