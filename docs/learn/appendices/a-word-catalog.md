@@ -17,7 +17,7 @@ docs/reference/index.html
 
 ## Live Group Summary
 
-The current validated inventory contains 346 words:
+The current validated inventory contains 347 words:
 
 | Detail group | Count | Start with |
 | --- | ---: | --- |
