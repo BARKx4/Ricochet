@@ -1,0 +1,5 @@
+contact map
+$contact "name" "Katherine Johnson" put! drop
+$contact "email" "katherine@example.com" put! drop
+$contact "status" "active" put! drop
+$contact Contact insert value drop

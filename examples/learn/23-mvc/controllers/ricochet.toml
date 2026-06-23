@@ -1,0 +1,14 @@
+[package]
+name = "learn_controller_responses"
+version = "0.1.0"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.static]
+dir = "public"
+mount = "/assets"

@@ -1,0 +1,247 @@
+(( Session and route guard helpers for trusted local Ricochet MVC apps. ))
+( session -> Bool ) auth_user_present function
+  session var
+  $session "user_id" has?
+end
+
+( session redirectPath -> Map ) auth_route_guard function
+  redirectPath var
+  session var
+  guard map
+  $session auth_user_present ok var
+  $guard "ok" $ok put! drop
+  $ok if
+    $guard "redirect" nil put! drop
+    $guard "reason" nil put! drop
+  else
+    $guard "redirect" $redirectPath put! drop
+    $guard "reason" "missing_user_session" put! drop
+  end
+  $guard
+end
+
+( session -> String ) auth_csrf_token function
+  session var
+  $session "csrf_token" has? if
+    $session "csrf_token" at
+  else
+    ""
+  end
+end
+
+( session submittedToken -> Bool ) auth_csrf_valid function
+  submittedToken var
+  session var
+  $session auth_csrf_token storedToken var
+  $storedToken blank? if
+    false
+  else
+    $submittedToken blank? if
+      false
+    else
+      $storedToken $submittedToken =
+    end
+  end
+end
+
+( session submittedToken -> Map ) auth_csrf_check function
+  submittedToken var
+  session var
+  check map
+  $session $submittedToken auth_csrf_valid ok var
+  $check "ok" $ok put! drop
+  $ok if
+    $check "reason" nil put! drop
+  else
+    $check "reason" "invalid_csrf_token" put! drop
+  end
+  $check
+end
+
+( userId csrfToken -> Map ) auth_session_for_user function
+  csrfToken var
+  userId var
+  session map
+  $session "user_id" $userId put! drop
+  $session "csrf_token" $csrfToken put! drop
+  $session "authenticated" true put! drop
+  $session
+end
+
+( -> Map ) auth_secure_cookie_options function
+  options map
+  $options "http_only" true put! drop
+  $options "same_site" "Lax" put! drop
+  $options "secure" true put! drop
+  $options
+end
+
+( errors -> Map ) auth_policy_result function
+  errors var
+  $errors count 0 = ok var
+  $ok if
+    nil
+  else
+    $errors first
+  end reason var
+  result map
+  $result "ok" $ok put! drop
+  $result "reason" $reason put! drop
+  $result "errors" $errors put! drop
+  $result
+end
+
+( credential -> String ) auth_credential_normalize function
+  credential var
+  $credential trim lowercase
+end
+
+( credential -> Map ) auth_credential_validate function
+  credential var
+  $credential auth_credential_normalize normalized var
+  errors array
+  $normalized blank? if
+    $errors "credential_required" push! drop
+  end
+  $normalized count 254 > if
+    $errors "credential_too_long" push! drop
+  end
+  $normalized "\\s" regex value matches? if
+    $errors "credential_whitespace" push! drop
+  end
+  $errors auth_policy_result result var
+  $result "credential" $normalized put! drop
+  $result
+end
+
+( -> Map ) auth_password_policy function
+  policy map
+  $policy "min_length" 12 put! drop
+  $policy "max_length" 256 put! drop
+  $policy "reject_common" true put! drop
+  $policy "reject_credential_substring" true put! drop
+  $policy "allow_internal_spaces" true put! drop
+  $policy "storage" "argon2id" put! drop
+  $policy
+end
+
+( password -> Bool ) auth_common_password function
+  password var
+  $password trim lowercase normalized var
+  common array
+  $common "password" push! drop
+  $common "password1" push! drop
+  $common "password123" push! drop
+  $common "123456789012" push! drop
+  $common "qwerty123456" push! drop
+  $common "letmein123456" push! drop
+  $common "admin123456" push! drop
+  $common "welcome123456" push! drop
+  $common "correcthorsebatterystaple" push! drop
+  $common $normalized has?
+end
+
+( credential password -> Map ) auth_password_validate function
+  password var
+  credential var
+  $credential auth_credential_normalize normalizedCredential var
+  $password trim trimmedPassword var
+  errors array
+  $password blank? if
+    $errors "password_required" push! drop
+  end
+  $password count 12 < if
+    $errors "password_too_short" push! drop
+  end
+  $password count 256 > if
+    $errors "password_too_long" push! drop
+  end
+  $password $trimmedPassword = not if
+    $errors "password_surrounding_whitespace" push! drop
+  end
+  $password auth_common_password if
+    $errors "password_common" push! drop
+  end
+  $normalizedCredential count 3 >= if
+    $password lowercase $normalizedCredential contains? if
+      $errors "password_contains_credential" push! drop
+    end
+  end
+  $errors auth_policy_result result var
+  $result "credential" $normalizedCredential put! drop
+  $result
+end
+
+( credential password -> Result ) auth_password_hash function
+  password var
+  credential var
+  $credential $password auth_password_validate validation var
+  $validation "ok" at if
+    $password password_hash
+  else
+    "PasswordPolicyError" $validation "reason" at fail
+  end
+end
+
+( password storedHash -> Map ) auth_password_verify function
+  storedHash var
+  password var
+  $password $storedHash password_verify verification var
+  result map
+  $verification ok? if
+    $verification value authenticated var
+    $result "ok" true put! drop
+    $result "authenticated" $authenticated put! drop
+    $authenticated if
+      $result "reason" nil put! drop
+    else
+      $result "reason" "password_mismatch" put! drop
+    end
+  else
+    $result "ok" false put! drop
+    $result "authenticated" false put! drop
+    $result "reason" $verification error "kind" at put! drop
+  end
+  $result
+end
+
+( submittedCredential submittedPassword storedCredential storedHash -> Map ) auth_credentials_verify function
+  storedHash var
+  storedCredential var
+  submittedPassword var
+  submittedCredential var
+  $submittedCredential auth_credential_normalize submitted var
+  $storedCredential auth_credential_normalize stored var
+  result map
+  $result "credential" $submitted put! drop
+  $submitted $stored = if
+    $submittedPassword $storedHash auth_password_verify verification var
+    $verification "ok" at if
+      $result "ok" true put! drop
+      $result "authenticated" $verification "authenticated" at put! drop
+      $verification "authenticated" at if
+        $result "reason" nil put! drop
+      else
+        $result "reason" "invalid_credentials" put! drop
+      end
+    else
+      $result "ok" false put! drop
+      $result "authenticated" false put! drop
+      $result "reason" $verification "reason" at put! drop
+    end
+  else
+    $result "ok" true put! drop
+    $result "authenticated" false put! drop
+    $result "reason" "invalid_credentials" put! drop
+  end
+  $result
+end
+
+( name -> Map ) auth_extension_point function
+  name var
+  extension map
+  $extension "package" "@ricochet/auth" put! drop
+  $extension "name" $name put! drop
+  $extension "stable" false put! drop
+  $extension
+end

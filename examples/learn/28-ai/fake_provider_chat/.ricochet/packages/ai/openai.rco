@@ -1,0 +1,1701 @@
+(( Provider-neutral AI request helpers with an OpenAI-compatible starter shape. ))
+( name value headers -> Map ) ai_header_put function
+  headers var
+  value var
+  name var
+  $headers $name $value put! drop
+  $headers
+end
+
+( token -> Map ) ai_bearer_headers function
+  token var
+  headers map
+  "Authorization" "Bearer " $token concat $headers ai_header_put drop
+  "Content-Type" "application/json" $headers ai_header_put
+end
+
+( envName -> Map ) ai_secret_ref function
+  envName var
+  $envName secret_env
+end
+
+( provider baseUrl model -> Map ) ai_provider function
+  model var
+  baseUrl var
+  providerName var
+  provider map
+  $provider "provider" $providerName put! drop
+  $provider "base_url" $baseUrl put! drop
+  $provider "model" $model put! drop
+  $provider
+end
+
+( role content -> Map ) ai_message function
+  content var
+  role var
+  message map
+  $message "role" $role put! drop
+  $message "content" $content put! drop
+  $message
+end
+
+( content -> Map ) ai_system_message function
+  content var
+  "system" $content ai_message
+end
+
+( content -> Map ) ai_user_message function
+  content var
+  "user" $content ai_message
+end
+
+( content -> Map ) ai_assistant_message function
+  content var
+  "assistant" $content ai_message
+end
+
+( provider model messages options tools retry -> Map ) ai_chat_request function
+  retry var
+  tools var
+  options var
+  messages var
+  model var
+  provider var
+  request map
+  $request "provider" $provider put! drop
+  $request "model" $model put! drop
+  $request "messages" $messages put! drop
+  $request "stream" false put! drop
+  $request "options" $options put! drop
+  $request "tools" $tools put! drop
+  $request "retry" $retry put! drop
+  $request
+end
+
+( provider model messages options tools retry -> Map ) ai_chat_stream function
+  retry var
+  tools var
+  options var
+  messages var
+  model var
+  provider var
+  $provider $model $messages $options $tools $retry ai_chat_request request var
+  $request "stream" true put! drop
+  $request
+end
+
+( maxAttempts initialDelayMs maxDelayMs -> Map ) ai_retry_policy function
+  maxDelayMs var
+  initialDelayMs var
+  maxAttempts var
+  retry map
+  $retry "max_attempts" $maxAttempts put! drop
+  $retry "initial_delay_ms" $initialDelayMs put! drop
+  $retry "max_delay_ms" $maxDelayMs put! drop
+  $retry
+end
+
+( kind -> Bool ) ai_retryable_kind function
+  kind var
+  $kind nil? if
+    false
+  else
+    $kind lowercase normalizedKind var
+    $normalizedKind "rate_limit" =
+    $normalizedKind "timeout" = or
+    $normalizedKind "server_error" = or
+    $normalizedKind "network" = or
+    $normalizedKind "transient" = or
+  end
+end
+
+( kind -> Bool ) ai_nonretryable_kind function
+  kind var
+  $kind nil? if
+    false
+  else
+    $kind lowercase normalizedKind var
+    $normalizedKind "validation" =
+    $normalizedKind "validation_error" = or
+    $normalizedKind "auth" = or
+    $normalizedKind "auth_error" = or
+    $normalizedKind "authentication" = or
+    $normalizedKind "authentication_error" = or
+    $normalizedKind "unauthorized" = or
+    $normalizedKind "user" = or
+    $normalizedKind "user_error" = or
+  end
+end
+
+( status -> Bool ) ai_retryable_status function
+  status var
+  $status nil? if
+    false
+  else
+    $status 408 =
+    $status 409 = or
+    $status 425 = or
+    $status 429 = or
+    $status 500 >= $status 599 <= and or
+  end
+end
+
+( status -> Bool ) ai_nonretryable_status function
+  status var
+  $status nil? if
+    false
+  else
+    $status 400 >= $status 499 <= and
+  end
+end
+
+( errorMap -> Bool ) ai_retryable_error? function
+  errorMap var
+  $errorMap "kind" at kind var
+  $errorMap "status" at status var
+  $kind ai_nonretryable_kind if
+    false
+  else
+    $status ai_retryable_status if
+      true
+    else
+      $status ai_nonretryable_status if
+        false
+      else
+        $kind ai_retryable_kind
+      end
+    end
+  end
+end
+
+( attempt retryPolicy -> Number ) ai_retry_delay_ms function
+  retryPolicy var
+  attempt var
+  $attempt 0 > not if
+    1 attempt set
+  end
+
+  0 initialDelayMs var
+  0 maxDelayMs var
+
+  $retryPolicy nil? false = if
+    $retryPolicy "initial_delay_ms" at initialDelayValue var
+    $retryPolicy "max_delay_ms" at maxDelayValue var
+    $initialDelayValue nil? false = if
+      $initialDelayValue initialDelayMs set
+    end
+    $maxDelayValue nil? false = if
+      $maxDelayValue maxDelayMs set
+    end
+  end
+
+  $initialDelayMs 0 > not if
+    0 initialDelayMs set
+  end
+  $maxDelayMs 0 > not if
+    0 maxDelayMs set
+  end
+
+  $initialDelayMs 0 = if
+    0
+  else
+    $initialDelayMs delayMs var
+    $attempt 1 - remaining var
+    $remaining 0 > while
+      $delayMs 2 * delayMs set
+      $remaining 1 - remaining set
+    end
+    $delayMs $maxDelayMs min
+  end
+end
+
+( request executorBlock -> Result ) ai_execute_with_retry function
+  executorBlock var
+  request var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop result var
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( provider model text toolCalls raw -> Map ) ai_chat_response function
+  raw var
+  toolCalls var
+  text var
+  model var
+  provider var
+  response map
+  $response "provider" $provider put! drop
+  $response "model" $model put! drop
+  $response "text" $text put! drop
+  $response "tool_calls" $toolCalls put! drop
+  $response "raw" $raw put! drop
+  $response
+end
+
+( provider kind message status raw -> Map ) ai_error function
+  raw var
+  status var
+  message var
+  kind var
+  provider var
+  error map
+  $error "provider" $provider put! drop
+  $error "kind" $kind put! drop
+  $error "message" $message put! drop
+  $error "status" $status put! drop
+  $error "raw" $raw put! drop
+  $error
+end
+
+( kind data offset done -> Map ) ai_stream_event function
+  done var
+  offset var
+  data var
+  kind var
+  event map
+  $event "kind" $kind put! drop
+  $event "data" $data put! drop
+  $event "offset" $offset put! drop
+  $event "done" $done put! drop
+  $event
+end
+
+( id name arguments -> Map ) ai_tool_call function
+  arguments var
+  name var
+  id var
+  toolCall map
+  $toolCall "id" $id put! drop
+  $toolCall "name" $name put! drop
+  $toolCall "arguments" $arguments put! drop
+  $toolCall
+end
+
+( toolCallId content -> Map ) ai_tool_result function
+  content var
+  toolCallId var
+  result map
+  $result "role" "tool" put! drop
+  $result "tool_call_id" $toolCallId put! drop
+  $result "content" $content put! drop
+  $result
+end
+
+( -> Map ) ai_tool_handlers function
+  handlers map
+  $handlers
+end
+
+( handlers name block -> Map ) ai_tool_handler_put function
+  block var
+  name var
+  handlers var
+  $handlers $name $block put! drop
+  $handlers
+end
+
+( toolCall handlers -> Result ) ai_execute_tool_call function
+  handlers var
+  toolCall var
+  $toolCall "name" at name var
+  $handlers $name at handler var
+  $handler nil? if
+    "AiToolNotFound" "No AI tool handler registered for " $name concat fail
+  else
+    $toolCall $toolCall "arguments" at $handler call drop content var
+    $toolCall "id" at $content ai_tool_result ok
+  end
+end
+
+( toolCalls handlers -> Result ) ai_execute_tool_calls function
+  handlers var
+  toolCalls var
+  results array
+  nil finalResult var
+  0 index var
+  $toolCalls count total var
+
+  $index $total < while
+    $toolCalls $index at toolCall var
+    $toolCall $handlers ai_execute_tool_call result var
+    $result ok? if
+      $results $result value push! drop
+      $index 1 + index set
+    else
+      $result finalResult set
+      break
+    end
+  end
+
+  $finalResult nil? if
+    $results ok
+  else
+    $finalResult
+  end
+end
+
+( -> Map ) ai_schema function
+  schema map
+  $schema
+end
+
+( type required -> Map ) ai_schema_rule function
+  required var
+  typeName var
+  rule map
+  $rule "type" $typeName put! drop
+  $rule "required" $required put! drop
+  $rule
+end
+
+( schema field type required -> Map ) ai_schema_field function
+  required var
+  typeName var
+  field var
+  schema var
+  $typeName $required ai_schema_rule rule var
+  $schema $field $rule put! drop
+  $schema
+end
+
+( field message -> Map ) ai_validation_error function
+  message var
+  field var
+  error map
+  $error "field" $field put! drop
+  $error "message" $message put! drop
+  $error
+end
+
+( -> Map ) ai_validation_result function
+  validation map
+  errors array
+  $validation "ok" true put! drop
+  $validation "errors" $errors put! drop
+  $validation
+end
+
+( validation error -> Map ) ai_validation_add_error function
+  error var
+  validation var
+  $validation "errors" at $error push! drop
+  $validation "ok" false put! drop
+  $validation
+end
+
+( value expectedType -> Bool ) ai_type_matches function
+  expectedType var
+  value var
+  $expectedType "any" = if
+    true
+  else
+    $value type $expectedType =
+  end
+end
+
+( data schema -> Map ) ai_validate_schema function
+  schema var
+  data var
+  ai_validation_result validation var
+
+  [
+    rule var
+    field var
+    $rule "type" at typeName var
+    $data $field at value var
+
+    $rule "required" at true = if
+      $value nil? if
+        $validation $field "is required" ai_validation_error ai_validation_add_error validation set
+      end
+    end
+
+    $value nil? false = if
+      $value $typeName ai_type_matches false = if
+        $validation $field "must be " $typeName concat ai_validation_error ai_validation_add_error validation set
+      end
+    end
+  ] $schema each drop
+
+  $validation
+end
+
+( model messages -> Map ) ai_openai_chat_body function
+  messages var
+  model var
+  body map
+  $body "model" $model put! drop
+  $body "messages" $messages put! drop
+  $body
+end
+
+( model messages -> Map ) ai_openai_chat_stream_body function
+  messages var
+  model var
+  $model $messages ai_openai_chat_body body var
+  $body "stream" true put! drop
+  $body
+end
+
+( baseUrl token model messages -> Map ) ai_openai_chat_request function
+  messages var
+  model var
+  token var
+  baseUrl var
+  $model $messages ai_openai_chat_body body var
+  "POST" $baseUrl "/chat/completions" concat http_request_new value request var
+  $request $token http_bearer_auth value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( baseUrl token model messages -> Map ) ai_openai_chat_stream_request function
+  messages var
+  model var
+  token var
+  baseUrl var
+  $model $messages ai_openai_chat_stream_body body var
+  "POST" $baseUrl "/chat/completions" concat http_request_new value request var
+  $request $token http_bearer_auth value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request "Accept" "text/event-stream" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( line -> String ) ai_sse_data_line function
+  line var
+  $line trim line set
+  $line "data:" starts_with? if
+    $line 5 $line length slice trim
+  else
+    nil
+  end
+end
+
+( body -> Array ) ai_sse_data_lines function
+  body var
+  values array
+  [
+    ai_sse_data_line value var
+    $value nil? false = if
+      $values $value push! drop
+    end
+  ] $body lines each drop
+  $values
+end
+
+( body -> Array ) ai_sse_json_events function
+  body var
+  events array
+  [
+    data var
+    $data "[DONE]" = false = if
+      $data json_decode value $events swap push! drop
+    end
+  ] $body ai_sse_data_lines each drop
+  $events
+end
+
+( provider format -> Map ) ai_stream_state_for function
+  format var
+  provider var
+  state map
+  $state "provider" $provider put! drop
+  $state "format" $format put! drop
+  $state "buffer" "" put! drop
+  $state "offset" 0 put! drop
+  $state "event_offset" 0 put! drop
+  $state "done" false put! drop
+  $state "protocol_done" false put! drop
+  $state "http_done" false put! drop
+  events array
+  $state "events" $events put! drop
+  $state
+end
+
+( -> Map ) ai_openai_stream_state function
+  "openai" "sse" ai_stream_state_for
+end
+
+( -> Map ) ai_anthropic_stream_state function
+  "anthropic" "sse" ai_stream_state_for
+end
+
+( -> Map ) ai_ollama_stream_state function
+  "ollama" "ndjson" ai_stream_state_for
+end
+
+( state maxBytes -> Map ) ai_stream_read_options function
+  maxBytes var
+  state var
+  options map
+  $options "offset" $state "offset" at put! drop
+  $maxBytes nil? false = if
+    $options "max_bytes" $maxBytes put! drop
+  end
+  $options
+end
+
+( read -> String ) ai_stream_read_body function
+  read var
+  $read "body" at body var
+  $body nil? if
+    ""
+  else
+    $body
+  end
+end
+
+( state read -> Number ) ai_stream_read_next_offset function
+  read var
+  state var
+  $read "next_offset" at nextOffset var
+  $nextOffset nil? if
+    $read "offset" at nextOffset set
+  end
+  $nextOffset nil? if
+    $state "offset" at nextOffset set
+  end
+  $nextOffset nil? if
+    0
+  else
+    $nextOffset
+  end
+end
+
+( read -> Bool ) ai_stream_read_done function
+  read var
+  $read "done" at true =
+end
+
+( body buffer done -> Map ) ai_stream_flush_buffer_if_done function
+  done var
+  buffer var
+  body var
+  output map
+  $done $buffer length 0 > and if
+    $body length 0 > if
+      $body "\n" concat $buffer concat body set
+    else
+      $buffer body set
+    end
+    "" buffer set
+  end
+  $output "body" $body put! drop
+  $output "buffer" $buffer put! drop
+  $output
+end
+
+( text -> Map ) ai_sse_complete_body function
+  text var
+  completeLines array
+  currentLines array
+
+  [
+    line var
+    $line trim length 0 = if
+      $currentLines count 0 > if
+        [
+          frameLine var
+          $completeLines $frameLine push! drop
+        ] $currentLines each drop
+        $completeLines "" push! drop
+        nextLines array
+        $nextLines currentLines set
+      end
+    else
+      $currentLines $line push! drop
+    end
+  ] $text lines each drop
+
+  output map
+  $output "body" $completeLines "\n" join put! drop
+  $output "buffer" $currentLines "\n" join put! drop
+  $output
+end
+
+( text -> Map ) ai_ndjson_complete_body function
+  text var
+  completeLines array
+  "" pending var
+  $text lines bodyLines var
+  $text "\n" ends_with? $text "\r" ends_with? or ended var
+  0 index var
+  $bodyLines count total var
+  $total 1 - lastIndex var
+
+  $index $total < while
+    $bodyLines $index at line var
+    $index $lastIndex = isLast var
+    $ended $isLast false = or if
+      $completeLines $line push! drop
+    else
+      $line pending set
+    end
+    $index 1 + index set
+  end
+
+  output map
+  $output "body" $completeLines "\n" join put! drop
+  $output "buffer" $pending put! drop
+  $output
+end
+
+( state events -> Bool ) ai_stream_events_include_done function
+  events var
+  state var
+  $state "protocol_done" at true = protocolDone var
+  0 index var
+  $events count total var
+
+  $index $total < while
+    $events $index at event var
+    $event "done" at true = if
+      true protocolDone set
+      break
+    end
+    $index 1 + index set
+  end
+
+  $protocolDone
+end
+
+( state events -> Map ) ai_stream_rebase_events function
+  events var
+  state var
+  $state "event_offset" at baseOffset var
+  $baseOffset nil? if
+    0 baseOffset set
+  end
+  0 index var
+  $events count total var
+
+  $index $total < while
+    $events $index at event var
+    $event "offset" $baseOffset $index + put! drop
+    $index 1 + index set
+  end
+
+  $state "event_offset" $baseOffset $total + put! drop
+  $state
+end
+
+( state events -> Map ) ai_stream_append_events function
+  events var
+  state var
+  $state "events" at allEvents var
+  $allEvents nil? if
+    emptyEvents array
+    $emptyEvents allEvents set
+    $state "events" $allEvents put! drop
+  end
+
+  [
+    event var
+    $allEvents $event push! drop
+  ] $events each drop
+
+  $state
+end
+
+( state read events -> Map ) ai_stream_commit_read function
+  events var
+  read var
+  state var
+  $state $read ai_stream_read_next_offset nextOffset var
+  $read ai_stream_read_done httpDone var
+  $state $events ai_stream_events_include_done protocolDone var
+  $protocolDone $httpDone or streamDone var
+
+  $state "offset" $nextOffset put! drop
+  $state "http_done" $httpDone put! drop
+  $state "protocol_done" $protocolDone put! drop
+  $state "done" $streamDone put! drop
+  $state $events ai_stream_rebase_events drop
+  $state $events ai_stream_append_events drop
+  $state
+end
+
+( state events -> Map ) ai_stream_read_event_result function
+  events var
+  state var
+  output map
+  $output "state" $state put! drop
+  $output "events" $events put! drop
+  $output "offset" $state "offset" at put! drop
+  $output "done" $state "done" at put! drop
+  $output "protocol_done" $state "protocol_done" at put! drop
+  $output "http_done" $state "http_done" at put! drop
+  $output
+end
+
+( event -> String ) ai_openai_stream_delta function
+  event var
+  $event "choices" at choices var
+  $choices nil? if
+    nil
+  else
+    $choices first choice var
+    $choice nil? if
+      nil
+    else
+      $choice "delta" at delta var
+      $delta nil? if
+        nil
+      else
+        $delta "content" at
+      end
+    end
+  end
+end
+
+( body -> String ) ai_openai_stream_text function
+  body var
+  "" text var
+  [
+    ai_openai_stream_delta part var
+    $part nil? false = if
+      $text $part concat text set
+    end
+  ] $body ai_sse_json_events each drop
+  $text
+end
+
+( errorMap -> Result ) ai_error_result function
+  errorMap var
+  $errorMap "kind" at kind var
+  $errorMap "message" at message var
+  $kind $message fail result var
+  $result error richError var
+  $richError "provider" $errorMap "provider" at put! drop
+  $richError "status" $errorMap "status" at put! drop
+  $richError "raw" $errorMap "raw" at put! drop
+  $result
+end
+
+( status -> Bool ) ai_http_success_status? function
+  status var
+  $status nil? if
+    false
+  else
+    $status 200 >= $status 299 <= and
+  end
+end
+
+( status -> String ) ai_openai_error_kind function
+  status var
+  $status nil? if
+    "unknown"
+  else
+    $status 429 = if
+      "rate_limit"
+    else
+      $status 408 = if
+        "timeout"
+      else
+        $status 409 = $status 425 = or if
+          "transient"
+        else
+          $status 401 = $status 403 = or if
+            "auth"
+          else
+            $status 500 >= $status 599 <= and if
+              "server_error"
+            else
+              $status 400 >= $status 499 <= and if
+                "validation"
+              else
+                "unknown"
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+( response -> Result ) ai_openai_response_body_json function
+  response var
+  $response "body" at body var
+  $body nil? if
+    "AiProviderMalformedResponse" "AI provider response is missing body" fail
+  else
+    $body json_decode decoded var
+    $decoded ok? if
+      $decoded value ok
+    else
+      "AiProviderMalformedResponse" "AI provider response body is not valid JSON" fail
+    end
+  end
+end
+
+( argumentsValue -> Result ) ai_openai_tool_arguments function
+  argumentsValue var
+  $argumentsValue nil? if
+    args map
+    $args ok
+  else
+    $argumentsValue type "string" = if
+      $argumentsValue json_decode decoded var
+      $decoded ok? if
+        $decoded value ok
+      else
+        "AiProviderMalformedToolCall" "OpenAI tool call arguments are not valid JSON" fail
+      end
+    else
+      $argumentsValue type "map" = if
+        $argumentsValue ok
+      else
+        "AiProviderMalformedToolCall" "OpenAI tool call arguments must be a JSON object string or map" fail
+      end
+    end
+  end
+end
+
+( message -> Result ) ai_openai_message_tool_calls function
+  message var
+  toolCalls array
+  $message "tool_calls" at rawToolCalls var
+  $rawToolCalls nil? if
+    $toolCalls ok
+  else
+    nil finalResult var
+    0 index var
+    $rawToolCalls count total var
+
+    $index $total < while
+      $rawToolCalls $index at rawCall var
+      $rawCall "id" at id var
+      $rawCall "function" at functionMap var
+      $functionMap nil? if
+        "AiProviderMalformedToolCall" "OpenAI tool call is missing function metadata" fail finalResult set
+        break
+      end
+
+      $functionMap "name" at name var
+      $functionMap "arguments" at ai_openai_tool_arguments argumentsResult var
+      $argumentsResult ok? if
+        $toolCalls $id $name $argumentsResult value ai_tool_call push! drop
+        $index 1 + index set
+      else
+        $argumentsResult finalResult set
+        break
+      end
+    end
+
+    $finalResult nil? if
+      $toolCalls ok
+    else
+      $finalResult
+    end
+  end
+end
+
+( provider request raw -> Result ) ai_openai_chat_response_from_json function
+  raw var
+  request var
+  provider var
+  $raw "choices" at choices var
+  $choices nil? if
+    "AiProviderMalformedResponse" "AI provider response is missing choices" fail
+  else
+    $choices first choice var
+    $choice nil? if
+      "AiProviderMalformedResponse" "AI provider response has no choices" fail
+    else
+      $choice "message" at message var
+      $message nil? if
+        "AiProviderMalformedResponse" "AI provider response is missing choices[0].message" fail
+      else
+        $message "content" at text var
+        $text nil? if
+          "" text set
+        end
+        $raw "model" at model var
+        $model nil? if
+          $request "model" at model set
+        end
+        $message ai_openai_message_tool_calls toolCallsResult var
+        $toolCallsResult ok? if
+          $provider $model $text $toolCallsResult value $raw ai_chat_response ok
+        else
+          $toolCallsResult
+        end
+      end
+    end
+  end
+end
+
+( provider request response -> Result ) ai_openai_http_response_to_result function
+  response var
+  request var
+  provider var
+  $response "status" at status var
+  $status ai_http_success_status? if
+    $response ai_openai_response_body_json decoded var
+    $decoded ok? if
+      $provider $request $decoded value ai_openai_chat_response_from_json
+    else
+      $decoded
+    end
+  else
+    $status ai_openai_error_kind kind var
+    "AI provider returned status " $status to_string concat message var
+    $provider $kind $message $status $response ai_error ai_error_result
+  end
+end
+
+( request executorBlock -> Result ) ai_openai_execute_chat function
+  executorBlock var
+  request var
+  $request "provider" at provider var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop transportResult var
+    nil result var
+    $transportResult ok? if
+      $provider $request $transportResult value ai_openai_http_response_to_result result set
+    else
+      $transportResult result set
+    end
+
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( baseUrl model -> Map ) ai_anthropic_provider function
+  model var
+  baseUrl var
+  "anthropic" $baseUrl $model ai_provider
+end
+
+( model messages maxTokens stream -> Map ) ai_anthropic_messages_body function
+  stream var
+  maxTokens var
+  messages var
+  model var
+  body map
+  providerMessages array
+  "" systemText var
+
+  [
+    message var
+    $message "role" at "system" = if
+      $message "content" at content var
+      $content nil? false = if
+        $systemText length 0 = if
+          $content systemText set
+        else
+          $systemText "\n\n" concat $content concat systemText set
+        end
+      end
+    else
+      $providerMessages $message push! drop
+    end
+  ] $messages each drop
+
+  $body "model" $model put! drop
+  $body "max_tokens" $maxTokens put! drop
+  $body "messages" $providerMessages put! drop
+  $body "stream" $stream put! drop
+  $systemText length 0 > if
+    $body "system" $systemText put! drop
+  end
+  $body
+end
+
+( model messages maxTokens -> Map ) ai_anthropic_chat_body function
+  maxTokens var
+  messages var
+  model var
+  $model $messages $maxTokens false ai_anthropic_messages_body
+end
+
+( model messages maxTokens -> Map ) ai_anthropic_chat_stream_body function
+  maxTokens var
+  messages var
+  model var
+  $model $messages $maxTokens true ai_anthropic_messages_body
+end
+
+( baseUrl token version model messages maxTokens -> Map ) ai_anthropic_chat_request function
+  maxTokens var
+  messages var
+  model var
+  version var
+  token var
+  baseUrl var
+  $model $messages $maxTokens ai_anthropic_chat_body body var
+  "POST" $baseUrl "/messages" concat http_request_new value request var
+  $request "x-api-key" $token http_header_put value request set
+  $request "anthropic-version" $version http_header_put value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( baseUrl token version model messages maxTokens -> Map ) ai_anthropic_chat_stream_request function
+  maxTokens var
+  messages var
+  model var
+  version var
+  token var
+  baseUrl var
+  $model $messages $maxTokens ai_anthropic_chat_stream_body body var
+  "POST" $baseUrl "/messages" concat http_request_new value request var
+  $request "x-api-key" $token http_header_put value request set
+  $request "anthropic-version" $version http_header_put value request set
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request "Accept" "text/event-stream" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( contentBlocks -> String ) ai_anthropic_content_text function
+  contentBlocks var
+  "" text var
+  $contentBlocks nil? if
+    $text
+  else
+    [
+      block var
+      $block "type" at "text" = if
+        $block "text" at part var
+        $part nil? false = if
+          $text $part concat text set
+        end
+      end
+    ] $contentBlocks each drop
+    $text
+  end
+end
+
+( contentBlocks -> Result ) ai_anthropic_content_tool_calls function
+  contentBlocks var
+  toolCalls array
+  $contentBlocks nil? if
+    $toolCalls ok
+  else
+    nil finalResult var
+    0 index var
+    $contentBlocks count total var
+
+    $index $total < while
+      $contentBlocks $index at block var
+      $block "type" at "tool_use" = if
+        $block "id" at id var
+        $block "name" at name var
+        $block "input" at input var
+
+        $id nil? $name nil? or if
+          "AiProviderMalformedToolCall" "Anthropic tool use block is missing id or name" fail finalResult set
+          break
+        end
+
+        $input nil? if
+          args map
+          $toolCalls $id $name $args ai_tool_call push! drop
+        else
+          $input type "map" = if
+            $toolCalls $id $name $input ai_tool_call push! drop
+          else
+            "AiProviderMalformedToolCall" "Anthropic tool use input must be a map" fail finalResult set
+            break
+          end
+        end
+      end
+      $index 1 + index set
+    end
+
+    $finalResult nil? if
+      $toolCalls ok
+    else
+      $finalResult
+    end
+  end
+end
+
+( provider request raw -> Result ) ai_anthropic_chat_response_from_json function
+  raw var
+  request var
+  provider var
+  $raw "content" at contentBlocks var
+  $contentBlocks nil? if
+    "AiProviderMalformedResponse" "Anthropic response is missing content" fail
+  else
+    $contentBlocks ai_anthropic_content_text text var
+    $raw "model" at model var
+    $model nil? if
+      $request "model" at model set
+    end
+    $contentBlocks ai_anthropic_content_tool_calls toolCallsResult var
+    $toolCallsResult ok? if
+      $provider $model $text $toolCallsResult value $raw ai_chat_response ok
+    else
+      $toolCallsResult
+    end
+  end
+end
+
+( provider request response -> Result ) ai_anthropic_http_response_to_result function
+  response var
+  request var
+  provider var
+  $response "status" at status var
+  $status ai_http_success_status? if
+    $response ai_openai_response_body_json decoded var
+    $decoded ok? if
+      $provider $request $decoded value ai_anthropic_chat_response_from_json
+    else
+      $decoded
+    end
+  else
+    $status ai_openai_error_kind kind var
+    "AI provider returned status " $status to_string concat message var
+    $provider $kind $message $status $response ai_error ai_error_result
+  end
+end
+
+( request executorBlock -> Result ) ai_anthropic_execute_chat function
+  executorBlock var
+  request var
+  $request "provider" at provider var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop transportResult var
+    nil result var
+    $transportResult ok? if
+      $provider $request $transportResult value ai_anthropic_http_response_to_result result set
+    else
+      $transportResult result set
+    end
+
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( baseUrl model -> Map ) ai_ollama_provider function
+  model var
+  baseUrl var
+  "ollama" $baseUrl $model ai_provider
+end
+
+( model messages stream -> Map ) ai_ollama_chat_body function
+  stream var
+  messages var
+  model var
+  body map
+  $body "model" $model put! drop
+  $body "messages" $messages put! drop
+  $body "stream" $stream put! drop
+  $body
+end
+
+( baseUrl model messages -> Map ) ai_ollama_chat_request function
+  messages var
+  model var
+  baseUrl var
+  $model $messages false ai_ollama_chat_body body var
+  "POST" $baseUrl "/api/chat" concat http_request_new value request var
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( baseUrl model messages -> Map ) ai_ollama_chat_stream_request function
+  messages var
+  model var
+  baseUrl var
+  $model $messages true ai_ollama_chat_body body var
+  "POST" $baseUrl "/api/chat" concat http_request_new value request var
+  $request "Content-Type" "application/json" http_header_put value request set
+  $request $body http_json_body value request set
+  $request
+end
+
+( provider request raw -> Result ) ai_ollama_chat_response_from_json function
+  raw var
+  request var
+  provider var
+  $raw "message" at message var
+  $message nil? if
+    "AiProviderMalformedResponse" "Ollama response is missing message" fail
+  else
+    $message "content" at text var
+    $text nil? if
+      "" text set
+    end
+    $raw "model" at model var
+    $model nil? if
+      $request "model" at model set
+    end
+    toolCalls array
+    $provider $model $text $toolCalls $raw ai_chat_response ok
+  end
+end
+
+( provider request response -> Result ) ai_ollama_http_response_to_result function
+  response var
+  request var
+  provider var
+  $response "status" at status var
+  $status ai_http_success_status? if
+    $response ai_openai_response_body_json decoded var
+    $decoded ok? if
+      $provider $request $decoded value ai_ollama_chat_response_from_json
+    else
+      $decoded
+    end
+  else
+    $status ai_openai_error_kind kind var
+    "AI provider returned status " $status to_string concat message var
+    $provider $kind $message $status $response ai_error ai_error_result
+  end
+end
+
+( request executorBlock -> Result ) ai_ollama_execute_chat function
+  executorBlock var
+  request var
+  $request "provider" at provider var
+  $request "retry" at retryPolicy var
+  1 maxAttempts var
+  $retryPolicy nil? false = if
+    $retryPolicy "max_attempts" at maxAttemptsValue var
+    $maxAttemptsValue nil? false = if
+      $maxAttemptsValue maxAttempts set
+    end
+  end
+  $maxAttempts 0 > not if
+    1 maxAttempts set
+  end
+
+  1 attempt var
+  nil finalResult var
+
+  $attempt $maxAttempts > not while
+    $request $attempt $executorBlock call drop transportResult var
+    nil result var
+    $transportResult ok? if
+      $provider $request $transportResult value ai_ollama_http_response_to_result result set
+    else
+      $transportResult result set
+    end
+
+    $result ok? if
+      $result finalResult set
+      break
+    end
+
+    $result error errorMap var
+    $errorMap ai_retryable_error? retryable var
+    $attempt $maxAttempts < attemptsRemain var
+
+    $retryable $attemptsRemain and if
+      $attempt $retryPolicy ai_retry_delay_ms delayMs var
+      $delayMs 0 > if
+        $delayMs sleep
+      end
+      $attempt 1 + attempt set
+      continue
+    end
+
+    $result finalResult set
+    break
+  end
+
+  $finalResult
+end
+
+( event -> String ) ai_ollama_stream_delta function
+  event var
+  $event "message" at message var
+  $message nil? if
+    nil
+  else
+    $message "content" at
+  end
+end
+
+( body -> Result ) ai_ollama_stream_events function
+  body var
+  events array
+  $body lines bodyLines var
+  nil finalResult var
+  0 index var
+  $bodyLines count total var
+
+  $index $total < while
+    $bodyLines $index at trim data var
+    $data length 0 = if
+      $index 1 + index set
+      continue
+    end
+
+    $data json_decode decoded var
+    $decoded ok? if
+      $decoded value rawEvent var
+      $rawEvent ai_ollama_stream_delta part var
+      $part nil? false = if
+        $events "delta" $part $index false ai_stream_event push! drop
+      end
+      $rawEvent "done" at true = if
+        $events "done" nil $index true ai_stream_event push! drop
+      end
+      $index 1 + index set
+    else
+      "AiProviderMalformedEvent" "Ollama stream event is not valid JSON" fail finalResult set
+      break
+    end
+  end
+
+  $finalResult nil? if
+    $events ok
+  else
+    $finalResult
+  end
+end
+
+( event -> String ) ai_anthropic_stream_delta function
+  event var
+  $event "type" at "content_block_delta" = if
+    $event "delta" at delta var
+    $delta nil? if
+      nil
+    else
+      $delta "type" at "text_delta" = if
+        $delta "text" at
+      else
+        nil
+      end
+    end
+  else
+    nil
+  end
+end
+
+( body -> Result ) ai_anthropic_stream_events function
+  body var
+  events array
+  $body ai_sse_data_lines dataLines var
+  nil finalResult var
+  0 index var
+  $dataLines count total var
+
+  $index $total < while
+    $dataLines $index at data var
+    $data json_decode decoded var
+    $decoded ok? if
+      $decoded value rawEvent var
+      $rawEvent "type" at eventType var
+
+      $eventType "content_block_delta" = if
+        $rawEvent "delta" at delta var
+        $delta nil? false = if
+          $delta "type" at deltaType var
+          $deltaType "text_delta" = if
+            $delta "text" at part var
+            $part nil? false = if
+              $events "delta" $part $index false ai_stream_event push! drop
+            end
+          else
+            $deltaType "input_json_delta" = if
+              $delta "partial_json" at partial var
+              $partial nil? false = if
+                $events "tool_delta" $partial $index false ai_stream_event push! drop
+              end
+            else
+              $deltaType "thinking_delta" = if
+                $delta "thinking" at thought var
+                $thought nil? false = if
+                  $events "thinking_delta" $thought $index false ai_stream_event push! drop
+                end
+              end
+            end
+          end
+        end
+      else
+        $eventType "message_stop" = if
+          $events "done" nil $index true ai_stream_event push! drop
+        else
+          $eventType "error" = if
+            $rawEvent "error" at errorMap var
+            "AiProviderStreamError" messageKind var
+            "Anthropic stream returned an error event" message var
+            $errorMap nil? false = if
+              $errorMap "type" at errorType var
+              $errorType nil? false = if
+                $errorType messageKind set
+              end
+              $errorMap "message" at errorMessage var
+              $errorMessage nil? false = if
+                $errorMessage message set
+              end
+            end
+            $messageKind $message fail finalResult set
+            break
+          end
+        end
+      end
+
+      $index 1 + index set
+    else
+      "AiProviderMalformedEvent" "Anthropic stream event is not valid JSON" fail finalResult set
+      break
+    end
+  end
+
+  $finalResult nil? if
+    $events ok
+  else
+    $finalResult
+  end
+end
+
+( body -> Result ) ai_openai_stream_events function
+  body var
+  events array
+  $body ai_sse_data_lines dataLines var
+  nil finalResult var
+  0 index var
+  $dataLines count total var
+
+  $index $total < while
+    $dataLines $index at data var
+    $data "[DONE]" = if
+      $events "done" nil $index true ai_stream_event push! drop
+      $index 1 + index set
+    else
+      $data json_decode decoded var
+      $decoded ok? if
+        $decoded value rawEvent var
+        $rawEvent ai_openai_stream_delta part var
+        $events "delta" $part $index false ai_stream_event push! drop
+        $index 1 + index set
+      else
+        "AiProviderMalformedEvent" "AI stream event is not valid JSON" fail finalResult set
+        break
+      end
+    end
+  end
+
+  $finalResult nil? if
+    $events ok
+  else
+    $finalResult
+  end
+end
+
+( state read -> Result ) ai_openai_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_sse_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_openai_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
+  end
+end
+
+( state read -> Result ) ai_anthropic_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_sse_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_anthropic_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
+  end
+end
+
+( state read -> Result ) ai_ollama_stream_read_events function
+  read var
+  state var
+  $state "buffer" at buffer var
+  $buffer nil? if
+    "" buffer set
+  end
+  $read ai_stream_read_body body var
+  $buffer $body concat combined var
+  $combined ai_ndjson_complete_body split var
+  $read ai_stream_read_done httpDone var
+  $split "body" at $split "buffer" at $httpDone ai_stream_flush_buffer_if_done flushed var
+  $flushed "body" at completeBody var
+  $flushed "buffer" at nextBuffer var
+
+  $completeBody length 0 > if
+    $completeBody ai_ollama_stream_events parsed var
+  else
+    events array
+    $events ok parsed var
+  end
+
+  $parsed ok? if
+    $parsed value events var
+    $state "buffer" $nextBuffer put! drop
+    $state $read $events ai_stream_commit_read drop
+    $state $events ai_stream_read_event_result ok
+  else
+    $parsed
+  end
+end
+
+( response -> Map ) ai_response_summary function
+  response var
+  summary map
+  $summary "status" $response "status" at put! drop
+  $summary "ok" $response "status" at 200 = put! drop
+  $summary "body" $response "body" at put! drop
+  $summary
+end

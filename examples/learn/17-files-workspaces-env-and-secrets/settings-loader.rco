@@ -1,0 +1,52 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco ))
+
+"Settings loader" println
+
+"README exists?" print
+"README.md" fs_exists? println
+
+"README chars:" print
+"README.md" fs_read_text value length println
+
+resolveOptions map
+"docs/learn/index.md" $resolveOptions workspace_resolve value resolved var
+
+"inside root?" print
+$resolved "inside_root" at println
+
+"resolved exists?" print
+$resolved "exists" at println
+
+"metadata kind:" print
+"docs/learn/index.md" workspace_metadata value "kind" at println
+
+listOptions map
+$listOptions "max_entries" 10 put! drop
+$listOptions "include_dirs" true put! drop
+$listOptions "include_files" true put! drop
+
+"workspace entries:" print
+"docs/learn" $listOptions workspace_list value count println
+
+readOptions map
+$readOptions "max_bytes" 512 put! drop
+
+"manual snippet length:" print
+"examples/learn/01-hello-world/main.rco" $readOptions workspace_read_text value length println
+
+"RICOCHET_LEARN_MODE" "docs" env_set value drop
+
+"env value:" print
+"RICOCHET_LEARN_MODE" env_get value println
+
+settings map
+provider map
+$provider "token" "dry-run-token" secret_literal put! drop
+$settings "provider" $provider put! drop
+
+path array
+$path "provider" push! drop
+$path "token" push! drop
+
+"secret length:" print
+$settings $path config_get value secret_resolve value length println

@@ -1,0 +1,10 @@
+[package]
+name = "@learn/greeter"
+
+[[versions]]
+version = "0.1.0"
+archive = "artifacts/@learn/greeter/0.1.0/greeter-0.1.0.tar.gz"
+archive_integrity = "sha256:7436da403955618c38241e33392b061e813a7826e4a865e445ec3432c0675462"
+package_integrity = "sha256:82ac1084ccd4cf404678f3728ef268d74c0398463020fc770cc4687914326450"
+yanked = false
+provenance = "sha256:9b23922733c71d2cbd6c5546de1b0330976ca779e9422e2ac3f410a85147d9bd"

@@ -1,0 +1,7 @@
+HomeController Controller Subclass
+  [
+    "Hello Ricochet" title var
+    $ctx
+    "home/index" swap view
+  ] "index" Method
+end

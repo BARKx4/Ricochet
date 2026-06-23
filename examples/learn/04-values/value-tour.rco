@@ -1,0 +1,34 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/04-values/value-tour.rco ))
+
+"Value tour" println
+
+"nil?" print
+nil nil? println
+
+"true type:" print
+true type println
+
+"integer type:" print
+42 type println
+
+"float type:" print
+3.5 type println
+
+"string type:" print
+"Ricochet" type println
+
+values array
+"empty before push:" print
+$values empty? println
+
+$values "Ada" push! drop
+$values "Grace" push! drop
+
+"empty after push:" print
+$values empty? println
+
+"array inspect:" println
+$values inspect println drop
+
+"block callable:" print
+[ 40 2 + ] callable? println

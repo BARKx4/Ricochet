@@ -1,0 +1,7 @@
+[package]
+name = "learn_local_math_package"
+version = "0.1.0"
+
+[dependencies.math_tools]
+path = "./packages/math_tools"
+version = "^0.1.0"

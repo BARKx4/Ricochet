@@ -1,0 +1,4 @@
+[package]
+name = "@learn/greeter"
+version = "0.1.0"
+description = "Tiny scoped package used by Learn Ricochet Chapter 30."

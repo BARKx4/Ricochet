@@ -1,0 +1,9 @@
+[package]
+name = "learn_login_flow"
+version = "0.1.0"
+
+[dependencies.auth]
+path = ".ricochet/packages/auth"
+
+[dependencies.forms]
+path = ".ricochet/packages/forms"

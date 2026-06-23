@@ -1,0 +1,38 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/09-results-and-errors/config-loader.rco ))
+
+"Results" println
+
+"loaded" ok success var
+
+"success ok?" print
+$success ok? println
+
+"success value:" print
+$success value println
+
+"ConfigMissing" "config file was not found" fail missing var
+
+"missing error?" print
+$missing error? println
+
+"missing kind:" print
+$missing error "kind" at println
+
+"fallback:" print
+"default profile" $missing unwrap_or println
+
+"mapped:" print
+[ 2 * ] 21 ok map_result value println
+
+"chained:" print
+[ uppercase ok ] "ada" ok and_then value println
+
+meta map
+$meta "source" "learn" put! drop
+$missing $meta result_envelope envelope var
+
+"envelope ok:" print
+$envelope "ok" at println
+
+"envelope kind:" print
+$envelope "error" at "kind" at println

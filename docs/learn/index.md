@@ -2,7 +2,7 @@
 
 Learn Ricochet is the source manual for readers who want to move from their first script to complete command-line, terminal UI, desktop GUI, MVC, package, and release workflows. It is designed to be read in order, with each chapter adding one layer to Ricochet's postfix programming model.
 
-The manual is currently in skeleton form. Each chapter page names the intended learning goal, the future guided example, and the concepts that will be covered as the manual is drafted against the RC1 feature set.
+The manual is in active drafting. Chapters 00 through 38 now have reader-facing prose, and the runnable example manifest covers the first core language and safe runtime path through local HTTP, loopback sockets, explicit process/PTY host power, terminal UI rendering, desktop webview document generation, the first MVC app shape, explicit MVC routes/controllers/responses, templates, static assets, bounded uploads, read-only database/migration orientation for a contacts app, a local auth/forms login harness, an offline AI fake-provider harness, a local package/import/dependency lab, a read-only local registry fixture, a macro expansion lab, a debugger/editor tooling app, a bytecode/image/source-emission lab, a local TUI packaging lab, a tested read-only CLI worklog capstone, a tested terminal service dashboard capstone, a checked-in project journal MVC capstone, and a tested packaged personal-ledger GUI capstone. The appendices still carry production-facing skeletons while they wait for deeper reference tables.
 
 ## Reading Path
 

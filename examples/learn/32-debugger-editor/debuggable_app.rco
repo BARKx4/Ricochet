@@ -1,0 +1,20 @@
+(( Set a breakpoint on `$worker await` to inspect the task snapshot. ))
+
+"debuggable app start" println
+
+[ 40 2 + ] spawn worker var
+
+"ada" name var
+$name uppercase upperName var
+
+$worker await answer var
+$answer 42 assert_equals
+$worker release_task drop
+
+"answer:" print
+$answer println
+
+"upper:" print
+$upperName println
+
+"debuggable app done" println

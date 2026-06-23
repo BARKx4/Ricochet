@@ -1,0 +1,27 @@
+<link rel="stylesheet" href="/assets/styles/app.css">
+
+{% "Upload checklist" "heading" var do %}
+<h1>{ title get }</h1>
+<h2>{ heading get }</h2>
+
+{% showUploads get if %}
+<ul>
+  {% items get "item" each %}
+  <li>{ item get }</li>
+  {% end %}
+</ul>
+{% else %}
+<p>No upload checklist is available.</p>
+{% end %}
+
+<form method="post" action="/uploads/manual" enctype="multipart/form-data">
+  <label>
+    Title
+    <input name="title" value="Manual upload">
+  </label>
+  <label>
+    File
+    <input type="file" name="file">
+  </label>
+  <button type="submit">Upload</button>
+</form>

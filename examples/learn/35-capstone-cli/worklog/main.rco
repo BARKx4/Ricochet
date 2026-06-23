@@ -1,0 +1,68 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/35-capstone-cli/worklog/main.rco ))
+
+"lib/report" import
+
+"Worklog CLI" println
+
+"examples/learn/35-capstone-cli/worklog/data/entries.json" inputPath var
+"all" filterStatus var
+
+args count 0 > if
+  args 0 at inputPath set
+end
+
+args count 1 > if
+  args 1 at filterStatus set
+end
+
+$inputPath worklog_load_entries entriesResult var
+
+$entriesResult ok? if
+  $entriesResult value entries var
+  $entries $filterStatus worklog_filter_status filtered var
+  "2026-06-22" date_parse value today var
+  $filtered $today worklog_summary summary var
+
+  "source:" print
+  $inputPath println
+
+  "filter:" print
+  $filterStatus println
+
+  "entries:" print
+  $summary "entries" at println
+
+  "minutes:" print
+  $summary "minutes" at println
+
+  "done:" print
+  $summary "done" at println
+
+  "open:" print
+  $summary "open" at println
+
+  "due soon:" print
+  $summary "due_soon" at println
+
+  "items:" println
+  nil entry var
+  [
+    entry set
+    "- " print
+    $entry "date" at print
+    " [" print
+    $entry "status" at print
+    "] " print
+    $entry "project" at print
+    ": " print
+    $entry "task" at print
+    " (" print
+    $entry "minutes" at print
+    "m)" println
+  ] $filtered each drop
+else
+  "load failed:" print
+  $entriesResult error "kind" at print
+  ": " print
+  $entriesResult error "message" at println
+end

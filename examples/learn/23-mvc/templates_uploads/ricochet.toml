@@ -1,0 +1,20 @@
+[package]
+name = "learn_templates_uploads"
+version = "0.1.0"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[web.static]
+dir = "public"
+mount = "/assets"
+
+[web.uploads]
+max_request_bytes = 4096
+max_file_bytes = 2048
+memory_threshold_bytes = 8
+max_retained_streams = 4

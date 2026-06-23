@@ -1,0 +1,6 @@
+GET "/" ContactsController "index" route
+GET "/contacts/all" ContactsController "all_records" route
+GET "/contacts/search" ContactsController "search" route
+GET "/contacts/:id" ContactsController "show" route
+POST "/contacts" ContactsController "create" route
+POST "/contacts/:id" ContactsController "update" route

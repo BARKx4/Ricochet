@@ -2,43 +2,165 @@
 
 ## What You Will Build
 
-This chapter will build a small API client.
+You will build a small API client that talks to a loopback test server, sends
+JSON, awaits HTTP tasks, reads a retained response stream in bounded chunks,
+and releases the stream when it is done.
 
 ## Concepts
 
 - Simple GET and POST requests.
 - Structured request maps, headers, JSON, timeouts, and bearer helpers.
-- Retained response streams, bounded reads, cancellation, and release.
+- Task-returning HTTP requests for work that should not block the current
+  flow.
+- Retained response streams, bounded offset reads, cancellation, and release.
+- Host capability flags that make outbound network access explicit.
 
 ## Words Introduced
 
-Primary coverage: HTTP and HTTP stream system words.
+Primary coverage: `http_request_new`, `http_header_put`,
+`http_bearer_auth`, `http_json_body`, `http_timeout`, `http_get`,
+`http_get_task`, `http_request`, `http_post_json`, `http_post_json_task`,
+`http_request_task`, `http_stream_start`, `http_streams`, `http_stream`,
+`http_stream_read`, `http_stream_cancel`, and `http_stream_release`.
 
 ## Guided Example
 
-Planned example: `examples/learn/18-http-streams/api-client.rco`.
+Open `examples/learn/18-http-streams/api-client.rco`. The example expects a
+base URL, so run it through the local fixture:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File examples/learn/18-http-streams/run-local.ps1
+```
+
+The fixture starts a loopback HTTP server and runs the example with an
+explicit host allow-list:
+
+```powershell
+cargo run -q -p ricochet_cli --bin rco -- run --capability-profile trusted --http-allow-host 127.0.0.1 examples/learn/18-http-streams/api-client.rco http://127.0.0.1:PORT
+```
+
+Simple calls are the shortest path when you only need a URL and a small body:
+
+```ricochet
+$baseUrl "/ping" concat http_get value getResponse var
+$getResponse "status" at println
+
+payload map
+$payload "message" "hello from Ricochet" put! drop
+$baseUrl "/messages" concat $payload http_post_json value postResponse var
+```
+
+Use a structured request map when the request has policy, headers, or a
+prepared body:
+
+```ricochet
+"POST" $baseUrl "/structured" concat http_request_new value request var
+$request "X-Learn" "manual" http_header_put value request set
+$request "learn-token" http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 3000 http_timeout value request set
+$request http_request value structuredResponse var
+```
+
+The helper words return a new request map as a `Result`, so unwrap the value
+and store it back into the same variable before the next helper.
+
+Task variants let you start HTTP work and await the result later:
+
+```ricochet
+$baseUrl "/task" concat http_get_task getTask var
+$getTask await value taskResponse var
+$taskResponse "body" at println
+$getTask release_task drop
+```
+
+Retained streams are for responses you want to inspect incrementally. Start
+with a structured request, keep the returned `id`, and read with an options
+map:
+
+```ricochet
+"GET" $baseUrl "/stream" concat http_request_new value streamRequest var
+$streamRequest 3000 http_timeout value streamRequest set
+$streamRequest "max_response_bytes" 128 put! drop
+$streamRequest http_stream_start value stream var
+$stream "id" at streamId var
+
+readOptions map
+$readOptions "max_bytes" 6 put! drop
+$streamId $readOptions http_stream_read value firstChunk var
+$readOptions "offset" $firstChunk "next_offset" at put! drop
+$streamId $readOptions http_stream_read value secondChunk var
+$readOptions "offset" $secondChunk "next_offset" at put! drop
+```
+
+`http_stream_read` reports `from_offset`, `next_offset`, `bytes_len`, and
+`done`. Store `next_offset` as the next read's `offset` to avoid rereading
+bytes. When the retained job has stopped running, release it:
+
+```ricochet
+$streamId http_stream value streamState var
+$streamState "running" at while
+  25 sleep
+  $streamId http_stream value streamState set
+end
+
+$streamId http_stream_release value println
+```
+
+If a retained request is no longer useful, call `http_stream_cancel` with the
+stream id. Cancellation asks the host to stop the work; still check the stream
+snapshot before release, because a running stream cannot be released.
 
 ## Try It
 
-Readers will perform a bounded request and handle success or failure through results.
+Change the fixture response for `/stream` and rerun the script. Then lower the
+example's `max_response_bytes` from `128` to `10` and watch the stream snapshot
+report truncation.
+
+For a stricter run that does not use the stream polling sleep, you can run a
+simple request under the sandboxed profile:
+
+```powershell
+cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --http-allow-host 127.0.0.1 examples/learn/18-http-streams/api-client.rco http://127.0.0.1:PORT
+```
+
+The full fixture uses the trusted profile only because `sleep` is disabled in
+the sandboxed profile. The HTTP host is still restricted to loopback by
+`--http-allow-host 127.0.0.1`.
 
 ## Common Mistakes
 
 - Forgetting capability flags for outbound HTTP.
 - Leaving retained streams unreleased.
+- Reading streams without carrying `next_offset` into the next read.
+- Assuming redirects are followed. Ricochet HTTP requests keep redirects
+  disabled.
+- Treating task handles and stream handles as ordinary values that never need
+  cleanup.
 
 ## Safety Notes
 
-The chapter will avoid surprising external side effects and will make network permissions explicit.
+The runnable example uses a local loopback server. It does not call public
+services and it does not write files. Keep examples like this bounded: use
+timeouts, byte caps, explicit host allow-lists, and release retained handles.
+Do not print bearer tokens or resolved secrets.
 
 ## Production Notes
 
-Production clients should set timeouts, bound stream reads, and handle redirects according to Ricochet's HTTP behavior.
+Production clients should set `timeout_ms`, bound response size with
+`max_response_bytes`, and model failures as `Result` values. For external APIs,
+pair `http_bearer_auth` with `secret_env` or another secret reference instead
+of hard-coding tokens. Use task variants when an app can keep working while a
+request is in flight, and use retained streams when the response may be large
+or should be consumed incrementally.
 
 ## Reference Links
 
-Links will point to HTTP and stream references when drafted.
+- `docs/reference/guides/host-capabilities.html`
+- `docs/reference/guides/language-runtime.html`
 
 ## What You Know Now
 
-Readers will know how to make outbound HTTP requests and clean up retained streams.
+You know how to make simple and structured HTTP requests, run HTTP requests as
+tasks, read retained streams with offsets, cancel work that is no longer
+needed, and release completed streams.

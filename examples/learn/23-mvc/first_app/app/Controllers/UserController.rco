@@ -1,0 +1,13 @@
+UserController Controller Subclass
+  [
+    users array
+    User new
+    "ada@example.com" swap email.set
+    "Ada Lovelace" swap name.set
+    $users swap push! drop
+    $users count userCount var
+    "Users" title var
+    $ctx
+    "users/index" swap view
+  ] "index" Method
+end

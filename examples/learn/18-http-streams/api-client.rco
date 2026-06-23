@@ -1,0 +1,97 @@
+(( Run from the repo root with: powershell -ExecutionPolicy Bypass -File examples/learn/18-http-streams/run-local.ps1 ))
+
+"HTTP client" println
+
+args first baseUrl var
+
+"GET status:" print
+$baseUrl "/ping" concat http_get value getResponse var
+$getResponse "status" at println
+
+"GET body:" print
+$getResponse "body" at println
+
+payload map
+$payload "message" "hello from Ricochet" put! drop
+
+"POST JSON status:" print
+$baseUrl "/messages" concat $payload http_post_json value postResponse var
+$postResponse "status" at println
+
+"POST JSON body:" print
+$postResponse "body" at println
+
+"POST" $baseUrl "/structured" concat http_request_new value request var
+$request "X-Learn" "manual" http_header_put value request set
+$request "learn-token" http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 3000 http_timeout value request set
+
+"Structured status:" print
+$request http_request value structuredResponse var
+$structuredResponse "status" at println
+
+"Task GET body:" print
+$baseUrl "/task" concat http_get_task getTask var
+$getTask await value taskResponse var
+$taskResponse "body" at println
+$getTask release_task drop
+
+"Task POST status:" print
+$baseUrl "/post-task" concat $payload http_post_json_task postTask var
+$postTask await value postTaskResponse var
+$postTaskResponse "status" at println
+$postTask release_task drop
+
+"GET" $baseUrl "/request-task" concat http_request_new value asyncRequest var
+$asyncRequest 3000 http_timeout value asyncRequest set
+
+"Task request body:" print
+$asyncRequest http_request_task requestTask var
+$requestTask await value requestTaskResponse var
+$requestTaskResponse "body" at println
+$requestTask release_task drop
+
+"GET" $baseUrl "/stream" concat http_request_new value streamRequest var
+$streamRequest 3000 http_timeout value streamRequest set
+$streamRequest "max_response_bytes" 128 put! drop
+$streamRequest http_stream_start value stream var
+$stream "id" at streamId var
+
+25 sleep
+
+readOptions map
+$readOptions "max_bytes" 6 put! drop
+
+$streamId $readOptions http_stream_read value firstChunk var
+"Stream first chunk:" print
+$firstChunk "body" at println
+
+$readOptions "offset" $firstChunk "next_offset" at put! drop
+$streamId $readOptions http_stream_read value secondChunk var
+"Stream second chunk:" print
+$secondChunk "body" at println
+
+$readOptions "offset" $secondChunk "next_offset" at put! drop
+
+$streamId http_stream value streamState var
+$streamState "running" at while
+  25 sleep
+  $streamId http_stream value streamState set
+end
+
+"Stream final chunk:" print
+$streamId $readOptions http_stream_read value finalRead var
+$finalRead "body" at println
+
+"Stream done?" print
+$finalRead "done" at println
+
+"Streams retained:" print
+http_streams count println
+
+"Stream released:" print
+$streamId http_stream_release value println
+
+"Streams retained after release:" print
+http_streams count println

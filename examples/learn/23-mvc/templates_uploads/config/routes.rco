@@ -1,0 +1,2 @@
+GET "/" PagesController "index" route
+POST "/uploads/:id" UploadsController "create" route

@@ -1,0 +1,131 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco ))
+
+"Process and PTY runner" println
+
+processArgs array
+$processArgs "/C" push! drop
+$processArgs "echo %RICOCHET_LEARN_CHILD%" push! drop
+
+processOptions map
+$processOptions "timeout_ms" 5000 put! drop
+$processOptions "stdout_max_bytes" 200 put! drop
+$processOptions "RICOCHET_LEARN_CHILD" "process-ok" process_env_put value processOptions set
+
+"process enabled:" print
+runtime_capabilities "process" at "enabled" at println
+
+"spawn stdout:" print
+"cmd" $processArgs $processOptions process_spawn value spawnResult var
+$spawnResult "stdout" at trim println
+
+"spawn success:" print
+$spawnResult "success" at println
+
+"task stdout:" print
+"cmd" $processArgs $processOptions process_spawn_task spawnTask var
+$spawnTask await value taskResult var
+$taskResult "stdout" at trim println
+$spawnTask release_task drop
+
+jobArgs array
+$jobArgs "/C" push! drop
+$jobArgs "echo process-job" push! drop
+
+jobOptions map
+$jobOptions "timeout_ms" 5000 put! drop
+"cmd" $jobArgs $jobOptions process_start value job var
+
+nil jobSnapshot var
+0 attempts var
+$attempts 50 < while
+  $job "id" at process_job value jobSnapshot set
+  $jobSnapshot "status" at "exited" = if
+    break
+  end
+  50 sleep
+  $attempts 1 + attempts set
+end
+
+readOptions map
+$job "id" at $readOptions process_read value jobRead var
+
+"job stdout:" print
+$jobRead "stdout" at trim println
+
+"job status:" print
+$jobSnapshot "status" at println
+
+"job released:" print
+$job "id" at process_release value println
+
+"jobs retained:" print
+process_jobs count println
+
+cancelArgs array
+$cancelArgs "/C" push! drop
+$cancelArgs "ping 127.0.0.1 -n 6 > nul" push! drop
+
+cancelOptions map
+$cancelOptions "timeout_ms" 30000 put! drop
+"cmd" $cancelArgs $cancelOptions process_start value cancelJob var
+
+"cancel requested:" print
+$cancelJob "id" at process_cancel value "cancelled" at println
+
+nil cancelSnapshot var
+0 cancelAttempts var
+$cancelAttempts 50 < while
+  $cancelJob "id" at process_job value cancelSnapshot set
+  $cancelSnapshot "running" at false = if
+    break
+  end
+  50 sleep
+  $cancelAttempts 1 + cancelAttempts set
+end
+
+"cancel released:" print
+$cancelJob "id" at process_release value println
+
+"jobs retained after cancel:" print
+process_jobs count println
+
+ptyArgs array
+$ptyArgs "/C" push! drop
+$ptyArgs "echo ricochet-pty" push! drop
+
+ptyOptions map
+$ptyOptions "rows" 12 put! drop
+$ptyOptions "cols" 80 put! drop
+$ptyOptions "output_max_bytes" 4096 put! drop
+
+"pty enabled:" print
+runtime_capabilities "pty" at "enabled" at println
+
+"cmd" $ptyArgs $ptyOptions pty_start value session var
+
+"pty resized cols:" print
+$session "id" at 100 24 pty_resize value "cols" at println
+
+nil ptyRead var
+0 ptyAttempts var
+$ptyAttempts 50 < while
+  ptyReadOptions map
+  $session "id" at $ptyReadOptions pty_read value ptyRead set
+  $ptyRead "output" at "ricochet-pty" contains? if
+    break
+  end
+  50 sleep
+  $ptyAttempts 1 + ptyAttempts set
+end
+
+"pty output has marker:" print
+$ptyRead "output" at "ricochet-pty" contains? println
+
+"pty running?" print
+$session "id" at pty_detail value "running" at println
+
+"pty released:" print
+$session "id" at pty_release value println
+
+"pty sessions retained:" print
+pty_list count println

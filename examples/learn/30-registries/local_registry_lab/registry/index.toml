@@ -1,0 +1,5 @@
+[registry]
+format = "ricochet-static-registry-v1"
+
+[packages]
+"@learn/greeter" = "packages/@learn/greeter.toml"

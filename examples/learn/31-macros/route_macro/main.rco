@@ -1,0 +1,32 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/31-macros/route_macro/main.rco ))
+
+"emit_route" Macro
+  ( method path action -> expansion )
+  [
+    [
+      "route " print
+      $method ast_splice print
+      " " print
+      $path ast_splice print
+      " -> " print
+      $action ast_splice println
+    ] quote_ast
+  ]
+end
+
+"install_route_printers" Macro
+  [
+    [
+      [
+        "Generated route table" println
+        "GET / -> HomeController#index" println
+        "POST /messages -> MessagesController#create" println
+      ] "print_routes" function
+    ] quote_items
+  ]
+end
+
+"install_route_printers" macro_call
+
+print_routes drop
+"PATCH" "/messages/:id" "MessagesController#update" "emit_route" macro_call

@@ -1,0 +1,29 @@
+(( Build with: cargo run -q -p ricochet_cli --bin rco -- build image_lab.rco ))
+
+"Image lab" println
+
+"ada" user_name var
+$user_name uppercase user_code var
+
+scores array
+$scores 10 push! drop
+$scores 20 push! drop
+$scores 12 push! drop
+
+( values -> Number ) lab_sum function
+  values var
+  0 total var
+  [
+    value var
+    $total $value + total set
+  ] $values each drop
+  $total
+end
+
+$scores lab_sum score_total var
+
+"user:" print
+$user_code println
+
+"score total:" print
+$score_total println

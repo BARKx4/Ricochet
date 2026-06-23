@@ -1,0 +1,34 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/29-packages/local_math_package/main.rco ))
+
+"math_tools/stats" import
+
+"Local math package" println
+
+prices array
+$prices 12 push! drop
+$prices 18 push! drop
+$prices 30 push! drop
+
+"static sum:" print
+$prices math_sum println
+
+"static average:" print
+$prices math_average println
+
+"static taxed:" print
+120 0.08 math_add_tax println
+
+"math_tools/stats" import_dynamic value stats var
+
+args array
+$args 120 push! drop
+$args 0.08 push! drop
+
+"dynamic taxed:" print
+$stats "math_add_tax" $args module_call value println
+
+"module label:" print
+$stats "math_package_name" module_get value println
+
+"module function read error:" print
+$stats "math_sum" module_get error "message" at println

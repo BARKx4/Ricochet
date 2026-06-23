@@ -1,0 +1,9 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/12-testing-linting-and-formatting/main.rco ))
+
+"Testing loop" println
+
+40 2 + 42 assert_equals
+true assert_true
+false assert_false
+
+"assertions passed" println

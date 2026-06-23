@@ -1,0 +1,34 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/16-capabilities-and-sandboxing/capability-report.rco ))
+
+"Capability report" println
+
+"runtime capabilities:" println
+runtime_capabilities inspect println drop
+
+operation map
+$operation "capability" "workspace.write" put! drop
+$operation "summary" "Approve a generated workspace write" put! drop
+
+options map
+$operation $options approval_create value approval var
+
+"approval status:" print
+$approval "status" at println
+
+$approval "id" at $approval "token" at approval_claim value claim var
+
+"claimed?" print
+$claim "claimed" at println
+
+result map
+$result "path" "generated/example.txt" put! drop
+$approval "id" at $result approval_complete value completed var
+
+"completed status:" print
+$completed "status" at println
+
+"detail status:" print
+$approval "id" at approval_detail value "status" at println
+
+"released?" print
+$approval "id" at approval_release value println

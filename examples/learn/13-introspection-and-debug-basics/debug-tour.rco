@@ -1,0 +1,39 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/13-introspection-and-debug-basics/debug-tour.rco ))
+
+"Inspect tour" println
+
+settings map
+$settings "theme" "dark" put! drop
+$settings "retries" 3 put! drop
+
+"settings type:" print
+$settings type println
+
+"settings inspect:" println
+$settings inspect println drop
+
+Contact Object Subclass
+  "name" Accessor
+
+  [
+    self name.get
+  ] "label" Method
+end
+
+Contact new contact var
+"Grace Hopper" $contact name.set contact set
+
+"class:" print
+$contact class_of inspect println drop
+
+"responds to label?" print
+"label" $contact responds_to? println
+
+"fields:" print
+Contact fields "," join println
+
+"methods:" println
+Contact methods inspect println drop
+
+"block callable:" print
+[ 42 ] callable? println

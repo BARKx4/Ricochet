@@ -1,0 +1,4 @@
+[package]
+name = "@ricochet/forms"
+version = "0.1.0"
+description = "Form field and validation helpers for Ricochet MVC beta apps."

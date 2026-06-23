@@ -1,0 +1,50 @@
+"auth/session" import
+"forms/validation" import
+
+"Long unique passphrase 2026" password_hash value rawHash var
+"Core password verify:" print
+"Long unique passphrase 2026" $rawHash password_verify value println
+
+"ada@example.com" "Long unique passphrase 2026" auth_password_hash value storedHash var
+" ADA@Example.COM " "Long unique passphrase 2026" "ada@example.com" $storedHash auth_credentials_verify login var
+"Auth login authenticated:" print
+$login "authenticated" at println
+
+"ada" "csrf-token-123" auth_session_for_user session var
+"Session user present:" print
+$session auth_user_present println
+
+"CSRF valid:" print
+$session "csrf-token-123" auth_csrf_valid println
+
+"Route guard ok:" print
+$session "/login" auth_route_guard "ok" at println
+
+auth_password_policy policy var
+"Password storage:" print
+$policy "storage" at println
+
+"email" "ada@example.com" form_field emailField var
+"Field required:" print
+$emailField "value" at form_required println
+
+form_schema
+  "email" "string" form_required_field
+  "password" "string" form_required_field
+schema var
+
+formData map
+$formData "email" " ada@example.com " auth_credential_normalize put! drop
+$formData "password" "Long unique passphrase 2026" put! drop
+$formData $schema form_schema_validate validForm var
+"Form valid:" print
+$validForm "ok" at println
+
+emptyForm map
+$emptyForm $schema form_schema_validate invalidForm var
+"Empty form valid:" print
+$invalidForm "ok" at println
+
+auth_secure_cookie_options cookieOptions var
+"Cookie same_site:" print
+$cookieOptions "same_site" at println

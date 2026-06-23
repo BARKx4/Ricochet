@@ -1,0 +1,25 @@
+(( Validate with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco ))
+(( Preview with: cargo run -q -p ricochet_cli --bin rco -- gui examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco ))
+
+"lib/ledger" import
+
+ledger_sample_state state var
+$state ledger_build_document document var
+
+"document title:" print
+$document "title" at println
+
+"entries:" print
+$document "state" at "entries" at count println
+
+"balance:" print
+$state "entries" at ledger_balance println
+
+"actions:" print
+$document "actions" at count println
+
+"reviewed:" print
+$document "state" at "reviewed" at println
+
+"html has escaped item?" print
+$document "html" at "Tool &lt;subscription&gt;" contains? println

@@ -1,0 +1,40 @@
+"lib/ledger" import
+
+LedgerTest TestCase Subclass
+  [
+    ledger_sample_state state var
+    $state "entries" at entries var
+
+    $entries ledger_balance
+    1450 assert_equals
+
+    $entries "expense" ledger_count_kind
+    3 assert_equals
+
+    $entries "income" ledger_filter_kind count
+    1 assert_equals
+  ] "testLedgerMath" Method
+
+  [
+    ledger_sample_state state var
+    $state ledger_build_document document var
+
+    $document "title" at
+    "Ricochet Ledger" assert_equals
+
+    $document "actions" at count
+    1 assert_equals
+
+    $document "html" at "Tool &lt;subscription&gt;" contains?
+    true assert_equals
+  ] "testDocumentShape" Method
+
+  [
+    ledger_sample_state state var
+    event map
+    $state $event mark_reviewed updatedDocument var
+
+    $updatedDocument "state" at "reviewed" at
+    true assert_equals
+  ] "testMarkReviewedAction" Method
+end

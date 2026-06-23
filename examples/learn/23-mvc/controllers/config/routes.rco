@@ -1,0 +1,8 @@
+GET "/" ResponsesController "index" route
+GET "/ping" ResponsesController "ping" route
+GET "/api/status" ResponsesController "status_json" route
+GET "/old-dashboard" ResponsesController "legacy" route
+POST "/messages" ResponsesController "create" route
+PUT "/messages/:id" ResponsesController "update" route
+PATCH "/messages/:id" ResponsesController "patch" route
+DELETE "/messages/:id" ResponsesController "destroy" route

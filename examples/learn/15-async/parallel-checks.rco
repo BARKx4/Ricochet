@@ -1,0 +1,35 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/15-async/parallel-checks.rco ))
+
+"Parallel checks" println
+
+[ 40 2 + ] spawn answer var
+
+"task id:" print
+$answer id println
+
+"initial status:" print
+$answer task_status println
+
+"answer:" print
+$answer await println
+
+"completed?" print
+$answer completed? println
+
+"released?" print
+$answer release_task println
+
+handles array
+$handles [ 20 2 + ] spawn push! drop
+$handles [ 30 4 + ] spawn push! drop
+
+"await all:" println
+$handles await_all results var
+$results 0 at println
+$results 1 at println
+
+$handles 0 at release_task drop
+$handles 1 at release_task drop
+
+"retained tasks:" print
+tasks count println

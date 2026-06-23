@@ -1,0 +1,16 @@
+JournalEntry Model Subclass
+  "journal_entries" Table
+  "id" Accessor
+  "title" Accessor
+  "body" Accessor
+  "status" Accessor
+  "mood" Accessor
+  "created_on" Accessor
+
+  [
+    self title.get
+    " [" concat
+    self status.get concat
+    "]" concat
+  ] "label" Method
+end

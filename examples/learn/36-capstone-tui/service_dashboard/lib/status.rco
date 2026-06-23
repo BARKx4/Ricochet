@@ -1,0 +1,67 @@
+( path -> Result ) service_load_services function
+  path var
+  [ json_decode ] $path fs_read_text and_then
+end
+
+( services status -> Number ) service_count_status function
+  status var
+  services var
+  0 matches var
+  nil service var
+
+  [
+    service set
+    $service "status" at $status = if
+      $matches 1 + matches set
+    end
+  ] $services each drop
+
+  $matches
+end
+
+( services -> Number ) service_total_latency function
+  services var
+  0 total var
+  nil service var
+
+  [
+    service set
+    $total $service "latency_ms" at + total set
+  ] $services each drop
+
+  $total
+end
+
+( services -> Number ) service_average_latency function
+  services var
+
+  $services empty? if
+    0
+  else
+    $services service_total_latency $services count /
+  end
+end
+
+( services -> Number ) service_health_score function
+  services var
+
+  $services empty? if
+    0
+  else
+    $services "ok" service_count_status 100 * $services count /
+  end
+end
+
+( services -> Map ) service_summary function
+  services var
+  summary map
+
+  $summary "count" $services count put! drop
+  $summary "ok" $services "ok" service_count_status put! drop
+  $summary "degraded" $services "degraded" service_count_status put! drop
+  $summary "down" $services "down" service_count_status put! drop
+  $summary "average_latency_ms" $services service_average_latency put! drop
+  $summary "health_score" $services service_health_score put! drop
+
+  $summary
+end

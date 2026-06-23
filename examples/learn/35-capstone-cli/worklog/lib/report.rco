@@ -1,0 +1,84 @@
+( path -> Result ) worklog_load_entries function
+  path var
+  [ json_decode ] $path fs_read_text and_then
+end
+
+( entries status -> Array ) worklog_filter_status function
+  status var
+  entries var
+
+  $status "all" = if
+    $entries
+  else
+    [ "status" at $status = ] $entries select
+  end
+end
+
+( entries -> Number ) worklog_total_minutes function
+  entries var
+  0 total var
+  nil entry var
+
+  [
+    entry set
+    $total $entry "minutes" at + total set
+  ] $entries each drop
+
+  $total
+end
+
+( entries status -> Number ) worklog_count_status function
+  status var
+  entries var
+  0 matches var
+  nil entry var
+
+  [
+    entry set
+    $entry "status" at $status = if
+      $matches 1 + matches set
+    end
+  ] $entries each drop
+
+  $matches
+end
+
+( entries today days -> Number ) worklog_due_soon_count function
+  days var
+  today var
+  entries var
+  0 dueSoon var
+  nil entry var
+  nil dueDate var
+  0 daysUntil var
+
+  [
+    entry set
+    $entry "status" at "done" = false = if
+      $entry "due" at date_parse value dueDate set
+      $today $dueDate date_diff_days value daysUntil set
+
+      $daysUntil 0 >= if
+        $daysUntil $days <= if
+          $dueSoon 1 + dueSoon set
+        end
+      end
+    end
+  ] $entries each drop
+
+  $dueSoon
+end
+
+( entries today -> Map ) worklog_summary function
+  today var
+  entries var
+  summary map
+
+  $summary "entries" $entries count put! drop
+  $summary "minutes" $entries worklog_total_minutes put! drop
+  $summary "done" $entries "done" worklog_count_status put! drop
+  $summary "open" $entries "open" worklog_count_status put! drop
+  $summary "due_soon" $entries $today 7 worklog_due_soon_count put! drop
+
+  $summary
+end

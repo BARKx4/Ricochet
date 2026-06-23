@@ -1,0 +1,35 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/07-strings-json-and-regex/log-cleaner.rco ))
+
+"Log cleaner" println
+
+"  warn: user=ada  " trim cleaned var
+
+"cleaned:" print
+$cleaned println
+
+"upper:" print
+$cleaned uppercase println
+
+"has user?" print
+$cleaned "user=" contains? println
+
+"parts:" print
+$cleaned ":" split count println
+
+payload map
+$payload "ok" true put! drop
+$payload "name" "Ada" put! drop
+$payload json_encode json var
+
+"json:" print
+$json println
+
+"json name:" print
+$json json_decode value "name" at println
+
+"\\d+" regex value digits var
+"regex first:" print
+"ticket-42" $digits regex_find "text" at println
+
+"regex replace:" print
+$digits "ticket-42" "#" regex_replace println

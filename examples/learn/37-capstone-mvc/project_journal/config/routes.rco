@@ -1,0 +1,7 @@
+GET "/" JournalController "index" route
+GET "/entries" JournalController "index" route
+GET "/entries/export" JournalController "export_json" route
+GET "/entries/status" JournalController "by_status" route
+GET "/entries/:id" JournalController "show" route
+POST "/entries" JournalController "create" route
+POST "/entries/:id" JournalController "update" route

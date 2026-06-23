@@ -1,0 +1,132 @@
+( label kind amount -> Map ) ledger_entry function
+  amount var
+  kind var
+  label var
+
+  entry map
+  $entry "label" $label put! drop
+  $entry "kind" $kind put! drop
+  $entry "amount" $amount put! drop
+  $entry
+end
+
+( -> Map ) ledger_sample_state function
+  entries array
+  $entries "Client payment" "income" 2400 ledger_entry push! drop
+  $entries "Office rent" "expense" 650 ledger_entry push! drop
+  $entries "Tool <subscription>" "expense" 220 ledger_entry push! drop
+  $entries "Coffee" "expense" 80 ledger_entry push! drop
+
+  state map
+  $state "entries" $entries put! drop
+  $state "filter" "all" put! drop
+  $state "reviewed" false put! drop
+  $state
+end
+
+( entries kind -> Array ) ledger_filter_kind function
+  kind var
+  entries var
+
+  $kind "all" = if
+    $entries
+  else
+    [ "kind" at $kind = ] $entries select
+  end
+end
+
+( entries kind -> Number ) ledger_count_kind function
+  kind var
+  entries var
+  0 matches var
+  nil entry var
+
+  [
+    entry set
+    $entry "kind" at $kind = if
+      $matches 1 + matches set
+    end
+  ] $entries each drop
+
+  $matches
+end
+
+( entries -> Number ) ledger_balance function
+  entries var
+  0 balance var
+  nil entry var
+
+  [
+    entry set
+    $entry "kind" at "income" = if
+      $balance $entry "amount" at + balance set
+    else
+      $balance $entry "amount" at - balance set
+    end
+  ] $entries each drop
+
+  $balance
+end
+
+( entries -> String ) ledger_rows_html function
+  entries var
+  "" rows var
+  nil entry var
+
+  [
+    entry set
+    $rows "<article><strong>" concat rows set
+    $rows $entry "label" at webview_text concat rows set
+    $rows "</strong><span>" concat rows set
+    $rows $entry "kind" at webview_text concat rows set
+    $rows "</span><span>" concat rows set
+    $rows $entry "amount" at to_string webview_text concat rows set
+    $rows "</span></article>" concat rows set
+  ] $entries each drop
+
+  $rows
+end
+
+( state -> Map ) ledger_build_document function
+  state var
+  $state "entries" at entries var
+  $state "filter" at filter var
+  $entries $filter ledger_filter_kind visibleEntries var
+  $visibleEntries ledger_balance balance var
+
+  $state "reviewed" at if
+    "Reviewed: yes"
+  else
+    "Reviewed: no"
+  end reviewedText var
+
+  "Personal Ledger" 1 webview_heading heading var
+  "Visible entries: " $visibleEntries count to_string concat webview_text countLine var
+  "Balance: " $balance to_string concat webview_text balanceLine var
+  "Filter: " $filter concat webview_text filterLine var
+  $reviewedText webview_text reviewedLine var
+  "filter" $filter webview_input filterInput var
+  "Mark reviewed" "review" webview_button reviewButton var
+  $visibleEntries ledger_rows_html rows var
+
+  $heading $countLine concat
+  $balanceLine concat
+  $filterLine concat
+  $reviewedLine concat
+  $filterInput concat
+  $reviewButton concat
+  $rows concat
+  webview_container body var
+
+  actions array
+  $actions "Mark reviewed" "review" "mark_reviewed" webview_action push! drop
+
+  "Ricochet Ledger" $body $state $actions webview_window_state value
+end
+
+( state event -> Map ) mark_reviewed function
+  event var
+  state var
+  $state "reviewed" true put! drop
+  $state ledger_build_document
+end

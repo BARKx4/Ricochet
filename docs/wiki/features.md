@@ -14,7 +14,7 @@ foundation that developers can scaffold, run, inspect, and extend.
 - Approval model: local apps can create approval records, claim a generated
   token exactly once, and complete or reject the record with retained audit
   state through `approval_create`, `approval_claim`, `approval_complete`,
-  `approval_reject`, and `approval_detail`.
+  `approval_reject`, `approval_detail`, and `approval_release`.
 - Host capabilities: filesystem/workspace, HTTP, TCP/WebSocket sockets,
   environment, sleep, TUI, webview, opt-in process execution, and opt-in PTY
   sessions can be inspected with `runtime_capabilities`; direct child process

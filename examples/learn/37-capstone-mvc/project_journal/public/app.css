@@ -1,0 +1,27 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+  color: #20242a;
+  background: #f7f8fa;
+}
+
+main {
+  max-width: 48rem;
+}
+
+article {
+  border: 1px solid #d5dae3;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: #ffffff;
+}
+
+.notice {
+  color: #4d5968;
+}
+
+span {
+  display: inline-block;
+  margin-right: 1rem;
+}

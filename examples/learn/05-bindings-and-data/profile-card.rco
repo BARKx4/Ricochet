@@ -1,0 +1,27 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/05-bindings-and-data/profile-card.rco ))
+
+"Profile card" println
+
+"Ada Lovelace" name var
+"language designer" role var
+profile map
+
+$profile "name" $name put! drop
+$profile "role" $role put! drop
+$profile "active" true put! drop
+
+"name:" print
+$profile "name" at println
+
+"dynamic read:" print
+"name" get println
+
+"active?" print
+$profile "active" at println
+
+"update name:" print
+"Grace Hopper" name set
+$name println
+
+"profile empty?" print
+$profile empty? println

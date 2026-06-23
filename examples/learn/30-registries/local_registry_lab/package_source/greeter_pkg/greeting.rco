@@ -1,0 +1,6 @@
+"learn-registry-greeter" registry_package_label var
+
+( name -> String ) registry_greeting function
+  name var
+  "hello, " $name concat " from registry" concat
+end

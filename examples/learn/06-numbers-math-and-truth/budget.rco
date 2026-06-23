@@ -1,0 +1,36 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/06-numbers-math-and-truth/budget.rco ))
+
+"Budget" println
+
+120 income var
+45 rent var
+18 food var
+
+$rent $food + spent var
+$income $spent - remaining var
+
+"spent:" print
+$spent println
+
+"remaining:" print
+$remaining println
+
+"healthy?" print
+$remaining 0 > println
+
+"clamped score:" print
+15 0 10 clamp println
+
+"integer conversion:" print
+"42" to_integer dup ok? if
+  value println
+else
+  error "kind" at println
+end
+
+"failed conversion kind:" print
+"12.5" to_integer dup ok? if
+  value println
+else
+  error "kind" at println
+end

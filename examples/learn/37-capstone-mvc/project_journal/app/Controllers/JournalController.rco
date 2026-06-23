@@ -1,0 +1,114 @@
+JournalController Controller Subclass
+  ( ctx -> Response ) [
+    ctx var
+
+    JournalEntry default_page dup ok? if
+      value entries var
+    else
+      drop
+      entries array
+    end
+
+    JournalEntry count_records dup ok? if
+      value totalEntries var
+    else
+      drop
+      0 totalEntries var
+    end
+
+    JournalEntry first_record dup ok? if
+      value firstEntry var
+    else
+      drop
+      nil firstEntry var
+    end
+
+    "Project Journal" title var
+    $ctx
+    "journal/index" swap view
+  ] "index" Method
+
+  [
+    JournalEntry all dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "export_json" Method
+
+  ( status ctx -> Response ) [
+    ctx var
+    status var
+
+    "status" $status JournalEntry where dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "by_status" Method
+
+  ( id ctx -> Response ) [
+    ctx var
+    id var
+
+    $id JournalEntry exists? dup ok? if
+      value exists var
+    else
+      drop
+      false exists var
+    end
+
+    $id JournalEntry find_record dup ok? if
+      value record var
+      response map
+      $response "exists" $exists put! drop
+      $response "entry" $record put! drop
+      $response json
+    else
+      error "message" at text 404 status
+    end
+  ] "show" Method
+
+  ( title body status mood ctx -> Response ) [
+    ctx var
+    mood var
+    status var
+    body var
+    title var
+
+    entry map
+    $entry "title" $title put! drop
+    $entry "body" $body put! drop
+    $entry "status" $status put! drop
+    $entry "mood" $mood put! drop
+    $entry "created_on" "2026-06-22" put! drop
+
+    $entry JournalEntry insert dup ok? if
+      value json
+      201 status
+    else
+      error "message" at text 500 status
+    end
+  ] "create" Method
+
+  ( id title body status mood ctx -> Response ) [
+    ctx var
+    mood var
+    status var
+    body var
+    title var
+    id var
+
+    changes map
+    $changes "title" $title put! drop
+    $changes "body" $body put! drop
+    $changes "status" $status put! drop
+    $changes "mood" $mood put! drop
+
+    $id $changes JournalEntry update dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "update" Method
+end

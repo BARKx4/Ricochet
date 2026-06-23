@@ -1,0 +1,67 @@
+ResponsesController Controller Subclass
+  [
+    "Routes And Responses" title var
+    "Response helpers keep each action result explicit." summary var
+    $ctx
+    "responses/index" swap view
+  ] "index" Method
+
+  [
+    "ping requested" println
+    "pong" text
+    201 status
+    "x-ricochet" "learn" header
+  ] "ping" Method
+
+  [
+    statusBody map
+    $statusBody "ok" true put! drop
+    $statusBody "service" "learn" put! drop
+    $statusBody "routes" 8 put! drop
+    $statusBody json
+  ] "status_json" Method
+
+  [
+    "/api/status" redirect
+  ] "legacy" Method
+
+  ( title body ) [
+    body var
+    title var
+
+    created map
+    $created "title" $title put! drop
+    $created "body" $body put! drop
+    $created "created" true put! drop
+    $created json
+    201 status
+  ] "create" Method
+
+  ( id title body ) [
+    body var
+    title var
+    id var
+
+    updated map
+    $updated "id" $id put! drop
+    $updated "title" $title put! drop
+    $updated "body" $body put! drop
+    $updated json
+  ] "update" Method
+
+  ( id state ) [
+    state var
+    id var
+
+    patched map
+    $patched "id" $id put! drop
+    $patched "state" $state put! drop
+    $patched json
+  ] "patch" Method
+
+  ( id ) [
+    id var
+    "deleted " $id concat text
+    202 status
+  ] "destroy" Method
+end

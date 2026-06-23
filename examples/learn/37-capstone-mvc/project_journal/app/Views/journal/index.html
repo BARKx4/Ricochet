@@ -1,0 +1,27 @@
+<link rel="stylesheet" href="/assets/app.css">
+
+<main>
+  <h1>{ title get }</h1>
+  <p>Total entries: { totalEntries get }</p>
+
+  {% firstEntry get if %}
+  <p class="notice">First entry id: { firstEntry get "id" at }</p>
+  {% else %}
+  <p class="notice">No entries have been inserted yet.</p>
+  {% end %}
+
+  <section>
+    <h2>Entries</h2>
+    {% entries get "entry" each %}
+    <article>
+      <h3>{ entry get "title" at }</h3>
+      <p>{ entry get "body" at }</p>
+      <p>
+        <span>Status: { entry get "status" at }</span>
+        <span>Mood: { entry get "mood" at }</span>
+        <span>Date: { entry get "created_on" at }</span>
+      </p>
+    </article>
+    {% end %}
+  </section>
+</main>

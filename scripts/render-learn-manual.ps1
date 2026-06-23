@@ -158,9 +158,9 @@ $page = @"
   <main id="top">
     <section class="hero section-band">
       <div class="hero-copy">
-        <p class="eyebrow">Manual preview</p>
+        <p class="eyebrow">Learn Ricochet</p>
         <h1>Learn Ricochet</h1>
-        <p class="lede">A planned guided manual for learning Ricochet from the stack model through real applications, packages, and release workflows.</p>
+        <p class="lede">A drafted guided manual for learning Ricochet from the stack model through real applications, packages, and release workflows.</p>
       </div>
     </section>
 

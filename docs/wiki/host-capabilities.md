@@ -105,6 +105,8 @@ options map
 $operation $options approval_create value approval var
 $approval "id" at $approval "token" at approval_claim value claim var
 $claim "claimed" at println
+$approval "id" at approval_detail value detail var
+$approval "id" at approval_release value drop
 ```
 
 ## Runtime Safety Notes

@@ -1,0 +1,75 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --socket-allow-host 127.0.0.1 examples/learn/19-sockets/ws_echo.rco ))
+
+"WebSocket echo" println
+
+listenOptions map
+"127.0.0.1" 0 $listenOptions ws_listen value listener var
+
+"listener status:" print
+$listener "status" at println
+
+"listener port:" print
+$listener "id" at ws_listener value "port" at println
+
+"ws://127.0.0.1:" $listener "port" at to_string concat "/echo" concat url var
+
+[
+  options map
+  $options "timeout_ms" 5000 put! drop
+  $url $options ws_connect value client var
+  $client "id" at clientId var
+  $clientId "from-client" ws_send value drop
+
+  readOptions map
+  $readOptions "timeout_ms" 5000 put! drop
+  $clientId $readOptions ws_read value clientRead var
+
+  $clientId ws_close value drop
+  $clientId ws_release value drop
+  $clientRead "message" at
+] spawn clientTask var
+
+acceptOptions map
+$acceptOptions "timeout_ms" 5000 put! drop
+$listener "id" at $acceptOptions ws_accept value accepted var
+$accepted "id" at serverId var
+
+"accepted status:" print
+$serverId ws_connection value "status" at println
+
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+
+"server message type:" print
+$serverId $readOptions ws_read value serverRead var
+$serverRead "message_type" at println
+
+"server read:" print
+$serverRead "message" at println
+
+"server sent count:" print
+$serverId "from-server" ws_send value "messages_sent" at println
+
+"server closed?" print
+$serverId ws_close value "closed" at println
+
+"server released?" print
+$serverId ws_release value println
+
+"client read:" print
+$clientTask await println
+
+"listener closed?" print
+$listener "id" at ws_listener_close value "closed" at println
+
+"listener released?" print
+$listener "id" at ws_listener_release value println
+
+"listeners retained:" print
+ws_listeners count println
+
+"connections retained:" print
+ws_connections count println
+
+"runtime listener count:" print
+runtime_capabilities "sockets" at "websocket_listeners" at println

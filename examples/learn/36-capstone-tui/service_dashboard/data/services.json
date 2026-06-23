@@ -1,0 +1,26 @@
+[
+  {
+    "name": "api",
+    "status": "ok",
+    "latency_ms": 42,
+    "owner": "platform"
+  },
+  {
+    "name": "jobs",
+    "status": "degraded",
+    "latency_ms": 118,
+    "owner": "operations"
+  },
+  {
+    "name": "search",
+    "status": "ok",
+    "latency_ms": 65,
+    "owner": "product"
+  },
+  {
+    "name": "billing",
+    "status": "down",
+    "latency_ms": 0,
+    "owner": "finance"
+  }
+]

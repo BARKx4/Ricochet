@@ -1,0 +1,29 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/14-date-time-and-duration/reminder.rco ))
+
+"Reminder" println
+
+"2026-06-18T13:14:15.250Z" timestamp_parse value startedAt var
+
+"formatted:" print
+$startedAt timestamp_format value println
+
+"year:" print
+$startedAt timestamp_parts value "year" at println
+
+"plus two hours:" print
+$startedAt 2 duration_hours value timestamp_add value later var
+$later timestamp_format value println
+
+"diff millis:" print
+$startedAt $later timestamp_diff value println
+
+"next date:" print
+"2026-02-28" date_parse value date var
+$date 1 date_add_days value nextDate var
+$nextDate "%Y-%m-%d" date_format value println
+
+"date diff days:" print
+$date $nextDate date_diff_days value println
+
+"duration parts hours:" print
+9000000 duration_parts value "hours" at println

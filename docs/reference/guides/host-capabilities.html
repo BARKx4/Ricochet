@@ -105,7 +105,9 @@ $operation &quot;summary&quot; &quot;Write generated file&quot; put! drop
 options map
 $operation $options approval_create value approval var
 $approval &quot;id&quot; at $approval &quot;token&quot; at approval_claim value claim var
-$claim &quot;claimed&quot; at println</code></pre>
+$claim &quot;claimed&quot; at println
+$approval &quot;id&quot; at approval_detail value detail var
+$approval &quot;id&quot; at approval_release value drop</code></pre>
           <h2 id="runtime-safety-notes">Runtime Safety Notes</h2>
           <p>The CLI uses the <code>trusted</code> capability profile by default for local scripts. Pass <code>--capability-profile sandboxed</code> with <code>rco run</code>, <code>rco run-bytecode</code>, <code>rco repl</code>, or <code>rco test</code> to start with filesystem, HTTP, TUI, and webview disabled. Process execution, PTY sessions, and TCP/WebSocket sockets are disabled unless explicitly enabled in either profile.</p>
           <p>In the sandboxed profile, <code>--fs-root &lt;path&gt;</code> enables filesystem access only under that directory, <code>--fs-readonly</code> denies writes, <code>--http-allow-host &lt;host&gt;</code> enables HTTP only for named hosts, and <code>--allow-tui</code> enables terminal UI access, while <code>--allow-webview</code> enables webview document building. <code>--no-fs</code>, <code>--no-http</code>, <code>--no-tui</code>, and <code>--no-webview</code> still deny those host powers explicitly in either profile.</p>

@@ -1,0 +1,73 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --socket-allow-host 127.0.0.1 examples/learn/19-sockets/tcp_echo.rco ))
+
+"TCP echo" println
+
+listenOptions map
+"127.0.0.1" 0 $listenOptions tcp_listen value listener var
+
+"listener status:" print
+$listener "status" at println
+
+"listener port:" print
+$listener "id" at tcp_listener value "port" at println
+$listener "port" at port var
+
+[
+  options map
+  $options "timeout_ms" 5000 put! drop
+  "127.0.0.1" $port $options tcp_connect value client var
+  $client "id" at clientId var
+  $clientId "from-client" tcp_write value drop
+
+  readOptions map
+  $readOptions "timeout_ms" 5000 put! drop
+  $readOptions "max_bytes" 64 put! drop
+  $clientId $readOptions tcp_read value clientRead var
+
+  $clientId tcp_close value drop
+  $clientId tcp_release value drop
+  $clientRead "data" at
+] spawn clientTask var
+
+acceptOptions map
+$acceptOptions "timeout_ms" 5000 put! drop
+$listener "id" at $acceptOptions tcp_accept value accepted var
+$accepted "id" at serverId var
+
+"accepted status:" print
+$serverId tcp_connection value "status" at println
+
+readOptions map
+$readOptions "timeout_ms" 5000 put! drop
+$readOptions "max_bytes" 64 put! drop
+
+"server read:" print
+$serverId $readOptions tcp_read value serverRead var
+$serverRead "data" at println
+
+"server wrote bytes:" print
+$serverId "from-server" tcp_write value "bytes_written" at println
+
+"server closed?" print
+$serverId tcp_close value "closed" at println
+
+"server released?" print
+$serverId tcp_release value println
+
+"client read:" print
+$clientTask await println
+
+"listener closed?" print
+$listener "id" at tcp_listener_close value "closed" at println
+
+"listener released?" print
+$listener "id" at tcp_listener_release value println
+
+"listeners retained:" print
+tcp_listeners count println
+
+"connections retained:" print
+tcp_connections count println
+
+"runtime listener count:" print
+runtime_capabilities "sockets" at "tcp_listeners" at println

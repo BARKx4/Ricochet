@@ -1,0 +1,12 @@
+PagesController Controller Subclass
+  [
+    items array
+    $items "Template expressions escape HTML" push! drop
+    $items "Static assets live under /assets" push! drop
+    $items "Upload streams must be released" push! drop
+    true showUploads var
+    "Templates, Assets, Uploads" title var
+    $ctx
+    "pages/index" swap view
+  ] "index" Method
+end

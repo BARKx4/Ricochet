@@ -1,0 +1,26 @@
+"learn-math-tools" math_package_name var
+
+( values -> Number ) math_sum function
+  values var
+  0 total var
+  [
+    value var
+    $total $value + total set
+  ] $values each drop
+  $total
+end
+
+( values -> Number ) math_average function
+  values var
+  $values empty? if
+    0
+  else
+    $values math_sum $values count /
+  end
+end
+
+( subtotal taxRate -> Number ) math_add_tax function
+  taxRate var
+  subtotal var
+  $subtotal $subtotal $taxRate * +
+end

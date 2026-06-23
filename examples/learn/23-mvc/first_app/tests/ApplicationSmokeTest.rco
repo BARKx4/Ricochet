@@ -1,0 +1,17 @@
+ApplicationSmokeTest TestCase Subclass
+  [
+    User new
+    "ada@example.com" swap email.set
+    displayName
+    "ada@example.com" assert_equals
+  ] "testUserDisplayNameFallsBackToEmail" Method
+
+  [
+    users array
+    User new
+    "grace@example.com" swap email.set
+    $users swap push! drop
+    $users count
+    1 assert_equals
+  ] "testCollectionsCanHoldModels" Method
+end

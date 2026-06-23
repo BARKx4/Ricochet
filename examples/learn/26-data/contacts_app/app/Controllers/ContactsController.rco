@@ -1,0 +1,105 @@
+ContactsController Controller Subclass
+  ( ctx -> Response ) [
+    ctx var
+
+    Contact default_page dup ok? if
+      value contacts var
+    else
+      drop
+      contacts array
+    end
+
+    Contact count_records dup ok? if
+      value totalContacts var
+    else
+      drop
+      0 totalContacts var
+    end
+
+    Contact first_record dup ok? if
+      value firstContact var
+    else
+      drop
+      nil firstContact var
+    end
+
+    "Contacts" title var
+    $ctx
+    "contacts/index" swap view
+  ] "index" Method
+
+  [
+    Contact all dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "all_records" Method
+
+  ( email ctx -> Response ) [
+    ctx var
+    email var
+    "email" $email Contact where dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "search" Method
+
+  ( id ctx -> Response ) [
+    ctx var
+    id var
+
+    $id Contact exists? dup ok? if
+      value exists var
+    else
+      drop
+      false exists var
+    end
+
+    $id Contact find_record dup ok? if
+      value record var
+      response map
+      $response "exists" $exists put! drop
+      $response "record" $record put! drop
+      $response json
+    else
+      error "message" at text 404 status
+    end
+  ] "show" Method
+
+  ( name email ctx -> Response ) [
+    ctx var
+    email var
+    name var
+
+    contact map
+    $contact "name" $name put! drop
+    $contact "email" $email put! drop
+    $contact "status" "active" put! drop
+    $contact Contact insert dup ok? if
+      value json
+      201 status
+    else
+      error "message" at text 500 status
+    end
+  ] "create" Method
+
+  ( id name email state ctx -> Response ) [
+    ctx var
+    state var
+    email var
+    name var
+    id var
+
+    changes map
+    $changes "name" $name put! drop
+    $changes "email" $email put! drop
+    $changes "status" $state put! drop
+    $id $changes Contact update dup ok? if
+      value json
+    else
+      error "message" at text 500 status
+    end
+  ] "update" Method
+end

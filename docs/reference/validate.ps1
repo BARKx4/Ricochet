@@ -41,6 +41,7 @@ if ($failures.Count -eq 0) {
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
     $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
     $learnIndex = Get-Content -LiteralPath (Join-Path $Root "learn/index.html") -Raw
+    $publishedLearnIndexPath = Join-Path (Split-Path -Parent $Root) "learn/index.html"
     $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
     $editorDebuggingGuide = Get-Content -LiteralPath (Join-Path $Root "guides/editor-debugging.html") -Raw
     $webAndDataGuide = Get-Content -LiteralPath (Join-Path $Root "guides/web-and-data.html") -Raw
@@ -92,14 +93,26 @@ if ($failures.Count -eq 0) {
     $requiredLearnMarkers = @(
         "Learn Ricochet",
         "Manual Chapters",
-        "planned guided manual",
-        "Use The Reference Today",
+        "drafted guided manual",
+        "Read The Full Manual",
+        "../../learn/",
         "../guides/index.html"
     )
 
     foreach ($marker in $requiredLearnMarkers) {
         if (-not $learnIndex.Contains($marker)) {
             $failures.Add("learn/index.html is missing marker: $marker")
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $publishedLearnIndexPath -PathType Leaf)) {
+        $failures.Add("docs/learn/index.html is missing; the reference Learn page must link to a published manual landing page")
+    } else {
+        $publishedLearnIndex = Get-Content -LiteralPath $publishedLearnIndexPath -Raw
+        foreach ($marker in @("Learn Ricochet Manual", "index.md", "manual-map.md", "chapters/38-capstone-packaged-gui-app.md")) {
+            if (-not $publishedLearnIndex.Contains($marker)) {
+                $failures.Add("docs/learn/index.html is missing marker: $marker")
+            }
         }
     }
 

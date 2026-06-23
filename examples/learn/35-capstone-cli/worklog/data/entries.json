@@ -1,0 +1,38 @@
+[
+  {
+    "date": "2026-06-17",
+    "due": "2026-06-20",
+    "project": "Learn Ricochet",
+    "task": "Draft package import lab",
+    "minutes": 70,
+    "status": "done",
+    "tags": ["docs", "packages"]
+  },
+  {
+    "date": "2026-06-18",
+    "due": "2026-06-22",
+    "project": "Learn Ricochet",
+    "task": "Validate debugger chapter",
+    "minutes": 55,
+    "status": "done",
+    "tags": ["docs", "debugger"]
+  },
+  {
+    "date": "2026-06-21",
+    "due": "2026-06-24",
+    "project": "Learn Ricochet",
+    "task": "Write CLI capstone",
+    "minutes": 80,
+    "status": "open",
+    "tags": ["docs", "cli"]
+  },
+  {
+    "date": "2026-06-22",
+    "due": "2026-06-29",
+    "project": "Release Prep",
+    "task": "Review package metadata",
+    "minutes": 45,
+    "status": "open",
+    "tags": ["release", "packaging"]
+  }
+]

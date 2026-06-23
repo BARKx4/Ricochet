@@ -1,0 +1,30 @@
+"lib/report" import
+
+WorklogTest TestCase Subclass
+  [
+    "[{\"status\":\"done\",\"minutes\":20,\"due\":\"2026-06-20\"},{\"status\":\"open\",\"minutes\":35,\"due\":\"2026-06-24\"},{\"status\":\"open\",\"minutes\":15,\"due\":\"2026-07-15\"}]" json_decode value entries var
+
+    $entries worklog_total_minutes
+    70 assert_equals
+
+    $entries "open" worklog_count_status
+    2 assert_equals
+
+    $entries "done" worklog_filter_status count
+    1 assert_equals
+  ] "testSummarizesEntries" Method
+
+  [
+    "[{\"status\":\"done\",\"minutes\":20,\"due\":\"2026-06-20\"},{\"status\":\"open\",\"minutes\":35,\"due\":\"2026-06-24\"},{\"status\":\"open\",\"minutes\":15,\"due\":\"2026-07-15\"}]" json_decode value entries var
+    "2026-06-22" date_parse value today var
+
+    $entries $today 7 worklog_due_soon_count
+    1 assert_equals
+
+    $entries $today worklog_summary summary var
+    $summary "entries" at
+    3 assert_equals
+    $summary "minutes" at
+    70 assert_equals
+  ] "testDueSoonSummary" Method
+end

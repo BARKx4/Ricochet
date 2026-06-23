@@ -1,0 +1,7 @@
+Contact Model Subclass
+  "contacts" Table
+  "id" Accessor
+  "name" Accessor
+  "email" Accessor
+  "status" Accessor
+end

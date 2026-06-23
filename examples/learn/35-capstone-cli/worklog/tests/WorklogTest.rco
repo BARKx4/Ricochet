@@ -1,0 +1,2 @@
+(( Plain-project static imports are relative to the test file. The runnable
+   capstone test lives at ../WorklogTest.rco so it can import lib/report. ))

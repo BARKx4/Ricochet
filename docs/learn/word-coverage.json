@@ -3,1057 +3,1057 @@
     "word": "+",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "add",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "-",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "subtract",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "equals",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "=",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "not_equals?",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "!=",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert_equals",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert_true",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert_false",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert_ok",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "assert_error",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "less_than?",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "<",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "greater_than?",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": ">",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "less_or_equals?",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "<=",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "greater_or_equals?",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": ">=",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "swap",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "dup",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "drop",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "over",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "rot",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "nil",
     "detail": "data",
     "primary_chapter": "04-values-and-literals",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "true",
     "detail": "data",
     "primary_chapter": "04-values-and-literals",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "false",
     "detail": "data",
     "primary_chapter": "04-values-and-literals",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "array",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "map",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "var",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "get",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "set",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "empty?",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "nil?",
     "detail": "data",
     "primary_chapter": "05-bindings-and-data",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Subclass",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Field",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Accessor",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Table",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "new",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "self",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Method",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "send",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "field.get / field.set",
     "detail": "oop",
     "primary_chapter": "11-oop-and-dispatch",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "function",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Macro",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "return",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "if",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "call",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "spawn",
     "detail": "control",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "await",
     "detail": "control",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "await_all",
     "detail": "control",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "release_task",
     "detail": "control",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tasks",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "task_status",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "while",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "break",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "continue",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "println",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "view",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "text",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "json",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "redirect",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "status",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "header",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "route",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ok?",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "value",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "error",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "all",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "find_record",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "default_page",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "where",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "limit",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "count_records",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "first_record",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "exists?",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "insert",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "update",
     "detail": "web",
     "primary_chapter": "26-data-active-record-and-migrations",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "*",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "/",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "%",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "negate",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "abs",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "min",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "max",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "clamp",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "not",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "and",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "or",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "nip",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tuck",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pick",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "roll",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "depth",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "clear",
     "detail": "stack",
     "primary_chapter": "03-postfix-stack-thinking",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "list",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "Set",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "range",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "push!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "put!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "insert!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "remove!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "remove_at!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "clear!",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "at",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "count",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "first",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "last",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "take",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "skip",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "reverse",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "has?",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "keys",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "values",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "each",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "transform",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "select",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "reduce",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "find",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "any?",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "all?",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "join",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "trim",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "trim_start",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "trim_end",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "blank?",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "slice",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "index_of",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "last_index_of",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "repeat",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "lines",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "chars",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "split",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "replace",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "contains?",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "starts_with?",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ends_with?",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "uppercase",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "lowercase",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "concat",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_number",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_integer",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_bigint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_int",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_mediumint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_smallint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_tinyint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_bit",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_unsigned_int",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_unsigned_mediumint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_unsigned_smallint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_unsigned_tinyint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_unsigned_bigint",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_float",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_float32",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_float64",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_double",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_real",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "to_string",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "json_encode",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "json_decode",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "regex",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "matches?",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "regex_find",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "regex_replace",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "captures",
     "detail": "string",
     "primary_chapter": "07-strings-json-and-regex",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ok",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fail",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "error?",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "unwrap_or",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "map_result",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "and_then",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "result_envelope",
     "detail": "result",
     "primary_chapter": "09-results-and-errors",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "print",
@@ -1083,49 +1083,49 @@
     "word": "env_get",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "env_set",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "secret_env",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "secret_literal",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "secret_resolve",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "password_hash",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "27-sessions-forms-auth-and-passwords",
+    "status": "drafted"
   },
   {
     "word": "password_verify",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "27-sessions-forms-auth-and-passwords",
+    "status": "drafted"
   },
   {
     "word": "config_get",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "cwd",
@@ -1136,272 +1136,278 @@
   {
     "word": "runtime_capabilities",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "16-capabilities-and-sandboxing",
+    "status": "drafted"
   },
   {
     "word": "process_spawn",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_spawn_task",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_start",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_jobs",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_job",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_cancel",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_release",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_read",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "process_env_put",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_start",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_write",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_read",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_resize",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_stop",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_release",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_list",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pty_detail",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "approval_create",
     "detail": "system",
     "primary_chapter": "16-capabilities-and-sandboxing",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "approval_claim",
     "detail": "system",
     "primary_chapter": "16-capabilities-and-sandboxing",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "approval_complete",
     "detail": "system",
     "primary_chapter": "16-capabilities-and-sandboxing",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "approval_reject",
     "detail": "system",
     "primary_chapter": "16-capabilities-and-sandboxing",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "approval_detail",
     "detail": "system",
     "primary_chapter": "16-capabilities-and-sandboxing",
-    "status": "planned"
+    "status": "drafted"
+  },
+  {
+    "word": "approval_release",
+    "detail": "system",
+    "primary_chapter": "16-capabilities-and-sandboxing",
+    "status": "drafted"
   },
   {
     "word": "now",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_now",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_parse",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_format",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_format_pattern",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_parts",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_from_parts",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_add",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "timestamp_diff",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_from_timestamp",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_to_timestamp",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_parse",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_format",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_add_days",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "date_diff_days",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_millis",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_seconds",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_minutes",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_hours",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_days",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_weeks",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "duration_parts",
     "detail": "system",
     "primary_chapter": "14-date-time-and-duration",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "sleep",
@@ -1425,654 +1431,654 @@
     "word": "fs_read_text",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fs_write_text",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fs_exists?",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fs_list",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fs_create_dir",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fs_delete",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_resolve",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_contains?",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_metadata",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_list",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_read_text",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_write_text",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_mkdir",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_delete",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_copy",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "workspace_move",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_request_new",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_header_put",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_bearer_auth",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_json_body",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_timeout",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_get",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_get_task",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_request",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_post_json",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_post_json_task",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_request_task",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_stream_start",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_streams",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_stream",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_stream_read",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_stream_cancel",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "http_stream_release",
     "detail": "system",
     "primary_chapter": "18-http-and-streams",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "upload_streams",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "25-templates-static-assets-and-uploads",
+    "status": "drafted"
   },
   {
     "word": "upload_stream",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "25-templates-static-assets-and-uploads",
+    "status": "drafted"
   },
   {
     "word": "upload_read",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "25-templates-static-assets-and-uploads",
+    "status": "drafted"
   },
   {
     "word": "upload_release",
     "detail": "system",
-    "primary_chapter": "appendix",
-    "status": "planned"
+    "primary_chapter": "25-templates-static-assets-and-uploads",
+    "status": "drafted"
   },
   {
     "word": "tcp_listen",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_listeners",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_listener",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_accept",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_listener_close",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_listener_release",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_connect",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_connections",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_connection",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_write",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_read",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_close",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tcp_release",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_listen",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_listeners",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_listener",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_accept",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_listener_close",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_listener_release",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_connect",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_connections",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_connection",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_send",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_read",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_close",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "ws_release",
     "detail": "system",
     "primary_chapter": "19-tcp-and-websocket-sockets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_enter",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_leave",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_clear",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_move_to",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_write",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_flush",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_size",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_poll_key",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "tui_read_key",
     "detail": "system",
     "primary_chapter": "21-terminal-ui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_text",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_heading",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_button",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_action",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_input",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_link",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_container",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_window",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_window_state",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "inspect",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "debug",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "type",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "class_of",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "instance_of?",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "responds_to?",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "id",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "info",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "pending?",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "running?",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "completed?",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "failed?",
     "detail": "inspect",
     "primary_chapter": "15-async-and-tasks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "fields",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "methods",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "callable?",
     "detail": "inspect",
     "primary_chapter": "13-introspection-and-debug-basics",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "else",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "end",
     "detail": "control",
     "primary_chapter": "10-control-flow-functions-and-blocks",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "GET",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "POST",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "PUT",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "PATCH",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "DELETE",
     "detail": "web",
     "primary_chapter": "24-routes-controllers-and-responses",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "multiply",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "divide",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "modulo",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "length",
     "detail": "collection",
     "primary_chapter": "08-collections",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "env",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",
-    "status": "planned"
+    "status": "drafted"
   },
   {
     "word": "webview_document",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
-    "status": "planned"
+    "status": "drafted"
   }
 ]

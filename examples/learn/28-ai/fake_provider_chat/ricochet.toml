@@ -1,0 +1,6 @@
+[package]
+name = "learn_ai_fake_provider_chat"
+version = "0.1.0"
+
+[dependencies.ai]
+path = ".ricochet/packages/ai"

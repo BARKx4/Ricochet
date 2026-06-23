@@ -1,0 +1,83 @@
+(( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- tui examples/learn/36-capstone-tui/service_dashboard/dashboard.rco ))
+
+"lib/status" import
+
+"examples/learn/36-capstone-tui/service_dashboard/data/services.json" servicePath var
+$servicePath service_load_services servicesResult var
+
+$servicesResult ok? if
+  $servicesResult value services var
+  $services service_summary summary var
+
+  tui_enter value drop
+  tui_clear value drop
+  tui_size value size var
+
+  0 0 tui_move_to value drop
+  "Ricochet service dashboard" tui_write value drop
+
+  0 2 tui_move_to value drop
+  "Terminal: " tui_write value drop
+  $size "columns" at to_string tui_write value drop
+  "x" tui_write value drop
+  $size "rows" at to_string tui_write value drop
+
+  0 4 tui_move_to value drop
+  "Services: " tui_write value drop
+  $summary "count" at to_string tui_write value drop
+
+  0 5 tui_move_to value drop
+  "OK: " tui_write value drop
+  $summary "ok" at to_string tui_write value drop
+  "  degraded: " tui_write value drop
+  $summary "degraded" at to_string tui_write value drop
+  "  down: " tui_write value drop
+  $summary "down" at to_string tui_write value drop
+
+  0 6 tui_move_to value drop
+  "Average latency: " tui_write value drop
+  $summary "average_latency_ms" at to_string tui_write value drop
+  "ms" tui_write value drop
+
+  0 7 tui_move_to value drop
+  "Health score: " tui_write value drop
+  $summary "health_score" at to_string tui_write value drop
+  "%" tui_write value drop
+
+  0 9 tui_move_to value drop
+  "Service rows:" tui_write value drop
+
+  0 index var
+  nil service var
+  $index $services count < while
+    $services $index at service set
+    2 $index 10 + tui_move_to value drop
+    "- " tui_write value drop
+    $service "name" at tui_write value drop
+    " [" tui_write value drop
+    $service "status" at tui_write value drop
+    "] " tui_write value drop
+    $service "latency_ms" at to_string tui_write value drop
+    "ms owner=" tui_write value drop
+    $service "owner" at tui_write value drop
+    $index 1 + index set
+  end
+
+  0 keyReady var
+  0 tui_poll_key value key var
+  $key nil? false = if
+    1 keyReady set
+  end
+
+  0 16 tui_move_to value drop
+  "Key ready: " tui_write value drop
+  $keyReady to_string tui_write value drop
+
+  tui_flush value drop
+  tui_leave value drop
+else
+  "service load failed:" print
+  $servicesResult error "kind" at print
+  ": " print
+  $servicesResult error "message" at println
+end

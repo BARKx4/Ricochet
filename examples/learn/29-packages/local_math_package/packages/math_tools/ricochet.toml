@@ -1,0 +1,4 @@
+[package]
+name = "@learn/math_tools"
+version = "0.1.0"
+description = "Tiny local package used by Learn Ricochet Chapter 29."

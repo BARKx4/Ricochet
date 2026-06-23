@@ -14,11 +14,46 @@
     "notes": "Builds a tiny receipt with postfix arithmetic and named values."
   },
   {
+    "chapter": "04-values",
+    "path": "examples/learn/04-values/value-tour.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/04-values/value-tour.rco",
+    "expected_status": "success",
+    "notes": "Prints common value kinds, predicates, inspection output, and block callability."
+  },
+  {
+    "chapter": "05-bindings-and-data",
+    "path": "examples/learn/05-bindings-and-data/profile-card.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/05-bindings-and-data/profile-card.rco",
+    "expected_status": "success",
+    "notes": "Builds a small profile map while contrasting static binding reads with dynamic get."
+  },
+  {
+    "chapter": "06-numbers-math-and-truth",
+    "path": "examples/learn/06-numbers-math-and-truth/budget.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/06-numbers-math-and-truth/budget.rco",
+    "expected_status": "success",
+    "notes": "Calculates a budget and demonstrates checked integer conversion results."
+  },
+  {
+    "chapter": "07-strings-json-and-regex",
+    "path": "examples/learn/07-strings-json-and-regex/log-cleaner.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/07-strings-json-and-regex/log-cleaner.rco",
+    "expected_status": "success",
+    "notes": "Cleans a string, encodes and decodes JSON, and applies a regex replacement."
+  },
+  {
     "chapter": "08-collections",
     "path": "examples/learn/08-collections/main.rco",
     "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/08-collections/main.rco",
     "expected_status": "success",
     "notes": "Uses an array and a map for a small in-memory task list."
+  },
+  {
+    "chapter": "09-results-and-errors",
+    "path": "examples/learn/09-results-and-errors/config-loader.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/09-results-and-errors/config-loader.rco",
+    "expected_status": "success",
+    "notes": "Treats success and failure as explicit Result values and builds a response envelope."
   },
   {
     "chapter": "10-control-flow",
@@ -33,5 +68,250 @@
     "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/11-oop/main.rco",
     "expected_status": "success",
     "notes": "Defines a small Contact class with accessors and a display method."
+  },
+  {
+    "chapter": "12-testing-linting-and-formatting",
+    "path": "examples/learn/12-testing-linting-and-formatting/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/12-testing-linting-and-formatting/main.rco",
+    "expected_status": "success",
+    "notes": "Runs assertion words as the smallest feedback-loop example."
+  },
+  {
+    "chapter": "13-introspection-and-debug-basics",
+    "path": "examples/learn/13-introspection-and-debug-basics/debug-tour.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/13-introspection-and-debug-basics/debug-tour.rco",
+    "expected_status": "success",
+    "notes": "Inspects maps, classes, methods, fields, and callable blocks."
+  },
+  {
+    "chapter": "14-date-time-and-duration",
+    "path": "examples/learn/14-date-time-and-duration/reminder.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/14-date-time-and-duration/reminder.rco",
+    "expected_status": "success",
+    "notes": "Parses and formats timestamps and dates, then computes duration and day differences."
+  },
+  {
+    "chapter": "15-async-and-tasks",
+    "path": "examples/learn/15-async/parallel-checks.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/15-async/parallel-checks.rco",
+    "expected_status": "success",
+    "notes": "Spawns tasks, awaits one and many, inspects status, and releases retained handles."
+  },
+  {
+    "chapter": "16-capabilities-and-sandboxing",
+    "path": "examples/learn/16-capabilities-and-sandboxing/capability-report.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/16-capabilities-and-sandboxing/capability-report.rco",
+    "expected_status": "success",
+    "notes": "Inspects runtime capabilities and walks an approval record through claim and completion."
+  },
+  {
+    "chapter": "17-files-workspaces-env-and-secrets",
+    "path": "examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco",
+    "expected_status": "success",
+    "notes": "Reads existing files, checks workspace containment, sets process-local environment, and resolves a literal dry-run secret."
+  },
+  {
+    "chapter": "18-http-and-streams",
+    "path": "examples/learn/18-http-streams/api-client.rco",
+    "command": "powershell -ExecutionPolicy Bypass -File examples/learn/18-http-streams/run-local.ps1",
+    "expected_status": "success",
+    "notes": "Runs a local loopback HTTP fixture, then exercises simple requests, structured requests, HTTP tasks, retained stream reads, and release."
+  },
+  {
+    "chapter": "19-tcp-and-websocket-sockets",
+    "path": "examples/learn/19-sockets/tcp_echo.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --socket-allow-host 127.0.0.1 examples/learn/19-sockets/tcp_echo.rco",
+    "expected_status": "success",
+    "notes": "Runs a loopback TCP listener/client echo with bounded reads, close, and release."
+  },
+  {
+    "chapter": "19-tcp-and-websocket-sockets",
+    "path": "examples/learn/19-sockets/ws_echo.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --socket-allow-host 127.0.0.1 examples/learn/19-sockets/ws_echo.rco",
+    "expected_status": "success",
+    "notes": "Runs a loopback WebSocket listener/client echo with message reads, close, and release."
+  },
+  {
+    "chapter": "20-processes-and-ptys",
+    "path": "examples/learn/20-processes-and-ptys/tool-runner.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco",
+    "expected_status": "success",
+    "notes": "Runs harmless Windows cmd echo commands through blocking, task, retained process, cancellation, and PTY APIs."
+  },
+  {
+    "chapter": "21-terminal-ui",
+    "path": "examples/learn/21-tui/task-dashboard.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- tui examples/learn/21-tui/task-dashboard.rco",
+    "expected_status": "success",
+    "notes": "Renders a nonblocking terminal dashboard with enter, clear, positioned writes, flush, poll, and leave."
+  },
+  {
+    "chapter": "22-webview-and-desktop-gui",
+    "path": "examples/learn/22-gui/notes_gui.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/22-gui/notes_gui.rco",
+    "expected_status": "success",
+    "notes": "Builds and inspects a desktop webview document with escaped fragments, state, actions, and a callback."
+  },
+  {
+    "chapter": "23-mvc-first-app",
+    "path": "examples/learn/23-mvc/first_app",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- routes examples/learn/23-mvc/first_app",
+    "expected_status": "success",
+    "notes": "Lists the checked-in first MVC app routes without starting a server or generating database state."
+  },
+  {
+    "chapter": "24-routes-controllers-and-responses",
+    "path": "examples/learn/23-mvc/controllers",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- routes examples/learn/23-mvc/controllers",
+    "expected_status": "success",
+    "notes": "Lists a checked-in MVC route table covering all route verbs plus view, text, JSON, redirect, status, and header response helpers."
+  },
+  {
+    "chapter": "25-templates-static-assets-and-uploads",
+    "path": "examples/learn/23-mvc/templates_uploads",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- doctor examples/learn/23-mvc/templates_uploads",
+    "expected_status": "success",
+    "notes": "Compiles a checked-in MVC app with template directives, static asset config, bounded upload settings, retained upload stream reads, and release."
+  },
+  {
+    "chapter": "26-data-active-record-and-migrations",
+    "path": "examples/learn/26-data/contacts_app",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- migrate status examples/learn/26-data/contacts_app",
+    "expected_status": "success",
+    "notes": "Lists checked-in SQLite contact migrations without creating the local development database."
+  },
+  {
+    "chapter": "27-sessions-forms-auth-and-passwords",
+    "path": "examples/learn/27-auth-forms/login_flow/auth_flow.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/27-auth-forms/login_flow/auth_flow.rco",
+    "expected_status": "success",
+    "notes": "Runs a local auth/forms logic harness covering password hash/verify, auth package helpers, form schema validation, sessions, CSRF, and route guards without printing secrets."
+  },
+  {
+    "chapter": "28-ai-capabilities-and-ai-package",
+    "path": "examples/learn/28-ai/fake_provider_chat/fake_provider.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/28-ai/fake_provider_chat/fake_provider.rco",
+    "expected_status": "success",
+    "notes": "Runs an offline AI fake-provider harness covering neutral chat requests, retry/error normalization, tool dispatch, schema validation, and small OpenAI-compatible stream parsing."
+  },
+  {
+    "chapter": "29-packages-imports-and-dependencies",
+    "path": "examples/learn/29-packages/local_math_package/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/29-packages/local_math_package/main.rco",
+    "expected_status": "success",
+    "notes": "Runs a local package lab covering path dependencies, static package imports, dynamic imports, module_call, module_get, and lockfile-backed package integrity."
+  },
+  {
+    "chapter": "30-registries-publish-yank-and-mirror",
+    "path": "examples/learn/30-registries/local_registry_lab/registry",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- registry check examples/learn/30-registries/local_registry_lab/registry",
+    "expected_status": "success",
+    "notes": "Validates a checked-in local static registry fixture produced from a scoped package with provenance metadata."
+  },
+  {
+    "chapter": "31-macros-and-expansion",
+    "path": "examples/learn/31-macros/route_macro/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/31-macros/route_macro/main.rco",
+    "expected_status": "success",
+    "notes": "Runs a route macro lab covering explicit macro_call, quote_ast with ast_splice, quote_items function generation, and inspectable expansion output."
+  },
+  {
+    "chapter": "32-debugger-dap-lsp-and-editor-tools",
+    "path": "examples/learn/32-debugger-editor/debuggable_app.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- debug-tui --smoke --breakpoint 10 examples/learn/32-debugger-editor/debuggable_app.rco",
+    "expected_status": "success",
+    "notes": "Renders a deterministic debugger snapshot at the async await breakpoint, showing stack, globals, stdout, and task state for editor/debugger workflows."
+  },
+  {
+    "chapter": "33-bytecode-images-and-source-emission",
+    "path": "examples/learn/33-bytecode-images-and-source-emission/image_lab.rco",
+    "command": "powershell -ExecutionPolicy Bypass -File examples/learn/33-bytecode-images-and-source-emission/run-lab.ps1",
+    "expected_status": "success",
+    "notes": "Builds bytecode, runs the compiled artifact, saves and inspects a VM image, and emits source-like bytecode output from a reproducible local lab."
+  },
+  {
+    "chapter": "34-packaging-release-and-updates",
+    "path": "examples/learn/34-packaging-release-and-updates/run-lab.ps1",
+    "command": "powershell -ExecutionPolicy Bypass -File examples/learn/34-packaging-release-and-updates/run-lab.ps1",
+    "expected_status": "success",
+    "notes": "Packages the Chapter 21 TUI dashboard into a local ignored standalone launcher and prints the generated artifact name and size."
+  },
+  {
+    "chapter": "35-capstone-cli-tool",
+    "path": "examples/learn/35-capstone-cli/worklog/main.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/35-capstone-cli/worklog/main.rco",
+    "expected_status": "success",
+    "notes": "Runs the read-only worklog CLI capstone against checked-in JSON data and prints status, minutes, due-soon counts, and matching entries."
+  },
+  {
+    "chapter": "35-capstone-cli-tool",
+    "path": "examples/learn/35-capstone-cli/worklog/WorklogTest.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- test examples/learn/35-capstone-cli/worklog",
+    "expected_status": "success",
+    "notes": "Runs the WorklogTest TestCase coverage for the reusable CLI report functions."
+  },
+  {
+    "chapter": "36-capstone-tui-dashboard",
+    "path": "examples/learn/36-capstone-tui/service_dashboard/dashboard.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- tui examples/learn/36-capstone-tui/service_dashboard/dashboard.rco",
+    "expected_status": "success",
+    "notes": "Renders one nonblocking terminal service dashboard frame from checked-in JSON data and restores terminal state."
+  },
+  {
+    "chapter": "36-capstone-tui-dashboard",
+    "path": "examples/learn/36-capstone-tui/service_dashboard/ServiceDashboardTest.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- test examples/learn/36-capstone-tui/service_dashboard/ServiceDashboardTest.rco",
+    "expected_status": "success",
+    "notes": "Runs focused TestCase coverage for service status counts, latency summaries, and health scoring without rendering the TUI."
+  },
+  {
+    "chapter": "37-capstone-mvc-app",
+    "path": "examples/learn/37-capstone-mvc/project_journal",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- routes examples/learn/37-capstone-mvc/project_journal",
+    "expected_status": "success",
+    "notes": "Lists the project journal MVC capstone route table without starting a server."
+  },
+  {
+    "chapter": "37-capstone-mvc-app",
+    "path": "examples/learn/37-capstone-mvc/project_journal",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- doctor examples/learn/37-capstone-mvc/project_journal",
+    "expected_status": "success",
+    "notes": "Runs a read-only project doctor check that compiles the project journal controllers, models, routes, and views."
+  },
+  {
+    "chapter": "37-capstone-mvc-app",
+    "path": "examples/learn/37-capstone-mvc/project_journal",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- migrate status examples/learn/37-capstone-mvc/project_journal",
+    "expected_status": "success",
+    "notes": "Inspects the project journal migration state without applying migrations or creating seed data."
+  },
+  {
+    "chapter": "37-capstone-mvc-app",
+    "path": "examples/learn/37-capstone-mvc/project_journal/tests/JournalEntryTest.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- test examples/learn/37-capstone-mvc/project_journal",
+    "expected_status": "success",
+    "notes": "Runs MVC TestCase coverage for the project journal model label and collection behavior."
+  },
+  {
+    "chapter": "38-capstone-packaged-gui-app",
+    "path": "examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- run examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco",
+    "expected_status": "success",
+    "notes": "Builds the personal ledger webview document from in-memory state and prints document, balance, action, and escaping checks without opening a window."
+  },
+  {
+    "chapter": "38-capstone-packaged-gui-app",
+    "path": "examples/learn/38-capstone-gui/personal_ledger/LedgerTest.rco",
+    "command": "cargo run -q -p ricochet_cli --bin rco -- test examples/learn/38-capstone-gui/personal_ledger/LedgerTest.rco",
+    "expected_status": "success",
+    "notes": "Runs focused TestCase coverage for personal ledger balance math, document shape, escaping, and action state updates."
+  },
+  {
+    "chapter": "38-capstone-packaged-gui-app",
+    "path": "examples/learn/38-capstone-gui/personal_ledger/run-package.ps1",
+    "command": "powershell -ExecutionPolicy Bypass -File examples/learn/38-capstone-gui/personal_ledger/run-package.ps1",
+    "expected_status": "success",
+    "notes": "Packages the personal ledger GUI into an ignored local standalone executable and prints the generated artifact name and size."
   }
 ]

@@ -1,0 +1,18 @@
+<link rel="stylesheet" href="/assets/app.css">
+
+<h1>{ title get }</h1>
+<p>Total contacts: { totalContacts get }</p>
+
+{% contacts get "contact" each %}
+<article>
+  <h2>{ contact get "name" at }</h2>
+  <p>{ contact get "email" at }</p>
+  <p>{ contact get "status" at }</p>
+</article>
+{% end %}
+
+{% firstContact get if %}
+<p>First contact id: { firstContact get "id" at }</p>
+{% else %}
+<p>No contacts have been inserted yet.</p>
+{% end %}

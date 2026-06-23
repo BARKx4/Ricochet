@@ -1,0 +1,2 @@
+GET "/" HomeController "index" route
+GET "/users" UserController "index" route

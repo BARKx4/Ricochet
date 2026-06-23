@@ -1,0 +1,53 @@
+(( Validate with: cargo run -q -p ricochet_cli --bin rco -- run examples/learn/22-gui/notes_gui.rco ))
+(( Preview with: cargo run -q -p ricochet_cli --bin rco -- gui examples/learn/22-gui/notes_gui.rco ))
+
+( state event -> Map ) save_note function
+  event var
+  state var
+  $state "saved" true put! drop
+
+  actions array
+  $actions "Save <Now>" "save-note" "save_note" webview_action push! drop
+
+  "Saved: " $state "note" at concat webview_text saved var
+  "Ricochet Notes" $saved $state $actions webview_window_state value
+end
+
+state map
+$state "note" "Draft <idea>" put! drop
+$state "saved" false put! drop
+
+"Notes" 1 webview_heading heading var
+"Preview: " $state "note" at concat webview_text preview var
+"note" $state "note" at webview_input noteInput var
+"Save <Now>" "save-note" webview_button saveButton var
+"Learn Ricochet" "https://try.ricochet.today" webview_link docsLink var
+
+$heading $preview concat
+$noteInput concat
+$saveButton concat
+$docsLink concat
+webview_container body var
+
+actions array
+$actions "Save <Now>" "save-note" "save_note" webview_action push! drop
+
+"Plain Notes" $body webview_window value plainDocument var
+"Ricochet Notes" $body $state $actions webview_window_state value document var
+
+"document title:" print
+$document "title" at println
+
+"html has escaped note?" print
+$document "html" at "Draft &lt;idea&gt;" contains? println
+
+"actions:" print
+$document "actions" at count println
+
+"state saved?" print
+$document "state" at "saved" at println
+
+"plain size:" print
+$plainDocument "width" at print
+"x" print
+$plainDocument "height" at println

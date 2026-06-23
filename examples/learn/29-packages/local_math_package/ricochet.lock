@@ -1,0 +1,8 @@
+[package]
+
+[package.math_tools]
+source = "path+./packages/math_tools"
+path = "./packages/math_tools"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "sha256:fc2e368110d3d35d21aa4ee13b0edaedb6b5da021ca96bf560fe05710927ad25"
