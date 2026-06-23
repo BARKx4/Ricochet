@@ -6,6 +6,7 @@ This appendix defines the terms used throughout Learn Ricochet.
 
 ## Terms
 
+{% raw %}
 | Term | Meaning |
 | --- | --- |
 | Stack | The runtime value stack. Words consume values from it and leave results on it. |
@@ -36,5 +37,6 @@ This appendix defines the terms used throughout Learn Ricochet.
 | TUI | Terminal UI app using `tui_*` words and `rco tui`. |
 | GUI | Desktop webview app using `webview_*` words and `rco gui` or `rco package --gui`. |
 | Update channel | Release metadata JSON that describes candidate or stable artifacts, verification methods, rollout, and rollback policy. |
+{% endraw %}
 
 Status: drafted from chapter terminology.

@@ -233,8 +233,32 @@ if ($learnMarkdownFiles.Count -gt 0) {
 
 foreach ($file in $learnMarkdownFiles) {
     $content = Get-Content -LiteralPath $file.FullName -Raw
+    $insideRawBlock = $false
+    $lines = $content -split "`r?`n"
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match '\{%\s*raw\s*%\}') {
+            $insideRawBlock = $true
+            continue
+        }
+        if ($line -match '\{%\s*endraw\s*%\}') {
+            if (-not $insideRawBlock) {
+                Add-Failure $failures "Learn Markdown file has an unmatched Jekyll raw end marker at $($file.FullName):$($i + 1)"
+            }
+            $insideRawBlock = $false
+            continue
+        }
+        if (-not $insideRawBlock -and $line -match '(\{%|\{\{)') {
+            Add-Failure $failures "Learn Markdown file contains an unguarded Liquid marker at $($file.FullName):$($i + 1)"
+        }
+    }
+
+    if ($insideRawBlock) {
+        Add-Failure $failures "Learn Markdown file has an unclosed Jekyll raw block: $($file.FullName)"
+    }
+
     if ($content -match '(?im)manual_status\s*[:=]\s*(complete|completed|validated)\b') {
-        $lines = $content -split "`r?`n"
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -match '(?i)\b(TODO|TBD|FIXME)\b') {
                 Add-Failure $failures "Completed manual file contains placeholder marker at $($file.FullName):$($i + 1)"

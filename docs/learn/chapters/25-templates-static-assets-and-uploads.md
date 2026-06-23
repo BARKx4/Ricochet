@@ -62,6 +62,7 @@ PagesController Controller Subclass
 end
 ```
 
+{% raw %}
 The view is plain HTML with Ricochet template markers in text context:
 
 ```html
@@ -86,6 +87,7 @@ The view is plain HTML with Ricochet template markers in text context:
 setup code without rendering. `{% condition if %}`, `{% else %}`, and
 `{% end %}` form a conditional. `{% collection "item" each %}` loops through
 arrays, lists, sets, and maps.
+{% endraw %}
 
 The upload action receives declared arguments. Route params bind first, then
 multipart fields, upload fields, query params, and context values:
