@@ -10358,6 +10358,61 @@ runtime_capabilities "process" at "jobs" at
 }
 
 #[test]
+fn run_process_write_sends_stdin_to_retained_job_when_allowed() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let echo_source = root.join("echo-stdin.rco");
+    fs::write(&echo_source, "read_line trim println\n").expect("echo source should be written");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    let echo = escape_ricochet_string(&echo_source.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+$args "run" push! drop
+$args "{echo}" push! drop
+options map
+$options "timeout_ms" 10000 put! drop
+$options "stdin_open" true put! drop
+"{rco}" $args $options process_start value job var
+$job "stdin_open" at
+$job "id" at "hello from stdin\n" process_write value writeSnapshot var
+$writeSnapshot "stdin_open" at
+nil read var
+0 attempts var
+$attempts 50 < while
+  readOptions map
+  $job "id" at $readOptions process_read value read set
+  $read "stdout" at "hello from stdin" contains? if
+    break
+  end
+  50 sleep
+  $attempts 1 + attempts set
+end
+$read "stdout" at "hello from stdin" contains?
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--allow-process")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("Bool(true)").count() >= 3,
+        "stdout should show open stdin before and after write plus captured child output, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_process_release_drops_completed_job_when_allowed() {
     let source_path = temp_source_path();
     let root = source_path.parent().expect("source path has parent");

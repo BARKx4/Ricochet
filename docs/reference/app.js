@@ -1540,7 +1540,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
-    "body": "Starts a direct child process as a long-running job when the process capability is enabled. The returned snapshot includes `id`, `status`, `running`, `success`, output lengths, truncation flags, timeout state, and cancellation state. Retained jobs are capped; release completed jobs with `process_release`.",
+    "body": "Starts a direct child process as a long-running job when the process capability is enabled. Options include `stdin_open`; when true, the returned snapshot reports `stdin_open` and the job can receive input through `process_write`. The returned snapshot also includes `id`, `status`, `running`, `success`, output lengths, truncation flags, timeout state, and cancellation state. Retained jobs are capped; release completed jobs with `process_release`.",
     "example": "args array\noptions map\n\"git\" $args $options process_start value"
   },
   {
@@ -1574,6 +1574,14 @@ const WORDS = [
     "stack": "id:number -> result(bool)",
     "body": "Removes a completed retained process job from the host registry. Running jobs return `ProcessRunning`; cancel or wait for completion first.",
     "example": "$job \"id\" at process_release value"
+  },
+  {
+    "word": "process_write",
+    "aliases": [],
+    "group": "system",
+    "stack": "id:number input:string -> result(map)",
+    "body": "Writes UTF-8 stdin text to a running retained process job that was started with `stdin_open` set to true. The result is the latest process snapshot. Closed, completed, cancelled, or unknown jobs return a result error.",
+    "example": "$job \"id\" at \"command input\\n\" process_write value"
   },
   {
     "word": "process_read",

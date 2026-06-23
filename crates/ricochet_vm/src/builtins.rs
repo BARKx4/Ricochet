@@ -3387,6 +3387,41 @@ impl Vm {
         Ok(())
     }
 
+    pub(super) fn call_process_write(&mut self, word: &str) -> Result<(), VmError> {
+        if !self.process_enabled() {
+            return Err(VmError::HostError {
+                word: word.to_string(),
+                message: "process capability is not enabled".to_string(),
+            });
+        }
+        let stack_before = self.stack.clone();
+        let input = match self.pop(word)? {
+            Value::String(input) => input,
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "process stdin string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
+        };
+        let id = match self.pop_process_id(word) {
+            Ok(id) => id,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let result = match self.process_registry().write(id, &input) {
+            Ok(Some(snapshot)) => Value::result_ok(process_snapshot_value(&snapshot)),
+            Ok(None) => unknown_process_job_value(id),
+            Err(error) => process_runtime_error_value(error),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
     pub(super) fn call_process_read(&mut self, word: &str) -> Result<(), VmError> {
         if !self.process_enabled() {
             return Err(VmError::HostError {
@@ -5768,6 +5803,25 @@ fn process_request_from_values(
             ));
         }
     };
+    let stdin_open = match options.remove("stdin_open") {
+        Some(Value::Bool(value)) => value,
+        Some(Value::Nil) | None => false,
+        Some(value) => {
+            return Err(Value::result_err(
+                "ProcessRequestError",
+                format!(
+                    "process option stdin_open must be a bool, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    if stdin_open && word != "process_start" {
+        return Err(Value::result_err(
+            "ProcessRequestError",
+            "process option stdin_open is only supported by process_start",
+        ));
+    }
 
     let timeout_ms = match options.remove("timeout_ms") {
         Some(Value::Number(value)) if value > 0 => u64::try_from(value).map_err(|_| {
@@ -5848,6 +5902,7 @@ fn process_request_from_values(
         args,
         cwd,
         stdin,
+        stdin_open,
         timeout: Duration::from_millis(timeout_ms),
         clear_env,
         env,
@@ -7677,6 +7732,7 @@ fn process_snapshot_value(snapshot: &ProcessSnapshot) -> Value {
                 "stderr_truncated".to_string(),
                 Value::Bool(snapshot.stderr_truncated),
             ),
+            ("stdin_open".to_string(), Value::Bool(snapshot.stdin_open)),
             ("timed_out".to_string(), Value::Bool(snapshot.timed_out)),
             ("cancelled".to_string(), Value::Bool(snapshot.cancelled)),
         ])

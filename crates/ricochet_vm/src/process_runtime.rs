@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -52,6 +52,7 @@ struct ProcessJobState {
     cancel_requested: bool,
     timed_out: bool,
     child: Option<std::process::Child>,
+    stdin: Option<ChildStdin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +70,7 @@ pub struct ProcessRequest {
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
     pub stdin: Option<String>,
+    pub stdin_open: bool,
     pub timeout: Duration,
     pub clear_env: bool,
     pub env: BTreeMap<String, String>,
@@ -92,6 +94,7 @@ pub struct ProcessSnapshot {
     pub stderr_len: usize,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    pub stdin_open: bool,
     pub timed_out: bool,
     pub cancelled: bool,
 }
@@ -142,7 +145,7 @@ impl ProcessRegistry {
         command.args(&request.args);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
-        command.stdin(if request.stdin.is_some() {
+        command.stdin(if request.stdin.is_some() || request.stdin_open {
             Stdio::piped()
         } else {
             Stdio::null()
@@ -170,8 +173,9 @@ impl ProcessRegistry {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
+        let mut stdin = child.stdin.take();
         if let Some(input) = &request.stdin {
-            if let Some(mut stdin) = child.stdin.take() {
+            if let Some(stdin) = stdin.as_mut() {
                 if let Err(error) = stdin.write_all(input.as_bytes()) {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -181,7 +185,19 @@ impl ProcessRegistry {
                         format!("failed to write stdin: {error}"),
                     ));
                 }
+                if let Err(error) = stdin.flush() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    self.release_pending_start();
+                    return Err(ProcessRuntimeError::new(
+                        "ProcessError",
+                        format!("failed to flush stdin: {error}"),
+                    ));
+                }
             }
+        }
+        if !request.stdin_open {
+            stdin = None;
         }
 
         let job = Arc::new(ProcessJob {
@@ -203,6 +219,7 @@ impl ProcessRegistry {
                 cancel_requested: false,
                 timed_out: false,
                 child: Some(child),
+                stdin,
             }),
         });
 
@@ -236,6 +253,17 @@ impl ProcessRegistry {
     pub fn read(&self, id: u64, stdout_offset: usize, stderr_offset: usize) -> Option<ProcessRead> {
         let job = self.job_arc(id)?;
         Some(job.read(stdout_offset, stderr_offset))
+    }
+
+    pub fn write(
+        &self,
+        id: u64,
+        input: &str,
+    ) -> Result<Option<ProcessSnapshot>, ProcessRuntimeError> {
+        let Some(job) = self.job_arc(id) else {
+            return Ok(None);
+        };
+        job.write(input).map(Some)
     }
 
     pub fn cancel(&self, id: u64) -> Option<ProcessSnapshot> {
@@ -357,6 +385,33 @@ impl ProcessJob {
         }
     }
 
+    fn write(&self, input: &str) -> Result<ProcessSnapshot, ProcessRuntimeError> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("process job lock should not be poisoned");
+        if state.status != ProcessStatus::Running || state.cancel_requested {
+            return Err(ProcessRuntimeError::new(
+                "ProcessNotRunning",
+                format!("process job {} is not running", state.id),
+            ));
+        }
+        let id = state.id;
+        let Some(stdin) = state.stdin.as_mut() else {
+            return Err(ProcessRuntimeError::new(
+                "ProcessStdinClosed",
+                format!("process job {id} stdin is not open"),
+            ));
+        };
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|error| ProcessRuntimeError::new("ProcessError", error.to_string()))?;
+        stdin
+            .flush()
+            .map_err(|error| ProcessRuntimeError::new("ProcessError", error.to_string()))?;
+        Ok(state.snapshot())
+    }
+
     fn cancel(&self) {
         let mut state = self
             .state
@@ -399,6 +454,7 @@ impl ProcessJobState {
             stderr_len: self.stderr.len(),
             stdout_truncated: self.stdout_truncated,
             stderr_truncated: self.stderr_truncated,
+            stdin_open: self.stdin.is_some(),
             timed_out: self.timed_out,
             cancelled: self.cancel_requested || self.status == ProcessStatus::Cancelled,
         }
@@ -500,6 +556,7 @@ fn spawn_waiter(job: Arc<ProcessJob>, timeout: Duration) {
                         state.status = ProcessStatus::Exited;
                     }
                     state.child = None;
+                    state.stdin = None;
                     return;
                 }
                 Ok(None) if started.elapsed() >= timeout => {
@@ -515,6 +572,7 @@ fn spawn_waiter(job: Arc<ProcessJob>, timeout: Duration) {
                         }
                         let _ = child.wait();
                     }
+                    state.stdin = None;
                     return;
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(25)),
@@ -526,6 +584,7 @@ fn spawn_waiter(job: Arc<ProcessJob>, timeout: Duration) {
                     state.status = ProcessStatus::Failed;
                     state.error = Some(error.to_string());
                     state.child = None;
+                    state.stdin = None;
                     return;
                 }
             }
@@ -638,6 +697,7 @@ mod tests {
             args,
             cwd: None,
             stdin: None,
+            stdin_open: false,
             timeout,
             clear_env: false,
             env: BTreeMap::new(),

@@ -1907,6 +1907,7 @@ impl Vm {
             "process_job" => self.call_process_job(word),
             "process_cancel" => self.call_process_cancel(word),
             "process_release" => self.call_process_release(word),
+            "process_write" => self.call_process_write(word),
             "process_read" => self.call_process_read(word),
             "pty_start" => self.call_pty_start(word),
             "pty_write" => self.call_pty_write(word),

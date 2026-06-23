@@ -409,6 +409,11 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Add or update a child process environment entry in an options map.",
     ),
     WordDoc::new(
+        "process_write",
+        "process",
+        "Write stdin text to a running retained process job.",
+    ),
+    WordDoc::new(
         "process_release",
         "process",
         "Release a completed retained process job.",
