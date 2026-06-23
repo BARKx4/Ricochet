@@ -1,8 +1,8 @@
 # Ricochet Reference Website
 
 Open index.html in a browser to read the static reference site. The guide
-pages live under guides/index.html and mirror the Markdown guide set in
-../wiki.
+pages live under guides/index.html, and the broader public docs are available
+as pre-rendered HTML pages throughout docs/.
 
 From the repository root:
 
@@ -24,10 +24,11 @@ rco fmt [--check] [path]
 rco lint [--json] [path]
 ```
 
-When adding or renaming public words, follow `../adding-words.md` so the VM,
+When adding or renaming public words, follow `../adding-words.html` so the VM,
 reference catalog, LSP inventory, TextMate grammar, validators, and examples
 stay synchronized.
 
 The acceptance script validates this static site, runs the shipped examples, creates a fresh MVC scaffold, lists its routes, then runs `rco check` and `rco test` against it. It leaves the generated scaffold in a temp folder for inspection.
 
-The site is intentionally static: no build step, no Node package install, and no server required.
+The site is intentionally static: no build step, no Node package install, no
+Jekyll rendering, and no server required.

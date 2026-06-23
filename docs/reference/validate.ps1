@@ -4,11 +4,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$docsRoot = Split-Path -Parent $Root
+$docsRootFull = [System.IO.Path]::GetFullPath($docsRoot)
+
+function Get-DocsRelativePath {
+    param([string]$Path)
+
+    $base = $docsRootFull
+    if (-not $base.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+        $base = $base + [System.IO.Path]::DirectorySeparatorChar
+    }
+
+    $baseUri = [System.Uri]$base
+    $targetUri = [System.Uri]([System.IO.Path]::GetFullPath($Path))
+    return [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace("\", "/")
+}
+
 $requiredFiles = @(
     "index.html",
     "styles.css",
     "app.js",
-    "README.md",
+    "README.html",
     "learn/index.html",
     "guides/index.html",
     "guides/features.html",
@@ -35,11 +51,93 @@ foreach ($file in $requiredFiles) {
     }
 }
 
+$noJekyllPath = Join-Path $docsRoot ".nojekyll"
+if (-not (Test-Path -LiteralPath $noJekyllPath -PathType Leaf)) {
+    $failures.Add("docs/.nojekyll is missing; GitHub Pages should serve the pre-rendered static HTML without Jekyll")
+}
+
+$repoRoot = Split-Path -Parent $docsRoot
+$publicMarkdownFiles = @()
+$gitListSucceeded = $false
+try {
+    $trackedMarkdown = @(& git -C $repoRoot ls-files -- "docs/*.md" "docs/**/*.md" 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        $gitListSucceeded = $true
+        $publicMarkdownFiles = @(
+            $trackedMarkdown |
+                Where-Object {
+                    $_ -and $_ -ne "docs/feature-map.md" -and -not $_.StartsWith("docs/superpowers/")
+                } |
+                ForEach-Object {
+                    Get-Item -LiteralPath (Join-Path $repoRoot $_)
+                }
+        )
+    }
+} catch {
+    $publicMarkdownFiles = @()
+}
+
+if (-not $gitListSucceeded) {
+    $publicMarkdownFiles = @(
+        Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.md" -File -ErrorAction SilentlyContinue |
+            Where-Object {
+                $relative = Get-DocsRelativePath -Path $_.FullName
+                $relative -ne "feature-map.md" -and -not $relative.StartsWith("superpowers/")
+            }
+    )
+}
+
+foreach ($markdownFile in $publicMarkdownFiles) {
+    $htmlPath = [System.IO.Path]::ChangeExtension($markdownFile.FullName, ".html")
+    if (-not (Test-Path -LiteralPath $htmlPath -PathType Leaf)) {
+        $relative = Get-DocsRelativePath -Path $markdownFile.FullName
+        $failures.Add("Public Markdown docs file is missing an HTML sibling: $relative")
+    }
+}
+
+$publicDocsMarkdownPattern = [regex]"docs/(?:wiki|learn|benchmarks|releases|feature-map|adding-words|debugger-integrations|reference/README|superpowers/[^<`"\s]+)\.md"
+$htmlLinkPattern = [regex]'(?i)\b(?:href|src)="([^"]+)"'
+
+foreach ($htmlFile in Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.html" -File -ErrorAction SilentlyContinue) {
+    $relativeHtml = Get-DocsRelativePath -Path $htmlFile.FullName
+    $htmlText = Get-Content -LiteralPath $htmlFile.FullName -Raw
+
+    $markdownPathMatch = $publicDocsMarkdownPattern.Match($htmlText)
+    if ($markdownPathMatch.Success) {
+        $failures.Add("Public HTML references a docs Markdown path in ${relativeHtml}: $($markdownPathMatch.Value)")
+    }
+
+    foreach ($match in $htmlLinkPattern.Matches($htmlText)) {
+        $ref = $match.Groups[1].Value
+        if ($ref -match '(?i)^(?:[a-z][a-z0-9+.-]*:|#|mailto:|javascript:|data:)') {
+            continue
+        }
+
+        $target = ($ref -split '#', 2)[0]
+        $target = ($target -split '\?', 2)[0]
+        if ([string]::IsNullOrWhiteSpace($target)) {
+            continue
+        }
+
+        $target = [System.Uri]::UnescapeDataString($target)
+        $resolved = [System.IO.Path]::GetFullPath((Join-Path $htmlFile.DirectoryName $target))
+        if (-not $resolved.StartsWith($docsRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        if ((Test-Path -LiteralPath $resolved -PathType Container)) {
+            $resolved = Join-Path $resolved "index.html"
+        }
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+            $failures.Add("Broken local HTML link in ${relativeHtml}: $ref")
+        }
+    }
+}
+
 if ($failures.Count -eq 0) {
     $index = Get-Content -LiteralPath (Join-Path $Root "index.html") -Raw
     $styles = Get-Content -LiteralPath (Join-Path $Root "styles.css") -Raw
     $app = Get-Content -LiteralPath (Join-Path $Root "app.js") -Raw
-    $readme = Get-Content -LiteralPath (Join-Path $Root "README.md") -Raw
+    $readme = Get-Content -LiteralPath (Join-Path $Root "README.html") -Raw
     $learnIndex = Get-Content -LiteralPath (Join-Path $Root "learn/index.html") -Raw
     $publishedLearnIndexPath = Join-Path (Split-Path -Parent $Root) "learn/index.html"
     $guidesIndex = Get-Content -LiteralPath (Join-Path $Root "guides/index.html") -Raw
@@ -596,7 +694,7 @@ if ($failures.Count -eq 0) {
     }
 
     if (-not $readme.Contains("Open index.html")) {
-        $failures.Add("README.md does not explain how to open the static site")
+        $failures.Add("README.html does not explain how to open the static site")
     }
 }
 

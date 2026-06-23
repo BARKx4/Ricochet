@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hosted Registry Protocol | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Hosted Registry Protocol</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#protocol-identity">Protocol Identity</a>
+          <a href="#package-identity">Package Identity</a>
+          <a href="#version-metadata">Version Metadata</a>
+          <a href="#endpoints">Endpoints</a>
+          <a href="#publish">Publish</a>
+          <a href="#yank">Yank</a>
+          <a href="#verification-order">Verification Order</a>
+          <a href="#errors-cache-and-retry">Errors, Cache, And Retry</a>
+          <a href="#mirror-and-static-fallback">Mirror And Static Fallback</a>
+          <a href="#security-model">Security Model</a>
+          <a href="#implementation-sequence">Implementation Sequence</a>
+          </aside>
+          <article class="guide-content">
+<p>This document specifies the Ricochet hosted package registry protocol target for the Epic 8 implementation work. It does not replace the current local and static registry behavior. Existing <code>rco publish PACKAGE --registry PATH</code>, <code>rco registry rebuild PATH</code>, <code>rco registry check PATH</code>, <code>rco publish PACKAGE --registry-url URL --token-env RICOCHET_REGISTRY_TOKEN</code>, <code>rco registry yank PACKAGE VERSION --registry-url URL --token-env RICOCHET_REGISTRY_TOKEN</code>, <code>rco search QUERY --registry-url URL</code>, and static <code>ricochet-static-registry-v1</code> indexes remain supported.</p>
+<p>Ricochet currently implements hosted client operations for discovery, search, metadata fetch, archive fetch, install, lockfile verification, publish, and yank, plus a local hosted registry reference server through <code>rco registry serve</code> and static mirror export through <code>rco registry mirror</code>.</p>
+<h2 id="protocol-identity">Protocol Identity</h2>
+<ul>
+<li>Protocol name: Ricochet Hosted Registry Protocol.</li>
+<li>Protocol version string: <code>ricochet-hosted-registry-v1</code>.</li>
+<li>Registry base URLs must use <code>https://</code> outside local tests. Static mirrors may continue to use <code>file://</code> or <code>https://</code> index URLs.</li>
+<li>Clients should send <code>Accept</code> for the most specific media type they understand and treat unknown required fields as an unsupported protocol revision.</li>
+</ul>
+<p>Canonical media types:</p>
+<table>
+<thead><tr>
+<th>Purpose</th>
+<th>Media type</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Registry discovery</td>
+<td><code>application/vnd.ricochet.registry.v1+json</code></td>
+</tr>
+<tr>
+<td>Search response</td>
+<td><code>application/vnd.ricochet.registry.search.v1+json</code></td>
+</tr>
+<tr>
+<td>Package metadata</td>
+<td><code>application/vnd.ricochet.registry.package.v1+json</code></td>
+</tr>
+<tr>
+<td>Publish metadata part</td>
+<td><code>application/vnd.ricochet.registry.publish.v1+json</code></td>
+</tr>
+<tr>
+<td>Error envelope</td>
+<td><code>application/vnd.ricochet.registry.error.v1+json</code></td>
+</tr>
+<tr>
+<td>Package archive</td>
+<td><code>application/vnd.ricochet.package.archive.v1+gzip</code></td>
+</tr>
+<tr>
+<td>Static export</td>
+<td><code>application/toml; profile="ricochet-static-registry-v1"</code></td>
+</tr>
+</tbody>
+</table>
+<p>Discovery responses have this shape:</p>
+<pre class="code-block"><code class="language-json">{
+  "protocol": "ricochet-hosted-registry-v1",
+  "base_url": "https://registry.example"
+}</code></pre>
+<p>The client fetches <code>GET /v1</code> before hosted search, install, publish, or yank operations. <code>base_url</code> is the registry base used to resolve later endpoints and artifacts. For beta/local fake registries the client also accepts discovery without <code>base_url</code> and uses the requested base URL.</p>
+<p>Package archives are gzip-compressed tar files with the same archive safety rules as static registry archives: relative entries only, no <code>..</code>, no absolute paths, no links, and bounded file counts and unpacked bytes.</p>
+<h2 id="package-identity">Package Identity</h2>
+<p>Hosted registries use the same package identity rules as the static registry:</p>
+<ul>
+<li>Unscoped names use ASCII letters, numbers, <code>_</code>, and <code>-</code>.</li>
+<li>Scoped names use <code>@scope/name</code>; both <code>scope</code> and <code>name</code> use ASCII letters, numbers, <code>_</code>, and <code>-</code>.</li>
+<li>Names are case-sensitive and must not be normalized by the registry.</li>
+<li>Dependency aliases are local project names. They do not change the hosted package identity recorded in metadata and lockfiles.</li>
+<li>Endpoint paths encode a package identity as one percent-encoded path segment: <code>@ricochet/forms</code> becomes <code>%40ricochet%2Fforms</code>.</li>
+</ul>
+<p>Package versions use semver. A package version record is addressed by package identity plus exact version.</p>
+<h2 id="version-metadata">Version Metadata</h2>
+<p>Version records are immutable once published. A registry must reject every attempt to publish an existing package/version pair, including attempts with identical bytes. A yanked version stays present in metadata and artifacts but is not available for new resolution.</p>
+<p>Package metadata responses have this shape:</p>
+<pre class="code-block"><code class="language-json">{
+  "protocol": "ricochet-hosted-registry-v1",
+  "package": {
+    "name": "@ricochet/forms",
+    "latest": "0.1.0"
+  },
+  "versions": [
+    {
+      "version": "0.1.0",
+      "published_at": "2026-06-21T00:00:00Z",
+      "yanked": false,
+      "archive": {
+        "path": "artifacts/@ricochet/forms/0.1.0/forms-0.1.0.tar.gz",
+        "integrity": "sha256:&lt;64 lowercase hex&gt;",
+        "media_type": "application/vnd.ricochet.package.archive.v1+gzip"
+      },
+      "package_integrity": "sha256:&lt;64 lowercase hex&gt;",
+      "provenance": {
+        "attestation_path": "artifacts/@ricochet/forms/0.1.0/provenance.attestation",
+        "attestation_integrity": "sha256:&lt;64 lowercase hex&gt;",
+        "signature_path": "artifacts/@ricochet/forms/0.1.0/forms.sig",
+        "signature_integrity": "sha256:&lt;64 lowercase hex&gt;",
+        "signature_kind": "minisign"
+      }
+    }
+  ]
+}</code></pre>
+<p>Required fields for every version are <code>version</code>, <code>yanked</code>, <code>archive.path</code>, <code>archive.integrity</code>, and <code>package_integrity</code>. Provenance and signature fields are optional, but if <code>signature_kind</code> is present, <code>signature_path</code> and <code>signature_integrity</code> must also be present. All integrity values use <code>sha256:&lt;64 hex chars&gt;</code>.</p>
+<p>Unknown signature kinds must be preserved and exposed as metadata, not treated as verified signatures. A client may verify the signature artifact integrity and then report <code>unknown_signature_kind</code> unless policy or user configuration requires a known signature verifier.</p>
+<h2 id="endpoints">Endpoints</h2>
+<p>All JSON endpoints use UTF-8.</p>
+<table>
+<thead><tr>
+<th>Method and path</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>GET /v1</code></td>
+<td>Registry discovery and protocol version metadata.</td>
+</tr>
+<tr>
+<td><code>GET /v1/search?q=QUERY&amp;limit=N&amp;offset=N</code></td>
+<td>Search package names, aliases, summaries, and keywords.</td>
+</tr>
+<tr>
+<td><code>GET /v1/packages/{package}</code></td>
+<td>Fetch all version metadata for a package.</td>
+</tr>
+<tr>
+<td><code>GET /v1/packages/{package}/versions/{version}</code></td>
+<td>Fetch one immutable version record.</td>
+</tr>
+<tr>
+<td><code>PUT /v1/packages/{package}/versions/{version}</code></td>
+<td>Publish one new package version.</td>
+</tr>
+<tr>
+<td><code>POST /v1/packages/{package}/versions/{version}/yank</code></td>
+<td>Mark an existing version yanked without deleting artifacts.</td>
+</tr>
+<tr>
+<td><code>GET /{relative-artifact-path}</code></td>
+<td>Fetch archive, provenance, or signature artifacts referenced by metadata.</td>
+</tr>
+</tbody>
+</table>
+<p>Search responses exclude yanked versions from default "latest" selection. Package metadata includes yanked versions so lockfile verification, audits, and mirrors can see historical state.</p>
+<p>The beta read client accepts compact search responses with this shape:</p>
+<pre class="code-block"><code class="language-json">{
+  "protocol": "ricochet-hosted-registry-v1",
+  "packages": [
+    {
+      "name": "@ricochet/forms",
+      "latest": "0.1.0"
+    }
+  ]
+}</code></pre>
+<p>For each result, <code>name</code> is a hosted package identity and <code>latest</code> is the latest non-yanked semver version selected by the registry. The client validates the protocol, package name, and version, then prints results in the same simple <code>name version</code> style as static registry search. <code>results</code> is accepted as a compatibility alias for <code>packages</code> during this beta slice.</p>
+<p>Artifact paths in metadata are registry-relative paths, not absolute URLs. Clients resolve them against the registry base URL discovered from <code>GET /v1</code>, not against the metadata endpoint URL. For example, metadata fetched from <code>https://registry.example/v1/packages/%40ricochet%2Fforms</code> with <code>archive.path = "artifacts/@ricochet/forms/0.1.0/forms-0.1.0.tar.gz"</code> resolves to <code>https://registry.example/artifacts/@ricochet/forms/0.1.0/forms-0.1.0.tar.gz</code>. Clients must reject absolute URLs, leading slashes, backslashes, <code>.</code> or <code>..</code> path segments, and any resolved URL outside the registry origin. Registries should not require absolute archive URLs; relative paths keep metadata mirrorable and allow static exports to preserve the existing index behavior.</p>
+<h2 id="publish">Publish</h2>
+<p>Client publish uses:</p>
+<pre class="code-block"><code class="language-powershell">rco publish PACKAGE --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN</code></pre>
+<p>The publish endpoint uses <code>multipart/form-data</code>:</p>
+<ul>
+<li><code>metadata</code>: JSON with media type <code>application/vnd.ricochet.registry.publish.v1+json</code>.</li>
+<li><code>archive</code>: gzip-compressed package tarball.</li>
+<li><code>provenance</code>: optional attestation bytes.</li>
+<li><code>signature</code>: optional detached signature bytes.</li>
+</ul>
+<p>Publish metadata includes package name, version, package tree integrity, optional provenance and signature integrity fields, optional <code>signature_kind</code>, summary fields for search, and optional diagnostic fields. The registry must compute and verify archive integrity, safely unpack or otherwise validate the archive, read <code>[package] name</code> and <code>version</code>, and recompute the package tree <code>sha256:</code> before accepting the version.</p>
+<p>Mutating requests use an <code>Idempotency-Key</code> header generated by the client. The registry binds each key to the authenticated publisher, method, path, and body digest for a bounded retention window. Replaying the same key with the same body returns the original result; replaying the same key with different bytes returns <code>409 Conflict</code> with code <code>idempotency_conflict</code>. Registries may also require a fresh <code>Ricochet-Date</code> header and reject stale requests with <code>401 Unauthorized</code> or <code>409 Conflict</code> depending on policy. This protects publish and yank retries from duplicate side effects; bearer-token secrecy still relies on TLS and credential hygiene.</p>
+<p>Authentication uses bearer tokens resolved from secret references. Future CLI configuration may store only references such as <code>token = { secret_env = "RICOCHET_REGISTRY_TOKEN" }</code>; the resolved token is sent as <code>Authorization: Bearer &lt;token&gt;</code>. Literal tokens must not be written to <code>ricochet.toml</code>, <code>ricochet.lock</code>, generated reports, or command traces.</p>
+<p>Publisher authorization is package-scoped. The registry must verify that the authenticated publisher can publish the package identity and scope. The first publish of a scoped package may claim the package only through registry policy; later publishes require an authorized publisher for that package. A publish to an existing version returns <code>409 Conflict</code> with code <code>version_exists</code>.</p>
+<p>The reference server runs locally with:</p>
+<pre class="code-block"><code class="language-powershell">rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"</code></pre>
+<p>It binds to <code>127.0.0.1:3001</code> by default, prints the discovered base URL on startup, stores metadata in <code>registry.json</code>, and stores package, provenance, and signature artifacts below <code>artifacts/</code>. <code>--token-env NAME</code> grants one all-package publisher token for local beta workflows; repeated <code>--publisher PACKAGE=ENV</code> policies grant exact packages or <code>@scope/*</code> scopes. The reference server verifies uploaded archive bytes, package tree integrity, manifest package identity/version, provenance/signature digests, idempotency keys, and duplicate-version rejection before persisting metadata.</p>
+<h2 id="yank">Yank</h2>
+<p>Client yank uses:</p>
+<pre class="code-block"><code class="language-powershell">rco registry yank PACKAGE VERSION --registry-url https://registry.example --token-env RICOCHET_REGISTRY_TOKEN</code></pre>
+<p>Yanking marks a version unavailable without deleting metadata or artifacts. The published version record remains immutable: archive paths, archive integrity, package tree integrity, provenance, signature fields, publisher, and <code>published_at</code> never change after publish. Yank state is an append-only availability overlay associated with the version. Package metadata and per-version responses may project the current overlay as <code>yanked = true</code> with audit fields such as <code>yanked_at</code>, <code>yanked_by</code>, and <code>yank_event_id</code>, but that projection is not a replacement of the original publish record.</p>
+<p>Clients must not select yanked versions for new dependency resolution. Audit and verification commands may fetch yanked metadata and artifacts for lockfile forensics, but they must report the yanked state. Mirrors must preserve yanked records. Clients may cache immutable publish fields and artifact bytes for long periods, but package metadata and yanked-state overlays must use validators such as <code>ETag</code> and short or <code>must-revalidate</code> cache lifetimes so new dependency resolution sees yank changes.</p>
+<h2 id="verification-order">Verification Order</h2>
+<p>Hosted clients verify in this order:</p>
+<ol>
+<li>Fetch metadata over TLS and validate the media type, protocol version, package identity, semver version, yanked state, relative artifact paths, and all <code>sha256:</code> field shapes.</li>
+<li>Resolve and fetch the registry-relative archive path.</li>
+<li>Hash the archive bytes and compare them with <code>archive.integrity</code>.</li>
+<li>Extract the archive with static registry archive safety rules.</li>
+<li>Confirm the extracted <code>[package] name</code> and <code>version</code> match metadata.</li>
+<li>Recompute the unpacked package tree integrity and compare it with <code>package_integrity</code>.</li>
+<li>Record the resolved version, registry URL, package identity, archive integrity, package tree integrity, provenance integrity, signature integrity, and signature kind in <code>ricochet.lock</code>.</li>
+</ol>
+<p>Ordinary installs must reject same-version metadata or artifact changes that conflict with an existing lock entry. A package cache with different tree integrity must fail closed instead of being overwritten.</p>
+<h2 id="errors-cache-and-retry">Errors, Cache, And Retry</h2>
+<p>Error responses use this envelope:</p>
+<pre class="code-block"><code class="language-json">{
+  "error": {
+    "code": "version_exists",
+    "message": "package @ricochet/forms 0.1.0 already exists",
+    "details": {},
+    "request_id": "01J..."
+  }
+}</code></pre>
+<p>Expected status codes:</p>
+<table>
+<thead><tr>
+<th>Status</th>
+<th>Use</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>400 Bad Request</code></td>
+<td>Invalid package identity, version, integrity, archive, or JSON.</td>
+</tr>
+<tr>
+<td><code>401 Unauthorized</code></td>
+<td>Missing or invalid bearer token.</td>
+</tr>
+<tr>
+<td><code>403 Forbidden</code></td>
+<td>Token is valid but not authorized for the package/scope.</td>
+</tr>
+<tr>
+<td><code>404 Not Found</code></td>
+<td>Package, version, or artifact is absent.</td>
+</tr>
+<tr>
+<td><code>409 Conflict</code></td>
+<td>Same-version publish attempt or lock-incompatible state.</td>
+</tr>
+<tr>
+<td><code>410 Gone</code></td>
+<td>Optional artifact-retention failure for a historical record.</td>
+</tr>
+<tr>
+<td><code>413 Payload Too Large</code></td>
+<td>Archive or metadata exceeds registry limits.</td>
+</tr>
+<tr>
+<td><code>415 Unsupported Media Type</code></td>
+<td>Unsupported request media type.</td>
+</tr>
+<tr>
+<td><code>429 Too Many Requests</code></td>
+<td>Rate limit; include <code>Retry-After</code>.</td>
+</tr>
+<tr>
+<td><code>5xx</code></td>
+<td>Server failure; include <code>Retry-After</code> when retry is useful.</td>
+</tr>
+</tbody>
+</table>
+<p><code>GET</code> requests are retryable and should use <code>ETag</code> or <code>Last-Modified</code> caching. Metadata for existing versions is immutable, so per-version responses may be cached for long periods. Package-level metadata changes when new versions are published or yanked, so it should have shorter freshness and validators. Clients must never use cache freshness to ignore lockfile integrity mismatches.</p>
+<p>Publish and yank requests are not retried automatically unless the client can prove the previous attempt did not commit or can safely re-check the resulting version state.</p>
+<h2 id="mirror-and-static-fallback">Mirror And Static Fallback</h2>
+<p>Hosted metadata must be exportable to the current static registry format:</p>
+<pre class="code-block"><code class="language-toml">[registry]
+format = "ricochet-static-registry-v1"
+
+[packages]
+"@ricochet/forms" = "packages/@ricochet/forms.toml"</code></pre>
+<p>Each hosted version maps to static package metadata fields:</p>
+<pre class="code-block"><code class="language-toml">[[versions]]
+version = "0.1.0"
+archive = "artifacts/@ricochet/forms/0.1.0/forms-0.1.0.tar.gz"
+archive_integrity = "sha256:&lt;64 hex&gt;"
+package_integrity = "sha256:&lt;64 hex&gt;"
+yanked = false
+provenance = "sha256:&lt;64 hex&gt;"
+signature = "sha256:&lt;64 hex&gt;"
+signature_kind = "minisign"</code></pre>
+<p><code>rco registry mirror REGISTRY_URL PATH</code> fetches hosted package metadata and artifacts, writes registry-relative archive/provenance/signature paths, preserves yanked records, and emits <code>ricochet-static-registry-v1</code> indexes that existing static registry clients can search and install from. If a hosted registry is offline, projects pinned to a static mirror should continue using the existing <code>--registry-url file://.../index.toml</code> or <code>https://.../index.toml</code> behavior.</p>
+<h2 id="security-model">Security Model</h2>
+<ul>
+<li>Hosted registry traffic uses TLS. Plain <code>http://</code> is allowed only for local fake-server tests.</li>
+<li>Bearer tokens are resolved from secret references and kept out of <code>ricochet.toml</code>, <code>ricochet.lock</code>, reports, and logs.</li>
+<li>Publishers are authorized per package or scope.</li>
+<li>Publish and yank requests use idempotency keys bound to publisher, path, and request digest; same-key replays are idempotent only for identical bytes, and conflicting replays are rejected.</li>
+<li>Version records and artifacts are append-only; replacement uses a new semver version.</li>
+<li>Yanking is an auditable append-only availability overlay, not deletion or mutation of published integrity fields.</li>
+<li>Clients pin registry source, package identity, version, archive integrity, package tree integrity, provenance integrity, signature integrity, and signature kind in the lockfile.</li>
+<li>Rollback protection is client and server enforced: servers retain historical metadata, package-level metadata exposes every non-deleted version state, and clients reject locked versions whose hosted metadata no longer matches the lock.</li>
+<li>Mirrors preserve yanked records and relative artifact paths so a mirror cannot silently substitute an absolute archive URL.</li>
+</ul>
+<h2 id="implementation-sequence">Implementation Sequence</h2>
+<p>Later Epic 8 slices should implement the protocol in this order:</p>
+<ol>
+<li>Hosted read client: discovery, search, package metadata fetch, archive fetch, verification order, lockfile invariants, and HTTPS enforcement. Implemented.</li>
+<li>Publish and yank client: secret-reference bearer tokens, package/scoped authorization errors, duplicate-version rejection, provenance/signature upload, and yanking. Implemented with local fake-server client tests.</li>
+<li>Hosted server/reference implementation for operational smoke tests beyond the local fake-server client tests. Implemented through <code>rco registry serve</code>.</li>
+<li>Mirror command that exports hosted metadata and artifacts to <code>ricochet-static-registry-v1</code>. Implemented through <code>rco registry mirror</code>.</li>
+<li>Hosted same-version replacement tests against a real server/reference implementation and documentation updates for operational deployment. Implemented for the reference server publish path.</li>
+</ol>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

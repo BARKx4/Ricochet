@@ -30,7 +30,7 @@
           <p class="lede">Benchmarks, local verification, reference validation, release packaging, tags, and nightly artifacts.</p>
           <div class="command-strip" aria-label="Guide links">
             <code>docs/reference/guides/development-release.html</code>
-            <code>docs/wiki/development-release.md</code>
+            <code>docs/wiki/development-release.html</code>
           </div>
         </div>
       </section>
@@ -47,7 +47,7 @@
         </aside>
         <article class="guide-content">
           <h2 id="benchmarks">Benchmarks</h2>
-          <p><code>rco bench</code> runs a repeatable local benchmark suite for parser/compiler work, VM arithmetic, function and method dispatch, collection mutation, JSON encode/decode, template rendering, package verification, and a SQLite MVC request path. Use <code>rco bench --smoke</code> for CI-sized coverage or <code>rco bench --iterations 5</code> for a local baseline. The current website-copy baseline lives in <code>docs/benchmarks/2026-06-17-baseline.md</code>.</p>
+          <p><code>rco bench</code> runs a repeatable local benchmark suite for parser/compiler work, VM arithmetic, function and method dispatch, collection mutation, JSON encode/decode, template rendering, package verification, and a SQLite MVC request path. Use <code>rco bench --smoke</code> for CI-sized coverage or <code>rco bench --iterations 5</code> for a local baseline. The current website-copy baseline lives in <code>docs/benchmarks/2026-06-17-baseline.html</code>.</p>
           <h2 id="developing-ricochet">Developing Ricochet</h2>
           <p>Use Cargo when changing the Rust implementation itself. For an uninstalled source-tree run, this is equivalent to <code>rco run examples/basic-oop.rco</code>:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco</code></pre>
@@ -63,7 +63,7 @@ cargo audit --deny warnings
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
           <p>The acceptance suite validates the static reference docs, editor assets, word inventory drift check, examples, scaffolded project checks/tests, and a live <code>rco serve</code> smoke request against the generated no-database scaffold.</p>
           <h2 id="release-packaging">Release Packaging</h2>
-          <p>See <code>docs/releases/v0.1.19-rc.2.md</code> for the current release-candidate notes, hardening checklist, and artifact smoke-test expectations.</p>
+          <p>See <code>docs/releases/v0.1.19-rc.2.html</code> for the current release-candidate notes, hardening checklist, and artifact smoke-test expectations.</p>
           <p>Windows release packages are built from this repository with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1</code></pre>
           <p>The script builds <code>rco.exe</code>, <code>rco-gui.exe</code>, and <code>ricochet.exe</code>, creates a portable ZIP, writes <code>SHA256SUMS.txt</code>, and creates a Windows <code>.exe</code> installer when NSIS <code>makensis.exe</code> is installed. It also writes <code>ARTIFACTS-windows-x64.json</code>, a machine-readable release manifest covering the ZIP, installer when present, checksum file, and signing-status report. GitHub Actions installs NSIS automatically in the release workflow.</p>

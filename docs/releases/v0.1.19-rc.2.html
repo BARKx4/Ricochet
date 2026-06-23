@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.2 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.2 Release Candidate Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#security-fixes">Security Fixes</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-22</p>
+<p>Ricochet v0.1.19-rc.2 is a security hardening release candidate that supersedes v0.1.19-rc.1 on the same v0.1.19 release train.</p>
+<h2 id="security-fixes">Security Fixes</h2>
+<ul>
+<li>Hosted registry discovery now pins discovered mutation and fetch URLs to the requested registry origin before bearer tokens are used.</li>
+<li>Hosted registry idempotency records are capped and prune oldest records under pressure.</li>
+<li>Runtime approval records can be explicitly released and are capped with pruning for expired or final records.</li>
+<li>The VS Code extension now blocks Ricochet run/debug surfaces in untrusted workspaces and cleans stack visualizer traces from the OS temp directory after loading them.</li>
+<li>MVC AI provider error bodies redact configured API keys before returning structured <code>AiError</code> results.</li>
+<li>Process and PTY child environments now follow the VM environment policy: restricted environment capability clears inherited parent environment, and explicit child <code>env</code> entries must be allowed by the same env allowlist.</li>
+<li>Linux release signing now cleans up generated GNUPGHOME directories after production signature verification.</li>
+<li>MVC session cookies in automatic mode no longer allow a request-supplied <code>Host: localhost</code> header to remove the <code>Secure</code> attribute.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this candidate, run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

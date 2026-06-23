@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet Reference Website | Ricochet Docs</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="index.html#top">Reference</a>
+        <a href="learn/index.html">Learn</a>
+        <a href="guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet Reference Website</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#ricochet-reference-website">Top</a>
+          </aside>
+          <article class="guide-content">
+<p>Open index.html in a browser to read the static reference site. The guide pages live under guides/index.html, and the broader public docs are available as pre-rendered HTML pages throughout docs/.</p>
+<p>From the repository root:</p>
+<pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File docs\reference\validate.ps1</code></pre>
+<p>To run the broader local acceptance suite after building <code>rco</code>:</p>
+<pre class="code-block"><code class="language-powershell">cargo build -p ricochet_cli --bin rco
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\acceptance.ps1</code></pre>
+<p>Useful source hygiene commands:</p>
+<pre class="code-block"><code class="language-powershell">rco fmt [--check] [path]
+rco lint [--json] [path]</code></pre>
+<p>When adding or renaming public words, follow <code>../adding-words.html</code> so the VM, reference catalog, LSP inventory, TextMate grammar, validators, and examples stay synchronized.</p>
+<p>The acceptance script validates this static site, runs the shipped examples, creates a fresh MVC scaffold, lists its routes, then runs <code>rco check</code> and <code>rco test</code> against it. It leaves the generated scaffold in a temp folder for inspection.</p>
+<p>The site is intentionally static: no build step, no Node package install, no Jekyll rendering, and no server required.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="app.js"></script>
+  </body>
+</html>

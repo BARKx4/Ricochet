@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.16 Beta Release Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.16 Beta Release Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#highlights">Highlights</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-18</p>
+<p>Ricochet v0.1.16 is a beta developer-target release for local tools, MVC apps, packages, GUI experiments, and IDE integrations. It supersedes the unpublished v0.1.15 packaging run with a corrected Windows release smoke test.</p>
+<h2 id="highlights">Highlights</h2>
+<ul>
+<li>Static registry lock hardening: ordinary installs now refuse same-version package replacement when locked integrity, provenance, signature metadata, or source identity no longer match the current static registry metadata.</li>
+<li>Retained runtime cleanup: <code>process_release</code>, <code>http_stream_release</code>, and <code>pty_release</code> drop completed retained handles, while per-host caps prevent unbounded retained process, HTTP stream, and PTY registries.</li>
+<li>Date and time library: UTC millisecond timestamps, RFC3339 parse/format helpers, Chrono-style pattern formatting, date arithmetic, and explicit duration unit builders are available as first-party words.</li>
+<li>Float and numeric conversion support: decimal/exponent literals produce finite <code>Float</code> values, mixed numeric math promotes to floats, JSON and MVC scalar bridges preserve fractional values, and checked conversion words cover integer ranges, unsigned ranges, float32 rounding, and float64 aliases.</li>
+<li>Maintenance feature map: the internal feature map records implemented surfaces, evidence files, explicit boundaries, and assumptions to re-check before future roadmap work.</li>
+<li>Syntax cleanup: static import strings now reject invalid escapes consistently with normal strings, and leading-dash words remain reserved for subtraction and negative number literals.</li>
+<li>Package and release polish: first-party packages are included in release payloads, package examples use tracked <code>@ricochet/forms</code> sources, and release workflows enforce Cargo-version alignment.</li>
+<li>Audit policy is explicit: accepted GTK/WebKitGTK beta-stack warnings live in <code>.cargo/audit.toml</code>, allowing <code>cargo audit --deny warnings</code> to fail on new advisories.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this release, run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+<p>After the GitHub release workflow publishes artifacts, smoke-test the downloaded Windows ZIP/installer, Linux tarball/Debian package, macOS unsigned tarballs, and packaged CLI/GUI/TUI app outputs.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

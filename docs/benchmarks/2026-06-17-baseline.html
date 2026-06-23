@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet Benchmark Baseline | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet Benchmark Baseline</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#ricochet-benchmark-baseline">Top</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-17 Version: 0.1.13 beta candidate Command: <code>rco bench --iterations 5</code> Host: local Windows developer machine</p>
+<p>These numbers are local-run medians, not cross-language shootout claims. Use them for website copy as beta baseline figures and refresh them before major performance announcements.</p>
+<table>
+<thead><tr>
+<th>Benchmark</th>
+<th>Workload</th>
+<th>Median</th>
+<th>Throughput</th>
+<th>Notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>parser</td>
+<td>2000 source lines</td>
+<td>3.891 ms</td>
+<td>513.97k ops/s</td>
+<td><code>parse_module</code> over generated arithmetic source</td>
+</tr>
+<tr>
+<td>compiler</td>
+<td>2000 source lines</td>
+<td>6.161 ms</td>
+<td>324.64k ops/s</td>
+<td><code>compile_source</code> over generated arithmetic source</td>
+</tr>
+<tr>
+<td>vm_arithmetic</td>
+<td>20000 additions</td>
+<td>25.144 ms</td>
+<td>795.41k ops/s</td>
+<td>fresh VM running precompiled stack arithmetic</td>
+</tr>
+<tr>
+<td>dispatch</td>
+<td>2500 function + method pairs</td>
+<td>29.130 ms</td>
+<td>171.64k ops/s</td>
+<td>user function and OOP method calls</td>
+</tr>
+<tr>
+<td>collection_mutation</td>
+<td>20000 array <code>push!</code> calls</td>
+<td>40.834 ms</td>
+<td>489.78k ops/s</td>
+<td>array mutation through collection helpers</td>
+</tr>
+<tr>
+<td>json_encode_decode</td>
+<td>1000 object items</td>
+<td>19.130 ms</td>
+<td>52.27k ops/s</td>
+<td>JSON encode/decode of a generated nested map</td>
+</tr>
+<tr>
+<td>template_rendering</td>
+<td>1000 template expressions</td>
+<td>40.832 ms</td>
+<td>24.49k ops/s</td>
+<td>HTML template rendering with Ricochet expressions</td>
+</tr>
+<tr>
+<td>package_verification</td>
+<td>5 package files</td>
+<td>0.484 ms</td>
+<td>10.34k ops/s</td>
+<td>deterministic package tree integrity hash</td>
+</tr>
+<tr>
+<td>sqlite_mvc_request</td>
+<td>100 GET <code>/users</code> requests</td>
+<td>47.251 ms</td>
+<td>2.12k ops/s</td>
+<td>in-process Axum route through Ricochet MVC + SQLite Active Record</td>
+</tr>
+</tbody>
+</table>
+<p>CI runs <code>rco bench --smoke</code> to keep the benchmark harness alive without making ordinary verification slow.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

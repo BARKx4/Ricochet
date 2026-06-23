@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Editor And Debugging | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Editor And Debugging</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#editor-and-debugging">Top</a>
+          </aside>
+          <article class="guide-content">
+<p>A VS Code-compatible extension for <code>.rco</code> files lives in <code>editors/vscode</code>. It registers the <code>source.ricochet</code> scope, highlights Ricochet comments, strings, <code>$name</code> binding reads, postfix selectors, declarations, control flow, async words, route verbs, core built-ins, and collection types, and launches <code>rco lsp</code> for live editor support.</p>
+<p><code>rco lsp</code> speaks stdio Language Server Protocol and provides live diagnostics, completion, hover, go-to-definition, document symbols, semantic tokens, document formatting, quick fixes, prepare-rename, and single-document rename support. The VS Code extension exposes <code>ricochet.server.path</code> when <code>rco</code> is not on <code>PATH</code>, plus <code>Ricochet: Restart Language Server</code> for local toolchain rebuilds. The same diagnostics warn when old <code>name get</code> variable reads should be written as <code>$name</code>, flag leading-dot legacy syntax such as <code>self .email get</code>, and offer quick fixes for both; keep <code>"name" get</code> only when the variable name is intentionally data on the stack.</p>
+<p>Use <code>rco lint [--json] [path]</code> to run those same compile and syntax diagnostics over a file or directory in CI. <code>rco fmt</code> formats current syntax without hiding unsupported legacy forms.</p>
+<p>Terminal debug sessions accept <code>step</code>, <code>next</code>, <code>out</code>, <code>continue</code>, <code>abort</code>, <code>stack</code>, <code>locals</code>, <code>globals</code>, <code>self</code>, <code>tasks</code>, <code>tasks --tree</code>, <code>task &lt;id&gt; stack</code>, and <code>task &lt;id&gt; locals</code>; <code>rco debug --json</code> streams the same event contract as JSON Lines for editor adapters. Task pause snapshots include operation labels, status predicates, optional fault text, and worker frame/source/opcode/stack/locals details. <code>rco debug-adapter</code> speaks Debug Adapter Protocol over stdio, maps source breakpoints and step into/over/out controls to the VM debugger, and exposes stack, locals, globals, <code>self</code>, and expandable task scopes to IDEs. The VS Code live debugger stack panel follows nested DAP variable references, so the <code>Tasks</code> scope opens into task detail fields and worker-frame snapshots instead of stopping at the top-level task summary.</p>
+<p><code>rco debug-tui --smoke</code> renders a deterministic read-only terminal snapshot of the first debugger pause, including source line, stack, locals, globals, and task snapshots. Without <code>--smoke</code>, <code>rco debug-tui</code> renders a fresh snapshot at each pause and accepts <code>step</code>, <code>next</code>, <code>out</code>, <code>continue</code>, <code>abort</code>, <code>break &lt;line&gt;</code>, <code>clear &lt;line&gt;</code>, <code>clear_breakpoints</code>, and <code>breakpoints</code>; repeat <code>--command ACTION</code> for deterministic scripted sessions. <code>rco debug-web --smoke</code> writes the same snapshot as standalone HTML, while <code>rco debug-web</code> serves a loopback-only browser debugger shell with Server-Sent Events at <code>/events</code>, JSON controls at <code>/control</code>, grouped panes for source/current instruction, stack, locals, globals, <code>self</code>, tasks, output, event log, and runtime breakpoints, and keyboard shortcuts for step, next, out, continue, and abort. Breakpoint add/remove/clear/list actions update the same event stream.</p>
+<p>Manual Epic 10 debugger verification should cover keyboard navigation, source display, stepping, breakpoint edits, variable inspection, and task view in both <code>debug-tui</code> and <code>debug-web</code>. Keep <code>debug-tui</code> described as a command-driven text UI until a true full-screen terminal layout is implemented and tested.</p>
+<p><code>rco serve --debug</code> also installs an MVC request-fault pause hook. Before a controller action, view render, or response metadata failure becomes an HTTP 500 response, the server prints a <code>FAULT request ...</code> line with the method, path, controller/action, revision, stage, and error text.</p>
+<p><code>Ricochet: Run With Stack Visualizer</code> runs the active <code>.rco</code> file with <code>rco run --trace-file</code> and opens a separate IDE panel for the instruction timeline, stack, locals, globals, and <code>self</code> values; live VS Code debug sessions also update <code>Ricochet: Show Debugger Stack</code> from DAP scopes. See <code>docs/debugger-integrations.html</code> for the shared trace and DAP contracts.</p>
+<p><code>rco words</code> prints the built-in editor/LSP word inventory; <code>rco words --json</code> emits it for tooling. Maintainers can run <code>rco words --check</code> from the source tree to compare <code>docs/reference/app.js</code>, the TextMate grammar, and the embedded LSP inventory. <code>scripts/validate-editor-assets.ps1</code> checks the grammar and VS Code wiring against the reference word catalog, and release archives include this folder under <code>editors/vscode</code>. When adding or renaming a public word, use <code>docs/adding-words.html</code> to keep VM dispatch, tests, docs, LSP completions, and editor grammar in sync.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

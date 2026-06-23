@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.13 Beta Release Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.13 Beta Release Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#highlights">Highlights</a>
+          <a href="#release-hardening">Release Hardening</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-17</p>
+<p>Ricochet v0.1.13 is a beta developer-target release. It is meant for people building local tools, MVC apps, packages, GUI experiments, and IDE integrations with Ricochet. It is not a production platform guarantee.</p>
+<h2 id="highlights">Highlights</h2>
+<ul>
+<li>Static mirrorable registries: <code>rco registry rebuild</code>, <code>rco registry check</code>, <code>rco search</code>, <code>rco add --registry-url</code>, scoped package identities, local aliases, release-asset archives, and required <code>sha256:</code> archive verification.</li>
+<li>First-party beta packages: <code>@ricochet/auth</code>, <code>@ricochet/ai</code>, <code>@ricochet/forms</code>, and <code>@ricochet/test_helpers</code>.</li>
+<li>GUI v2: webview documents can carry stable state and actions, and <code>rco gui</code> and <code>rco package --gui</code> share the same document/event path.</li>
+<li>Debugger integration: <code>rco debug-adapter</code> speaks Debug Adapter Protocol over stdio, and the VS Code extension can launch Ricochet debug sessions with the live stack visualizer.</li>
+<li>Showcase apps: SQLite notes MVC, package-consuming auth/forms sample, AI provider probe, GUI task monitor, and debugger demo.</li>
+<li>Benchmarks: <code>rco bench --smoke</code>, <code>rco bench --iterations N</code>, and the baseline report at <code>docs/benchmarks/2026-06-17-baseline.html</code>.</li>
+</ul>
+<h2 id="release-hardening">Release Hardening</h2>
+<ul>
+<li>Static registry installs verify archive integrity before extraction and verify unpacked package tree integrity before writing lock metadata.</li>
+<li>Archive extraction rejects traversal paths, absolute paths, hard links, symlinks, and non-file/non-directory entries.</li>
+<li>Registry metadata rejects malformed indexes, invalid integrity strings, duplicate version rows, mismatched package names, mismatched package versions, and yanked-only version selections.</li>
+<li>Registry check catches archive integrity drift for local mirror builds.</li>
+<li>HTTP registry failures report normal CLI errors instead of panicking inside the async CLI runtime.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this release, run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+cargo run -p ricochet_cli --bin rco -- bench --smoke</code></pre>
+<p>After the GitHub release workflow publishes artifacts, smoke-test the downloaded Windows ZIP/installer, Linux tarball/Debian package, macOS unsigned tarballs, and packaged CLI/GUI/TUI app outputs.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

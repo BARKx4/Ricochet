@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.17 Beta Release Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.17 Beta Release Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#highlights">Highlights</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-19</p>
+<p>Ricochet v0.1.17 is an urgent beta patch release that supersedes v0.1.16. It hardens numeric, date, JSON, template, and retained-resource behavior before more machines install the date/time and float support introduced in v0.1.16.</p>
+<h2 id="highlights">Highlights</h2>
+<ul>
+<li>Date arithmetic no longer constructs overflowing day durations. Extreme <code>date_add_days</code> input now returns the existing <code>DateRangeError</code> result path instead of risking a panic.</li>
+<li>Integer <code>clamp</code> validates integer bounds with direct <code>i64</code> comparison before calling Rust's integer clamp, avoiding precision-loss panics when very large distinct integer bounds round to the same float.</li>
+<li>Float-to-integer conversion rejects integral floats at or above the exact signed 64-bit upper boundary before casting.</li>
+<li>MVC/session JSON decoding preserves unsigned integers above <code>i64::MAX</code> as exact strings instead of silently converting them to lossy floats.</li>
+<li>Template rendering leaves special float values (<code>NaN</code>, <code>inf</code>, <code>-inf</code>) as-is instead of appending an integer-looking <code>.0</code> suffix.</li>
+<li>Float truthiness is now explicit: zero and <code>NaN</code> are false; positive, negative, and infinite nonzero floats are true.</li>
+<li>Retained process, PTY, and HTTP stream release smoke tests now poll bounded status/output readiness instead of relying on fixed sleeps.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this release, run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+<p>After the GitHub release workflow publishes artifacts, smoke-test the downloaded Windows ZIP/installer, Linux tarball/Debian package, macOS unsigned tarballs, and packaged CLI/GUI/TUI app outputs.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

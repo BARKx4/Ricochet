@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Store Packaging | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Store Packaging</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#supported-release-inputs">Supported Release Inputs</a>
+          <a href="#store-readiness-gate">Store Readiness Gate</a>
+          <a href="#marketplace-submission">Marketplace Submission</a>
+          </aside>
+          <article class="guide-content">
+<p>Ricochet publishes store-ready release inputs, not marketplace account uploads. The repository-owned boundary is packaging, metadata, signing, notarization, checksums, manifests, and update-channel metadata. Microsoft Partner Center, Apple App Store Connect, Flathub, Snapcraft, and distro repository uploads stay operator-owned because they require external publisher accounts, review flows, and account-specific legal metadata.</p>
+<h2 id="supported-release-inputs">Supported Release Inputs</h2>
+<p>Windows releases provide:</p>
+<ul>
+<li>a portable <code>ricochet-v&lt;version&gt;-windows-x64.zip</code>.</li>
+<li>an NSIS <code>ricochet-v&lt;version&gt;-windows-x64-setup.exe</code> installer.</li>
+<li>Authenticode signing for the ZIP executables and installer on production tags.</li>
+<li><code>ARTIFACTS-windows-x64.json</code>, <code>SIGNING-windows-x64.txt</code>, and <code>SHA256SUMS.txt</code>.</li>
+</ul>
+<p>Linux releases provide:</p>
+<ul>
+<li>a portable <code>ricochet-v&lt;version&gt;-linux-x64.tar.gz</code>.</li>
+<li>a Debian <code>ricochet_&lt;version&gt;_amd64.deb</code>.</li>
+<li><code>ricochet-repl.desktop</code>, <code>ricochet.svg</code>, AppStream metainfo, changelog, maintainer metadata, bundled docs, examples, and first-party packages.</li>
+<li>detached GPG signatures on production tags.</li>
+<li><code>ARTIFACTS-linux-x64.json</code>, <code>SIGNING-linux-x64.txt</code>, and <code>SHA256SUMS-linux-x64.txt</code>.</li>
+</ul>
+<p>macOS releases provide:</p>
+<ul>
+<li>portable <code>ricochet-v&lt;version&gt;-macos-arm64.tar.gz</code> and <code>ricochet-v&lt;version&gt;-macos-x64.tar.gz</code> archives.</li>
+<li>codesigned binaries and accepted Apple notarization reports on production tags.</li>
+<li><code>ARTIFACTS-&lt;target&gt;.json</code>, <code>SIGNING-&lt;target&gt;.txt</code>, <code>NOTARY-&lt;target&gt;.json</code>, and target checksum files.</li>
+</ul>
+<h2 id="store-readiness-gate">Store Readiness Gate</h2>
+<p>Run the store packaging validator after artifact manifest validation:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target windows-x64 `
+  -PackageVersion 0.1.19-rc.2
+
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target linux-x64 `
+  -PackageVersion 0.1.19-rc.2
+
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
+  -Target macos-arm64 `
+  -PackageVersion 0.1.19-rc.2</code></pre>
+<p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
+<p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects:</p>
+<ul>
+<li>Windows ZIP contents and installer presence.</li>
+<li>Linux tarball metadata and Debian package control/filesystem metadata.</li>
+<li>macOS tarball contents and, for production tags, accepted notarization reports.</li>
+</ul>
+<h2 id="marketplace-submission">Marketplace Submission</h2>
+<p>Marketplace submission starts from the validated GitHub release artifacts:</p>
+<ul>
+<li>Windows: upload the signed installer or use it as the source for a future Partner Center/MSIX packaging pass tied to the store publisher identity.</li>
+<li>Linux: use the Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging.</li>
+<li>macOS: distribute the signed and notarized tarballs directly. A Mac App Store SKU would need a separate sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</li>
+</ul>
+<p>Do not publish marketplace artifacts that failed manifest validation, store-packaging validation, signature verification, or update-channel validation.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

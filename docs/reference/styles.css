@@ -653,6 +653,36 @@ h3 {
   margin: 18px 0 26px;
 }
 
+.guide-content table {
+  width: 100%;
+  margin: 18px 0 26px;
+  border-collapse: collapse;
+  color: var(--paper-dim);
+  background: rgba(17, 20, 23, 0.42);
+  border: 1px solid rgba(244, 239, 229, 0.12);
+}
+
+.guide-content th,
+.guide-content td {
+  padding: 10px 12px;
+  border: 1px solid rgba(244, 239, 229, 0.12);
+  vertical-align: top;
+}
+
+.guide-content th {
+  color: var(--paper);
+  text-align: left;
+  background: rgba(41, 212, 184, 0.12);
+}
+
+.guide-content blockquote {
+  margin: 18px 0 26px;
+  padding: 4px 18px;
+  color: var(--paper-dim);
+  border-left: 3px solid var(--teal);
+  background: rgba(41, 212, 184, 0.08);
+}
+
 .guide-content hr {
   height: 1px;
   margin: 38px 0;

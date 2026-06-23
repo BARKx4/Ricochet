@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Language And Runtime | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Language And Runtime</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#persistent-images-and-source-emission">Persistent Images And Source Emission</a>
+          <a href="#numbers">Numbers</a>
+          <a href="#tasks">Tasks</a>
+          <a href="#date-time-and-duration">Date, Time, And Duration</a>
+          <a href="#provider-settings-and-secrets">Provider Settings And Secrets</a>
+          <a href="#webview-documents">Webview Documents</a>
+          </aside>
+          <article class="guide-content">
+<p>Read an existing binding with <code>$name</code>. Declaration words still keep the name-first shape, and <code>$</code> is useful when a declaration name is itself stored in another variable:</p>
+<pre class="code-block"><code class="language-forth">"users" name var
+$name array
+$users "Ada" push! drop
+$users count println</code></pre>
+<p>Top-level declarations are shared across the VM. Function and method calls get fresh local declaration scopes, so helper locals declared with <code>var</code>, <code>array</code>, <code>map</code>, <code>list</code>, or <code>Set</code> refresh within the active call and do not leak into later calls.</p>
+<h2 id="persistent-images-and-source-emission">Persistent Images And Source Emission</h2>
+<p>Use a persistent image when an interactive session should survive process restart. The image stores safe language state such as the stack, global bindings, functions, classes, instances, blocks, and results:</p>
+<pre class="code-block"><code class="language-powershell">rco repl --image session.rci</code></pre>
+<p>Inside the REPL, image commands use a colon prefix:</p>
+<pre class="code-block"><code class="language-text">:bindings
+:save
+:save checkpoint.rci
+:load checkpoint.rci</code></pre>
+<p><code>--image</code> loads the file at startup when it already exists and saves it again when the REPL exits cleanly. <code>:save</code> and <code>:load</code> default to the <code>--image</code> path; pass an explicit path to checkpoint or switch images during a session.</p>
+<p>For non-interactive workflows, create and inspect image files directly:</p>
+<pre class="code-block"><code class="language-powershell">rco image save session.rci --source main.rco
+rco image inspect session.rci
+rco image inspect session.rci --json</code></pre>
+<p>Images intentionally reject process-local or sensitive runtime state: tasks, capabilities, regex internals, retained HTTP/upload/process/PTY/TCP/WebSocket handles, active approvals, native-only class methods, and literal secret references are not serialized.</p>
+<p>Source emission prints a readable Ricochet-like view of source or compiled bytecode:</p>
+<pre class="code-block"><code class="language-powershell">rco emit-source main.rco
+rco emit-source build/app.rcob</code></pre>
+<p>Treat emitted source as an inspection and portability aid. It preserves useful declarations, literals, calls, and block structure, but it is not a stable byte-for-byte source reconstruction contract.</p>
+<h2 id="numbers">Numbers</h2>
+<p>Ricochet has two numeric runtime values: <code>Number</code> is signed 64-bit integer storage, and <code>Float</code> is finite 64-bit floating-point storage. Plain integer literals stay exact <code>Number</code> values; decimal or exponent literals become <code>Float</code>. Mixed numeric math promotes to <code>Float</code>, and conversion words provide checked boundaries for database- or package-facing intent:</p>
+<pre class="code-block"><code class="language-forth">1.5 2 + println
+12.0 to_integer value println
+12.5 to_integer error "kind" at println
+255 to_unsigned_tinyint value println
+"1.23456789" to_float32 value println</code></pre>
+<h2 id="tasks">Tasks</h2>
+<p>Spawn a task and await its result:</p>
+<pre class="code-block"><code class="language-forth">[ 40 2 + ] spawn answer var
+$answer task_status
+$answer running?
+tasks count
+$answer await
+$answer release_task
+$answer task_status
+handles array
+$handles [ 20 2 + ] spawn push! drop
+$handles [ 30 4 + ] spawn push! drop
+$handles await_all</code></pre>
+<p>HTTP capability calls can also be launched as tasks:</p>
+<pre class="code-block"><code class="language-forth">"https://example.com" http_get_task request var
+$request await value response var
+$response "status" at println</code></pre>
+<p>Long-running HTTP responses can be retained and read incrementally by offset. <code>http_stream_read</code> accepts <code>offset</code> and optional <code>max_bytes</code>; missing or nil <code>max_bytes</code> reads all currently retained bytes from the offset. Read results include the stream snapshot fields plus <code>body</code>, <code>from_offset</code>, <code>next_offset</code>, backward-compatible <code>offset</code> as the next offset, <code>bytes_len</code>, and <code>done</code>. <code>done</code> becomes true only after the stream stops and the read has consumed all currently retained bytes:</p>
+<pre class="code-block"><code class="language-forth">"GET" "https://api.example/v1/events" http_request_new value request var
+$request 60000 http_timeout value request set
+$request http_stream_start value stream var
+
+options map
+$options "max_bytes" 4096 put! drop
+false done var
+$done false = while
+  $stream "id" at $options http_stream_read value chunk var
+  $chunk "body" at println
+  $options "offset" $chunk "next_offset" at put! drop
+  $chunk "done" at done set
+end</code></pre>
+<h2 id="date-time-and-duration">Date, Time, And Duration</h2>
+<p>Date, timestamp, and duration words use UTC Unix epoch milliseconds as their timestamp boundary. RFC3339 parsing accepts offsets and normalizes to UTC; format patterns use Chrono/strftime syntax:</p>
+<pre class="code-block"><code class="language-forth">"2026-06-18T13:14:15.250Z" timestamp_parse value startedAt var
+$startedAt timestamp_format value println
+$startedAt "%Y-%m-%d %H:%M:%S" timestamp_format_pattern value println
+$startedAt timestamp_parts value parts var
+$parts "year" at println
+
+$startedAt 2 duration_hours value timestamp_add value later var
+$startedAt $later timestamp_diff value println
+
+"2026-02-28" date_parse value date var
+$date 1 date_add_days value nextDate var
+$nextDate "%Y-%m-%d" date_format value println
+$date $nextDate date_diff_days value println</code></pre>
+<h2 id="provider-settings-and-secrets">Provider Settings And Secrets</h2>
+<p>For authenticated provider calls, keep settings as ordinary maps and store secret references instead of secret values. <code>secret_env</code> creates an env-backed reference, <code>config_get</code> reads required nested settings, and <code>secret_resolve</code> reads the value only at the point of use under the environment capability. <code>http_request_new</code>, <code>http_bearer_auth</code>, <code>http_json_body</code>, and <code>http_timeout</code> cover the common request-map plumbing while preserving the same runtime host allowlist and no-follow redirect policy as the simpler HTTP words:</p>
+<pre class="code-block"><code class="language-forth">settings map
+provider map
+$provider "api_key" "PROVIDER_API_KEY" secret_env put! drop
+$settings "provider" $provider put! drop
+
+path array
+$path "provider" push! drop
+$path "api_key" push! drop
+$settings $path config_get value secret_resolve value token var
+
+payload map
+$payload "probe" true put! drop
+"POST" "https://api.example/v1/models" http_request_new value request var
+$request $token http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 30000 http_timeout value request set
+$request http_request value response var
+$response "status" at println</code></pre>
+<p>First-party AI package helpers can keep the provider contract separate from the HTTP transport while still resolving secrets only at the point of use:</p>
+<pre class="code-block"><code class="language-forth">"ai/openai" import
+
+"openai" "https://api.openai.com/v1" "gpt-4.1-mini" ai_provider provider var
+messages array
+$messages "Use one paragraph." ai_system_message push! drop
+$messages "Explain Ricochet packages." ai_user_message push! drop
+options map
+tools array
+3 100 1000 ai_retry_policy retry var
+$provider "gpt-4.1-mini" $messages $options $tools $retry ai_chat_request contract var
+
+"OPENAI_API_KEY" ai_secret_ref secret_resolve value token var
+[
+  attempt var
+  chatRequest var
+  $provider "base_url" at $token $chatRequest "model" at $chatRequest "messages" at ai_openai_chat_request request var
+  $request http_request
+] executor var
+
+$contract $executor ai_openai_execute_chat value "text" at println</code></pre>
+<p>The same executor boundary is used by <code>examples/showcase/ai_provider_probe/fake_provider.rco</code> for offline provider tests and by <code>local_model_request.rco</code> for local OpenAI-compatible endpoints. Anthropic Messages API flows use <code>ai_anthropic_provider</code>, <code>ai_anthropic_chat_request</code>, <code>ai_anthropic_execute_chat</code>, and <code>ai_anthropic_stream_events</code>; see <code>examples/showcase/ai_provider_probe/anthropic_request.rco</code> for a dry-run request shape. Native Ollama <code>/api/chat</code> flows use the same contract shape with <code>ai_ollama_provider</code>, <code>ai_ollama_chat_request</code>, <code>ai_ollama_execute_chat</code>, and <code>ai_ollama_stream_events</code>; see <code>examples/showcase/ai_provider_probe/ollama_native_request.rco</code>.</p>
+<p>For long-running AI streams, pair retained <code>http_stream_read</code> chunks with provider stream state instead of parsing each chunk body directly:</p>
+<pre class="code-block"><code class="language-forth">$request http_stream_start value stream var
+ai_openai_stream_state state var
+false done var
+
+$done false = while
+  $state 4096 ai_stream_read_options options var
+  $stream "id" at $options http_stream_read value chunk var
+  $state $chunk ai_openai_stream_read_events value read var
+  $read "events" at [
+    event var
+    $event "kind" at "delta" = if
+      $event "data" at print
+    end
+  ] each drop
+  $read "state" at state set
+  $read "done" at done set
+end</code></pre>
+<p>Use <code>ai_anthropic_stream_state</code> with <code>ai_anthropic_stream_read_events</code> for Anthropic SSE, and <code>ai_ollama_stream_state</code> with <code>ai_ollama_stream_read_events</code> for Ollama NDJSON. The state keeps the next <code>offset</code>, parser <code>buffer</code>, monotonically increasing <code>event_offset</code>, provider <code>protocol_done</code>, transport <code>http_done</code>, and final <code>done</code> flag.</p>
+<h2 id="webview-documents">Webview Documents</h2>
+<p>Build a webview document for desktop UI hosts:</p>
+<pre class="code-block"><code class="language-forth">state map
+$state "count" 1 put! drop
+"Count: " $state "count" at to_string concat webview_text countText var
+"Increment" "increment" webview_button button var
+actions array
+$actions "Increment" "increment" "increment_counter" webview_action push! drop
+"&lt;main&gt;" $countText concat
+$countText concat
+$button concat
+"&lt;/main&gt;" concat body var
+"Counter" $body $state $actions webview_window_state value document var</code></pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

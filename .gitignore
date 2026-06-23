@@ -9,3 +9,11 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Markdown is agent/source data unless it is a conventional README. Public-facing
+# docs should be committed as pre-rendered HTML; keep non-README *.md files
+# local/ignored by default.
+*.md
+**/*.md
+!README.md
+!**/README.md

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet Debugger Integrations | Ricochet Docs</title>
+    <link rel="stylesheet" href="reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="reference/index.html#top">Reference</a>
+        <a href="reference/learn/index.html">Learn</a>
+        <a href="reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet Debugger Integrations</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#manual-epic-10-debugger-verification">Manual Epic 10 debugger verification</a>
+          </aside>
+          <article class="guide-content">
+<p>Ricochet debugger integrations should build on the runtime debug event stream instead of inventing editor-specific state models.</p>
+<p>Current CLI surface:</p>
+<pre class="code-block"><code class="language-powershell">rco run --debug --step app.rco
+rco run --breakpoint 12 app.rco
+rco debug --json app.rco
+rco debug-tui --smoke app.rco
+rco debug-tui --command step --command continue app.rco
+rco debug-web --smoke app.rco
+rco debug-web app.rco
+rco debug-adapter
+rco run --trace-file trace.json app.rco
+rco run-bytecode --trace-file trace.json build/app.rcob
+rco emit-source build/app.rcob
+rco serve --debug</code></pre>
+<p>Trace files are JSON arrays. <code>rco debug --json</code> streams the same event objects as newline-delimited JSON, plus <code>output</code> events for captured program stdout and stderr. Events currently use these shapes:</p>
+<pre class="code-block"><code class="language-json">{
+  "event": "instruction",
+  "frame": "&lt;main&gt;",
+  "source": "app.rco:3",
+  "opcode": "CallWord(\"+\")",
+  "stack_before": [{ "debug": "Number(2)" }],
+  "stack_after": [{ "debug": "Number(5)" }]
+}</code></pre>
+<pre class="code-block"><code class="language-json">{
+  "event": "paused",
+  "reason": "breakpoint",
+  "frame": "work",
+  "source": "app.rco:3",
+  "opcode": "CallWord(\"answer\")",
+  "stack": [],
+  "locals": [{ "name": "answer", "value": { "debug": "Number(41)" } }],
+  "globals": [],
+  "self": null,
+  "tasks": [
+    {
+      "id": 0,
+      "operation": "spawn",
+      "status": "running",
+      "pending": true,
+      "running": true,
+      "completed": false,
+      "failed": false,
+      "fault": null,
+      "frames": [
+        {
+          "frame": "&lt;task&gt;",
+          "source": "app.rco:1",
+          "opcode": "CallWord(\"sleep\")",
+          "stack": [{ "debug": "Number(100)" }],
+          "locals": [],
+          "self": null
+        }
+      ]
+    }
+  ]
+}</code></pre>
+<pre class="code-block"><code class="language-json">{
+  "event": "fault",
+  "frame": "&lt;main&gt;",
+  "message": "unknown word: typo",
+  "stack": [{ "debug": "Number(42)" }]
+}</code></pre>
+<pre class="code-block"><code class="language-json">{
+  "event": "output",
+  "stream": "stdout",
+  "text": "42\n"
+}</code></pre>
+<p>Editor integration guidance:</p>
+<ul>
+<li><code>rco debug-adapter</code> speaks Debug Adapter Protocol over stdio. IDEs should send <code>initialize</code>, <code>launch</code> with a <code>program</code> path, <code>setBreakpoints</code>, and <code>configurationDone</code>, then use standard <code>stackTrace</code>, <code>scopes</code>, and <code>variables</code> requests while the VM is stopped.</li>
+<li>The DAP bridge maps <code>continue</code>, <code>next</code>, <code>stepIn</code>, and <code>stepOut</code> to the same VM controls as the terminal debugger, and returns stack, locals, globals, <code>self</code>, and tasks as DAP scopes. Each task variable expands into stable status fields and the latest worker-frame snapshots published by the task VM.</li>
+<li>VS Code renders saved trace files with <code>Ricochet: Run With Stack Visualizer</code> and renders live stopped-state scopes with <code>Ricochet: Show Debugger Stack</code>. The live panel expands nested DAP variable references, so the <code>Tasks</code> scope can show task detail fields and worker-frame snapshots as a tree.</li>
+<li>Other IDEs should consume the same event contract through either saved traces, <code>rco debug --json</code>, or <code>rco debug-adapter</code>.</li>
+<li><code>rco debug-tui --smoke</code> renders a deterministic read-only terminal snapshot of the first debugger pause. Without <code>--smoke</code>, <code>rco debug-tui</code> opens a command-driven text session that renders a fresh pause snapshot and accepts <code>step</code>, <code>next</code>, <code>out</code>, <code>continue</code>, <code>abort</code>, <code>break &lt;line&gt;</code>, <code>clear &lt;line&gt;</code>, <code>clear_breakpoints</code>, and <code>breakpoints</code> from stdin; repeat <code>--command ACTION</code> for deterministic scripted sessions. A richer full-screen layout is still tracked as debugger UI polish.</li>
+<li><code>rco debug-web --smoke</code> writes the same first-pause snapshot as standalone HTML. Without <code>--smoke</code>, <code>rco debug-web</code> serves a loopback-only browser debugger shell with grouped panes for source, current instruction, stack, locals, globals, <code>self</code>, tasks, program output, event log, and runtime breakpoints. <code>GET /events</code> streams debugger events as Server-Sent Events and replays the latest pause to late subscribers; <code>POST /control</code> accepts JSON actions shaped as <code>{ "action": "step" }</code> with optional <code>pause_id</code> stale control protection. Supported actions are <code>step</code>, <code>next</code>, <code>out</code>, <code>continue</code>, <code>abort</code>, <code>breakpoint_add</code>, <code>breakpoint_remove</code>, <code>breakpoint_clear</code>, and <code>breakpoints</code>; breakpoint add/remove actions include a <code>line</code> field and can optionally include <code>file</code>.</li>
+<li>Stack visualizers should treat <code>debug</code> strings as the stable beta display fallback. Future structured fields can be added without removing <code>debug</code>.</li>
+<li>Source breakpoints should stay line-based at the protocol boundary until the compiler exposes stable instruction IDs.</li>
+<li>Live debugger controls should map <code>step</code> to instruction stepping, <code>next</code> to step-over, <code>out</code> to step-out, and <code>continue</code> to normal execution.</li>
+<li>Live debugger integrations should keep the RPN mental model visible: current stack, current instruction, current frame locals, globals, <code>self</code>, and the current task snapshot. Terminal sessions can inspect those task snapshots with <code>tasks</code>, <code>tasks --tree</code>, <code>task &lt;id&gt; stack</code>, and <code>task &lt;id&gt; locals</code>.</li>
+<li>MVC servers built with debug mode install a request-fault pause hook. Before returning an HTTP 500 for controller action, view render, or response metadata failures, <code>rco serve --debug</code> prints a `FAULT request METHOD PATH Controller.action revision=N stage=... ...` line. Embedders can install a <code>RequestFaultSink</code> to observe the same <code>RequestFaultPause</code> event without blocking request handling.</li>
+<li><code>rco emit-source</code> can provide a readable source-like bytecode view for debugger tooling and recovery workflows, but it is not a stable byte-for-byte source reconstruction contract.</li>
+<li>Persistent VM images preserve safe language state for REPL and tooling workflows. They are not debugger pause snapshots and they refuse retained host resources such as tasks, streams, processes, PTYs, sockets, approvals, capabilities, regex internals, and literal secret references.</li>
+</ul>
+<h2 id="manual-epic-10-debugger-verification">Manual Epic 10 debugger verification</h2>
+<p>Run this checklist before marking the debugger UI epic complete. Use a small <code>.rco</code> file with at least three source lines, a stack-producing operation, a binding/global, and an async task if the task view changed.</p>
+<ul>
+<li><code>rco debug-tui --command step --command next --command out --command continue</code> shows a fresh text snapshot at each pause with the current source line, opcode, stack, locals, globals, and tasks.</li>
+<li>Interactive <code>rco debug-tui</code> accepts keyboard-entered <code>step</code>, <code>next</code>, <code>out</code>, <code>continue</code>, <code>abort</code>, <code>break &lt;line&gt;</code>, <code>clear &lt;line&gt;</code>, <code>clear_breakpoints</code>, and <code>breakpoints</code> commands without claiming to be a curses-style full-screen UI.</li>
+<li><code>rco debug-web</code> binds only to loopback, renders grouped panes for source, current instruction, stack, locals, globals, <code>self</code>, tasks, output, event log, and breakpoints, and keeps those panes in sync while stepping.</li>
+<li>Browser controls work by click and keyboard shortcuts for step, next, out, continue, and abort; breakpoint add/remove/clear/list controls update the breakpoint pane and the event log.</li>
+<li>Variable inspection shows stack, locals, globals, <code>self</code> when present, and task frame details consistently with <code>rco debug --json</code> or DAP scopes.</li>
+<li>Screenshots are optional and should be committed only after the UI layout and assets are stable enough to avoid noisy churn.</li>
+</ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="reference/app.js"></script>
+  </body>
+</html>

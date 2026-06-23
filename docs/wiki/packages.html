@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Packages And Registries | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Packages And Registries</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#hosted-registry-protocol">Hosted Registry Protocol</a>
+          </aside>
+          <article class="guide-content">
+<p>Add a package dependency from a Ricochet project:</p>
+<pre class="code-block"><code class="language-powershell">rco add ./packages/ricochet_forms --as forms
+rco add ./packages/ricochet_forms --as forms --version "^0.1.0"
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry
+rco publish ./packages/ricochet_forms --registry ../ricochet-registry `
+  --provenance-file provenance.json --signature-file forms.sig --signature-kind minisign
+rco registry rebuild ../ricochet-registry
+rco registry check ../ricochet-registry
+rco search forms --registry-url file:///E:/path/to/ricochet-registry/index.toml
+rco add registry:@ricochet/forms --registry ../ricochet-registry --as forms --version "^0.1.0"
+rco add registry:@ricochet/forms --registry-url file:///E:/path/to/ricochet-registry/index.toml --as forms --version "^0.1.0"
+rco registry serve ./hosted-registry --publisher "@ricochet/*=RICOCHET_REGISTRY_TOKEN"
+rco publish ./packages/ricochet_forms --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry yank @ricochet/forms 0.1.0 --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry mirror http://127.0.0.1:3001 ./ricochet-static-mirror
+rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch
+rco install
+rco verify
+rco audit --json</code></pre>
+<p><code>ricochet.lock</code> records each resolved package source, cache path, optional Git commit, optional local registry, optional semantic version requirement, resolved package version, and <code>sha256:</code> content integrity hash.</p>
+<p><code>rco publish --registry</code> creates a file-backed local registry entry for packages with <code>[package] name</code> and <code>version</code>; optional <code>--provenance-file</code>, <code>--signature-file</code>, and <code>--signature-kind</code> flags attach registry metadata and lockfile-visible <code>sha256:</code> digests for external attestation/signing workflows.</p>
+<p><code>rco registry rebuild PATH</code> writes a static <code>index.toml</code>, package metadata, and release-style archives, while <code>rco registry check PATH</code> verifies the generated hashes. <code>rco add registry:name --registry PATH</code> installs from the local registry layout, or uses <code>RICOCHET_REGISTRY</code> when <code>--registry</code> is omitted.</p>
+<p><code>rco add registry:@scope/name --registry-url URL --as alias</code> installs from a static HTTP/file registry index with required <code>sha256:</code> archive verification. <code>rco install</code> and <code>rco verify</code> reject packages whose <code>[package] version</code> does not satisfy the manifest requirement, and <code>rco verify</code> recomputes the package tree hash while ignoring VCS metadata, so it catches local path changes, registry cache drift, or cached Git package drift without fetching or rewriting anything. Locked static-registry installs also reject same-version registry metadata changes instead of accepting replacement archives during ordinary <code>rco install</code>.</p>
+<p>Use <code>rco search QUERY --registry-url URL</code> to discover static or hosted registry packages, and use <code>rco audit</code> or <code>rco audit --json</code> for dependency reports in CI and release tooling.</p>
+<h2 id="hosted-registry-protocol">Hosted Registry Protocol</h2>
+<p>The hosted registry protocol is specified in <a href="hosted-registry-protocol.html">Hosted Registry Protocol</a>. The spec keeps static registry compatibility as the fallback path: hosted metadata uses immutable version records, registry-relative artifacts, <code>sha256:</code> archive and package tree integrity, yanked records, and provenance/signature fields that can export back to <code>ricochet-static-registry-v1</code>.</p>
+<p>Ricochet implements hosted client discovery, search, metadata fetch, archive fetch, install, publish, and yank operations. <code>rco registry serve PATH</code> runs the local hosted registry reference server, serving discovery, search, metadata, artifact, publish, and yank endpoints from an on-disk <code>registry.json</code> plus <code>artifacts/</code> store under <code>PATH</code>.</p>
+<p>Hosted publish and yank use env-backed bearer tokens, for example <code>--token-env RICOCHET_REGISTRY_TOKEN</code>, and never store literal token values in manifests or lockfiles. The reference server accepts <code>--token-env NAME</code> for an all-package publisher token or repeated <code>--publisher PACKAGE=ENV</code> policies for exact packages and <code>@scope/*</code> scopes. It verifies uploaded archive integrity, package tree integrity, package identity, provenance/signature digests, rejects same-version replacement with <code>version_exists</code>, and preserves yanked records.</p>
+<p><code>rco registry mirror REGISTRY_URL PATH</code> exports hosted metadata and artifacts into a static <code>ricochet-static-registry-v1</code> mirror. It preserves yanked records, registry-relative archive paths, archive/package integrity, provenance and signature digests, then writes an <code>index.toml</code> that existing static <code>--registry-url file://.../index.toml</code> installs can use.</p>
+<p>Static imports load dependencies at compile time and remain the preferred default for ordinary module sharing:</p>
+<pre class="code-block"><code class="language-forth">"forms/validation" import
+"email" "ada@example.com" form_field
+"value" at</code></pre>
+<p>Dynamic imports load a module from a runtime string while using the same resolver, path containment, and lock integrity checks:</p>
+<pre class="code-block"><code class="language-forth">"forms/validation" import_dynamic value forms var
+args array
+args get "email" push! drop
+args get "ada@example.com" push! drop
+forms get "form_field" args get module_call value
+"value" at</code></pre>
+<p><code>import_dynamic</code> returns a <code>Result</code> containing a module map with <code>id</code>, <code>specifier</code>, <code>path</code>, <code>variables</code>, <code>functions</code>, and <code>classes</code>. Use <code>module_call</code> for functions and <code>module_get</code> for exported variables or classes. Import failures, missing functions, and lock/containment failures are returned as <code>Result</code> errors so request handlers and scripts can report them explicitly. Loaded modules are cached for the life of the VM; restart the VM or request snapshot to reload changed module code.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

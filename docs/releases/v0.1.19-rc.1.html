@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.1 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.1 Release Candidate Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#highlights">Highlights</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-22</p>
+<p>Ricochet v0.1.19-rc.1 is the first public release candidate after the roadmap closure audit. It builds on the v0.1.18 network and host-boundary hardening, then adds the final distribution checks needed to exercise the Windows, Linux, and macOS release surface before a stable v0.1.19 tag.</p>
+<h2 id="highlights">Highlights</h2>
+<ul>
+<li>The roadmap closure audit now has green local gates, green branch CI, and a green release workflow dry run covering Windows, Linux, and both macOS targets.</li>
+<li>Release packaging now validates artifact manifests, store-ready package shape, signing-status reports, update-channel metadata, and combined checksum output before GitHub release publication.</li>
+<li>Semver prerelease tags are published as GitHub prereleases, are not marked latest, use the dry-run signing/notarization path, and write <code>UPDATE-CHANNEL-candidate.json</code> with SHA-256 verification metadata instead of the stable update-channel file.</li>
+<li>Public documentation now separates implemented roadmap scope from future extensions and keeps local maintenance notes out of the README surface.</li>
+<li>The v0.1.18 hardening remains included: TCP/WebSocket client and listener words, host allow-list resolution checks, WebSocket origin checks, bounded stream reads, package registry hardening, MVC capability narrowing, AI and database host-boundary checks, process-root enforcement, and editor trust handling.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this candidate, run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+<p>After the GitHub release workflow publishes artifacts, verify that the release is marked as a prerelease, is not marked latest, includes <code>UPDATE-CHANNEL-candidate.json</code>, and includes the Windows, Linux, and macOS packages plus checksum, signing-status, artifact-manifest, notary, and update channel reports.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

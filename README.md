@@ -58,18 +58,18 @@ rco serve
 
 ## Documentation
 
-Start with the wiki-style docs index:
+Start with the production HTML docs:
 
-- [Docs Wiki](docs/wiki/README.md)
+- [Docs Index](docs/wiki/README.html)
 - [HTML Reference Guides](docs/reference/guides/index.html)
-- [Feature Overview](docs/wiki/features.md)
-- [Getting Started](docs/wiki/getting-started.md)
-- [Language And Runtime](docs/wiki/language-runtime.md)
-- [Web And Data](docs/wiki/web-and-data.md)
-- [Host Capabilities And Safety](docs/wiki/host-capabilities.md)
-- [Packages And Registries](docs/wiki/packages.md)
-- [Editor And Debugging](docs/wiki/editor-debugging.md)
-- [Development And Release](docs/wiki/development-release.md)
+- [Feature Overview](docs/reference/guides/features.html)
+- [Getting Started](docs/reference/guides/getting-started.html)
+- [Language And Runtime](docs/reference/guides/language-runtime.html)
+- [Web And Data](docs/reference/guides/web-and-data.html)
+- [Host Capabilities And Safety](docs/reference/guides/host-capabilities.html)
+- [Packages And Registries](docs/reference/guides/packages.html)
+- [Editor And Debugging](docs/reference/guides/editor-debugging.html)
+- [Development And Release](docs/reference/guides/development-release.html)
 
 The static reference site lives at `docs/reference/index.html` and can be opened
 directly in a browser.
@@ -102,5 +102,5 @@ cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
 ```
 
 When adding or renaming public words, follow
-[docs/adding-words.md](docs/adding-words.md) so VM dispatch, tests, reference
+[docs/adding-words.html](docs/adding-words.html) so VM dispatch, tests, reference
 docs, LSP completions, editor grammar, validators, and examples stay in sync.

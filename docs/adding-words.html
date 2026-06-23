@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Adding Ricochet Words | Ricochet Docs</title>
+    <link rel="stylesheet" href="reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="reference/index.html#top">Reference</a>
+        <a href="reference/learn/index.html">Learn</a>
+        <a href="reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Adding Ricochet Words</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#design-check">Design Check</a>
+          <a href="#required-code-updates">Required Code Updates</a>
+          <a href="#required-documentation-and-tooling-updates">Required Documentation And Tooling Updates</a>
+          <a href="#verification">Verification</a>
+          <a href="#common-drift-symptoms">Common Drift Symptoms</a>
+          </aside>
+          <article class="guide-content">
+<p>Use this checklist when adding, renaming, or removing any public Ricochet word. The goal is to keep the VM, CLI docs, LSP completions, editor grammar, examples, and validation scripts in lockstep.</p>
+<h2 id="design-check">Design Check</h2>
+<ul>
+<li>Keep the API postfix/RPN: arguments are below the receiver or operation word.</li>
+<li>Use <code>_</code> for public multiword names, for example <code>timestamp_parse</code>.</li>
+<li>Do not use leading <code>.</code> syntax, fake namespace-dot APIs, or leading-dash words.</li>
+<li>Reserve <code>-</code> for subtraction and negative number literals.</li>
+<li>Decide whether failures are VM errors or Ricochet <code>Result</code> values:</li>
+<li>Type/stack misuse should usually stay a VM error.</li>
+<li>User data failures such as parse errors should usually return <code>Result</code>.</li>
+<li>Decide whether the word needs a host capability gate. If yes, update capability docs and <code>runtime_capabilities</code> output as needed.</li>
+</ul>
+<h2 id="required-code-updates">Required Code Updates</h2>
+<ul>
+<li>Add a failing behavior test first. Good default locations are <code>crates/ricochet_cli/tests/cli_smoke.rs</code> for public language behavior and <code>crates/ricochet_vm/src/*</code> unit tests for focused runtime internals.</li>
+<li>Implement the VM behavior in <code>crates/ricochet_vm/src/builtins.rs</code> or the relevant runtime module.</li>
+<li>Add the dispatch arm in <code>crates/ricochet_vm/src/vm.rs</code>.</li>
+<li>If the word needs a new dependency, add it to workspace dependencies in <code>Cargo.toml</code> and to the consuming crate manifest.</li>
+<li>If the change affects syntax rather than an ordinary word, also update the lexer/parser/formatter/diagnostic tests and the design spec.</li>
+<li>If the change adds a runtime value kind, update display/JSON conversion, template rendering, web/controller bridges, database parameter and row conversions, <code>type</code>/<code>class_of</code>, and diagnostics that print <code>value_kind</code>.</li>
+</ul>
+<h2 id="required-documentation-and-tooling-updates">Required Documentation And Tooling Updates</h2>
+<ul>
+<li>Add or update the reference catalog entry in <code>docs/reference/app.js</code>.</li>
+<li>Add the word to the required-word list in <code>docs/reference/validate.ps1</code>.</li>
+<li>Add at least one copyable example to <code>docs/reference/index.html</code> when the word introduces a new public workflow or concept.</li>
+<li>Add an LSP entry in <code>crates/ricochet_cli/src/lsp.rs</code>.</li>
+<li>Add the token to the VS Code grammar in <code>editors/vscode/syntaxes/ricochet.tmLanguage.json</code>.</li>
+<li>Update <code>README.md</code> when the word changes a headline workflow, security model, release promise, or common user-facing example.</li>
+<li>Update the internal language design spec when the word changes or clarifies the language design contract.</li>
+<li>Update examples or package docs that should demonstrate the new word.</li>
+</ul>
+<h2 id="verification">Verification</h2>
+<p>From the repository root, run:</p>
+<pre class="code-block"><code class="language-powershell">rtk cargo fmt --all -- --check
+rtk cargo clippy --workspace --all-targets -- -D warnings
+rtk cargo test --workspace
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+rtk cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json</code></pre>
+<p>For release-facing changes, also run:</p>
+<pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+<h2 id="common-drift-symptoms">Common Drift Symptoms</h2>
+<ul>
+<li><code>rco words --check</code> reports a documented word missing from LSP or grammar: update <code>lsp.rs</code> or <code>ricochet.tmLanguage.json</code>.</li>
+<li><code>docs/reference/validate.ps1</code> reports missing example text: update <code>docs/reference/index.html</code> or <code>docs/reference/app.js</code>.</li>
+<li>The editor validator fails after a word rename: update both the reference catalog and TextMate grammar.</li>
+<li>A CLI smoke test passes but acceptance fails: check static docs, examples, scaffold behavior, and live <code>rco serve</code> smoke coverage.</li>
+</ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="reference/app.js"></script>
+  </body>
+</html>

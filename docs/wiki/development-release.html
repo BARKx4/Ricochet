@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Development And Release | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Development And Release</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#benchmarks">Benchmarks</a>
+          <a href="#developing-ricochet">Developing Ricochet</a>
+          <a href="#verification">Verification</a>
+          <a href="#release-packaging">Release Packaging</a>
+          <a href="#production-release-commands">Production Release Commands</a>
+          <a href="#reference-docs">Reference Docs</a>
+          </aside>
+          <article class="guide-content">
+<h2 id="benchmarks">Benchmarks</h2>
+<p><code>rco bench</code> runs a repeatable local benchmark suite for parser/compiler work, VM arithmetic, function and method dispatch, collection mutation, JSON encode/decode, template rendering, package verification, and a SQLite MVC request path. Use <code>rco bench --smoke</code> for CI-sized coverage or <code>rco bench --iterations 5</code> for a local baseline. The current website-copy baseline lives in <code>docs/benchmarks/2026-06-17-baseline.html</code>.</p>
+<h2 id="developing-ricochet">Developing Ricochet</h2>
+<p>Use Cargo when changing the Rust implementation itself. For an uninstalled source-tree run, this is equivalent to <code>rco run examples/basic-oop.rco</code>:</p>
+<pre class="code-block"><code class="language-powershell">cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco</code></pre>
+<h2 id="verification">Verification</h2>
+<p>For contributor verification, use a current stable Rust toolchain and install the formatter, linter, and audit plugin explicitly:</p>
+<pre class="code-block"><code class="language-powershell">rustup component add rustfmt clippy
+cargo install cargo-audit --locked</code></pre>
+<p>Then run:</p>
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
+<p>The acceptance suite validates the static reference docs, editor assets, word inventory drift check, examples, scaffolded project checks/tests, and a live <code>rco serve</code> smoke request against the generated no-database scaffold.</p>
+<h2 id="release-packaging">Release Packaging</h2>
+<p>See <code>docs/releases/v0.1.19-rc.2.html</code> for the current release-candidate notes, hardening checklist, and artifact smoke-test expectations.</p>
+<p>Windows release packages are built from this repository with:</p>
+<pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1</code></pre>
+<p>The script builds <code>rco.exe</code>, <code>rco-gui.exe</code>, and <code>ricochet.exe</code>, creates a portable ZIP, writes <code>SHA256SUMS.txt</code>, and creates a Windows <code>.exe</code> installer when NSIS <code>makensis.exe</code> is installed. It also writes <code>ARTIFACTS-windows-x64.json</code>, a machine-readable release manifest covering the ZIP, installer when present, checksum file, and signing-status report. GitHub Actions installs NSIS automatically in the release workflow.</p>
+<p>Windows signing is controlled with <code>-SigningMode auto|require|skip|dry-run</code>. Local and branch dry-runs can use <code>-SigningMode dry-run</code> to write a <code>SIGNING-windows-x64.txt</code> report without requiring a certificate. Production tag releases use <code>require</code> in CI so missing <code>signtool.exe</code>, <code>RICOCHET_WINDOWS_CERT_SHA1</code>, or a certificate installed in <code>Cert:\CurrentUser\My</code> fails loudly instead of publishing unsigned artifacts. Set <code>RICOCHET_WINDOWS_TIMESTAMP_URL</code> to override the default timestamp server.</p>
+<p>For production tag builds, GitHub Actions imports the Authenticode certificate before packaging with <code>scripts/setup-windows-signing-certificate.ps1</code>. Configure these repository secrets:</p>
+<ul>
+<li><code>RICOCHET_WINDOWS_CERT_PFX_BASE64</code>: base64 of the <code>.pfx</code> signing certificate.</li>
+<li><code>RICOCHET_WINDOWS_CERT_PASSWORD</code>: password for the <code>.pfx</code>.</li>
+<li><code>RICOCHET_WINDOWS_CERT_SHA1</code>: optional expected SHA-1 thumbprint to validate; the setup step also writes the imported thumbprint back to <code>RICOCHET_WINDOWS_CERT_SHA1</code> for the package script.</li>
+</ul>
+<p>Local credential setup uses the same environment variables:</p>
+<pre class="code-block"><code class="language-powershell">$env:RICOCHET_WINDOWS_CERT_PFX_BASE64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\ricochet-signing.pfx"))
+$env:RICOCHET_WINDOWS_CERT_PASSWORD = "&lt;pfx password&gt;"
+$envFile = Join-Path ([IO.Path]::GetTempPath()) ("ricochet-windows-signing-" + [guid]::NewGuid().ToString("N") + ".ps1")
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-windows-signing-certificate.ps1 -Required -EnvFile $envFile
+. $envFile</code></pre>
+<p>Validate a Windows output directory with:</p>
+<pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64</code></pre>
+<p>Omit <code>-RequireInstaller</code> for local dry-runs on machines without NSIS; CI keeps it enabled because release jobs install NSIS and require the installer artifact. For production tag outputs, verify the Authenticode signatures on the portable ZIP contents and installer before upload:</p>
+<pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
+<p>Linux release packages are built on Linux with:</p>
+<pre class="code-block"><code class="language-bash">bash scripts/package-release-linux.sh</code></pre>
+<p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, writes <code>SHA256SUMS-linux-x64.txt</code>, and creates a Debian <code>.deb</code> package with <code>dpkg-deb</code>. It also writes <code>ARTIFACTS-linux-x64.json</code>, including SHA-256, size, source, signing report, and detached <code>.asc</code> signature relationships when signatures are produced.</p>
+<p>Linux release packages include a terminal desktop launcher for <code>rco repl</code>, an SVG icon, AppStream metainfo, a changelog, maintainer metadata, and the bundled reference docs/packages/examples. GUI applications produced by <code>rco package --gui --linux-package tar|deb</code> include their own <code>.desktop</code>, AppStream, icon, and changelog metadata.</p>
+<p>Linux detached artifact signatures are controlled with <code>--signature-mode auto|require|skip|dry-run</code>. Dry-run mode writes <code>SIGNING-linux-x64.txt</code>; production tag releases use <code>require</code> in CI and expect <code>RICOCHET_LINUX_GPG_KEY</code> to name an imported GPG key.</p>
+<p>For production tag builds, GitHub Actions imports the GPG private key before packaging with <code>scripts/setup-linux-gpg-key.sh</code>. Configure these repository secrets:</p>
+<ul>
+<li><code>RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64</code>: base64 of an armored or binary GPG secret-key export.</li>
+<li><code>RICOCHET_LINUX_GPG_KEY</code>: optional key id or fingerprint to validate and use; when omitted and exactly one secret key is imported, the setup step writes the imported fingerprint to <code>RICOCHET_LINUX_GPG_KEY</code>.</li>
+<li><code>RICOCHET_LINUX_GPG_OWNERTRUST_BASE64</code>: optional base64 ownertrust export.</li>
+</ul>
+<p>Local credential setup uses the same environment variables:</p>
+<pre class="code-block"><code class="language-bash">export RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64="$(gpg --armor --export-secret-keys KEYID | base64 -w0)"
+export RICOCHET_LINUX_GPG_KEY="KEYID"
+env_file="$(mktemp)"
+bash scripts/setup-linux-gpg-key.sh --required --env-file "$env_file"
+set -a
+. "$env_file"
+set +a</code></pre>
+<p>Validate a Linux output directory with:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64</code></pre>
+<p>For production tag outputs, verify every detached GPG signature against the selected signing key before upload:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey $env:RICOCHET_LINUX_GPG_KEY</code></pre>
+<p>macOS release tarballs are built on macOS with:</p>
+<pre class="code-block"><code class="language-bash">bash scripts/package-release-macos.sh --target macos-arm64
+bash scripts/package-release-macos.sh --target macos-x64</code></pre>
+<p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, writes a target-specific checksum file, and writes <code>ARTIFACTS-&lt;target&gt;.json</code> for the tarball, checksum file, and signing-status report. GitHub Actions builds Apple Silicon and Intel tarballs on separate macOS runners.</p>
+<p>macOS signing and notarization are controlled with <code>--signing-mode</code> and <code>--notarization-mode</code>, each accepting <code>auto</code>, <code>require</code>, <code>skip</code>, or <code>dry-run</code>. Dry-run mode writes a <code>SIGNING-&lt;target&gt;.txt</code> report. Production tag releases use <code>require</code> in CI; scheduled nightlies use <code>auto</code> so unsigned beta artifacts are allowed only with an explicit report. Configure <code>RICOCHET_MACOS_SIGN_IDENTITY</code> and <code>RICOCHET_MACOS_NOTARY_PROFILE</code> when signing and notarization credentials are available on the runner.</p>
+<p>For production tag builds, GitHub Actions creates an ephemeral keychain, imports the P12 signing certificate, configures codesign access, and stores a notarytool profile before packaging with <code>scripts/setup-macos-signing-keychain.sh</code>. The package script submits a temporary ZIP copy to Apple notarization and keeps the tarball as the published artifact. It preserves Apple notarytool's accepted submission response as <code>NOTARY-&lt;target&gt;.json</code>, includes that report in the checksum file and artifact manifest, and records the relationship in <code>SIGNING-&lt;target&gt;.txt</code>. An <code>always()</code> cleanup step runs <code>scripts/cleanup-macos-signing-keychain.sh</code> after packaging to restore the previous keychain state and remove the generated keychain. Configure these repository secrets:</p>
+<ul>
+<li><code>RICOCHET_MACOS_CERT_P12_BASE64</code>: base64 of the signing certificate <code>.p12</code>.</li>
+<li><code>RICOCHET_MACOS_CERT_PASSWORD</code>: password for the <code>.p12</code>.</li>
+<li><code>RICOCHET_MACOS_KEYCHAIN_PASSWORD</code>: optional password for the ephemeral keychain; the setup script generates one when omitted.</li>
+<li><code>RICOCHET_MACOS_SIGN_IDENTITY</code>: optional expected codesign identity to validate; when omitted, the setup step selects an imported identity and writes it for the package script.</li>
+<li><code>RICOCHET_MACOS_NOTARY_PROFILE</code>: required notarytool profile name to create and pass to packaging.</li>
+<li>Apple ID notarization path: <code>RICOCHET_MACOS_NOTARY_APPLE_ID</code>, <code>RICOCHET_MACOS_NOTARY_TEAM_ID</code>, and <code>RICOCHET_MACOS_NOTARY_PASSWORD</code>.</li>
+<li>App Store Connect API key notarization path: <code>RICOCHET_MACOS_NOTARY_API_KEY_BASE64</code>, <code>RICOCHET_MACOS_NOTARY_KEY_ID</code>, and <code>RICOCHET_MACOS_NOTARY_ISSUER_ID</code>.</li>
+</ul>
+<p>Local credential setup uses the same environment variables:</p>
+<pre class="code-block"><code class="language-bash">export RICOCHET_MACOS_CERT_P12_BASE64="$(base64 -i /path/ricochet-signing.p12 | tr -d '\n')"
+export RICOCHET_MACOS_CERT_PASSWORD="&lt;p12 password&gt;"
+export RICOCHET_MACOS_NOTARY_PROFILE="ricochet-release"
+export RICOCHET_MACOS_NOTARY_APPLE_ID="release@example.com"
+export RICOCHET_MACOS_NOTARY_TEAM_ID="TEAMID1234"
+export RICOCHET_MACOS_NOTARY_PASSWORD="&lt;app-specific password&gt;"
+env_file="$(mktemp)"
+bash scripts/setup-macos-signing-keychain.sh --env-file "$env_file"
+set -a
+. "$env_file"
+set +a
+trap 'bash scripts/cleanup-macos-signing-keychain.sh' EXIT</code></pre>
+<p>For App Store Connect API key notarization, use <code>RICOCHET_MACOS_NOTARY_API_KEY_BASE64</code>, <code>RICOCHET_MACOS_NOTARY_KEY_ID</code>, and <code>RICOCHET_MACOS_NOTARY_ISSUER_ID</code> instead of the Apple ID variables.</p>
+<p>Validate a macOS output directory with:</p>
+<pre class="code-block"><code class="language-bash">pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-x64
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-x64</code></pre>
+<p>For production tag outputs, verify the extracted binaries' codesign signatures and the <code>NOTARY-&lt;target&gt;.json</code> accepted notarization report before upload:</p>
+<pre class="code-block"><code class="language-bash">pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
+<h2 id="production-release-commands">Production Release Commands</h2>
+<p>Production releases are tag-driven. With the GitHub repository secrets from this guide configured, the normal release path is:</p>
+<pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.2"
+$tag = "v$version"
+
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git status --short
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+
+git tag -a $tag -m "Ricochet $tag"
+git push origin $tag
+gh run list --workflow Release --limit 5
+gh run watch &lt;run-id&gt; --exit-status
+gh release view $tag --json tagName,name,isDraft,isPrerelease,url</code></pre>
+<p>The release workflow imports production signing credentials on tag jobs, builds Windows, Linux, and macOS packages, validates artifact manifests, validates store-ready packaging, verifies production signatures, writes the update channel metadata, writes the combined checksum file, and creates the GitHub release. Semver prerelease tags such as <code>v0.1.19-rc.2</code> are published as GitHub prereleases, are not marked latest, use the dry-run signing/notarization path, and write <code>UPDATE-CHANNEL-candidate.json</code> with SHA-256 verification metadata instead of the stable channel file. Stable tag releases continue to require the production signing and notarization secrets before publishing.</p>
+<p>For a manual production package dry run before tagging, run the platform packaging commands on their native operating systems with production modes:</p>
+<pre class="code-block"><code class="language-powershell"># Windows, with NSIS and the Authenticode certificate already available.
+$version = "0.1.19-rc.2"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
+<pre class="code-block"><code class="language-bash"># Linux, with GPG credentials imported.
+version="0.1.19-rc.2"
+bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey "$RICOCHET_LINUX_GPG_KEY"</code></pre>
+<pre class="code-block"><code class="language-bash"># macOS, once for each native target with the signing keychain prepared.
+version="0.1.19-rc.2"
+bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
+pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
+pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
+<p>After all platform artifacts are collected in one <code>dist</code> directory, validate the release channel and combined artifact set:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.2 -ReleaseTag v0.1.19-rc.2 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.2
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.2 -RequireProduction</code></pre>
+<p>The release workflow packages the Windows, Linux, and macOS artifacts, writes a validated update-channel JSON file for the selected release channel, writes a combined <code>SHA256SUMS.txt</code>, and attaches the ZIP, Windows installer, Linux tarball, Debian package, macOS tarballs, checksums, signing-status reports, per-target JSON manifests, notary reports, and update-channel metadata to the GitHub release. The combined checksum file includes the uploaded JSON manifests, macOS notary reports, and update-channel metadata. Each package job validates its <code>ARTIFACTS-&lt;target&gt;.json</code> manifest after the package smoke test and before uploading artifacts, validates store-ready package contents and metadata, including installer/deb requirements in CI and detached Linux <code>.asc</code> signature relationships when signatures are present. Production tag package jobs also verify signatures before upload: Windows checks the portable ZIP executables and installer Authenticode signatures, Linux verifies detached GPG signatures, and macOS verifies codesign plus the accepted notarytool response. See <a href="store-packaging.html">Store Packaging</a> for marketplace handoff rules and <a href="updater-workflow.html">Updater Workflow</a> for channel metadata, version-check, verification, and rollback rules.</p>
+<p>The same workflow also runs nightly from <code>main</code>. Nightly builds use a version like <code>X.Y.Z-nightly.N</code>, build the same Windows, Linux, and macOS packages, and upload them as GitHub Actions artifacts for 30 days. Nightlies do not create public GitHub releases.</p>
+<h2 id="reference-docs">Reference Docs</h2>
+<p>The documentation website is static and lives at <code>docs/reference/index.html</code>. Open it directly in a browser; there is no build step.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

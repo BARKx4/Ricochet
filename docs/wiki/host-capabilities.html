@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Host Capabilities And Safety | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Host Capabilities And Safety</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#workspace-filesystem-helpers">Workspace Filesystem Helpers</a>
+          <a href="#process-environment">Process Environment</a>
+          <a href="#process-execution">Process Execution</a>
+          <a href="#pty-sessions">PTY Sessions</a>
+          <a href="#approvals">Approvals</a>
+          <a href="#runtime-safety-notes">Runtime Safety Notes</a>
+          </aside>
+          <article class="guide-content">
+<p>Ricochet keeps powerful host behavior behind explicit capability controls.</p>
+<h2 id="workspace-filesystem-helpers">Workspace Filesystem Helpers</h2>
+<p>Workspace helpers provide structured filesystem access for local apps while preserving the same <code>--fs-root</code> and <code>--fs-readonly</code> bounds as the lower-level <code>fs_*</code> words. <code>fs_delete</code> removes a file, symlink, or empty directory; <code>workspace_delete</code> adds explicit <code>recursive</code> and <code>missing_ok</code> options and refuses to delete the configured filesystem root:</p>
+<pre class="code-block"><code class="language-forth">options map
+writeOptions map
+$writeOptions "create_parent_dirs" true put! drop
+"README.md" $options workspace_read_text value readme var
+"." $options workspace_list value entries var
+"generated/out.txt" "hello" $writeOptions workspace_write_text value written var
+$written "relative_path" at println
+deleteOptions map
+$deleteOptions "recursive" true put! drop
+"generated" $deleteOptions workspace_delete value drop
+runtime_capabilities "workspace" at "root" at println</code></pre>
+<h2 id="process-environment">Process Environment</h2>
+<p>Use <code>process_env_put</code> when a child process needs a bounded environment value without hand-building the nested <code>env</code> options map:</p>
+<pre class="code-block"><code class="language-forth">args array
+options map
+$options "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
+"git" $args $options process_spawn value</code></pre>
+<h2 id="process-execution">Process Execution</h2>
+<p>Process execution is stronger than the ordinary trusted local profile and stays disabled unless you pass <code>--allow-process</code>. Use <code>process_spawn</code> with a direct command string, an argument array, and an options map when you want to run a process to completion. <code>--process-root PATH</code> narrows process and PTY <code>cwd</code> values independently from <code>--fs-root</code>; when omitted, process cwd containment falls back to the filesystem root if one is configured:</p>
+<pre class="code-block"><code class="language-forth">args array
+$args "status" push! drop
+options map
+$options "timeout_ms" 10000 put! drop
+"git" $args $options process_spawn value result var
+$result "success" at println</code></pre>
+<p>Use <code>process_start</code> for long-running jobs. The runtime keeps a retained job registry with bounded captured output, and it can be inspected across MVC requests with <code>process_jobs</code>, <code>process_job</code>, <code>process_read</code>, and <code>process_cancel</code>. Release completed jobs with <code>process_release</code>:</p>
+<pre class="code-block"><code class="language-forth">args array
+$args "status" push! drop
+options map
+$options "stdout_max_bytes" 1048576 put! drop
+"git" $args $options process_start value job var
+readOptions map
+$job "id" at $readOptions process_read value output var
+$output "stdout" at println
+$job "id" at process_release value drop</code></pre>
+<h2 id="pty-sessions">PTY Sessions</h2>
+<p>PTY sessions are separate and also opt in. Use <code>--allow-pty</code> for trusted scripts or MVC apps that need a real pseudo-terminal. Command names and shell newlines are host-specific:</p>
+<pre class="code-block"><code class="language-forth">args array
+$args "repl" push! drop
+options map
+"rco" $args $options pty_start value session var
+$session "id" at "1 2 +\r\n" pty_write value drop
+readOptions map
+$session "id" at $readOptions pty_read value screen var
+$screen "output" at println
+stopOptions map
+$session "id" at $stopOptions pty_stop value drop
+$session "id" at pty_release value drop</code></pre>
+<h2 id="approvals">Approvals</h2>
+<p>Approval records are runtime-local and shared across MVC requests. <code>approval_create</code> returns a generated token once; <code>approval_claim</code> consumes that token exactly once before the caller performs the mutating operation:</p>
+<pre class="code-block"><code class="language-forth">operation map
+$operation "capability" "workspace.write" put! drop
+$operation "summary" "Write generated file" put! drop
+options map
+$operation $options approval_create value approval var
+$approval "id" at $approval "token" at approval_claim value claim var
+$claim "claimed" at println
+$approval "id" at approval_detail value detail var
+$approval "id" at approval_release value drop</code></pre>
+<h2 id="runtime-safety-notes">Runtime Safety Notes</h2>
+<p>The CLI uses the <code>trusted</code> capability profile by default for local scripts. Pass <code>--capability-profile sandboxed</code> with <code>rco run</code>, <code>rco run-bytecode</code>, <code>rco repl</code>, or <code>rco test</code> to start with filesystem, HTTP, TUI, and webview disabled. Process execution, PTY sessions, and TCP/WebSocket sockets are disabled unless explicitly enabled in either profile.</p>
+<p>In the sandboxed profile, <code>--fs-root &lt;path&gt;</code> enables filesystem access only under that directory, <code>--fs-readonly</code> denies writes, <code>--http-allow-host &lt;host&gt;</code> enables HTTP only for named hosts, and <code>--allow-tui</code> enables terminal UI access, while <code>--allow-webview</code> enables webview document building. <code>--no-fs</code>, <code>--no-http</code>, <code>--no-tui</code>, and <code>--no-webview</code> still deny those host powers explicitly in either profile.</p>
+<p><code>--allow-sockets</code> enables raw TCP and WebSocket clients/listeners; prefer <code>--socket-allow-host &lt;host&gt;</code> for bounded socket access when running examples, tests, or third-party code. Listener bind hosts are checked with the same allowlist as outbound destinations.</p>
+<p><code>--allow-process</code> enables direct child process execution with captured stdout/stderr, bounded output, blocking <code>process_spawn</code>, and long-running <code>process_start</code> jobs retained up to a per-host cap; use <code>process_release</code> to drop completed jobs. <code>--process-root &lt;path&gt;</code> can make process and PTY cwd resolution narrower than the filesystem workspace. <code>--allow-pty</code> enables retained pseudo-terminal sessions through <code>pty_start</code>, <code>pty_write</code>, <code>pty_read</code>, <code>pty_resize</code>, <code>pty_stop</code>, <code>pty_release</code>, <code>pty_list</code>, and <code>pty_detail</code>.</p>
+<p><code>--env-allow &lt;name&gt;</code> enables or narrows environment variable reads and writes to named variables, <code>--no-env</code> denies environment/current-directory access, and <code>--no-sleep</code> denies script sleeps. Embedded hosts can leave capabilities disabled. HTTP calls do not follow redirects, use a timeout and response body cap, and filesystem access remains powerful CLI behavior unless you deny or bound it with these flags.</p>
+<p>For MVC servers, <code>rco serve</code> enables filesystem and HTTP only through <code>--fs-root</code> and <code>--http-allow-host</code>, and enables process environment access only through <code>--allow-env</code> or <code>--env-allow</code>. MVC process execution requires <code>--allow-process</code>, MVC PTY sessions require <code>--allow-pty</code>, and <code>--process-root</code> can narrow execution cwd values. Watched MVC runtimes use the same capability setup and share retained approval, process, and PTY registries across hot reloads.</p>
+<p>For v1 beta testing, keep <code>trusted</code> for your own local scripts and generated apps. Use <code>sandboxed</code> for untrusted examples, bug reports, package reviews, or third-party code, opening only the filesystem root or HTTP hosts the test actually needs.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

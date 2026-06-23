@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Compile-Time Macros | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Compile-Time Macros</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#expression-macros">Expression Macros</a>
+          <a href="#item-row-macros">Item Row Macros</a>
+          <a href="#imports">Imports</a>
+          <a href="#examples">Examples</a>
+          <a href="#inspection">Inspection</a>
+          <a href="#current-limits">Current Limits</a>
+          </aside>
+          <article class="guide-content">
+<p>Compile-time macros are a beta source-transformation surface. They expand parsed Ricochet AST before bytecode is generated, so generated code keeps the same postfix shape as handwritten code.</p>
+<p>Use macros when a repeated declaration or expression pattern is clearer as a small local language feature. Do not use them for host effects: macro bodies run in a restricted compile-time evaluator with no filesystem, network, process, database, clock, randomness, task, or capability access.</p>
+<h2 id="expression-macros">Expression Macros</h2>
+<p>Macro names are string literals and calls are explicit:</p>
+<pre class="code-block"><code class="language-forth">"unless" Macro
+  ( condition body -&gt; expansion )
+  [
+    [
+      $condition ast_splice not if
+        $body ast_splice call
+      end
+    ] quote_ast
+  ]
+end
+
+$ready [
+  "not ready" println
+] "unless" macro_call</code></pre>
+<p><code>quote_ast</code> converts a quoted block into expression AST. Inside quoted output, <code>$arg ast_splice</code> inserts the caller's parsed operand instead of generating a runtime <code>$arg</code> read.</p>
+<h2 id="item-row-macros">Item Row Macros</h2>
+<p>Use <code>quote_items</code> when a macro call owns a whole item and should emit one or more item rows. Rows that do not match a declaration encoding stay ordinary expression items, so class-body declaration rows such as <code>Accessor</code>, <code>Field</code>, <code>Table</code>, and <code>Method</code> keep the same shape as handwritten class bodies:</p>
+<pre class="code-block"><code class="language-forth">"accessors" Macro
+  [
+    [
+      "email" Accessor
+      "name" Accessor
+    ] quote_items
+  ]
+end
+
+User Model Subclass
+  "accessors" macro_call
+end</code></pre>
+<p><code>quote_items</code> is intentionally rejected inside larger expressions. Use <code>quote_ast</code> for expression-position expansion.</p>
+<p>At top level, <code>quote_items</code> can also emit real declaration items with the macro-only row encodings below:</p>
+<pre class="code-block"><code class="language-forth">"function_rows" Macro
+  [
+    [
+      [ "hello from generated function" println ] "greet" function
+      ( name -&gt; String ) [ "hello " $name + ] "greeting" function
+    ] quote_items
+  ]
+end
+
+"model_row" Macro
+  [
+    [
+      [
+        "users" Table
+        "email" Accessor
+        [ self email.get ] "label" Method
+      ] User Model Subclass
+    ] quote_items
+  ]
+end</code></pre>
+<p>Generated declaration bodies expand in the macro definition scope. If an imported public macro emits a function body that calls a private helper macro from the imported module, that private helper resolves from the imported module rather than from the caller.</p>
+<h2 id="imports">Imports</h2>
+<p>Static imports expose public macros from the imported module during compilation. Macro declarations whose names start with <code>_</code> are private to their defining module but can still be used by public macros from that module:</p>
+<pre class="code-block"><code class="language-forth">(( lib/macros.rco ))
+"_helper" Macro
+  [
+    [ "from helper" println ] quote_ast
+  ]
+end
+
+"say_ok" Macro
+  [
+    [ "_helper" macro_call ] quote_ast
+  ]
+end</code></pre>
+<pre class="code-block"><code class="language-forth">(( main.rco ))
+"lib/macros" import
+"say_ok" macro_call</code></pre>
+<p>Unqualified calls prefer local macros. If exactly one imported module exports a matching macro, that macro is used. If multiple imports export the same name, the compiler fails and asks for a qualified call:</p>
+<pre class="code-block"><code class="language-forth">"lib/macros#say_ok" macro_call
+"self#local_macro" macro_call</code></pre>
+<p>Package path imports use the same manifest and containment rules as ordinary static imports. <code>rco expand --json</code> now reports canonical package-aware macro module IDs with safe lock metadata when <code>ricochet.lock</code> is present, so package macros can be traced without exposing local cache paths.</p>
+<h2 id="examples">Examples</h2>
+<p>Use the public examples to see both local and package-authored macro workflows:</p>
+<pre class="code-block"><code class="language-powershell">rco run examples/macro_release_scorecard.rco
+rco run examples/showcase/package_macro_queue_report/main.rco
+Push-Location examples/showcase/package_macro_queue_report
+rco expand main.rco --json</code></pre>
+<p><code>examples/macro_release_scorecard.rco</code> shows a local declaration macro building a release scorecard function with a private helper macro for repeated count lines. <code>examples/showcase/package_macro_queue_report</code> shows a package-style macro module exporting a public <code>install_queue_report</code> macro, keeping <code>_count_line</code> private, and producing package-aware expansion metadata for the locked dependency.</p>
+<h2 id="inspection">Inspection</h2>
+<p><code>rco expand</code> prints expanded source without executing runtime code:</p>
+<pre class="code-block"><code class="language-powershell">rco expand app.rco
+rco expand app.rco --json</code></pre>
+<p>The JSON form includes stable v1 contract metadata through <code>schema</code>, <code>sources</code>, <code>source_map</code>, and <code>cache</code>, alongside the expanded AST, macro tables, imports, traces, diagnostics, and output hash.</p>
+<h2 id="current-limits">Current Limits</h2>
+<ul>
+<li>Macro declaration names must be string literals and cannot contain <code>#</code>.</li>
+<li>Runtime imports do not load macros.</li>
+<li>Macro bodies are fail-closed and can use only the compile-time helper surface.</li>
+<li>Expansion depth, same-macro recursion, evaluator steps, and generated AST nodes are bounded.</li>
+<li><code>quote_items</code> declaration rows are supported only where a whole declaration item is valid.</li>
+</ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

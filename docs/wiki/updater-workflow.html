@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Updater Workflow | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../reference/learn/index.html">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Updater Workflow</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#channel-metadata">Channel Metadata</a>
+          <a href="#update-check-contract">Update Check Contract</a>
+          <a href="#rollback-story">Rollback Story</a>
+          </aside>
+          <article class="guide-content">
+<p>Ricochet's production updater workflow is channel metadata plus platform verification. The v1 beta does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
+<h2 id="channel-metadata">Channel Metadata</h2>
+<p>Production stable tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts and require platform signature/notarization verification. Semver prerelease tags such as <code>v0.1.19-rc.2</code> publish <code>UPDATE-CHANNEL-candidate.json</code>, are marked as GitHub prereleases, and record SHA-256 verification metadata for dry-run signed candidate artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
+  -DistDir dist `
+  -Channel candidate `
+  -Version 0.1.19-rc.2 `
+  -ReleaseTag v0.1.19-rc.2 `
+  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.2</code></pre>
+<p>The channel document records:</p>
+<ul>
+<li>release version, tag, release URL, generation time, and rollout percentage.</li>
+<li>rollback policy, currently <code>reject-older-or-equal</code> by default.</li>
+<li>one platform entry per target: <code>windows-x64</code>, <code>linux-x64</code>, <code>macos-arm64</code>, and <code>macos-x64</code>.</li>
+<li>each target's <code>ARTIFACTS-&lt;target&gt;.json</code> manifest hash and size.</li>
+<li>primary archive, installer/package artifact, checksum file, signing report, optional notary report, required verification methods, and per-artifact SHA-256 metadata.</li>
+</ul>
+<p>Validate channel metadata before publishing it:</p>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 `
+  -DistDir dist `
+  -Channel candidate `
+  -Version 0.1.19-rc.2 `
+  -RequireProduction</code></pre>
+<p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle.</p>
+<h2 id="update-check-contract">Update Check Contract</h2>
+<p>A Ricochet-compatible updater should:</p>
+<ol>
+<li>Fetch the channel file from an HTTPS release or channel URL.</li>
+<li>Require <code>schema = "ricochet.update-channel"</code> and <code>schema_version = 1</code>.</li>
+<li>Require the expected channel name, such as <code>stable</code> or <code>candidate</code>.</li>
+<li>Reject channel versions less than or equal to the installed version unless the operator has explicitly chosen a manual rollback.</li>
+<li>Select the platform target for the current machine.</li>
+<li>Download the target manifest and all artifacts referenced by the selected platform entry.</li>
+<li>Verify every SHA-256 value against the channel metadata and target manifest.</li>
+<li>Run platform verification before install:</li>
+</ol>
+<ul>
+<li>Windows: Authenticode verification on the portable ZIP executables and installer.</li>
+<li>Linux: detached GPG signature verification for the tarball and Debian package.</li>
+<li>macOS: codesign verification for extracted binaries plus <code>NOTARY-&lt;target&gt;.json</code> with Apple notarytool status <code>Accepted</code>.</li>
+</ul>
+<ol>
+<li>Stage the new install outside the active installation path.</li>
+<li>Keep a backup of the previous install until the new <code>rco --help</code> or a stronger product smoke test succeeds.</li>
+</ol>
+<h2 id="rollback-story">Rollback Story</h2>
+<p>Automatic rollback means reverting from a failed staged install back to the previous local install. It does not mean silently downgrading from the public channel.</p>
+<p>By default, channel consumers reject older or equal versions. Manual rollback uses the immutable GitHub release for the desired older version, then repeats the same manifest, checksum, signature, and notarization checks before installing.</p>
+<p>Updater state should live outside Ricochet VM images, application state, and project workspaces. A platform installer can keep its own backup directory or package-manager rollback metadata; Ricochet scripts should not delete an existing installation unless the updater has already staged and verified the replacement.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>
