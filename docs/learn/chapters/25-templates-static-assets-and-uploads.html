@@ -143,23 +143,23 @@ end
 <p>The view is plain HTML with Ricochet template markers in text context:</p>
 <pre><code>&lt;link rel=&quot;stylesheet&quot; href=&quot;/assets/styles/app.css&quot;&gt;
 
-{% &quot;Upload checklist&quot; &quot;heading&quot; var do %}
+{&#37; &quot;Upload checklist&quot; &quot;heading&quot; var do &#37;}
 &lt;h1&gt;{ title get }&lt;/h1&gt;
 &lt;h2&gt;{ heading get }&lt;/h2&gt;
 
-{% showUploads get if %}
+{&#37; showUploads get if &#37;}
 &lt;ul&gt;
-  {% items get &quot;item&quot; each %}
+  {&#37; items get &quot;item&quot; each &#37;}
   &lt;li&gt;{ item get }&lt;/li&gt;
-  {% end %}
+  {&#37; end &#37;}
 &lt;/ul&gt;
-{% else %}
+{&#37; else &#37;}
 &lt;p&gt;No upload checklist is available.&lt;/p&gt;
-{% end %}
+{&#37; end &#37;}
 </code></pre>
-<p><code>{ ... }</code> renders one scalar value and escapes it as HTML. <code>{% ... do %}</code> runs
-setup code without rendering. <code>{% condition if %}</code>, <code>{% else %}</code>, and
-<code>{% end %}</code> form a conditional. <code>{% collection &quot;item&quot; each %}</code> loops through
+<p><code>{ ... }</code> renders one scalar value and escapes it as HTML. <code>{&#37; ... do &#37;}</code> runs
+setup code without rendering. <code>{&#37; condition if &#37;}</code>, <code>{&#37; else &#37;}</code>, and
+<code>{&#37; end &#37;}</code> form a conditional. <code>{&#37; collection &quot;item&quot; each &#37;}</code> loops through
 arrays, lists, sets, and maps.</p>
 <p>The upload action receives declared arguments. Route params bind first, then
 multipart fields, upload fields, query params, and context values:</p>
