@@ -5,6 +5,8 @@ dist/
 **/*.rs.bk
 *.pdb
 *.profraw
+__pycache__/
+*.pyc
 
 .env
 .env.*

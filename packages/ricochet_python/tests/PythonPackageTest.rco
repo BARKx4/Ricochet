@@ -1,0 +1,114 @@
+"../protocol" import
+
+"../sdk" import
+
+"../generator" import
+
+PythonPackageTest TestCase Subclass
+  [
+    payload map
+    $payload "module" "fake_sdk" put! drop
+    7 "import" $payload py_request request var
+    $request "id" at 7 assert_equals
+    $request "op" at "import" assert_equals
+    $request "payload" at "module" at "fake_sdk" assert_equals
+    $request py_request_line "\n" ends_with? true assert_equals
+    "py1" "object" "<Client>" py_ref ref var
+    $ref py_ref? true assert_equals
+    "plain" py_ref? false assert_equals
+  ] "testProtocolMaps" Method
+  [
+    env map
+    "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start workerResult var
+    $workerResult ok? true assert_equals
+    $workerResult value worker var
+    args array
+    $args 2 push! drop
+    $args 3 push! drop
+    kwargs map
+    $worker "fake_sdk.add" $args $kwargs py_call callResult var
+    $callResult ok? true assert_equals
+    $callResult value 5 assert_equals
+    $worker py_worker_shutdown shutdownResult var
+    $shutdownResult ok? true assert_equals
+  ] "testCallsModuleFunction" Method
+  [
+    env map
+    "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start workerResult var
+    $workerResult ok? true assert_equals
+    $workerResult value worker var
+    args array
+    $args "sdk" push! drop
+    kwargs map
+    $worker "fake_sdk.noisy" $args $kwargs py_call callResult var
+    $callResult ok? true assert_equals
+    $callResult value "clean sdk" assert_equals
+    $worker py_worker_shutdown shutdownResult var
+    $shutdownResult ok? true assert_equals
+  ] "testSdkStdoutDoesNotCorruptProtocol" Method
+  [
+    env map
+    "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start workerResult var
+    $workerResult ok? true assert_equals
+    $workerResult value worker var
+    args array
+    $args "Ada" push! drop
+    kwargs map
+    $kwargs "token" "secret" put! drop
+    $worker "fake_sdk.Client" $args $kwargs py_construct clientResult var
+    $clientResult ok? true assert_equals
+    $clientResult value client var
+    $client py_ref? true assert_equals
+    methodArgs array
+    $methodArgs "Grace" push! drop
+    methodKwargs map
+    $worker $client "greeting" $methodArgs $methodKwargs py_call_method greetingResult var
+    $greetingResult ok? true assert_equals
+    $greetingResult value "Ada says hello to Grace" assert_equals
+    $worker $client py_inspect inspectResult var
+    $inspectResult ok? true assert_equals
+    $inspectResult value "type" at "Client" assert_equals
+    refs array
+    $refs $client push! drop
+    $worker $refs py_release releaseResult var
+    $releaseResult ok? true assert_equals
+    $releaseResult value "released" at count 1 assert_equals
+    $worker py_worker_shutdown shutdownResult var
+    $shutdownResult ok? true assert_equals
+  ] "testConstructsAndCallsObject" Method
+  [
+    env map
+    "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start workerResult var
+    $workerResult ok? true assert_equals
+    $workerResult value worker var
+    args array
+    kwargs map
+    $worker "fake_sdk.raise_error" $args $kwargs py_call callResult var
+    $callResult ok? false assert_equals
+    $callResult error "kind" at "PythonException" assert_equals
+    $callResult error "message" at "boom from fake SDK" contains? true assert_equals
+    $worker py_worker_shutdown shutdownResult var
+    $shutdownResult ok? true assert_equals
+  ] "testPythonExceptionBecomesResultError" Method
+  [
+    "fake_add" "fake_sdk.add" py_function_wrapper_source source var
+    $source "fake_add function" contains? true assert_equals
+    $source "fake_sdk.add" contains? true assert_equals
+    "fake_client" "fake_sdk.Client" py_constructor_wrapper_source "py_construct" contains? true assert_equals
+    "fake_greeting" "greeting" py_method_wrapper_source "py_call_method" contains? true assert_equals
+  ] "testStaticWrapperSourceHelpers" Method
+  [
+    env map
+    "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start workerResult var
+    $workerResult ok? true assert_equals
+    $workerResult value worker var
+    $worker "fake" "fake_sdk" false py_generate_wrappers generatedResult var
+    $generatedResult ok? true assert_equals
+    $generatedResult value generated var
+    $generated "fake_add function" contains? true assert_equals
+    $generated "fake_sdk.add" contains? true assert_equals
+    $generated "_private" contains? false assert_equals
+    $worker py_worker_shutdown shutdownResult var
+    $shutdownResult ok? true assert_equals
+  ] "testGeneratesModuleWrapperSource" Method
+end

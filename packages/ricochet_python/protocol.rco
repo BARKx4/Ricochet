@@ -1,0 +1,74 @@
+(( Protocol maps for the Ricochet <-> Python SDK bridge. ))
+( id op payload -> Map ) py_request function
+  payload var
+  op var
+  id var
+  request map
+  $request "id" $id put! drop
+  $request "op" $op put! drop
+  $request "payload" $payload put! drop
+  $request
+end
+
+( request -> String ) py_request_line function
+  request var
+  $request json_encode "\n" concat
+end
+
+( id type repr -> Map ) py_ref function
+  repr var
+  type var
+  id var
+  ref map
+  $ref "__ricochet_py_ref" $id put! drop
+  $ref "type" $type put! drop
+  $ref "repr" $repr put! drop
+  $ref
+end
+
+( value -> Bool ) py_ref? function
+  value var
+  $value nil? if
+    false
+  else
+    $value type "map" = if
+      $value "__ricochet_py_ref" has?
+    else
+      false
+    end
+  end
+end
+
+( -> Array ) py_args function
+  args array
+  $args
+end
+
+( -> Map ) py_kwargs function
+  kwargs map
+  $kwargs
+end
+
+( response -> Result ) py_response_to_result function
+  response var
+  $response "ok" at true = if
+    $response "value" at ok
+  else
+    $response "error" at errorMap var
+    $errorMap nil? if
+      "PythonBridgeError" "Python bridge request failed" fail
+    else
+      $errorMap "kind" at kind var
+      $errorMap "message" at message var
+      $kind nil? if
+        "PythonBridgeError" kind set
+      end
+      $message nil? if
+        "Python bridge request failed" message set
+      end
+      $kind $message fail result var
+      $result error "details" $errorMap put! drop
+      $result
+    end
+  end
+end

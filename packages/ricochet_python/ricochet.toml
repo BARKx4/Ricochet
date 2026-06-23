@@ -1,0 +1,5 @@
+[package]
+name = "@ricochet/python"
+version = "0.1.0"
+description = "Beta Python SDK bridge helpers for Ricochet apps."
+license = "GPL-3.0"

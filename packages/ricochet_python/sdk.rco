@@ -1,0 +1,114 @@
+"./worker" import
+
+(( Generic SDK helpers for importing Python modules and calling their values. ))
+( worker module -> Result ) py_import function
+  module var
+  worker var
+  payload map
+  $payload "module" $module put! drop
+  $worker "import" $payload py_worker_request
+end
+
+( worker target name -> Result ) py_getattr function
+  name var
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $payload "name" $name put! drop
+  $worker "getattr" $payload py_worker_request
+end
+
+( worker target name value -> Result ) py_setattr function
+  value var
+  name var
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $payload "name" $name put! drop
+  $payload "value" $value put! drop
+  $worker "setattr" $payload py_worker_request
+end
+
+( worker target args kwargs -> Result ) py_call function
+  kwargs var
+  args var
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $payload "args" $args put! drop
+  $payload "kwargs" $kwargs put! drop
+  $worker "call" $payload py_worker_request
+end
+
+( worker module name args kwargs -> Result ) py_call_function function
+  kwargs var
+  args var
+  name var
+  module var
+  worker var
+  $module "." concat $name concat target var
+  $worker $target $args $kwargs py_call
+end
+
+( worker classPath args kwargs -> Result ) py_construct function
+  kwargs var
+  args var
+  classPath var
+  worker var
+  payload map
+  $payload "class" $classPath put! drop
+  $payload "args" $args put! drop
+  $payload "kwargs" $kwargs put! drop
+  $worker "construct" $payload py_worker_request
+end
+
+( worker target name args kwargs -> Result ) py_call_method function
+  kwargs var
+  args var
+  name var
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $payload "name" $name put! drop
+  $payload "args" $args put! drop
+  $payload "kwargs" $kwargs put! drop
+  $worker "method" $payload py_worker_request
+end
+
+( worker target -> Result ) py_dir function
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $worker "dir" $payload py_worker_request
+end
+
+( worker target -> Result ) py_inspect function
+  target var
+  worker var
+  payload map
+  $payload "target" $target put! drop
+  $worker "inspect" $payload py_worker_request
+end
+
+( worker module includePrivate -> Result ) py_exports function
+  includePrivate var
+  module var
+  worker var
+  payload map
+  $payload "module" $module put! drop
+  $payload "include_private" $includePrivate put! drop
+  $worker "exports" $payload py_worker_request
+end
+
+( worker refs -> Result ) py_release function
+  refs var
+  worker var
+  payload map
+  $payload "refs" $refs put! drop
+  $worker "release" $payload py_worker_request
+end

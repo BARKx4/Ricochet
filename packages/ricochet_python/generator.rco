@@ -1,0 +1,59 @@
+"./sdk" import
+
+(( Static Ricochet source generation for checked-in Python SDK wrappers. ))
+( prefix name -> String ) py_wrapper_word function
+  name var
+  prefix var
+  $prefix "_" concat $name concat
+end
+
+( word target -> String ) py_function_wrapper_source function
+  target var
+  word var
+  "( worker args kwargs -> Result ) " $word concat " function\n  kwargs var\n  args var\n  worker var\n  $worker \"" concat $target concat "\" $args $kwargs py_call\nend\n" concat
+end
+
+( word classPath -> String ) py_constructor_wrapper_source function
+  classPath var
+  word var
+  "( worker args kwargs -> Result ) " $word concat " function\n  kwargs var\n  args var\n  worker var\n  $worker \"" concat $classPath concat "\" $args $kwargs py_construct\nend\n" concat
+end
+
+( word methodName -> String ) py_method_wrapper_source function
+  methodName var
+  word var
+  "( worker target args kwargs -> Result ) " $word concat " function\n  kwargs var\n  args var\n  target var\n  worker var\n  $worker $target \"" concat $methodName concat "\" $args $kwargs py_call_method\nend\n" concat
+end
+
+( prefix export -> String ) py_export_wrapper_source function
+  export var
+  prefix var
+  $export "name" at name var
+  $export "dotted" at dotted var
+  $prefix $name py_wrapper_word word var
+  $word $dotted py_function_wrapper_source
+end
+
+( worker prefix module includePrivate -> Result ) py_generate_wrappers function
+  includePrivate var
+  module var
+  prefix var
+  worker var
+  $worker $module $includePrivate py_exports exportsResult var
+  $exportsResult ok? false = if
+    $exportsResult
+  else
+    $exportsResult value exports var
+    "\"./sdk\" import\n\n" source var
+    0 index var
+    $exports count total var
+    $index $total < while
+      $exports $index at export var
+      $export "callable" at true = if
+        $source $prefix $export py_export_wrapper_source "\n" concat concat source set
+      end
+      $index 1 + index set
+    end
+    $source ok
+  end
+end

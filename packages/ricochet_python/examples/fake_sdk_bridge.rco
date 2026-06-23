@@ -1,0 +1,31 @@
+"../sdk" import
+
+env map
+
+"python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start value worker var
+
+args array
+
+$args 20 push! drop
+
+$args 22 push! drop
+
+kwargs map
+
+$worker "fake_sdk.add" $args $kwargs py_call value println
+
+clientArgs array
+
+$clientArgs "Ricochet" push! drop
+
+clientKwargs map
+
+$worker "fake_sdk.Client" $clientArgs $clientKwargs py_construct value client var
+
+methodArgs array
+
+$methodArgs "Python" push! drop
+
+$worker $client "greeting" $methodArgs $kwargs py_call_method value println
+
+$worker py_worker_shutdown value drop
