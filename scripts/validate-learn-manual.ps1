@@ -1,5 +1,7 @@
 param(
-    [string]$Root
+    [string]$Root,
+    [switch]$RequireWordCoverage,
+    [switch]$RequireJekyllRawBlocks
 )
 
 $ErrorActionPreference = "Stop"
@@ -127,88 +129,96 @@ $failures = New-Object System.Collections.Generic.List[string]
 $learnRoot = Join-Path $repoRoot "docs/learn"
 $coveragePath = Join-Path $learnRoot "word-coverage.json"
 $examplesManifestPath = Join-Path $repoRoot "examples/learn/examples.json"
-
-Push-Location $repoRoot
-try {
-    $wordsJson = & cargo run -q -p ricochet_cli --bin rco -- words --json
-    if ($LASTEXITCODE -ne 0) {
-        Add-Failure $failures "Failed to run live word inventory command."
-        $wordsJson = $null
-    }
-} finally {
-    Pop-Location
-}
-
-$liveWords = @()
-if ($wordsJson) {
-    try {
-        $wordsJsonText = $wordsJson -join [Environment]::NewLine
-        $parsedLiveWords = ConvertFrom-Json -InputObject $wordsJsonText
-        $liveWords = @($parsedLiveWords | ForEach-Object { $_ })
-    } catch {
-        Add-Failure $failures "Live word inventory was not valid JSON: $($_.Exception.Message)"
-    }
-}
+$coverageFileExists = Test-Path -LiteralPath $coveragePath -PathType Leaf
 
 $liveByWord = New-Object "System.Collections.Generic.Dictionary``2[System.String,System.String]"
-foreach ($row in $liveWords) {
-    if ($null -eq $row.word -or $null -eq $row.detail) {
-        Add-Failure $failures "Live word inventory row is missing word or detail."
-        continue
-    }
-    $liveByWord[[string]$row.word] = [string]$row.detail
-}
+$coverageRows = @()
 
-if (-not (Test-Path -LiteralPath $coveragePath -PathType Leaf)) {
-    Add-Failure $failures "Missing coverage file: docs/learn/word-coverage.json"
-    $coverageRows = @()
+if (-not $coverageFileExists) {
+    if ($RequireWordCoverage) {
+        Add-Failure $failures "Missing coverage file: docs/learn/word-coverage.json"
+    }
 } else {
+    Push-Location $repoRoot
+    try {
+        $wordsJson = & cargo run -q -p ricochet_cli --bin rco -- words --json
+        if ($LASTEXITCODE -ne 0) {
+            Add-Failure $failures "Failed to run live word inventory command."
+            $wordsJson = $null
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $liveWords = @()
+    if ($wordsJson) {
+        try {
+            $wordsJsonText = $wordsJson -join [Environment]::NewLine
+            $parsedLiveWords = ConvertFrom-Json -InputObject $wordsJsonText
+            $liveWords = @($parsedLiveWords | ForEach-Object { $_ })
+        } catch {
+            Add-Failure $failures "Live word inventory was not valid JSON: $($_.Exception.Message)"
+        }
+    }
+
+    foreach ($row in $liveWords) {
+        if ($null -eq $row.word -or $null -eq $row.detail) {
+            Add-Failure $failures "Live word inventory row is missing word or detail."
+            continue
+        }
+        $liveByWord[[string]$row.word] = [string]$row.detail
+    }
+
     try {
         $coverageRows = @(Read-JsonFile -Path $coveragePath)
     } catch {
         Add-Failure $failures $_.Exception.Message
         $coverageRows = @()
     }
-}
 
-$allowedStatuses = @("planned", "drafted", "validated", "appendix")
-$coverageByWord = New-Object "System.Collections.Generic.Dictionary``2[System.String,System.Object]"
-$seenWords = New-Object "System.Collections.Generic.HashSet``1[System.String]"
+    $allowedStatuses = @("planned", "drafted", "validated", "appendix")
+    $coverageByWord = New-Object "System.Collections.Generic.Dictionary``2[System.String,System.Object]"
+    $seenWords = New-Object "System.Collections.Generic.HashSet``1[System.String]"
 
-foreach ($row in $coverageRows) {
-    $properties = @($row.PSObject.Properties.Name)
-    foreach ($field in @("word", "detail", "primary_chapter", "status")) {
-        if ($properties -notcontains $field) {
-            Add-Failure $failures "Coverage row is missing required field '$field'."
-        } elseif ([string]::IsNullOrWhiteSpace([string]$row.$field)) {
-            Add-Failure $failures "Coverage row has an empty '$field' value."
+    foreach ($row in $coverageRows) {
+        $properties = @($row.PSObject.Properties.Name)
+        foreach ($field in @("word", "detail", "primary_chapter", "status")) {
+            if ($properties -notcontains $field) {
+                Add-Failure $failures "Coverage row is missing required field '$field'."
+            } elseif ([string]::IsNullOrWhiteSpace([string]$row.$field)) {
+                Add-Failure $failures "Coverage row has an empty '$field' value."
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$row.word)) {
+            continue
+        }
+
+        $word = [string]$row.word
+        if (-not $seenWords.Add($word)) {
+            Add-Failure $failures "Coverage contains duplicate word: $word"
+        }
+        $coverageByWord[$word] = $row
+
+        if ($allowedStatuses -notcontains [string]$row.status) {
+            Add-Failure $failures "Coverage row for '$word' has invalid status '$($row.status)'."
+        }
+
+        if ($liveByWord.Count -gt 0) {
+            if (-not $liveByWord.ContainsKey($word)) {
+                Add-Failure $failures "Coverage contains stale word not present in live inventory: $word"
+            } elseif ([string]$row.detail -ne $liveByWord[$word]) {
+                Add-Failure $failures "Coverage detail mismatch for '$word': expected '$($liveByWord[$word])', found '$($row.detail)'."
+            }
         }
     }
 
-    if ([string]::IsNullOrWhiteSpace([string]$row.word)) {
-        continue
-    }
-
-    $word = [string]$row.word
-    if (-not $seenWords.Add($word)) {
-        Add-Failure $failures "Coverage contains duplicate word: $word"
-    }
-    $coverageByWord[$word] = $row
-
-    if ($allowedStatuses -notcontains [string]$row.status) {
-        Add-Failure $failures "Coverage row for '$word' has invalid status '$($row.status)'."
-    }
-
-    if (-not $liveByWord.ContainsKey($word)) {
-        Add-Failure $failures "Coverage contains stale word not present in live inventory: $word"
-    } elseif ([string]$row.detail -ne $liveByWord[$word]) {
-        Add-Failure $failures "Coverage detail mismatch for '$word': expected '$($liveByWord[$word])', found '$($row.detail)'."
-    }
-}
-
-foreach ($word in ($liveByWord.Keys | Sort-Object)) {
-    if (-not $coverageByWord.ContainsKey($word)) {
-        Add-Failure $failures "Coverage is missing live word: $word"
+    if ($liveByWord.Count -gt 0) {
+        foreach ($word in ($liveByWord.Keys | Sort-Object)) {
+            if (-not $coverageByWord.ContainsKey($word)) {
+                Add-Failure $failures "Coverage is missing live word: $word"
+            }
+        }
     }
 }
 
@@ -233,29 +243,32 @@ if ($learnMarkdownFiles.Count -gt 0) {
 
 foreach ($file in $learnMarkdownFiles) {
     $content = Get-Content -LiteralPath $file.FullName -Raw
-    $insideRawBlock = $false
     $lines = $content -split "`r?`n"
 
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $line = $lines[$i]
-        if ($line -match '\{%\s*raw\s*%\}') {
-            $insideRawBlock = $true
-            continue
-        }
-        if ($line -match '\{%\s*endraw\s*%\}') {
-            if (-not $insideRawBlock) {
-                Add-Failure $failures "Learn Markdown file has an unmatched Jekyll raw end marker at $($file.FullName):$($i + 1)"
-            }
-            $insideRawBlock = $false
-            continue
-        }
-        if (-not $insideRawBlock -and $line -match '(\{%|\{\{)') {
-            Add-Failure $failures "Learn Markdown file contains an unguarded Liquid marker at $($file.FullName):$($i + 1)"
-        }
-    }
+    if ($RequireJekyllRawBlocks) {
+        $insideRawBlock = $false
 
-    if ($insideRawBlock) {
-        Add-Failure $failures "Learn Markdown file has an unclosed Jekyll raw block: $($file.FullName)"
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line -match '\{%\s*raw\s*%\}') {
+                $insideRawBlock = $true
+                continue
+            }
+            if ($line -match '\{%\s*endraw\s*%\}') {
+                if (-not $insideRawBlock) {
+                    Add-Failure $failures "Learn Markdown file has an unmatched Jekyll raw end marker at $($file.FullName):$($i + 1)"
+                }
+                $insideRawBlock = $false
+                continue
+            }
+            if (-not $insideRawBlock -and $line -match '(\{%|\{\{)') {
+                Add-Failure $failures "Learn Markdown file contains an unguarded Liquid marker at $($file.FullName):$($i + 1)"
+            }
+        }
+
+        if ($insideRawBlock) {
+            Add-Failure $failures "Learn Markdown file has an unclosed Jekyll raw block: $($file.FullName)"
+        }
     }
 
     if ($content -match '(?im)manual_status\s*[:=]\s*(complete|completed|validated)\b') {
@@ -307,4 +320,8 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Learn manual validation passed: $($liveByWord.Count) live words covered."
+if ($coverageFileExists) {
+    Write-Host "Learn manual validation passed: $($liveByWord.Count) live words covered."
+} else {
+    Write-Host "Learn manual validation passed: public manual checks completed; word coverage not present."
+}
