@@ -1,31 +1,41 @@
 # Chapter 35: Capstone CLI Tool
 
-## What You Will Build
+> Part VI: Capstone Applications
 
-You will build a complete command-line worklog reporter. It reads a checked-in
+## Why this chapter matters
+
+The CLI capstone combines data, results, files, tests, and reporting into a complete command-line tool.
+
+## What you will build
+
+You will build a complete command-line worklog reporter. It reads a sample
 JSON worklog, summarizes minutes and status counts, reports upcoming due items,
 prints each matching entry, and includes `rco test` coverage for the reusable
 report functions.
 
-## Concepts
+## Concepts in plain English
 
-- Strings, collections, results, local files, config, tests, linting, and packaging in one application.
-- Small feature additions with matching tests.
-- Cleanup-free validation commands.
-- Keeping reusable logic in a small local module while the command stays easy
+A capstone is a complete project that proves several earlier skills work together.
+
+The chapter uses these concepts:
+
+* Strings, collections, results, local files, config, tests, linting, and packaging in one application.
+* Small feature additions with matching tests.
+* Cleanup-free self-check commands.
+* Keeping reusable logic in a small local module while the command stays easy
   to run.
-- Treating a CLI's input file and optional arguments as explicit boundaries.
+* Treating a CLI’s input file and optional arguments as explicit boundaries.
 
-## Words Introduced
+## Vocabulary and commands
 
 This chapter consolidates words taught earlier rather than introducing a new primary word family.
 
-## Guided Example
+## Guided example
 
 Open `examples/learn/35-capstone-cli/worklog`. The project has four important
 pieces:
 
-```text
+```
 data/entries.json
 lib/report.rco
 main.rco
@@ -34,7 +44,7 @@ WorklogTest.rco
 
 The data file is ordinary JSON:
 
-```json
+```
 {
   "date": "2026-06-21",
   "due": "2026-06-24",
@@ -48,7 +58,7 @@ The data file is ordinary JSON:
 
 `lib/report.rco` holds the reusable work:
 
-```ricochet
+```
 ( path -> Result ) worklog_load_entries function
   path var
   [ json_decode ] $path fs_read_text and_then
@@ -68,7 +78,7 @@ end
 
 The command imports the local module:
 
-```ricochet
+```
 "lib/report" import
 
 "examples/learn/35-capstone-cli/worklog/data/entries.json" inputPath var
@@ -77,7 +87,7 @@ The command imports the local module:
 
 It accepts two optional arguments: input path and status filter.
 
-```ricochet
+```
 args count 0 > if
   args 0 at inputPath set
 end
@@ -89,7 +99,7 @@ end
 
 Then it keeps file and JSON failures inside a `Result` boundary:
 
-```ricochet
+```
 $inputPath worklog_load_entries entriesResult var
 
 $entriesResult ok? if
@@ -107,13 +117,13 @@ end
 
 Run the capstone:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/35-capstone-cli/worklog/main.rco
+```
+rco run examples/learn/35-capstone-cli/worklog/main.rco
 ```
 
 Expected output:
 
-```text
+```
 Worklog CLI
 source:examples/learn/35-capstone-cli/worklog/data/entries.json
 filter:all
@@ -132,19 +142,19 @@ items:
 
 Filter to open items:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/35-capstone-cli/worklog/main.rco examples/learn/35-capstone-cli/worklog/data/entries.json open
+```
+rco run examples/learn/35-capstone-cli/worklog/main.rco examples/learn/35-capstone-cli/worklog/data/entries.json open
 ```
 
 Run the tests:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- test examples/learn/35-capstone-cli/worklog
+```
+rco test examples/learn/35-capstone-cli/worklog
 ```
 
 Expected output:
 
-```text
+```
 PASS WorklogTest.testDueSoonSummary
 PASS WorklogTest.testSummarizesEntries
 2 tests, 0 failed
@@ -153,58 +163,69 @@ PASS WorklogTest.testSummarizesEntries
 `WorklogTest.rco` imports the same report module and checks totals, status
 counts, filtering, due-soon logic, and summary map fields.
 
-## Try It
+## How to read the example
+
+Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.
+
+## Try it
 
 Add a `"blocked"` entry to `data/entries.json`, then add a new assertion to
 `WorklogTest.rco`:
 
-```ricochet
+```
 $entries "blocked" worklog_count_status
 1 assert_equals
 ```
 
 Add a new report field to `worklog_summary`:
 
-```ricochet
+```
 $summary "blocked" $entries "blocked" worklog_count_status put! drop
 ```
 
 Then print it from `main.rco`:
 
-```ricochet
+```
 "blocked:" print
 $summary "blocked" at println
 ```
 
 Run the command, tests, and lint:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/35-capstone-cli/worklog/main.rco
-cargo run -q -p ricochet_cli --bin rco -- test examples/learn/35-capstone-cli/worklog
-cargo run -q -p ricochet_cli --bin rco -- lint examples/learn/35-capstone-cli/worklog
+```
+rco run examples/learn/35-capstone-cli/worklog/main.rco
+rco test examples/learn/35-capstone-cli/worklog
+rco lint examples/learn/35-capstone-cli/worklog
 ```
 
-## Common Mistakes
+## Check your understanding
 
-- Expanding scope before the core CLI workflow is stable.
-- Skipping tests once the app becomes useful.
-- Using `var` repeatedly inside a loop when you meant to update one loop
+- What earlier chapters does this capstone combine?
+- What is the user-facing entry point?
+- What data boundary does the app use?
+- Which tests or checks prove the capstone still works?
+
+## Common mistakes
+
+* Expanding scope before the core CLI workflow is stable.
+* Skipping tests once the app becomes useful.
+* Using `var` repeatedly inside a loop when you meant to update one loop
   binding. Declare once with `nil entry var`, then use `entry set` inside the
   loop.
-- Reading CLI args without checking `args count`.
-- Unwrapping `fs_read_text` or `json_decode` before deciding what failure
+* Reading CLI args without checking `args count`.
+* Unwrapping `fs_read_text` or `json_decode` before deciding what failure
   should mean to the user.
-- Hiding file writes in a capstone command. This example is read-only by
+* Hiding file writes in a capstone command. This example is read-only by
   default so it leaves no cleanup burden.
 
-## Safety Notes
+## Safety notes
 
-The capstone reads a checked-in JSON file and prints a report. It does not
+The capstone reads a sample JSON file and prints a report. It does not
 write, move, or delete files. If you extend it into an editor or importer,
 prefer `workspace_resolve`, containment checks, explicit overwrite behavior,
 and a confirmation step before destructive operations.
 
-## Production Notes
+## Production guidance
 
 Production CLI tools should keep parsing, validation, reporting, and host
 effects separated. That makes tests small and keeps command behavior
@@ -214,19 +235,23 @@ add a test when a new status, field, or date policy becomes user-visible.
 For distributable CLIs, package the final command only after the run, test,
 lint, and format loop is clean.
 
-## Reference Links
+## Reference links
 
-- `docs/learn/chapters/07-strings-json-and-regex.md`
-- `docs/learn/chapters/08-collections.md`
-- `docs/learn/chapters/09-results-and-errors.md`
-- `docs/learn/chapters/12-testing-linting-and-formatting.md`
-- `docs/learn/chapters/17-files-workspaces-env-and-secrets.md`
-- `docs/reference/guides/language-runtime.html`
-- `docs/reference/guides/host-capabilities.html`
+* `docs/learn/chapters/07-strings-json-and-regex.md`
+* `docs/learn/chapters/08-collections.md`
+* `docs/learn/chapters/09-results-and-errors.md`
+* `docs/learn/chapters/12-testing-linting-and-formatting.md`
+* `docs/learn/chapters/17-files-workspaces-env-and-secrets.md`
+* `docs/reference/guides/language-runtime.html`
+* `docs/reference/guides/host-capabilities.html`
 
-## What You Know Now
+## What you know now
 
 You know how to assemble the language core into a complete CLI: read a bounded
 input, decode structured data, keep failures explicit, summarize collections,
 accept optional arguments, print a useful report, and protect the behavior with
 tests.
+
+## Next step
+
+Continue to [Chapter 36: Capstone TUI Dashboard](36-capstone-tui-dashboard.md).

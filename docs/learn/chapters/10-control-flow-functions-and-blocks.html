@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 10: Making Decisions and Reusing Code | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a aria-current="page" href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 10: Making Decisions and Reusing Code</h1>
+<h2>Why this chapter matters</h2>
+<p>So far, most code has been straight-line: values arrive, words transform them, and output appears. Real programs need decisions, loops, reusable functions, and small blocks of behavior that can be passed to other words.</p>
+<p>The postfix rule still holds. Conditions appear before <code>if</code>. Loop conditions appear before <code>while</code>. Function arguments arrive through stack order.</p>
+<h2>What you will build</h2>
+<p>You will build a small gradebook program and learn the control words that turn stack code into reusable program structure.</p>
+<h2>Concepts in plain English</h2>
+<ul>
+<li><code>if ... else ... end</code> chooses a branch from a boolean condition.</li>
+<li><code>while ... end</code> repeats while a condition is true.</li>
+<li><code>break</code> exits a loop and <code>continue</code> skips to the next loop iteration.</li>
+<li>A block is an executable value written inside <code>[ ... ]</code>.</li>
+<li>A function names a reusable body of code.</li>
+</ul>
+<h2>Words introduced</h2>
+<p>Primary words: <code>function</code>, <code>return</code>, <code>if</code>, <code>call</code>, <code>while</code>, <code>break</code>, <code>continue</code>, <code>else</code>, and <code>end</code>.</p>
+<p><code>Macro</code> belongs to the wider control family, but it is taught later after ordinary functions and packages are familiar.</p>
+<h2>Guided example</h2>
+<p>Run the gradebook example:</p>
+<pre><code class="language-bash">rco run examples/learn/10-control-flow/main.rco
+</code></pre>
+<p>The loop keeps its index in a binding:</p>
+<pre><code class="language-rco">0 index var
+
+$index $scores count &lt; while
+  $scores $index at score set
+  $index 1 + index set
+end
+</code></pre>
+<p>Conditionals are postfix: the condition comes first, then <code>if</code> starts the branch.</p>
+<pre><code class="language-rco">$score 90 &gt;= if
+  &quot;A&quot; grade set
+else
+  &quot;Needs practice&quot; grade set
+end
+</code></pre>
+<p>Blocks are first-class values:</p>
+<pre><code class="language-rco">[ 40 2 + ] call println
+</code></pre>
+<p>Functions give a name to a body:</p>
+<pre><code class="language-rco">( score -&gt; String ) letter_grade function
+  $score 90 &gt;= if
+    &quot;A&quot; return
+  end
+
+  $score 80 &gt;= if
+    &quot;B&quot; return
+  end
+
+  &quot;Needs practice&quot;
+end
+</code></pre>
+<h2>How to read the code</h2>
+<p>Read <code>$score 90 &gt;= if</code> as: get the score, put <code>90</code>, compare, then branch on the boolean result. Do not read <code>if</code> as a function that wraps the condition. In Ricochet, the condition has already been computed by the time <code>if</code> appears.</p>
+<p>Read <code>[ 40 2 + ] call println</code> as: create a block value, call it, print the value it leaves.</p>
+<h2>Try it</h2>
+<p>Extract the nested grade logic from the example into <code>letter_grade</code>, then call:</p>
+<pre><code class="language-rco">$score letter_grade grade set
+</code></pre>
+<p>Then add a guard inside the loop:</p>
+<pre><code class="language-rco">$score 0 &lt; if
+  continue
+end
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>Conditions must leave a boolean before <code>if</code> or <code>while</code> runs.</li>
+<li>A block can be stored, passed, and called.</li>
+<li>A function should leave the values it promises and no extra scratch values.</li>
+<li>A <code>Result</code> is still not a condition. Check it with <code>ok?</code> or <code>error?</code>.</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Forgetting that arguments still arrive through postfix stack order.</li>
+<li>Hiding too much behavior in anonymous blocks.</li>
+<li>Using a <code>Result</code> directly as a condition.</li>
+<li>Forgetting lowercase <code>end</code> for control blocks.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You can structure Ricochet programs beyond straight-line scripts with loops, conditionals, early returns, first-class blocks, and named functions.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

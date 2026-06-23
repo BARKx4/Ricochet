@@ -21,7 +21,7 @@ $resolved "exists" at println
 "docs/learn/index.md" workspace_metadata value "kind" at println
 
 listOptions map
-$listOptions "max_entries" 10 put! drop
+$listOptions "max_entries" 64 put! drop
 $listOptions "include_dirs" true put! drop
 $listOptions "include_files" true put! drop
 

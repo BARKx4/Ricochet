@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 32: Debugger, DAP, LSP, And Editor Tools | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a aria-current="page" href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 32: Debugger, DAP, LSP, And Editor Tools</h1>
+<blockquote>
+<p>Part V: Packages, Registries, Macros, Tooling, and Release</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Large projects need editor feedback, traces, breakpoints, and diagnostics. This chapter shows the professional tooling surface around Ricochet programs.</p>
+<h2>What you will build</h2>
+<p>You will build a debuggable app and inspect it through Ricochet tooling. The
+example has normal program output, a spawned task, and a clear breakpoint line
+at <code>$worker await</code>. You will run it normally, inspect a deterministic debugger
+snapshot, read JSON debug events, and check LSP/lint diagnostics.</p>
+<h2>Concepts in plain English</h2>
+<p>DAP connects Ricochet debugging to editors. LSP connects diagnostics, hover, completion, formatting, and symbols to editors.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Terminal debugger commands.</li>
+<li>Trace files, JSON debug output, DAP, debug TUI, and debug web.</li>
+<li>LSP diagnostics, completion, hover, definitions, symbols, formatting, quick fixes, and rename.</li>
+<li>VS Code editor assets and word inventory checks.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>rco debug</code>, <code>rco debug-tui</code>, <code>rco debug-web</code>,
+<code>rco debug-adapter</code>, <code>rco run --trace-file</code>, <code>rco lsp</code>,
+<code>rco lsp-diagnostics</code>, <code>rco lint --json</code>, <code>rco fmt</code>, and editor asset
+validation.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/32-debugger-editor/debuggable_app.rco</code>:</p>
+<pre><code>(( Set a breakpoint on `$worker await` to inspect the task snapshot. ))
+
+&quot;debuggable app start&quot; println
+
+[ 40 2 + ] spawn worker var
+
+&quot;ada&quot; name var
+$name uppercase upperName var
+
+$worker await answer var
+$answer 42 assert_equals
+$worker release_task drop
+
+&quot;answer:&quot; print
+$answer println
+
+&quot;upper:&quot; print
+$upperName println
+
+&quot;debuggable app done&quot; println
+</code></pre>
+<p>Run it normally first:</p>
+<pre><code>rco run examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>debuggable app start
+answer:42
+upper:ADA
+debuggable app done
+[]
+</code></pre>
+<p>Now inspect the breakpoint snapshot. In the sample file, <code>$worker await</code> is
+on line 10:</p>
+<pre><code>rco debug-tui --smoke --breakpoint 10 examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>The smoke view is read-only and deterministic:</p>
+<pre><code>Ricochet Debug TUI
+status: paused (breakpoint)
+source: examples/learn/32-debugger-editor/debuggable_app.rco:10
+source line: $worker await answer var
+frame: &lt;main&gt;
+opcode: PushString(&quot;worker&quot;)
+stack:
+  &lt;empty&gt;
+globals:
+  name = String(&quot;ada&quot;)
+  upperName = String(&quot;ADA&quot;)
+  worker = Task(0)
+tasks:
+  task 0: running operation=spawn pending=true running=true completed=false failed=false frames=0
+stdout:
+debuggable app start
+</code></pre>
+<p>Run the same pause through the browser snapshot renderer:</p>
+<pre><code>rco debug-web --smoke --breakpoint 10 examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Without <code>--smoke</code>, <code>debug-web</code> serves a loopback-only browser shell with
+grouped panes for source, current instruction, stack, locals, globals, <code>self</code>,
+tasks, output, event log, and runtime breakpoints.</p>
+<p>For editor adapters and custom tools, use JSON Lines:</p>
+<pre><code>rco debug --json --breakpoint 10 examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>The stream includes instruction events, a paused event, and captured output
+events. The paused event reports the reason, source line, opcode, stack,
+locals, globals, <code>self</code>, and task snapshots.</p>
+<p>Run LSP diagnostics directly:</p>
+<pre><code>rco lsp-diagnostics --pretty examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Expected shape:</p>
+<pre><code>{
+  &quot;diagnostics&quot;: [],
+  &quot;uri&quot;: &quot;file:///.../debuggable_app.rco&quot;
+}
+</code></pre>
+<p>Use lint JSON for CI-shaped diagnostics:</p>
+<pre><code>rco lint --json examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>{
+  &quot;diagnostic_count&quot;: 0,
+  &quot;file_count&quot;: 1,
+  &quot;files&quot;: [
+    {
+      &quot;diagnostics&quot;: [],
+      &quot;path&quot;: &quot;examples/learn/32-debugger-editor/debuggable_app.rco&quot;
+    }
+  ]
+}
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read tooling examples as feedback loops. A trace, breakpoint, lint result, or LSP diagnostic is useful only when it points you to a smaller program shape you can understand.</p>
+<h2>Try it</h2>
+<p>Run a scripted debugger session:</p>
+<pre><code>rco debug-tui --command step --command next --command continue examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Write a trace file in a scratch location:</p>
+<pre><code>rco run --trace-file scratch-debuggable-app.trace.json examples/learn/32-debugger-editor/debuggable_app.rco
+</code></pre>
+<p>Trace files are JSON arrays. They are useful for stack visualizers and bug
+reports, but they can contain runtime values, so review them before sharing.</p>
+<p>Start the language server only from an editor or LSP client:</p>
+<pre><code>rco lsp
+</code></pre>
+<p>The VS Code extension under <code>editors/vscode</code> launches that server, provides
+TextMate highlighting, and exposes commands such as restarting the language
+server, running with the stack visualizer, and showing live debugger stacks.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>What new value shape, command, or host boundary did this chapter introduce?</li>
+<li>Which line is most important to trace with a stack diagram?</li>
+<li>Where would you add a binding to make the example easier to read?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Confusing debugger stepping with normal program output.</li>
+<li>Ignoring diagnostics before running an app.</li>
+<li>Setting a breakpoint on a blank line and expecting a pause.</li>
+<li>Treating <code>debug-tui --smoke</code> as the full interactive debugger. It is a
+deterministic preview.</li>
+<li>Writing trace files into source directories and forgetting to review them.</li>
+<li>Expecting <code>rco fmt</code> to migrate unsupported old syntax. Diagnostics and quick
+fixes do that job.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The sample app is local and does not mutate files. Trace commands write
+debug events to the path you provide, so put scratch traces somewhere obvious
+and review them for secrets, tokens, personal data, and large runtime values
+before sharing. Debugger and LSP tools should never make hidden edits.</p>
+<h2>Production guidance</h2>
+<p>Production debugging should preserve useful traces without exposing secrets.
+When debugging app servers, <code>rco serve --debug</code> prints request-fault pause lines
+before controller, view, or response metadata failures become HTTP 500
+responses. Use DAP (<code>rco debug-adapter</code>) for IDE integration, JSON Lines for
+custom tooling, and trace files for reproducible reports.</p>
+<p>Maintainers should keep editor assets in sync with the word inventory:</p>
+<pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+rco words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
+</code></pre>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/wiki/editor-debugging.md</code></li>
+<li><code>docs/debugger-integrations.md</code></li>
+<li><code>docs/reference/guides/editor-debugging.html</code></li>
+<li><code>editors/vscode</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know the professional tooling available around Ricochet code: terminal and
+browser debugger views, JSON debug events, trace files, DAP, LSP diagnostics,
+lint JSON, formatting, VS Code integration, and editor asset validation.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

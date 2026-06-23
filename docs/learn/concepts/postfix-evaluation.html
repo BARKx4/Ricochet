@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Concept: Postfix Evaluation | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="../chapters/00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="../chapters/01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="../chapters/02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="../chapters/03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="../chapters/04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="../chapters/05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="../chapters/06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="../chapters/07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="../chapters/08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="../chapters/09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="../chapters/10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="../chapters/11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="../chapters/12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="../chapters/13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="../chapters/14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="../chapters/15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="../chapters/16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="../chapters/17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="../chapters/18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="../chapters/19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="../chapters/20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="../chapters/21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="../chapters/22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="../chapters/23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="../chapters/24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="../chapters/25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="../chapters/26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="../chapters/27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="../chapters/28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="../chapters/29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="../chapters/30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="../chapters/31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="../chapters/32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="../chapters/33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="../chapters/34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="../chapters/35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="../chapters/36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="../chapters/37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="../chapters/38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a aria-current="page" href="postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Concept: Postfix Evaluation</h1>
+<p>Postfix evaluation is the core reading rule of Ricochet: values come first, words come after the values they consume.</p>
+<pre><code class="language-rco">10 5 - println
+</code></pre>
+<p>The word <code>-</code> consumes the two numbers above it and leaves the result. The word <code>println</code> consumes that result and writes it as output.</p>
+<h2>Read left to right</h2>
+<p>A Ricochet line is easiest to read as a story:</p>
+<pre><code class="language-rco">&quot;  Ada  &quot; trim uppercase println
+</code></pre>
+<p>Start with text. Trim it. Uppercase it. Print it.</p>
+<h2>Prefer visible boundaries</h2>
+<p>Use bindings when a value becomes important enough to name:</p>
+<pre><code class="language-rco">&quot;  Ada  &quot; trim name var
+$name uppercase println
+</code></pre>
+<p>This is often clearer than keeping many values on the stack while you perform unrelated work.</p>
+<h2>Check yourself</h2>
+<p>For any unfamiliar line, annotate the stack after each token. Stop as soon as the stack shape surprises you. The surprising point is where the misunderstanding lives.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

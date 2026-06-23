@@ -1,31 +1,41 @@
 # Chapter 37: Capstone MVC App
 
-## What You Will Build
+> Part VI: Capstone Applications
 
-You will build a database-backed project journal MVC app. The checked-in app
+## Why this chapter matters
+
+The MVC capstone combines routes, controllers, views, data, migrations, seeds, and tests into a complete web application.
+
+## What you will build
+
+You will build a database-backed project journal MVC app. The sample app
 has routes, a controller, an Active Record model, an escaped HTML view, static
-CSS, reversible SQL migrations, seeds, and MVC tests. The validation commands
+CSS, reversible SQL migrations, seeds, and MVC tests. The self-check commands
 inspect and compile the app without applying migrations or creating local
 database state.
 
-## Concepts
+## Concepts in plain English
 
-- Routes, controllers, templates, static assets, uploads, sessions, forms, auth helpers, migrations, seeds, and tests.
-- SQLite locally, with deployment notes for other databases.
-- Debug mode, watch mode, and route inspection.
-- Read-only validation before serving or changing database state.
-- Keeping model behavior, controller response policy, and template rendering
+This capstone proves the web app layers can work together without losing testability.
+
+The chapter uses these concepts:
+
+* Routes, controllers, templates, static assets, uploads, sessions, forms, auth helpers, migrations, seeds, and tests.
+* SQLite locally, with deployment notes for other databases.
+* Debug mode, watch mode, and route inspection.
+* Read-only self-check before serving or changing database state.
+* Keeping model behavior, controller response policy, and template rendering
   in separate places.
 
-## Words Introduced
+## Vocabulary and commands
 
 This chapter consolidates MVC, data, auth, forms, and testing concepts.
 
-## Guided Example
+## Guided example
 
 Open `examples/learn/37-capstone-mvc/project_journal`:
 
-```text
+```
 ricochet.toml
 config/routes.rco
 app/Controllers/JournalController.rco
@@ -41,7 +51,7 @@ tests/JournalEntryTest.rco
 The manifest declares an MVC app, static assets, escaped views, and a local
 SQLite development database:
 
-```toml
+```
 [web]
 mode = "mvc"
 routes = "config/routes.rco"
@@ -56,7 +66,7 @@ url = "db/development.sqlite3"
 
 Routes are still postfix:
 
-```ricochet
+```
 GET "/" JournalController "index" route
 GET "/entries" JournalController "index" route
 GET "/entries/export" JournalController "export_json" route
@@ -68,13 +78,13 @@ POST "/entries/:id" JournalController "update" route
 
 Validate the route table:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- routes examples/learn/37-capstone-mvc/project_journal
+```
+rco routes examples/learn/37-capstone-mvc/project_journal
 ```
 
 Expected output:
 
-```text
+```
 GET / JournalController#index
 GET /entries JournalController#index
 GET /entries/export JournalController#export_json
@@ -86,7 +96,7 @@ POST /entries/:id JournalController#update
 
 The model maps to the migration table and adds one display method:
 
-```ricochet
+```
 JournalEntry Model Subclass
   "journal_entries" Table
   "id" Accessor
@@ -109,7 +119,7 @@ The index action uses database results defensively, so an uncreated local
 development database still gives the view empty arrays and counts during
 compile-time checks:
 
-```ricochet
+```
 JournalEntry default_page dup ok? if
   value entries var
 else
@@ -127,13 +137,13 @@ end
 
 Run the doctor:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- doctor examples/learn/37-capstone-mvc/project_journal
+```
+rco doctor examples/learn/37-capstone-mvc/project_journal
 ```
 
 Expected output includes:
 
-```text
+```
 OK manifest: package learn_project_journal
 OK project kind: MVC app
 OK routes: 7 route(s)
@@ -143,25 +153,25 @@ Doctor found no issues.
 
 Inspect migrations without applying them:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- migrate status examples/learn/37-capstone-mvc/project_journal
+```
+rco migrate status examples/learn/37-capstone-mvc/project_journal
 ```
 
 Expected output:
 
-```text
+```
 [ ] 0001_create_journal_entries
 ```
 
 Run the MVC tests:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- test examples/learn/37-capstone-mvc/project_journal
+```
+rco test examples/learn/37-capstone-mvc/project_journal
 ```
 
 Expected output:
 
-```text
+```
 PASS JournalEntryTest.testEntriesCollection
 PASS JournalEntryTest.testEntryLabel
 2 tests, 0 failed
@@ -169,7 +179,7 @@ PASS JournalEntryTest.testEntryLabel
 
 The tests exercise model behavior without creating the database:
 
-```ricochet
+```
 JournalEntry new
 "Manual outline" swap title.set
 "published" swap status.set
@@ -177,7 +187,11 @@ label
 "Manual outline [published]" assert_equals
 ```
 
-## Try It
+## How to read the example
+
+Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.
+
+## Try it
 
 Add a `"tag"` column:
 
@@ -189,42 +203,49 @@ Add a `"tag"` column:
 
 Then run:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- routes examples/learn/37-capstone-mvc/project_journal
-cargo run -q -p ricochet_cli --bin rco -- doctor examples/learn/37-capstone-mvc/project_journal
-cargo run -q -p ricochet_cli --bin rco -- test examples/learn/37-capstone-mvc/project_journal
+```
+rco routes examples/learn/37-capstone-mvc/project_journal
+rco doctor examples/learn/37-capstone-mvc/project_journal
+rco test examples/learn/37-capstone-mvc/project_journal
 ```
 
 When you intentionally want local database state, apply migrations and seeds:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- migrate apply examples/learn/37-capstone-mvc/project_journal
-cargo run -q -p ricochet_cli --bin rco -- seed examples/learn/37-capstone-mvc/project_journal
+```
+rco migrate apply examples/learn/37-capstone-mvc/project_journal
+rco seed examples/learn/37-capstone-mvc/project_journal
 ```
 
 Those commands create or update `db/development.sqlite3`, so they are not part
-of the default Learn validation manifest.
+of the default the Learn self-check manifest.
 
-## Common Mistakes
+## Check your understanding
 
-- Mixing scaffold convenience with production assumptions.
-- Letting controller, model, and template responsibilities blur.
-- Running `migrate apply` or `seed` just to check syntax. Use `routes`,
+- What earlier chapters does this capstone combine?
+- What is the user-facing entry point?
+- What data boundary does the app use?
+- Which tests or checks prove the capstone still works?
+
+## Common mistakes
+
+* Mixing scaffold convenience with production assumptions.
+* Letting controller, model, and template responsibilities blur.
+* Running `migrate apply` or `seed` just to check syntax. Use `routes`,
   `doctor`, `migrate status`, and `test` first.
-- Treating a scaffold login loop or local seed data as production policy.
-- Returning raw database failures to users without choosing response status and
+* Treating a scaffold login loop or local seed data as production policy.
+* Returning raw database failures to users without choosing response status and
   message shape deliberately.
-- Forgetting that route action args bind request data and context according to
+* Forgetting that route action args bind request data and context according to
   the MVC binding rules.
 
-## Safety Notes
+## Safety notes
 
-The main validation path is read-only. `migrate status` inspects migration
+The main self-check path is read-only. `migrate status` inspects migration
 state, while `migrate apply`, `migrate rollback`, and `seed` intentionally
 change the local development database. The down migration contains the rollback
 SQL needed for a reversible schema, but this chapter does not run it.
 
-## Production Notes
+## Production guidance
 
 Production MVC apps should review database adapter settings, migration policy,
 session secrets, authentication and CSRF policy, upload limits, static assets,
@@ -234,18 +255,22 @@ the repository, and keep seed data separate from production migrations.
 Use `rco serve --watch` for local development and `rco serve --debug` when you
 want request-fault pause reporting before HTTP 500 responses.
 
-## Reference Links
+## Reference links
 
-- `docs/learn/chapters/23-mvc-first-app.md`
-- `docs/learn/chapters/24-routes-controllers-and-responses.md`
-- `docs/learn/chapters/25-templates-static-assets-and-uploads.md`
-- `docs/learn/chapters/26-data-active-record-and-migrations.md`
-- `docs/learn/chapters/27-sessions-forms-auth-and-passwords.md`
-- `docs/learn/chapters/32-debugger-dap-lsp-and-editor-tools.md`
-- `docs/reference/guides/web-and-data.html`
+* `docs/learn/chapters/23-mvc-first-app.md`
+* `docs/learn/chapters/24-routes-controllers-and-responses.md`
+* `docs/learn/chapters/25-templates-static-assets-and-uploads.md`
+* `docs/learn/chapters/26-data-active-record-and-migrations.md`
+* `docs/learn/chapters/27-sessions-forms-auth-and-passwords.md`
+* `docs/learn/chapters/32-debugger-dap-lsp-and-editor-tools.md`
+* `docs/reference/guides/web-and-data.html`
 
-## What You Know Now
+## What you know now
 
 You know how the Ricochet web stack fits together in a complete app: manifest,
 routes, controller actions, model mapping, templates, static assets, migrations,
 seeds, route inspection, project doctor checks, and MVC tests.
+
+## Next step
+
+Continue to [Chapter 38: Capstone Packaged GUI App](38-capstone-packaged-gui-app.md).

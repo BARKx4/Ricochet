@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 24: Routes, Controllers, And Responses | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a aria-current="page" href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 24: Routes, Controllers, And Responses</h1>
+<blockquote>
+<p>Part IV: MVC, Data, Auth, Forms, and AI</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Routes turn HTTP requests into controller actions. This chapter teaches how requests become data and how controller methods return responses.</p>
+<h2>What you will build</h2>
+<p>You will build a small MVC route table and one controller that returns views,
+plain text, JSON, redirects, status codes, and headers. The example stays
+inside a sample app so route inspection and project checks are repeatable.</p>
+<h2>Concepts in plain English</h2>
+<p>A route matches an HTTP method and path, then calls a controller action. The action returns a response.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Route verb aliases and the postfix <code>route</code> word.</li>
+<li>Controller methods as named actions.</li>
+<li>Response helpers: <code>view</code>, <code>text</code>, <code>json</code>, <code>redirect</code>, <code>status</code>, and <code>header</code>.</li>
+<li>Declared route and request arguments for POST, PUT, PATCH, and DELETE.</li>
+<li>Keeping routes readable as an app grows.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code>, <code>route</code>, <code>view</code>,
+<code>text</code>, <code>json</code>, <code>redirect</code>, <code>status</code>, <code>header</code>, and <code>println</code> for local
+diagnostics while developing actions.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/23-mvc/controllers</code>. Its route file maps HTTP verbs and
+paths to controller/action pairs:</p>
+<pre><code>GET &quot;/&quot; ResponsesController &quot;index&quot; route
+GET &quot;/ping&quot; ResponsesController &quot;ping&quot; route
+GET &quot;/api/status&quot; ResponsesController &quot;status_json&quot; route
+GET &quot;/old-dashboard&quot; ResponsesController &quot;legacy&quot; route
+POST &quot;/messages&quot; ResponsesController &quot;create&quot; route
+PUT &quot;/messages/:id&quot; ResponsesController &quot;update&quot; route
+PATCH &quot;/messages/:id&quot; ResponsesController &quot;patch&quot; route
+DELETE &quot;/messages/:id&quot; ResponsesController &quot;destroy&quot; route
+</code></pre>
+<p>The receiver still comes before the selector-like word. A route declaration
+reads as: method, path, controller, action, then <code>route</code>.</p>
+<p>Inspect the route table:</p>
+<pre><code>rco routes examples/learn/23-mvc/controllers
+</code></pre>
+<p>The output should include every route in this order:</p>
+<pre><code>GET / ResponsesController#index
+GET /ping ResponsesController#ping
+GET /api/status ResponsesController#status_json
+GET /old-dashboard ResponsesController#legacy
+POST /messages ResponsesController#create
+PUT /messages/:id ResponsesController#update
+PATCH /messages/:id ResponsesController#patch
+DELETE /messages/:id ResponsesController#destroy
+</code></pre>
+<p>The <code>index</code> action renders an escaped view through the request context:</p>
+<pre><code>[
+  &quot;Routes And Responses&quot; title var
+  &quot;Response helpers keep each action result explicit.&quot; summary var
+  $ctx
+  &quot;responses/index&quot; swap view
+] &quot;index&quot; Method
+</code></pre>
+<p>Text responses are values first, then response modifiers:</p>
+<pre><code>[
+  &quot;ping requested&quot; println
+  &quot;pong&quot; text
+  201 status
+  &quot;x-ricochet&quot; &quot;learn&quot; header
+] &quot;ping&quot; Method
+</code></pre>
+<p><code>json</code> wraps any Ricochet value that can be serialized:</p>
+<pre><code>[
+  statusBody map
+  $statusBody &quot;ok&quot; true put! drop
+  $statusBody &quot;service&quot; &quot;learn&quot; put! drop
+  $statusBody &quot;routes&quot; 8 put! drop
+  $statusBody json
+] &quot;status_json&quot; Method
+</code></pre>
+<p>Redirects are also explicit action results:</p>
+<pre><code>[
+  &quot;/api/status&quot; redirect
+] &quot;legacy&quot; Method
+</code></pre>
+<p>Declared arguments bind path and request data before the block runs. Because
+Ricochet is stack-based, bind them from the top of the stack:</p>
+<pre><code>( id title body ) [
+  body var
+  title var
+  id var
+
+  updated map
+  $updated &quot;id&quot; $id put! drop
+  $updated &quot;title&quot; $title put! drop
+  $updated &quot;body&quot; $body put! drop
+  $updated json
+] &quot;update&quot; Method
+</code></pre>
+<p>Run the project doctor after editing controllers or routes:</p>
+<pre><code>rco doctor examples/learn/23-mvc/controllers
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.</p>
+<h2>Try it</h2>
+<p>Add a route for a health check:</p>
+<pre><code>GET &quot;/health&quot; ResponsesController &quot;health&quot; route
+</code></pre>
+<p>Then add an action:</p>
+<pre><code>[
+  health map
+  $health &quot;ok&quot; true put! drop
+  $health json
+] &quot;health&quot; Method
+</code></pre>
+<p>Run <code>rco routes</code> again and confirm <code>/health</code> appears before serving the app.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Which route, controller, view, model, or form boundary is this chapter teaching?</li>
+<li>Where does request data become ordinary Ricochet data?</li>
+<li>Where can failure happen, and is it represented as a result, response, or diagnostic?</li>
+<li>What would you test before serving the app?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Hiding route behavior in overly broad controller methods.</li>
+<li>Mixing request parsing with unrelated persistence work.</li>
+<li>Applying <code>status</code> or <code>header</code> before a response helper has created an action
+result.</li>
+<li>Forgetting that declared arguments arrive on the stack and should be bound in
+reverse order inside the block.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The example only inspects routes and compiles the app. It does not start a
+long-running server or create local generated state. When you do serve it, bind to
+<code>127.0.0.1</code> for local development unless you have a reason to expose it.</p>
+<h2>Production guidance</h2>
+<p>Production controllers should validate input, keep response shapes predictable,
+and avoid doing persistence, rendering, and authorization work in one large
+method. Let route names stay boring and obvious.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/web-and-data.html</code></li>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how a Ricochet route reaches a controller action, how action helpers
+turn ordinary values into web responses, and how declared arguments let request
+data enter the stack without breaking the postfix shape.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

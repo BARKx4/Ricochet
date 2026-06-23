@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 30: Registries, Publish, Yank, And Mirror | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a aria-current="page" href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 30: Registries, Publish, Yank, And Mirror</h1>
+<blockquote>
+<p>Part V: Packages, Registries, Macros, Tooling, and Release</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Registries turn packages into shared artifacts. This chapter teaches local registry practice before public publishing concerns.</p>
+<h2>What you will build</h2>
+<p>You will build a local registry lab. The sample app contains a tiny
+scoped package, a local file-backed registry produced with <code>rco publish</code>, a
+static registry index produced with <code>rco registry rebuild</code>, and package metadata
+that includes content and provenance hashes. The runnable self-check command is
+read-only: <code>rco registry check</code>.</p>
+<h2>Concepts in plain English</h2>
+<p>A registry indexes package versions and artifacts. Publishing adds a version. Yanking marks a version as unavailable for new use without deleting history.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Static and hosted registry workflows.</li>
+<li>Publish, rebuild, check, search, install, yank, serve, and mirror.</li>
+<li>Provenance, signatures, hashes, semver, aliases, scopes, and bearer tokens.</li>
+<li>Why duplicate same-version publish is not an update strategy.</li>
+<li>Why hosted publish/yank tokens stay in environment variables.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>rco publish</code>, <code>rco registry rebuild</code>,
+<code>rco registry check</code>, <code>rco search</code>, registry dependencies, static registry
+metadata, hosted <code>rco registry serve</code>, hosted <code>rco registry yank</code>, and hosted
+<code>rco registry mirror</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/30-registries/local_registry_lab</code>. The package source
+lives in <code>package_source/greeter_pkg</code>:</p>
+<pre><code>[package]
+name = &quot;@learn/greeter&quot;
+version = &quot;0.1.0&quot;
+description = &quot;Tiny scoped package used by Learn Ricochet Chapter 30.&quot;
+</code></pre>
+<p>The package exports one variable and one function:</p>
+<pre><code>&quot;learn-registry-greeter&quot; registry_package_label var
+
+( name -&gt; String ) registry_greeting function
+  name var
+  &quot;hello, &quot; $name concat &quot; from registry&quot; concat
+end
+</code></pre>
+<p>The local registry in this example was created with:</p>
+<pre><code>rco publish examples/learn/30-registries/local_registry_lab/package_source/greeter_pkg --registry examples/learn/30-registries/local_registry_lab/registry --provenance-file examples/learn/30-registries/local_registry_lab/package_source/provenance.json
+</code></pre>
+<p>That command wrote the file-backed package record and reported package and
+provenance digests:</p>
+<pre><code>published @learn/greeter 0.1.0 ... with integrity sha256:82ac1084ccd4cf404678f3728ef268d74c0398463020fc770cc4687914326450
+attached provenance sha256:9b23922733c71d2cbd6c5546de1b0330976ca779e9422e2ac3f410a85147d9bd
+</code></pre>
+<p><code>publish --registry</code> stores the package source under the registry directory.
+Then <code>registry rebuild</code> creates the static, mirrorable registry view:</p>
+<pre><code>rco registry rebuild examples/learn/30-registries/local_registry_lab/registry
+</code></pre>
+<p>The static index is intentionally small:</p>
+<pre><code>[registry]
+format = &quot;ricochet-static-registry-v1&quot;
+
+[packages]
+&quot;@learn/greeter&quot; = &quot;packages/@learn/greeter.toml&quot;
+</code></pre>
+<p>The package metadata points at an archive artifact and records the package tree,
+archive, and provenance hashes:</p>
+<pre><code>[package]
+name = &quot;@learn/greeter&quot;
+
+[[versions]]
+version = &quot;0.1.0&quot;
+archive = &quot;artifacts/@learn/greeter/0.1.0/greeter-0.1.0.tar.gz&quot;
+archive_integrity = &quot;sha256:7436da403955618c38241e33392b061e813a7826e4a865e445ec3432c0675462&quot;
+package_integrity = &quot;sha256:82ac1084ccd4cf404678f3728ef268d74c0398463020fc770cc4687914326450&quot;
+yanked = false
+provenance = &quot;sha256:9b23922733c71d2cbd6c5546de1b0330976ca779e9422e2ac3f410a85147d9bd&quot;
+</code></pre>
+<p>Run the read-only registry check:</p>
+<pre><code>rco registry check examples/learn/30-registries/local_registry_lab/registry
+</code></pre>
+<p>Expected output:</p>
+<pre><code>checked 1 static registry versions
+</code></pre>
+<p>Search the local static registry:</p>
+<pre><code>rco search greeter --registry examples/learn/30-registries/local_registry_lab/registry
+</code></pre>
+<p>Expected output:</p>
+<pre><code>@learn/greeter 0.1.0
+</code></pre>
+<p>To consume a registry package, install it into an app with a local alias:</p>
+<pre><code>rco add registry:@learn/greeter --registry examples/learn/30-registries/local_registry_lab/registry --as greeter --version &quot;^0.1.0&quot;
+</code></pre>
+<p>The app imports by alias, not by the package’s scoped registry name:</p>
+<pre><code>&quot;greeter/greeting&quot; import
+&quot;Ada&quot; registry_greeting println
+</code></pre>
+<p><code>rco add</code> writes the dependency table, installs the package into
+<code>.ricochet/packages/greeter</code>, and records integrity in <code>ricochet.lock</code>.</p>
+<h2>How to read the example</h2>
+<p>Read package and registry examples as reproducibility workflows. A manifest says what the project needs, a lock or registry records what was resolved, and verification checks that the artifacts still match expectations.</p>
+<h2>Try it</h2>
+<p>In a scratch copy of the lab, change the package version to <code>0.1.1</code>, publish it
+to a scratch registry, rebuild, check, and search:</p>
+<pre><code>rco publish package_source/greeter_pkg --registry registry
+rco registry rebuild registry
+rco registry check registry
+rco search greeter --registry registry
+</code></pre>
+<p>Use <code>--dry-run</code> before writing a real registry:</p>
+<pre><code>rco publish package_source/greeter_pkg --registry registry --dry-run
+</code></pre>
+<p>Hosted registry publish and yank use a registry URL plus an environment-backed
+bearer token:</p>
+<pre><code>rco registry serve ./hosted-registry --publisher &quot;@learn/*=RICOCHET_REGISTRY_TOKEN&quot;
+rco publish package_source/greeter_pkg --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+rco registry yank @learn/greeter 0.1.0 --registry-url http://127.0.0.1:3001 --token-env RICOCHET_REGISTRY_TOKEN
+</code></pre>
+<p>Do not run hosted commands with placeholder tokens. Set the token in the
+environment and keep it out of source files, manifests, and lockfiles.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Which file or command makes the workflow reproducible?</li>
+<li>What would change if a dependency version changed?</li>
+<li>Which command checks the project before you publish or consume it?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Replacing the same version without understanding registry rules.</li>
+<li>Putting bearer tokens directly in source examples.</li>
+<li>Expecting <code>registry yank</code> to delete artifacts. Yank marks a hosted version
+unavailable while preserving historical metadata.</li>
+<li>Forgetting to run <code>registry rebuild</code> after publishing to a file-backed local
+registry.</li>
+<li>Checking in generated registry changes without reviewing archive,
+provenance, and package integrity diffs.</li>
+<li>Importing by registry scope instead of the local dependency alias.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The sample app is local and read-only during automated checks. The publish
+command shown above has already been run to create the fixture. Do not rerun it
+against the sample registry unless you are intentionally changing the
+fixture; publishing the same package version again should fail or be treated as
+a registry-state mistake.</p>
+<p>Never store bearer tokens in source examples. Hosted publish, yank, and serve
+commands use <code>--token-env NAME</code> so token values stay in the process
+environment.</p>
+<h2>Production guidance</h2>
+<p>Production registry workflows should document package identity ownership,
+version policy, provenance policy, detached signature policy, token handling,
+publisher authorization, duplicate-version behavior, yanking policy, static
+mirror cadence, and recovery when a hosted registry is unavailable.</p>
+<p><code>rco registry mirror REGISTRY_URL PATH</code> exports hosted metadata and artifacts
+into the same static registry format used by this chapter. That gives clients a
+file/HTTP static fallback path while preserving yanked records, archive
+integrity, package integrity, provenance, and signature metadata.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/wiki/packages.md</code></li>
+<li><code>docs/wiki/hosted-registry-protocol.md</code></li>
+<li><code>docs/reference/guides/packages.html</code></li>
+<li><code>docs/reference/guides/hosted-registry-protocol.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know the package distribution workflow at a user level: publish a package,
+rebuild and check a static registry, search package metadata, install by local
+alias, keep provenance and integrity visible, and reserve hosted yank/mirror
+operations for token-backed registry workflows.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 26: Data, Active Record, And Migrations | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a aria-current="page" href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 26: Data, Active Record, And Migrations</h1>
+<blockquote>
+<p>Part IV: MVC, Data, Auth, Forms, and AI</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Persistent data requires a stronger mental model than maps in memory. Models, migrations, and records connect Ricochet objects to database state.</p>
+<h2>What you will build</h2>
+<p>You will build the data layer for a contacts MVC app: a model, a reversible
+SQLite migration, seed files, and controller actions that use Active Record
+query and write words. The runnable self-check path is read-only and checks
+migration status without creating <code>db/development.sqlite3</code>.</p>
+<h2>Concepts in plain English</h2>
+<p>Active Record maps a class to a table. A migration changes schema in an ordered, repeatable way.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Active Record model declarations over existing tables.</li>
+<li>SQLite database configuration.</li>
+<li>SQL migrations, reversible migration pairs, and seeds.</li>
+<li>Read words: <code>all</code>, <code>find_record</code>, <code>default_page</code>, <code>where</code>, <code>limit</code>,
+<code>count_records</code>, <code>first_record</code>, and <code>exists?</code>.</li>
+<li>Write words: <code>insert</code> and <code>update</code>.</li>
+<li>Notes for PostgreSQL and MySQL deployment.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: Active Record web words and the migration CLI family:
+<code>rco migrate new</code>, <code>rco migrate status</code>, <code>rco migrate apply</code>,
+<code>rco migrate rollback</code>, <code>rco migrate dump</code>, and <code>rco seed</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/26-data/contacts_app</code>. The manifest declares SQLite but
+does not check in a database file:</p>
+<pre><code>[database.default]
+adapter = &quot;sqlite&quot;
+url = &quot;db/development.sqlite3&quot;
+</code></pre>
+<p>The model maps a class to the table that the migration creates:</p>
+<pre><code>Contact Model Subclass
+  &quot;contacts&quot; Table
+  &quot;id&quot; Accessor
+  &quot;name&quot; Accessor
+  &quot;email&quot; Accessor
+  &quot;status&quot; Accessor
+end
+</code></pre>
+<p>The migration is reversible:</p>
+<pre><code>create table contacts (
+  id integer primary key,
+  name text not null,
+  email text not null unique,
+  status text not null default 'active'
+);
+</code></pre>
+<p>Its matching down migration drops the table:</p>
+<pre><code>drop table contacts;
+</code></pre>
+<p>Check migration status without creating the database:</p>
+<pre><code>rco migrate status examples/learn/26-data/contacts_app
+</code></pre>
+<p>The output should show the configured SQLite target and one unapplied migration:</p>
+<pre><code>Migrations for ...\examples\learn\26-data\contacts_app\db\development.sqlite3
+[ ] 0001_create_contacts
+</code></pre>
+<p>Run the MVC doctor to compile controllers, models, routes, and views:</p>
+<pre><code>rco doctor examples/learn/26-data/contacts_app
+</code></pre>
+<p>The index action uses read-only Active Record words and handles missing database
+state by falling back to empty view data:</p>
+<pre><code>Contact default_page dup ok? if
+  value contacts var
+else
+  drop
+  contacts array
+end
+
+Contact count_records dup ok? if
+  value totalContacts var
+else
+  drop
+  0 totalContacts var
+end
+
+Contact first_record dup ok? if
+  value firstContact var
+else
+  drop
+  nil firstContact var
+end
+</code></pre>
+<p>Routes that need narrower reads keep arguments below the model:</p>
+<pre><code>&quot;email&quot; $email Contact where
+$id Contact find_record
+$id Contact exists?
+20 Contact limit
+Contact all
+</code></pre>
+<p>Writes use a map of attributes:</p>
+<pre><code>contact map
+$contact &quot;name&quot; $name put! drop
+$contact &quot;email&quot; $email put! drop
+$contact &quot;status&quot; &quot;active&quot; put! drop
+$contact Contact insert
+</code></pre>
+<p>Updates put the id before the attributes map and the model:</p>
+<pre><code>changes map
+$changes &quot;name&quot; $name put! drop
+$changes &quot;email&quot; $email put! drop
+$changes &quot;status&quot; $state put! drop
+$id $changes Contact update
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.</p>
+<h2>Try it</h2>
+<p>Apply the migration when you are ready to create local database state:</p>
+<pre><code>rco migrate apply examples/learn/26-data/contacts_app
+</code></pre>
+<p>Seed sample rows:</p>
+<pre><code>rco seed examples/learn/26-data/contacts_app
+</code></pre>
+<p>Now serve the app locally:</p>
+<pre><code>rco serve examples/learn/26-data/contacts_app --host 127.0.0.1 --port 3000
+</code></pre>
+<p>Use <code>rco migrate dump --output db/schema.sql</code> when you want a deterministic beta
+schema snapshot. Use <code>rco migrate rollback --steps 1</code> only when you are
+intentionally reversing the newest applied migration.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Which route, controller, view, model, or form boundary is this chapter teaching?</li>
+<li>Where does request data become ordinary Ricochet data?</li>
+<li>Where can failure happen, and is it represented as a result, response, or diagnostic?</li>
+<li>What would you test before serving the app?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Treating migrations as optional once a database exists.</li>
+<li>Confusing model accessors with plain map keys.</li>
+<li>Describing Active Record as a schema-definition ORM; it maps models to
+existing schemas.</li>
+<li>Running seeds repeatedly and expecting them to be idempotent.</li>
+<li>Serving before checking migration status.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The self-check command for this chapter is <code>rco migrate status</code>, which is
+read-only when the SQLite database file is absent. <code>migrate apply</code>, <code>seed</code>,
+<code>dump</code>, and <code>rollback</code> create or modify local database/schema files. Do not
+delete or prune generated database state without explicit confirmation.</p>
+<h2>Production guidance</h2>
+<p>Production apps should document database configuration, migration order, backup
+and restore expectations, rollback policy, seed idempotency, and adapter
+differences. <code>rco migrate dump</code> is a Ricochet beta schema snapshot, not a
+replacement for <code>pg_dump</code>, <code>mysqldump</code>, or an operator’s backup tooling.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/web-and-data.html</code></li>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how Ricochet models map to tables, how migrations and seeds fit the
+local SQLite workflow, and how Active Record read/write words keep database
+operations in postfix order.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

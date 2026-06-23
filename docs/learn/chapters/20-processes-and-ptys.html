@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 20: Processes And PTYs | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a aria-current="page" href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 20: Processes And PTYs</h1>
+<blockquote>
+<p>Part III: Host Capabilities and Local App Surfaces</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Process and PTY control lets Ricochet coordinate external tools. This is high-trust host power, so the chapter teaches deliberate opt-ins and clear boundaries.</p>
+<h2>What you will build</h2>
+<p>You will build a harmless local tool-runner that executes short Windows
+commands, captures bounded output, starts and reads a retained process job,
+requests cancellation for a long-running job, and captures output from a PTY
+session.</p>
+<h2>Concepts in plain English</h2>
+<p>A process runs another program. A PTY gives that program an interactive terminal-like session.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Blocking process spawn and task-based process spawn.</li>
+<li>Retained process jobs, reads, cancellation, and release.</li>
+<li>PTY sessions, writes, reads, resize, stop, list, and detail.</li>
+<li>Process and PTY permissions as explicit host power.</li>
+<li>Output caps, timeouts, and environment maps.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>process_spawn</code>, <code>process_spawn_task</code>, <code>process_start</code>,
+<code>process_jobs</code>, <code>process_job</code>, <code>process_cancel</code>, <code>process_release</code>,
+<code>process_read</code>, <code>process_env_put</code>, <code>pty_start</code>, <code>pty_write</code>, <code>pty_read</code>,
+<code>pty_resize</code>, <code>pty_stop</code>, <code>pty_release</code>, <code>pty_list</code>, and <code>pty_detail</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/20-processes-and-ptys/tool-runner.rco</code> and run:</p>
+<pre><code>rco run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco
+</code></pre>
+<p>The runnable example uses Windows <code>cmd /C echo ...</code> commands so it can stay
+harmless and deterministic. Process and PTY power is disabled unless you grant
+it with flags.</p>
+<p>Blocking process calls are best for short commands whose output you want all at
+once:</p>
+<pre><code>processArgs array
+$processArgs &quot;/C&quot; push! drop
+$processArgs &quot;echo %RICOCHET_LEARN_CHILD%&quot; push! drop
+
+processOptions map
+$processOptions &quot;timeout_ms&quot; 5000 put! drop
+$processOptions &quot;stdout_max_bytes&quot; 200 put! drop
+$processOptions &quot;RICOCHET_LEARN_CHILD&quot; &quot;process-ok&quot; process_env_put value processOptions set
+
+&quot;cmd&quot; $processArgs $processOptions process_spawn value spawnResult var
+$spawnResult &quot;stdout&quot; at trim println
+</code></pre>
+<p>Use the task variant when the current flow can do other work before collecting
+the result:</p>
+<pre><code>&quot;cmd&quot; $processArgs $processOptions process_spawn_task spawnTask var
+$spawnTask await value taskResult var
+$taskResult &quot;stdout&quot; at trim println
+$spawnTask release_task drop
+</code></pre>
+<p>Retained jobs let you inspect output incrementally. Start the job, poll its
+snapshot until it exits, then read retained stdout/stderr and release it:</p>
+<pre><code>&quot;cmd&quot; $jobArgs $jobOptions process_start value job var
+
+nil jobSnapshot var
+0 attempts var
+$attempts 50 &lt; while
+  $job &quot;id&quot; at process_job value jobSnapshot set
+  $jobSnapshot &quot;status&quot; at &quot;exited&quot; = if
+    break
+  end
+  50 sleep
+  $attempts 1 + attempts set
+end
+
+readOptions map
+$job &quot;id&quot; at $readOptions process_read value jobRead var
+$jobRead &quot;stdout&quot; at trim println
+$job &quot;id&quot; at process_release value println
+</code></pre>
+<p><code>process_cancel</code> requests cancellation for a retained job:</p>
+<pre><code>&quot;cmd&quot; $cancelArgs $cancelOptions process_start value cancelJob var
+$cancelJob &quot;id&quot; at process_cancel value &quot;cancelled&quot; at println
+
+nil cancelSnapshot var
+0 cancelAttempts var
+$cancelAttempts 50 &lt; while
+  $cancelJob &quot;id&quot; at process_job value cancelSnapshot set
+  $cancelSnapshot &quot;running&quot; at false = if
+    break
+  end
+  50 sleep
+  $cancelAttempts 1 + cancelAttempts set
+end
+
+$cancelJob &quot;id&quot; at process_release value println
+</code></pre>
+<p>PTYs are for programs that expect a terminal. A PTY session is retained like a
+process job, but reads come from terminal output:</p>
+<pre><code>ptyArgs array
+$ptyArgs &quot;/C&quot; push! drop
+$ptyArgs &quot;echo ricochet-pty&quot; push! drop
+
+ptyOptions map
+$ptyOptions &quot;rows&quot; 12 put! drop
+$ptyOptions &quot;cols&quot; 80 put! drop
+$ptyOptions &quot;output_max_bytes&quot; 4096 put! drop
+
+&quot;cmd&quot; $ptyArgs $ptyOptions pty_start value session var
+$session &quot;id&quot; at 100 24 pty_resize value drop
+
+ptyReadOptions map
+$session &quot;id&quot; at $ptyReadOptions pty_read value ptyRead var
+$ptyRead &quot;output&quot; at &quot;ricochet-pty&quot; contains? println
+$session &quot;id&quot; at pty_release value println
+</code></pre>
+<p>For an interactive shell, use <code>pty_write</code> to send input such as a command plus
+a newline, <code>pty_read</code> with offsets to consume output, and <code>pty_stop</code> when the
+session should end.</p>
+<h2>How to read the example</h2>
+<p>Read the command first, then the code. The command grants the host powers the program may use. Inside the program, host calls usually return <code>Result</code> values or retained resource handles, so keep the same habit from Chapter 09: check the result, unwrap deliberately, and release or close resources when you are done.</p>
+<h2>Try it</h2>
+<p>Remove <code>--allow-process</code> and rerun the example. Then restore it and remove
+<code>--allow-pty</code>. Each failure should name the missing capability. After that,
+lower <code>stdout_max_bytes</code> or <code>output_max_bytes</code> and watch truncation metadata
+change.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Can you name the host capability this example needs?</li>
+<li>Can you point to the command flag or profile that grants it?</li>
+<li>Can you identify which calls may return <code>Result</code> values?</li>
+<li>Can you describe how the example avoids touching more of the host system than necessary?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Assuming process behavior is identical across operating systems.</li>
+<li>Passing unchecked user input to a process command.</li>
+<li>Forgetting that <code>process_spawn_task</code> awaits to a <code>Result</code>, while a plain
+spawned block awaits to the block value.</li>
+<li>Releasing retained jobs or PTY sessions before they finish.</li>
+<li>Leaving command output unbounded.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>Process and PTY execution can run arbitrary local programs. Keep command names
+and arguments explicit, avoid unchecked user input, use timeouts and output
+caps, and prefer narrow <code>--process-root</code> bounds for real tools. This chapter’s
+runnable example uses short <code>cmd /C echo ...</code> commands and a loopback-only
+<code>ping</code> cancellation target.</p>
+<h2>Production guidance</h2>
+<p>Production process integrations should model command construction as a data
+boundary. Build argument arrays directly instead of concatenating shell strings
+when possible, bound output, handle cancellation paths, and release retained
+jobs. PTY integrations should be reserved for truly terminal-oriented tools;
+plain processes are easier to automate and test.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+<li><code>docs/reference/guides/language-runtime.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how to call local tools without treating processes as invisible side
+effects: grant the capability explicitly, bound the output, inspect retained
+state, cancel when needed, and release process or PTY handles when finished.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="21-terminal-ui.html">Chapter 21: Terminal UI</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

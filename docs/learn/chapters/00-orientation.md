@@ -1,58 +1,85 @@
-# Chapter 00: Orientation
+# Chapter 00: Welcome to Ricochet
 
-## What You Will Build
+## Why this chapter matters
 
-This opening chapter orients you to Ricochet, the `rco` toolchain, the
-reference site, and the examples directory. There is no code to type yet; the
-goal is to know where the learning path starts and where exact lookup material
-lives.
+Ricochet is easiest to learn when you know what kind of language you are entering. It is a modern postfix language: values appear first, then words act on those values. That order is different from most mainstream languages, so this guide starts by making the reading model visible instead of assuming you already know stack-language vocabulary.
 
-## Concepts
+You do not need to be a Forth, Factor, or concatenative-language expert. You only need to be willing to read small examples from left to right and ask what each word consumes and leaves behind.
 
-- Ricochet is a postfix, stack-oriented language with a complete local
-  toolchain.
-- The manual teaches scripts first, then local apps, MVC apps, packages,
-  tooling, and packaging.
-- Tutorials, reference pages, wiki notes, and examples each have a different
-  job.
+## What you will build
 
-## Words Introduced
+In this chapter you will not build a full app yet. You will learn the shape of the course, the role of the `rco` tool, and the safest path through the material.
 
-This chapter introduces the `rco` command and documentation layout rather than
-language words.
+By the end, you should know where to go when you need a tutorial, a concept explanation, a task recipe, or an exact reference lookup.
 
-## Guided Example
+## Ricochet in one minute
 
-There is no guided example in this chapter.
+A Ricochet program is a sequence of values and words:
 
-## Try It
+```rco
+"Hello, Ricochet!" println
+```
 
-Open these files in the repo:
+The string is a value. `println` is a word. The word consumes the value and prints it.
 
-- `docs/learn/index.md` for the manual table of contents.
-- `docs/learn/manual-map.md` for chapter status.
-- `docs/reference/index.html` for the static reference site.
-- `docs/reference/guides/index.html` for focused reference guides.
-- `examples/learn/README.md` for runnable manual examples.
+A slightly more useful line looks like this:
 
-If you already have `rco` installed, this command shows the toolchain entry
-point:
+```rco
+4 3 * 2 + println
+```
 
-```powershell
+Read it as: put down `4`, put down `3`, multiply them, put down `2`, add it, print the result.
+
+## The stack is a workbench
+
+The stack is the temporary place where values wait. If you have never used a stack language, imagine a workbench where the most recent value is closest to your hand. A word takes the values it needs from that workbench and leaves any result there for the next word.
+
+You will see stack diagrams in the early chapters. They are not meant to be decoration. They are how you learn to read Ricochet without guessing.
+
+## How the site is organized
+
+Use the site as a set of lanes:
+
+- **Start Here** explains Ricochet, postfix order, and the stack before the chapter sequence begins.
+- **Learn** is the linear course. Read Chapters 00 through 10 in order if Ricochet is new to you.
+- **Concepts** gives reusable explanations for ideas that show up in many chapters.
+- **How-To Guides** gives short task recipes.
+- **Appendices** gives quick lookup tables for commands, capabilities, syntax shapes, troubleshooting, and terms.
+- **Reference** belongs beside this guide as the exact word and command catalog.
+
+The Learn chapters are not supposed to be the full reference. They are here to teach the mental model, show realistic examples, and help you build confidence.
+
+## Before you continue
+
+Install Ricochet so the `rco` command is available. Then check it:
+
+```bash
 rco --help
 ```
 
-## Common Mistakes
+The rest of the guide uses installed-tool commands such as:
 
-- Treating the manual as a complete command reference. The manual is the guided
-  course; the reference is the catalog.
-- Skipping the postfix model before reading MVC or package chapters. Ricochet
-  stays postfix in scripts, classes, controllers, templates, and packages.
-- Reading capability chapters before safety boundaries. Filesystem, network,
-  process, PTY, TUI, and GUI words are powerful host effects.
+```bash
+rco run examples/learn/01-hello-world/main.rco
+rco repl
+```
 
-## What You Know Now
+If you are changing the Ricochet implementation itself from a source checkout, use the repository contributor instructions to install or run the CLI. The beginner path keeps that machinery out of the way.
 
-You know where the manual starts, how the learning path is organized, and
-where to look for deeper reference material. The next chapter starts with the
-smallest possible program.
+## Common mistakes
+
+- Trying to memorize the whole word catalog before writing a script. Start with a tiny program and a few stack diagrams.
+- Treating the stack as a place to hide everything forever. Good Ricochet code uses bindings and data structures when names make code clearer.
+- Jumping to MVC, packages, or GUI chapters before you understand postfix order. Those features still use the same language model.
+
+## Check your understanding
+
+Before moving on, answer these in your own words:
+
+1. In `"hello" println`, what is the value and what is the word?
+2. What does a word do with the stack?
+3. Which part of the site would you use for exact word lookup?
+
+## What you know now
+
+You know what kind of language Ricochet is, how this guide is organized, and why the early chapters spend time on postfix order and the stack. Next you will run the smallest useful Ricochet program.

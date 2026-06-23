@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 23: MVC First App | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a aria-current="page" href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 23: MVC First App</h1>
+<blockquote>
+<p>Part IV: MVC, Data, Auth, Forms, and AI</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>MVC apps are the first large application shape in the guide. Routes, controllers, views, and models are easier when you see them as named layers around the same Ricochet language.</p>
+<h2>What you will build</h2>
+<p>You will inspect and run the first Ricochet MVC app shape: manifest, routes,
+controllers, models, views, static assets, and project checks. The sample app
+is shaped like a fresh non-SQLite <code>rco new</code> project, but it avoids creating or
+deleting local app state while you are learning the layout.</p>
+<h2>Concepts in plain English</h2>
+<p>MVC separates an app into models for data, views for rendering, and controllers for request behavior.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li><code>rco new</code>, SQLite scaffolding, <code>rco serve</code>, watch mode, and route inspection.</li>
+<li>Generated project layout.</li>
+<li>Capability boundaries for MVC apps.</li>
+<li>Why examples validate with <code>rco routes</code> and <code>rco doctor</code> before serving.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: project and MVC command family: <code>rco new</code>, <code>rco routes</code>,
+<code>rco doctor</code>, <code>rco serve</code>, <code>rco serve --watch</code>, and the default MVC layout.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/23-mvc/first_app</code>. Its manifest declares an MVC app,
+route file, HTML-escaped views, and static assets:</p>
+<pre><code>[web]
+mode = &quot;mvc&quot;
+routes = &quot;config/routes.rco&quot;
+
+[web.views]
+escape = &quot;html&quot;
+
+[web.static]
+dir = &quot;public&quot;
+mount = &quot;/assets&quot;
+</code></pre>
+<p>Routes stay postfix:</p>
+<pre><code>GET &quot;/&quot; HomeController &quot;index&quot; route
+GET &quot;/users&quot; UserController &quot;index&quot; route
+</code></pre>
+<p>Validate the route table without starting a server:</p>
+<pre><code>rco routes examples/learn/23-mvc/first_app
+</code></pre>
+<p>The output should include:</p>
+<pre><code>GET / HomeController#index
+GET /users UserController#index
+</code></pre>
+<p>Run the project doctor for a broader compile/configuration check:</p>
+<pre><code>rco doctor examples/learn/23-mvc/first_app
+</code></pre>
+<p>The home controller renders a view through the request context:</p>
+<pre><code>HomeController Controller Subclass
+  [
+    &quot;Hello Ricochet&quot; title var
+    $ctx
+    &quot;home/index&quot; swap view
+  ] &quot;index&quot; Method
+end
+</code></pre>
+<p>The users controller creates an in-memory model instance. Database-backed
+queries start in Chapter 26:</p>
+<pre><code>users array
+User new
+&quot;ada@example.com&quot; swap email.set
+&quot;Ada Lovelace&quot; swap name.set
+$users swap push! drop
+$users count userCount var
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.</p>
+<h2>Try it</h2>
+<p>Generate a throwaway scaffold somewhere outside this example tree:</p>
+<pre><code>rco new scratch_app
+</code></pre>
+<p>Add <code>--with-sqlite</code> when you want the local beta SQLite app with seeded data,
+login routes, and a development database. Start an app locally with:</p>
+<pre><code>rco serve examples/learn/23-mvc/first_app --host 127.0.0.1 --port 3000
+</code></pre>
+<p>Use <code>--watch</code> during development so controllers, models, routes, views, and
+manifest settings reload between requests.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Which route, controller, view, model, or form boundary is this chapter teaching?</li>
+<li>Where does request data become ordinary Ricochet data?</li>
+<li>Where can failure happen, and is it represented as a result, response, or diagnostic?</li>
+<li>What would you test before serving the app?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Treating scaffold auth as production auth.</li>
+<li>Looking for broad trusted-script behavior inside MVC.</li>
+<li>Starting a server before checking routes and doctor output.</li>
+<li>Confusing desktop webview GUIs with MVC browser/server apps.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>This sample app has no generated database. <code>rco new --with-sqlite</code>
+creates <code>db/development.sqlite3</code>; treat that as generated local app state.
+Serve examples on <code>127.0.0.1</code> unless you have a reason to bind more broadly.</p>
+<h2>Production guidance</h2>
+<p>Production MVC apps should review configuration, database, auth, static asset,
+session, and capability settings before deployment. The scaffold is a local
+beta starting point, not a complete production policy.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+<li><code>docs/reference/guides/language-runtime.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know the shape of a Ricochet web app: a manifest points to routes, routes
+name controller actions, controllers prepare view data, views render escaped
+HTML, and static assets are served from a configured public directory.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

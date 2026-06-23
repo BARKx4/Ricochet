@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appendix E: Troubleshooting | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="../chapters/00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="../chapters/01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="../chapters/02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="../chapters/03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="../chapters/04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="../chapters/05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="../chapters/06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="../chapters/07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="../chapters/08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="../chapters/09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="../chapters/10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="../chapters/11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="../chapters/12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="../chapters/13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="../chapters/14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="../chapters/15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="../chapters/16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="../chapters/17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="../chapters/18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="../chapters/19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="../chapters/20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="../chapters/21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="../chapters/22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="../chapters/23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="../chapters/24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="../chapters/25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="../chapters/26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="../chapters/27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="../chapters/28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="../chapters/29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="../chapters/30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="../chapters/31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="../chapters/32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="../chapters/33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="../chapters/34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="../chapters/35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="../chapters/36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="../chapters/37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="../chapters/38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a aria-current="page" href="e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Appendix E: Troubleshooting</h1>
+<p>This appendix helps you move from an error message to the next useful command. Prefer the smallest check that reproduces the issue.</p>
+<h2>Quick checks</h2>
+<table>
+<thead>
+<tr>
+  <th>Symptom</th>
+  <th>Likely cause</th>
+  <th>Next command</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>rco</code> not found</td>
+  <td>Installed binary is missing from <code>PATH</code></td>
+  <td>Check your install and shell <code>PATH</code>; then run <code>rco --help</code>.</td>
+</tr>
+<tr>
+  <td>Syntax or parse error</td>
+  <td>Infix habit, wrong selector shape, bad import string</td>
+  <td><code>rco lint path/to/file.rco</code></td>
+</tr>
+<tr>
+  <td>Stack underflow</td>
+  <td>A word consumed more values than the stack had</td>
+  <td>Run the smallest script and inspect the line before the failure.</td>
+</tr>
+<tr>
+  <td>Type error</td>
+  <td>A word received the wrong value kind</td>
+  <td>Add <code>type</code> or <code>inspect</code> near the failing value.</td>
+</tr>
+<tr>
+  <td><code>Result</code> unwrap failure</td>
+  <td><code>value</code> was called on an error result</td>
+  <td>Check <code>ok?</code>, then print <code>error &quot;kind&quot; at</code> and <code>error &quot;message&quot; at</code>.</td>
+</tr>
+<tr>
+  <td>Filesystem denied</td>
+  <td>Profile or root disallows the path</td>
+  <td>Add <code>--fs-root PATH</code>, or use <code>workspace_resolve</code> to inspect containment.</td>
+</tr>
+<tr>
+  <td>HTTP denied</td>
+  <td>HTTP disabled or host not allowed</td>
+  <td>Use <code>--http-allow-host HOST</code>.</td>
+</tr>
+<tr>
+  <td>Socket denied</td>
+  <td>Raw sockets disabled or host not allowed</td>
+  <td>Use <code>--allow-sockets</code> and <code>--socket-allow-host HOST</code>.</td>
+</tr>
+<tr>
+  <td>Process or PTY denied</td>
+  <td>Process/PTY powers are always opt-in</td>
+  <td>Use <code>--allow-process</code>, <code>--allow-pty</code>, and optionally <code>--process-root PATH</code>.</td>
+</tr>
+<tr>
+  <td>TUI output leaves a messy terminal</td>
+  <td>App failed before terminal cleanup</td>
+  <td>Keep load/parse work before <code>tui_enter</code>; keep cleanup visible.</td>
+</tr>
+<tr>
+  <td>MVC route missing</td>
+  <td>Route file, controller, or action name mismatch</td>
+  <td><code>rco routes path/to/app</code></td>
+</tr>
+<tr>
+  <td>MVC compile issue</td>
+  <td>Manifest, controller, model, route, or view problem</td>
+  <td><code>rco doctor path/to/app</code></td>
+</tr>
+<tr>
+  <td>Migration confusion</td>
+  <td>Database state differs from migration files</td>
+  <td><code>rco migrate status path/to/app</code></td>
+</tr>
+<tr>
+  <td>Package verify failure</td>
+  <td>Manifest, lockfile, cache, or integrity mismatch</td>
+  <td><code>rco verify path/to/project</code></td>
+</tr>
+<tr>
+  <td>GUI package missing</td>
+  <td>Package command failed or wrote somewhere else</td>
+  <td>Check the package root path and output path.</td>
+</tr>
+</tbody>
+</table>
+<h2>Debug commands</h2>
+<p>Use JSON or smoke previews when you need evidence without a full interactive session:</p>
+<pre><code class="language-bash">rco debug --json --breakpoint 10 path/to/file.rco
+rco debug-tui --smoke --breakpoint 10 path/to/file.rco
+rco debug-web --smoke --breakpoint 10 path/to/file.rco
+</code></pre>
+<p>Use traces when the program runs but behavior is surprising:</p>
+<pre><code class="language-bash">rco run --trace-file trace.json path/to/file.rco
+</code></pre>
+<h2>When to fail loudly</h2>
+<p>If the evidence does not support a logical explanation, stop and collect more diagnostics instead of inventing a cause. Share the command, exact output, current path, and whether local generated state exists.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

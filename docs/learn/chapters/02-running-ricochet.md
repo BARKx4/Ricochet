@@ -1,83 +1,116 @@
-# Chapter 02: Running Ricochet
+# Chapter 02: Running Code and Getting Feedback
 
-## What You Will Build
+## Why this chapter matters
 
-You will build confidence with running files, using the REPL, reading help,
-and recognizing diagnostics.
+Learning a language is much easier when the feedback loop is short. You want to be able to run a file, try a line interactively, ask for help, and recognize the broad category of an error.
 
-## Concepts
+This chapter teaches the everyday `rco` commands before adding more language features.
 
-- `rco run`, `rco repl`, and command help.
-- Source layout and example paths.
-- Comments, string escapes, integers, and floats.
-- Parse errors, stack errors, and type errors.
+## What you will build
 
-## Words Introduced
+You will run a known-good script, start the REPL, ask the CLI for help, and intentionally trigger a few beginner errors.
 
-This chapter reinforces comments, strings, integer literals, and float literals.
-No new runtime word gets primary coverage here.
+## Concepts in plain English
 
-## Guided Example
+- `rco run FILE` runs a script.
+- `rco repl` starts an interactive prompt.
+- `rco --help` shows top-level help.
+- `rco run --help` shows help for one command.
+- Diagnostics are messages that explain why Ricochet could not parse, type-check, or run something.
 
-Use the Chapter 01 file as the smoke test:
+## Guided example
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/01-hello-world/main.rco
+Run the previous chapter’s example:
+
+```bash
+rco run examples/learn/01-hello-world/main.rco
 ```
 
-Ask for command help:
+Ask for help:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- --help
-cargo run -q -p ricochet_cli --bin rco -- run --help
+```bash
+rco --help
+rco run --help
 ```
 
 Start the REPL:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- repl
+```bash
+rco repl
 ```
 
-In the REPL, try:
+Try these lines one at a time:
 
-```ricochet
+```rco
 1 2 + println
 "line one\nline two" println
 3.5 2 + println
 ```
 
-Plain integer literals are integer `Number` values. Decimal or exponent
-literals are `Float` values, and mixed numeric math promotes to `Float`.
+Plain integer literals are integer `Number` values. Decimal or exponent literals are `Float` values. Mixed numeric math promotes to `Float`.
 
-## Try It
+## How to read the feedback
 
-Create a temporary scratch file outside the manual examples and intentionally
-try a broken expression:
+A diagnostic is not a personal failure. It is a clue about the shape Ricochet expected.
 
-```ricochet
+Try a parse error in a scratch file:
+
+```rco
 "missing closer
 ```
 
-Then try a stack error:
+Try a stack error:
 
-```ricochet
+```rco
 + println
 ```
 
-The important habit is not memorizing every error message. The habit is reading
-where the diagnostic points, then reducing the program to the smallest
-expression that still fails.
+The `+` word needs two values. This program gives it none. The fix is not to memorize the exact message; the fix is to ask what stack shape the word expected.
 
-## Common Mistakes
+## The smallest useful debugging habit
 
-- Running examples from the wrong working directory. The manual commands assume
-  the repo root unless they say otherwise.
-- Reading the final stack as output text. Program output appears before the
-  final stack display.
-- Reading a runtime stack error as a parser problem.
-- Assuming the REPL and file runner use different language rules.
+When a program surprises you, reduce it. Delete everything that is not needed to reproduce the surprise. Then add one inspection line near the value you do not understand:
 
-## What You Know Now
+```rco
+$thing inspect println drop
+```
 
-You can run scripts, enter expressions interactively, and ask the CLI for help.
-That feedback loop is enough to start learning stack behavior.
+`inspect` gives you a debug string. `println` prints that string. `drop` removes the original value if you were only looking at it.
+
+## Try it
+
+Create `scratch.rco` with this line:
+
+```rco
+10 5 - println
+```
+
+Run it:
+
+```bash
+rco run scratch.rco
+```
+
+Then change the line to each of these and predict the output before running:
+
+```rco
+10 5 + println
+10 5 * println
+10 5 / println
+```
+
+## Check your understanding
+
+- Use the REPL for tiny experiments.
+- Use a file when you want to keep or rerun the program.
+- When a stack error appears, find the word that did not receive enough values.
+
+## Common mistakes
+
+- Running examples from a directory that does not contain the example path.
+- Reading only the last line of a diagnostic instead of the file and line it points to.
+- Trying to fix a large program before making a small reproduction.
+
+## What you know now
+
+You can run code, experiment interactively, ask for CLI help, and approach diagnostics as stack and type-shape clues.

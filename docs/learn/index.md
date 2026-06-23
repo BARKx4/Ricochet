@@ -1,38 +1,41 @@
 # Learn Ricochet
 
-Learn Ricochet is the source manual for readers who want to move from their first script to complete command-line, terminal UI, desktop GUI, MVC, package, and release workflows. It is designed to be read in order, with each chapter adding one layer to Ricochet's postfix programming model.
+Learn Ricochet is a beginner-friendly guide to Ricochet, a modern postfix language for scripts, tools, apps, packages, and release workflows.
 
-The manual is in active drafting. Chapters 00 through 38 now have reader-facing prose, and the runnable example manifest covers the first core language and safe runtime path through local HTTP, loopback sockets, explicit process/PTY host power, terminal UI rendering, desktop webview document generation, the first MVC app shape, explicit MVC routes/controllers/responses, templates, static assets, bounded uploads, read-only database/migration orientation for a contacts app, a local auth/forms login harness, an offline AI fake-provider harness, a local package/import/dependency lab, a read-only local registry fixture, a macro expansion lab, a debugger/editor tooling app, a bytecode/image/source-emission lab, a local TUI packaging lab, a tested read-only CLI worklog capstone, a tested terminal service dashboard capstone, a checked-in project journal MVC capstone, and a tested packaged personal-ledger GUI capstone. The appendices still carry production-facing skeletons while they wait for deeper reference tables.
+The guide starts slowly on purpose. If you have never heard of postfix notation or stack languages, begin with **Start Here** before Chapter 00. If you already know stack languages, skim the Start Here pages and move into the chapter sequence.
 
-## Reading Path
+## Start Here
 
-Start with Part I if you are new to Ricochet. Continue through Part II for the language core, Part III for host capabilities, Part IV for MVC and application features, Part V for packaging and professional tooling, and Part VI for complete capstone projects.
+- [What Ricochet is for](start-here/00-what-is-ricochet-for.md)
+- [How postfix reads](start-here/01-how-postfix-reads.md)
+- [The stack as a workbench](start-here/02-the-stack-as-a-workbench.md)
+- [How to use this guide](start-here/03-how-to-use-this-guide.md)
 
-## Parts
+## Learning path
 
-- [Part I: Orientation And Core Mental Model](manual-map.md#part-i-orientation-and-core-mental-model)
-- [Part II: Language Core And Feedback Loop](manual-map.md#part-ii-language-core-and-feedback-loop)
-- [Part III: Host Capabilities And Local App Surfaces](manual-map.md#part-iii-host-capabilities-and-local-app-surfaces)
-- [Part IV: MVC, Data, Auth, Forms, And AI](manual-map.md#part-iv-mvc-data-auth-forms-and-ai)
-- [Part V: Packages, Registries, Macros, Tooling, And Release](manual-map.md#part-v-packages-registries-macros-tooling-and-release)
-- [Part VI: Capstone Applications](manual-map.md#part-vi-capstone-applications)
-- [Appendices](manual-map.md#appendices)
+**Beginner runway:** Chapters 00 through 05 teach the toolchain, postfix reading, the stack, values, bindings, and small data. Do not rush these if Ricochet is your first stack language.
+
+**Core language:** Chapters 06 through 13 teach math, strings, collections, results, control flow, OOP, testing, and debugging.
+
+**Host and app surfaces:** Chapters 14 through 28 teach time, async, capabilities, files, HTTP, sockets, processes, TUI, GUI, MVC, data, auth, forms, and AI package boundaries.
+
+**Professional workflows:** Chapters 29 through 38 teach packages, registries, macros, editor tooling, bytecode, release packaging, and capstone apps.
 
 ## Chapters
 
-- [Chapter 00: Orientation](chapters/00-orientation.md)
-- [Chapter 01: Hello World](chapters/01-hello-world.md)
-- [Chapter 02: Running Ricochet](chapters/02-running-ricochet.md)
-- [Chapter 03: Postfix Stack Thinking](chapters/03-postfix-stack-thinking.md)
-- [Chapter 04: Values And Literals](chapters/04-values-and-literals.md)
-- [Chapter 05: Bindings And Data](chapters/05-bindings-and-data.md)
-- [Chapter 06: Numbers, Math, And Truth](chapters/06-numbers-math-and-truth.md)
-- [Chapter 07: Strings, JSON, And Regex](chapters/07-strings-json-and-regex.md)
+- [Chapter 00: Welcome to Ricochet](chapters/00-orientation.md)
+- [Chapter 01: Your First Program](chapters/01-hello-world.md)
+- [Chapter 02: Running Code and Getting Feedback](chapters/02-running-ricochet.md)
+- [Chapter 03: How Postfix Reads](chapters/03-postfix-stack-thinking.md)
+- [Chapter 04: Values, Literals, and Inspection](chapters/04-values-and-literals.md)
+- [Chapter 05: Names, Bindings, and Small Data](chapters/05-bindings-and-data.md)
+- [Chapter 06: Numbers, Math, and Truth](chapters/06-numbers-math-and-truth.md)
+- [Chapter 07: Strings, JSON, and Regex](chapters/07-strings-json-and-regex.md)
 - [Chapter 08: Collections](chapters/08-collections.md)
-- [Chapter 09: Results And Errors](chapters/09-results-and-errors.md)
-- [Chapter 10: Control Flow, Functions, And Blocks](chapters/10-control-flow-functions-and-blocks.md)
-- [Chapter 11: OOP And Dispatch](chapters/11-oop-and-dispatch.md)
-- [Chapter 12: Testing, Linting, And Formatting](chapters/12-testing-linting-and-formatting.md)
+- [Chapter 09: Results and Errors](chapters/09-results-and-errors.md)
+- [Chapter 10: Making Decisions and Reusing Code](chapters/10-control-flow-functions-and-blocks.md)
+- [Chapter 11: OOP and Dispatch](chapters/11-oop-and-dispatch.md)
+- [Chapter 12: Testing, Linting, and Formatting](chapters/12-testing-linting-and-formatting.md)
 - [Chapter 13: Introspection And Debug Basics](chapters/13-introspection-and-debug-basics.md)
 - [Chapter 14: Date, Time, And Duration](chapters/14-date-time-and-duration.md)
 - [Chapter 15: Async And Tasks](chapters/15-async-and-tasks.md)
@@ -60,11 +63,31 @@ Start with Part I if you are new to Ricochet. Continue through Part II for the l
 - [Chapter 37: Capstone MVC App](chapters/37-capstone-mvc-app.md)
 - [Chapter 38: Capstone Packaged GUI App](chapters/38-capstone-packaged-gui-app.md)
 
+## Concepts
+
+- [Concept: Application Surfaces](concepts/application-surfaces.md)
+- [Concept: Bindings vs. Stack Juggling](concepts/bindings-vs-stack-juggling.md)
+- [Concept: Capabilities and Sandboxing](concepts/capabilities-and-sandboxing.md)
+- [Concept: Postfix Evaluation](concepts/postfix-evaluation.md)
+- [Concept: Results and Errors](concepts/results-and-errors.md)
+- [Concept: Stack Effects](concepts/stack-effects.md)
+
+## How-To Guides
+
+- [How to Choose a Data Shape](how-to/choose-a-data-shape.md)
+- [How to Install and Run Ricochet](how-to/install-and-run.md)
+- [How to Read Diagnostics](how-to/read-diagnostics.md)
+- [How to Use the Examples](how-to/use-examples.md)
+
 ## Appendices
 
-- [Appendix A: Word Catalog](appendices/a-word-catalog.md)
+- [Appendix A: Word Groups at a Glance](appendices/a-word-catalog.md)
 - [Appendix B: CLI Command Catalog](appendices/b-cli-command-catalog.md)
 - [Appendix C: Capability Flags](appendices/c-capability-flags.md)
 - [Appendix D: Syntax Guardrails](appendices/d-syntax-guardrails.md)
 - [Appendix E: Troubleshooting](appendices/e-troubleshooting.md)
 - [Appendix F: Glossary](appendices/f-glossary.md)
+
+## Style note
+
+The main path uses installed `rco` commands. Source-checkout and documentation-maintenance commands belong in contributor documentation unless a chapter specifically teaches them.

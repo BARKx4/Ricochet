@@ -1,0 +1,25 @@
+
+:root { --fg:#18202a; --muted:#536171; --link:#2563eb; --border:#d7dee8; --bg:#ffffff; --soft:#f6f8fb; --code:#f2f5f9; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); line-height:1.62; }
+a { color:var(--link); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.layout { display:grid; grid-template-columns: 290px minmax(0, 1fr); min-height:100vh; }
+nav { border-right:1px solid var(--border); background:var(--soft); padding:24px 20px; position:sticky; top:0; height:100vh; overflow:auto; }
+nav h1 { font-size:1.1rem; margin:0 0 1rem; }
+nav h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:1.5rem 0 .35rem; }
+nav ul { list-style:none; padding:0; margin:.25rem 0; }
+nav li { margin:.25rem 0; font-size:.92rem; }
+main { max-width: 920px; padding:48px 56px 80px; }
+main h1 { font-size:2.4rem; line-height:1.1; margin-top:0; }
+main h2 { margin-top:2.2rem; padding-top:.25rem; border-top:1px solid var(--border); }
+main h3 { margin-top:1.6rem; }
+blockquote { border-left:4px solid var(--border); margin:1rem 0; padding:.5rem 1rem; color:var(--muted); background:var(--soft); }
+code { background:var(--code); padding:.12rem .28rem; border-radius:.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.94em; }
+pre { background:#0f172a; color:#e5e7eb; padding:1rem; overflow:auto; border-radius:.6rem; }
+pre code { background:transparent; color:inherit; padding:0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; display:block; overflow:auto; }
+th, td { border:1px solid var(--border); padding:.55rem .7rem; vertical-align:top; }
+th { background:var(--soft); text-align:left; }
+.footer { margin-top:4rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--muted); font-size:.9rem; }
+@media (max-width: 900px) { .layout { display:block; } nav { position:relative; height:auto; border-right:0; border-bottom:1px solid var(--border); } main { padding:32px 22px 60px; } }

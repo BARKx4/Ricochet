@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appendix C: Capability Flags | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="../chapters/00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="../chapters/01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="../chapters/02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="../chapters/03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="../chapters/04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="../chapters/05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="../chapters/06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="../chapters/07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="../chapters/08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="../chapters/09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="../chapters/10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="../chapters/11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="../chapters/12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="../chapters/13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="../chapters/14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="../chapters/15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="../chapters/16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="../chapters/17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="../chapters/18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="../chapters/19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="../chapters/20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="../chapters/21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="../chapters/22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="../chapters/23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="../chapters/24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="../chapters/25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="../chapters/26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="../chapters/27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="../chapters/28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="../chapters/29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="../chapters/30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="../chapters/31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="../chapters/32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="../chapters/33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="../chapters/34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="../chapters/35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="../chapters/36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="../chapters/37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="../chapters/38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a aria-current="page" href="c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Appendix C: Capability Flags</h1>
+<p>Capabilities decide what a program can ask the host process to do. Use the smallest permission that lets your program run.</p>
+<h2>Profiles</h2>
+<table>
+<thead>
+<tr>
+  <th>Profile</th>
+  <th>Default behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>trusted</code></td>
+  <td>Enables common local development powers such as filesystem, HTTP, TUI, webview, environment, sleep, and workspace access. Process, PTY, and raw sockets remain opt-in.</td>
+</tr>
+<tr>
+  <td><code>sandboxed</code></td>
+  <td>Starts with broad host powers disabled. Open only the roots, hosts, variables, or UI surfaces the program needs.</td>
+</tr>
+</tbody>
+</table>
+<h2>Common flags</h2>
+<table>
+<thead>
+<tr>
+  <th>Need</th>
+  <th>Flags</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Disable filesystem</td>
+  <td><code>--no-fs</code></td>
+</tr>
+<tr>
+  <td>Restrict filesystem</td>
+  <td><code>--fs-root PATH</code></td>
+</tr>
+<tr>
+  <td>Read-only filesystem</td>
+  <td><code>--fs-readonly</code></td>
+</tr>
+<tr>
+  <td>Disable HTTP</td>
+  <td><code>--no-http</code></td>
+</tr>
+<tr>
+  <td>Restrict HTTP hosts</td>
+  <td><code>--http-allow-host HOST</code></td>
+</tr>
+<tr>
+  <td>Enable process execution</td>
+  <td><code>--allow-process</code></td>
+</tr>
+<tr>
+  <td>Restrict process and PTY cwd</td>
+  <td><code>--process-root PATH</code></td>
+</tr>
+<tr>
+  <td>Enable PTY sessions</td>
+  <td><code>--allow-pty</code></td>
+</tr>
+<tr>
+  <td>Disable or enable terminal UI</td>
+  <td><code>--no-tui</code>, <code>--allow-tui</code></td>
+</tr>
+<tr>
+  <td>Disable or enable webview GUI</td>
+  <td><code>--no-webview</code>, <code>--allow-webview</code></td>
+</tr>
+<tr>
+  <td>Disable environment access</td>
+  <td><code>--no-env</code></td>
+</tr>
+<tr>
+  <td>Restrict environment names</td>
+  <td><code>--env-allow NAME</code></td>
+</tr>
+<tr>
+  <td>Disable sleep</td>
+  <td><code>--no-sleep</code></td>
+</tr>
+<tr>
+  <td>Enable raw TCP/WebSocket sockets</td>
+  <td><code>--allow-sockets</code></td>
+</tr>
+<tr>
+  <td>Restrict socket hosts</td>
+  <td><code>--socket-allow-host HOST</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Examples</h2>
+<p>Run a file-reading script in a sandbox rooted at the current directory:</p>
+<pre><code class="language-bash">rco run --capability-profile sandboxed --fs-root . examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco
+</code></pre>
+<p>Run a local HTTP example against loopback only:</p>
+<pre><code class="language-bash">rco run --capability-profile sandboxed --http-allow-host 127.0.0.1 app.rco http://127.0.0.1:3000
+</code></pre>
+<p>Run a terminal app with the terminal capability:</p>
+<pre><code class="language-bash">rco tui examples/learn/36-capstone-tui/service_dashboard/dashboard.rco
+</code></pre>
+<p>Run a process/PTY example with explicit opt-ins:</p>
+<pre><code class="language-bash">rco run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco
+</code></pre>
+<h2>Safety rule</h2>
+<p>Treat destructive words such as <code>fs_delete</code> and <code>workspace_delete</code> as explicit operator actions. Resolve and inspect paths before writing, moving, or deleting anything.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

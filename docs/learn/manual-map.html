@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learn Ricochet Manual Map | Learn Ricochet</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="index.html">Learn Ricochet</a></li>
+<li><a aria-current="page" href="manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="chapters/00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="chapters/01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="chapters/02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="chapters/03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="chapters/04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="chapters/05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="chapters/06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="chapters/07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="chapters/08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="chapters/09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="chapters/10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="chapters/11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="chapters/12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="chapters/13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="chapters/14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="chapters/15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="chapters/16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="chapters/17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="chapters/18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="chapters/19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="chapters/20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="chapters/21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="chapters/22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="chapters/23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="chapters/24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="chapters/25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="chapters/26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="chapters/27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="chapters/28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="chapters/29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="chapters/30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="chapters/31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="chapters/32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="chapters/33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="chapters/34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="chapters/35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="chapters/36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="chapters/37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="chapters/38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Learn Ricochet Manual Map</h1>
+<p>This map is a learner-facing navigation page. It describes what each chapter teaches and where it fits in the course. It intentionally avoids source-maintenance status labels.</p>
+<h2>Recommended path for new readers</h2>
+<ol>
+<li>Read the Start Here pages.</li>
+<li>Complete Chapters 00 through 10 in order.</li>
+<li>Read Chapter 12 before using host capabilities or app frameworks.</li>
+<li>Choose the app surface you need: CLI, TUI, GUI, MVC, packages, or release packaging.</li>
+</ol>
+<h2>Parts</h2>
+<table>
+<thead>
+<tr>
+  <th>Part</th>
+  <th>Chapters</th>
+  <th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Part I: Orientation and Core Mental Model</td>
+  <td>00-03</td>
+  <td>Welcome, first program, running code, postfix reading, and the stack.</td>
+</tr>
+<tr>
+  <td>Part II: Language Core and Feedback Loop</td>
+  <td>04-13</td>
+  <td>Values, bindings, data, math, text, collections, results, control flow, OOP, tests, and debugging.</td>
+</tr>
+<tr>
+  <td>Part III: Host Capabilities and Local App Surfaces</td>
+  <td>14-22</td>
+  <td>Time, async, capabilities, files, HTTP, sockets, processes, TUI, and GUI.</td>
+</tr>
+<tr>
+  <td>Part IV: MVC, Data, Auth, Forms, and AI</td>
+  <td>23-28</td>
+  <td>Web app layers, persistence, sessions, forms, and AI package boundaries.</td>
+</tr>
+<tr>
+  <td>Part V: Packages, Registries, Macros, Tooling, and Release</td>
+  <td>29-34</td>
+  <td>Reuse, distribution, expansion, editor tools, bytecode, images, and release packaging.</td>
+</tr>
+<tr>
+  <td>Part VI: Capstone Applications</td>
+  <td>35-38</td>
+  <td>Complete CLI, TUI, MVC, and packaged GUI apps.</td>
+</tr>
+</tbody>
+</table>
+<h2>Chapter map</h2>
+<table>
+<thead>
+<tr>
+  <th>Chapter</th>
+  <th>Title</th>
+  <th>What the reader learns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><a href="chapters/00-orientation.html">00</a></td>
+  <td>Chapter 00: Welcome to Ricochet</td>
+  <td>What Ricochet is, how the guide is organized, and why postfix order matters.</td>
+</tr>
+<tr>
+  <td><a href="chapters/01-hello-world.html">01</a></td>
+  <td>Chapter 01: Your First Program</td>
+  <td>How to run the smallest useful Ricochet script.</td>
+</tr>
+<tr>
+  <td><a href="chapters/02-running-ricochet.html">02</a></td>
+  <td>Chapter 02: Running Code and Getting Feedback</td>
+  <td>How to use <code>rco run</code>, <code>rco repl</code>, help, and diagnostics.</td>
+</tr>
+<tr>
+  <td><a href="chapters/03-postfix-stack-thinking.html">03</a></td>
+  <td>Chapter 03: How Postfix Reads</td>
+  <td>How to trace postfix code and use the starter stack vocabulary.</td>
+</tr>
+<tr>
+  <td><a href="chapters/04-values-and-literals.html">04</a></td>
+  <td>Chapter 04: Values, Literals, and Inspection</td>
+  <td>How to recognize and inspect runtime values.</td>
+</tr>
+<tr>
+  <td><a href="chapters/05-bindings-and-data.html">05</a></td>
+  <td>Chapter 05: Names, Bindings, and Small Data</td>
+  <td>How to use bindings, arrays, and maps to keep stack code readable.</td>
+</tr>
+<tr>
+  <td><a href="chapters/06-numbers-math-and-truth.html">06</a></td>
+  <td>Chapter 06: Numbers, Math, and Truth</td>
+  <td>How postfix arithmetic, comparisons, assertions, and conversions work.</td>
+</tr>
+<tr>
+  <td><a href="chapters/07-strings-json-and-regex.html">07</a></td>
+  <td>Chapter 07: Strings, JSON, and Regex</td>
+  <td>How to process strings, JSON, and regex results.</td>
+</tr>
+<tr>
+  <td><a href="chapters/08-collections.html">08</a></td>
+  <td>Chapter 08: Collections</td>
+  <td>How to use arrays, maps, sets, ranges, mutation, and block-based collection words.</td>
+</tr>
+<tr>
+  <td><a href="chapters/09-results-and-errors.html">09</a></td>
+  <td>Chapter 09: Results and Errors</td>
+  <td>How explicit <code>Result</code> values model success and failure.</td>
+</tr>
+<tr>
+  <td><a href="chapters/10-control-flow-functions-and-blocks.html">10</a></td>
+  <td>Chapter 10: Making Decisions and Reusing Code</td>
+  <td>How conditionals, loops, blocks, and functions shape programs.</td>
+</tr>
+<tr>
+  <td><a href="chapters/11-oop-and-dispatch.html">11</a></td>
+  <td>Chapter 11: OOP and Dispatch</td>
+  <td>How classes, accessors, methods, and dispatch work.</td>
+</tr>
+<tr>
+  <td><a href="chapters/12-testing-linting-and-formatting.html">12</a></td>
+  <td>Chapter 12: Testing, Linting, and Formatting</td>
+  <td>How tests, linting, and formatting create a feedback loop.</td>
+</tr>
+<tr>
+  <td><a href="chapters/13-introspection-and-debug-basics.html">13</a></td>
+  <td>Chapter 13: Introspection And Debug Basics</td>
+  <td>Once programs have names, data, functions, and tests, you need tools for seeing what the runtime sees. Introspection and debugging make stack behavior observable instead of mysterious.</td>
+</tr>
+<tr>
+  <td><a href="chapters/14-date-time-and-duration.html">14</a></td>
+  <td>Chapter 14: Date, Time, And Duration</td>
+  <td>Dates and durations are common in reminders, logs, packages, sessions, and release workflows. This chapter teaches time as data before you use it inside larger applications.</td>
+</tr>
+<tr>
+  <td><a href="chapters/15-async-and-tasks.html">15</a></td>
+  <td>Chapter 15: Async And Tasks</td>
+  <td>Async work lets a program wait for several things without turning every wait into a blocking pause. The important beginner model is that a task is a value you can start, wait on, and reason about.</td>
+</tr>
+<tr>
+  <td><a href="chapters/16-capabilities-and-sandboxing.html">16</a></td>
+  <td>Chapter 16: Capabilities And Sandboxing</td>
+  <td>Host capabilities are the safety boundary between Ricochet code and your machine. You should understand that boundary before reading files, calling HTTP, opening sockets, or launching processes.</td>
+</tr>
+<tr>
+  <td><a href="chapters/17-files-workspaces-env-and-secrets.html">17</a></td>
+  <td>Chapter 17: Files, Workspaces, Environment, Config, And Secrets</td>
+  <td>Useful scripts often need configuration, files, environment variables, and secrets. Ricochet treats those as explicit host interactions that should be scoped and checked.</td>
+</tr>
+<tr>
+  <td><a href="chapters/18-http-and-streams.html">18</a></td>
+  <td>Chapter 18: HTTP And Streams</td>
+  <td>HTTP connects Ricochet programs to services. Streams let programs handle data progressively instead of pretending every response is a small string.</td>
+</tr>
+<tr>
+  <td><a href="chapters/19-tcp-and-websocket-sockets.html">19</a></td>
+  <td>Chapter 19: TCP And WebSocket Sockets</td>
+  <td>Raw sockets and WebSockets are lower-level network tools. They are powerful, so this chapter emphasizes explicit hosts, loopback practice, and cleanup.</td>
+</tr>
+<tr>
+  <td><a href="chapters/20-processes-and-ptys.html">20</a></td>
+  <td>Chapter 20: Processes And PTYs</td>
+  <td>Process and PTY control lets Ricochet coordinate external tools. This is high-trust host power, so the chapter teaches deliberate opt-ins and clear boundaries.</td>
+</tr>
+<tr>
+  <td><a href="chapters/21-terminal-ui.html">21</a></td>
+  <td>Chapter 21: Terminal UI</td>
+  <td>Terminal UIs are local applications with visual state. The same stack and collection habits now drive frames, rows, keys, and cleanup.</td>
+</tr>
+<tr>
+  <td><a href="chapters/22-webview-and-desktop-gui.html">22</a></td>
+  <td>Chapter 22: Webview And Desktop GUI</td>
+  <td>Desktop GUI work introduces a browser-like surface while keeping your application local. The key model is data flowing between Ricochet and a webview document.</td>
+</tr>
+<tr>
+  <td><a href="chapters/23-mvc-first-app.html">23</a></td>
+  <td>Chapter 23: MVC First App</td>
+  <td>MVC apps are the first large application shape in the guide. Routes, controllers, views, and models are easier when you see them as named layers around the same Ricochet language.</td>
+</tr>
+<tr>
+  <td><a href="chapters/24-routes-controllers-and-responses.html">24</a></td>
+  <td>Chapter 24: Routes, Controllers, And Responses</td>
+  <td>Routes turn HTTP requests into controller actions. This chapter teaches how requests become data and how controller methods return responses.</td>
+</tr>
+<tr>
+  <td><a href="chapters/25-templates-static-assets-and-uploads.html">25</a></td>
+  <td>Chapter 25: Templates, Static Assets, And Uploads</td>
+  <td>Templates and assets turn controller data into user-facing pages. Uploads add a host-resource boundary, so the chapter keeps size, path, and cleanup concerns visible.</td>
+</tr>
+<tr>
+  <td><a href="chapters/26-data-active-record-and-migrations.html">26</a></td>
+  <td>Chapter 26: Data, Active Record, And Migrations</td>
+  <td>Persistent data requires a stronger mental model than maps in memory. Models, migrations, and records connect Ricochet objects to database state.</td>
+</tr>
+<tr>
+  <td><a href="chapters/27-sessions-forms-auth-and-passwords.html">27</a></td>
+  <td>Chapter 27: Sessions, Forms, Auth, And Passwords</td>
+  <td>Forms and sessions are where web apps meet user identity. This chapter teaches the flow without hiding password and session safety behind magic.</td>
+</tr>
+<tr>
+  <td><a href="chapters/28-ai-capabilities-and-ai-package.html">28</a></td>
+  <td>Chapter 28: AI Capabilities And The AI Package</td>
+  <td>AI features are application boundaries: prompts, providers, transcripts, tool permissions, and fallback behavior. The safest model is explicit capability, explicit provider, explicit result.</td>
+</tr>
+<tr>
+  <td><a href="chapters/29-packages-imports-and-dependencies.html">29</a></td>
+  <td>Chapter 29: Packages, Imports, And Dependencies</td>
+  <td>Packages let Ricochet projects reuse code. Imports, manifests, locks, verification, and audit commands keep reuse understandable and reproducible.</td>
+</tr>
+<tr>
+  <td><a href="chapters/30-registries-publish-yank-and-mirror.html">30</a></td>
+  <td>Chapter 30: Registries, Publish, Yank, And Mirror</td>
+  <td>Registries turn packages into shared artifacts. This chapter teaches local registry practice before public publishing concerns.</td>
+</tr>
+<tr>
+  <td><a href="chapters/31-macros-and-expansion.html">31</a></td>
+  <td>Chapter 31: Macros And Expansion</td>
+  <td>Macros generate code before runtime. They are powerful, so the chapter teaches ordinary functions and packages first, then introduces expansion as a deliberate tool.</td>
+</tr>
+<tr>
+  <td><a href="chapters/32-debugger-dap-lsp-and-editor-tools.html">32</a></td>
+  <td>Chapter 32: Debugger, DAP, LSP, And Editor Tools</td>
+  <td>Large projects need editor feedback, traces, breakpoints, and diagnostics. This chapter shows the professional tooling surface around Ricochet programs.</td>
+</tr>
+<tr>
+  <td><a href="chapters/33-bytecode-images-and-source-emission.html">33</a></td>
+  <td>Chapter 33: Bytecode, Images, And Source Emission</td>
+  <td>Bytecode and images are runtime artifacts. Understanding them helps you separate source, compiled code, saved VM state, and emitted source views.</td>
+</tr>
+<tr>
+  <td><a href="chapters/34-packaging-release-and-updates.html">34</a></td>
+  <td>Chapter 34: Packaging, Release, And Updates</td>
+  <td>Release work turns a working app into something another person can install. Packaging, signatures, metadata, and update channels are part of that handoff.</td>
+</tr>
+<tr>
+  <td><a href="chapters/35-capstone-cli-tool.html">35</a></td>
+  <td>Chapter 35: Capstone CLI Tool</td>
+  <td>The CLI capstone combines data, results, files, tests, and reporting into a complete command-line tool.</td>
+</tr>
+<tr>
+  <td><a href="chapters/36-capstone-tui-dashboard.html">36</a></td>
+  <td>Chapter 36: Capstone TUI Dashboard</td>
+  <td>The TUI capstone combines terminal rendering, data loading, tests, and safe cleanup into a complete local dashboard.</td>
+</tr>
+<tr>
+  <td><a href="chapters/37-capstone-mvc-app.html">37</a></td>
+  <td>Chapter 37: Capstone MVC App</td>
+  <td>The MVC capstone combines routes, controllers, views, data, migrations, seeds, and tests into a complete web application.</td>
+</tr>
+<tr>
+  <td><a href="chapters/38-capstone-packaged-gui-app.html">38</a></td>
+  <td>Chapter 38: Capstone Packaged GUI App</td>
+  <td>The final capstone combines GUI state, local data, tests, and packaging into a desktop-style application you can hand to someone else.</td>
+</tr>
+</tbody>
+</table>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

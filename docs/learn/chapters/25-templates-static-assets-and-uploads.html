@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 25: Templates, Static Assets, And Uploads | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a aria-current="page" href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 25: Templates, Static Assets, And Uploads</h1>
+<blockquote>
+<p>Part IV: MVC, Data, Auth, Forms, and AI</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Templates and assets turn controller data into user-facing pages. Uploads add a host-resource boundary, so the chapter keeps size, path, and cleanup concerns visible.</p>
+<h2>What you will build</h2>
+<p>You will add a rendered page, a static stylesheet, and a bounded multipart
+upload action to an MVC app. The upload controller reads from Ricochet’s
+retained temporary upload stream and releases it before returning JSON.</p>
+<h2>Concepts in plain English</h2>
+<p>A template renders data into markup. Static assets are files served directly. Uploads are incoming files that must be bounded and placed safely.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Template expressions, setup blocks, conditionals, and loops.</li>
+<li>HTML escaping and text-context template limits.</li>
+<li>Static asset directories and <code>/assets</code> mounting.</li>
+<li>Multipart form fields, uploaded file maps, retained upload streams, and
+explicit stream release.</li>
+<li>Upload size and retention limits in <code>ricochet.toml</code>.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: template syntax, static asset configuration, upload request
+data, and the upload stream words <code>upload_streams</code>, <code>upload_stream</code>,
+<code>upload_read</code>, and <code>upload_release</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/23-mvc/templates_uploads</code>. The manifest keeps static files
+and upload limits visible:</p>
+<pre><code>[web.static]
+dir = &quot;public&quot;
+mount = &quot;/assets&quot;
+
+[web.uploads]
+max_request_bytes = 4096
+max_file_bytes = 2048
+memory_threshold_bytes = 8
+max_retained_streams = 4
+</code></pre>
+<p>The route table has one page and one upload action:</p>
+<pre><code>GET &quot;/&quot; PagesController &quot;index&quot; route
+POST &quot;/uploads/:id&quot; UploadsController &quot;create&quot; route
+</code></pre>
+<p>The page controller prepares ordinary view data, then renders a view:</p>
+<pre><code>PagesController Controller Subclass
+  [
+    items array
+    $items &quot;Template expressions escape HTML&quot; push! drop
+    $items &quot;Static assets live under /assets&quot; push! drop
+    $items &quot;Upload streams must be released&quot; push! drop
+    true showUploads var
+    &quot;Templates, Assets, Uploads&quot; title var
+    $ctx
+    &quot;pages/index&quot; swap view
+  ] &quot;index&quot; Method
+end
+</code></pre>
+<p>The view is plain HTML with Ricochet template markers in text context:</p>
+<pre><code>&lt;link rel=&quot;stylesheet&quot; href=&quot;/assets/styles/app.css&quot;&gt;
+
+{% &quot;Upload checklist&quot; &quot;heading&quot; var do %}
+&lt;h1&gt;{ title get }&lt;/h1&gt;
+&lt;h2&gt;{ heading get }&lt;/h2&gt;
+
+{% showUploads get if %}
+&lt;ul&gt;
+  {% items get &quot;item&quot; each %}
+  &lt;li&gt;{ item get }&lt;/li&gt;
+  {% end %}
+&lt;/ul&gt;
+{% else %}
+&lt;p&gt;No upload checklist is available.&lt;/p&gt;
+{% end %}
+</code></pre>
+<p><code>{ ... }</code> renders one scalar value and escapes it as HTML. <code>{% ... do %}</code> runs
+setup code without rendering. <code>{% condition if %}</code>, <code>{% else %}</code>, and
+<code>{% end %}</code> form a conditional. <code>{% collection &quot;item&quot; each %}</code> loops through
+arrays, lists, sets, and maps.</p>
+<p>The upload action receives declared arguments. Route params bind first, then
+multipart fields, upload fields, query params, and context values:</p>
+<pre><code>UploadsController Controller Subclass
+  ( id title file ctx ) [
+    ctx var
+    file var
+    title var
+    id var
+
+    readOptions map
+    $readOptions &quot;max_bytes&quot; 64 put! drop
+    $file &quot;stream_id&quot; at $readOptions upload_read value chunk var
+    $file &quot;stream_id&quot; at upload_stream value detail var
+
+    summary map
+    $summary &quot;id&quot; $id put! drop
+    $summary &quot;title&quot; $title put! drop
+    $summary &quot;filename&quot; $file &quot;filename&quot; at put! drop
+    $summary &quot;preview&quot; $chunk &quot;text&quot; at put! drop
+    $summary &quot;stream_size&quot; $detail &quot;size&quot; at put! drop
+    $summary &quot;retained_before_release&quot; upload_streams count put! drop
+    $file &quot;stream_id&quot; at upload_release value released var
+    $summary &quot;released&quot; $released put! drop
+    $summary &quot;retained_after_release&quot; upload_streams count put! drop
+    $summary json
+  ] &quot;create&quot; Method
+end
+</code></pre>
+<p>The example sets <code>memory_threshold_bytes</code> low so small manual test files become
+retained streams. Production settings should choose thresholds based on real
+request sizes and memory limits.</p>
+<p>Validate the project without starting a server:</p>
+<pre><code>rco doctor examples/learn/23-mvc/templates_uploads
+</code></pre>
+<p>The doctor compiles the manifest, route table, controllers, and views.</p>
+<h2>How to read the example</h2>
+<p>Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.</p>
+<h2>Try it</h2>
+<p>Serve the example locally:</p>
+<pre><code>rco serve examples/learn/23-mvc/templates_uploads --host 127.0.0.1 --port 3000
+</code></pre>
+<p>Open <code>http://127.0.0.1:3000/</code>, choose a small text file, and submit the form.
+The JSON response should show the route id, title, filename, stream preview,
+release result, and retained stream count after release.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Which route, controller, view, model, or form boundary is this chapter teaching?</li>
+<li>Where does request data become ordinary Ricochet data?</li>
+<li>Where can failure happen, and is it represented as a result, response, or diagnostic?</li>
+<li>What would you test before serving the app?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Trusting uploaded names or content without validation.</li>
+<li>Treating static assets as application state.</li>
+<li>Putting template expressions inside HTML attributes, <code>&lt;script&gt;</code>, or
+<code>&lt;style&gt;</code> blocks.</li>
+<li>Reading an upload stream and forgetting to call <code>upload_release</code>.</li>
+<li>Assuming <code>filename</code> is a safe filesystem path.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The sample self-check path does not start a server or store uploaded files.
+The manual upload path is local-only and bounded by <code>[web.uploads]</code>. Treat
+uploaded filenames and content types as user input, not trusted storage paths or
+security decisions.</p>
+<h2>Production guidance</h2>
+<p>Production upload flows should validate size, media type, extension, content,
+authorization, and path containment before persistence. Prefer generated storage
+names over user filenames, release retained streams promptly, and avoid leaking
+local temporary paths in responses or logs.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/web-and-data.html</code></li>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how controller data reaches an escaped template, how public assets are
+mounted, and how multipart uploads appear as maps and retained streams that
+must be read within configured limits and explicitly released.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

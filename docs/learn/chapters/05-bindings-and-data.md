@@ -1,82 +1,114 @@
-# Chapter 05: Bindings And Data
+# Chapter 05: Names, Bindings, and Small Data
 
-## What You Will Build
+## Why this chapter matters
 
-You will build a small profile-card data shape with named bindings and a map.
+Postfix does not mean “never name anything.” Names are how you keep code readable when a value has a role in the problem. This chapter teaches bindings as the beginner-friendly escape hatch from stack overload.
 
-## Concepts
+## What you will build
 
-- Static bindings with `var` and `$name`.
-- Dynamic `get` and `set` after static reads are clear.
-- Arrays, maps, and choosing data shapes.
+You will build a small profile-card data shape with named bindings, an array, and a map.
 
-## Words Introduced
+## Concepts in plain English
 
-Primary coverage: `array`, `map`, `var`, `get`, `set`, `empty?`, and `nil?`.
+A **binding** is a name for a value. You create one with `var` and read it with `$name`.
 
-## Guided Example
+```rco
+"Ada Lovelace" name var
+$name println
+```
 
-Open `examples/learn/05-bindings-and-data/profile-card.rco` and run:
+Use a binding when a value has meaning beyond the current expression. Use the stack for immediate transformations.
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/05-bindings-and-data/profile-card.rco
+## Words introduced
+
+Primary words: `array`, `map`, `var`, `get`, `set`, `empty?`, and `nil?`.
+
+`$name` is the normal way to read a known binding. The dynamic form `"name" get` is for cases where the name itself is data.
+
+## Guided example
+
+Run the profile-card example:
+
+```bash
+rco run examples/learn/05-bindings-and-data/profile-card.rco
 ```
 
 The first bindings are ordinary named values:
 
-```ricochet
+```rco
 "Ada Lovelace" name var
 "language designer" role var
 ```
 
 Read them with `$name` and `$role`:
 
-```ricochet
+```rco
+$name println
+$role println
+```
+
+Build a map when you need named fields:
+
+```rco
+profile map
 $profile "name" $name put! drop
 $profile "role" $role put! drop
 ```
 
-Use `$name` for normal reads. Use `"name" get` only when the name is data:
+## How to read the code
 
-```ricochet
-"dynamic read:" print
-"name" get println
+This map update has a consistent order:
+
+```rco
+$profile "name" $name put! drop
 ```
 
-Update an existing binding with `set`:
+Read it as: put the container on the stack, put the key on the stack, put the value on the stack, then call `put!`. The mutation word returns the collection, so `drop` removes that returned collection when you do not need it.
 
-```ricochet
-"Grace Hopper" name set
-$name println
+Use static binding reads for ordinary code:
+
+```rco
+$name
 ```
 
-## Try It
+Use dynamic lookup only when the name is data:
+
+```rco
+"name" get
+```
+
+## Try it
 
 Add another field:
 
-```ricochet
+```rco
 $profile "city" "Chicago" put! drop
 $profile "city" at println
 ```
 
 Then add an array:
 
-```ricochet
+```rco
 tags array
 $tags "beginner" push! drop
 $tags "manual" push! drop
 $tags ", " join println
 ```
 
-## Common Mistakes
+## Check your understanding
+
+- `$name` reads a binding called `name`.
+- `"name" get` looks up a binding by a string at runtime.
+- `put!` mutates a map and returns the map.
+- `drop` is common after mutators when the returned collection is not needed.
+
+## Common mistakes
 
 - Reaching for dynamic lookup before a static binding would be clearer.
-- Forgetting that collection mutation words return the collection; use `drop`
-  when you do not need that returned value.
-- Confusing map data with class or model declarations. Maps are flexible data;
-  classes and models add behavior and structure.
+- Forgetting that collection mutation words return the collection.
+- Reversing map access order. Use `container key at`.
+- Using a map where two simple bindings would be easier to read.
 
-## What You Know Now
+## What you know now
 
-You can name values, read them statically, use dynamic lookup when the name is
-data, and shape small records with maps and arrays.
+You can name values, update bindings, choose between arrays and maps, and keep the stack readable by naming important values.

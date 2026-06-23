@@ -1,82 +1,65 @@
 # Learn Ricochet Manual Map
 
-This map tracks the public source structure for the Learn Ricochet manual. Status values describe the source manual only: `planned` means the page has its production-facing skeleton, `drafted` means prose and examples have been written, and `validated` means examples and coverage checks have passed.
+This map is a learner-facing navigation page. It describes what each chapter teaches and where it fits in the course. It intentionally avoids source-maintenance status labels.
 
-## Part I: Orientation And Core Mental Model
+## Recommended path for new readers
 
-Chapters 00 through 03 introduce Ricochet, the `rco` workflow, and the postfix stack model.
+1. Read the Start Here pages.
+2. Complete Chapters 00 through 10 in order.
+3. Read Chapter 12 before using host capabilities or app frameworks.
+4. Choose the app surface you need: CLI, TUI, GUI, MVC, packages, or release packaging.
 
-## Part II: Language Core And Feedback Loop
+## Parts
 
-Chapters 04 through 13 cover values, data, math, strings, collections, results, control flow, OOP, tests, linting, formatting, and early debugging.
+| Part | Chapters | Purpose |
+| --- | --- | --- |
+| Part I: Orientation and Core Mental Model | 00-03 | Welcome, first program, running code, postfix reading, and the stack. |
+| Part II: Language Core and Feedback Loop | 04-13 | Values, bindings, data, math, text, collections, results, control flow, OOP, tests, and debugging. |
+| Part III: Host Capabilities and Local App Surfaces | 14-22 | Time, async, capabilities, files, HTTP, sockets, processes, TUI, and GUI. |
+| Part IV: MVC, Data, Auth, Forms, and AI | 23-28 | Web app layers, persistence, sessions, forms, and AI package boundaries. |
+| Part V: Packages, Registries, Macros, Tooling, and Release | 29-34 | Reuse, distribution, expansion, editor tools, bytecode, images, and release packaging. |
+| Part VI: Capstone Applications | 35-38 | Complete CLI, TUI, MVC, and packaged GUI apps. |
 
-## Part III: Host Capabilities And Local App Surfaces
+## Chapter map
 
-Chapters 14 through 22 cover time, async tasks, host capability boundaries, files, HTTP, sockets, processes, PTYs, terminal UI, and desktop GUI surfaces.
-
-## Part IV: MVC, Data, Auth, Forms, And AI
-
-Chapters 23 through 28 cover Ricochet MVC applications, routing, templates, uploads, databases, migrations, sessions, forms, authentication helpers, and AI integration.
-
-## Part V: Packages, Registries, Macros, Tooling, And Release
-
-Chapters 29 through 34 cover dependency workflows, package registries, macros, debugger/editor tools, bytecode/images/source emission, packaging, release artifacts, and update metadata.
-
-## Part VI: Capstone Applications
-
-Chapters 35 through 38 bring the manual together through complete CLI, TUI, MVC, and GUI applications.
-
-## Chapter Map
-
-| Part | Chapter | Title | Source | Status | Example path |
-| --- | ---: | --- | --- | --- | --- |
-| Part I: Orientation And Core Mental Model | 00 | Orientation | [00-orientation.md](chapters/00-orientation.md) | drafted | None |
-| Part I: Orientation And Core Mental Model | 01 | Hello World | [01-hello-world.md](chapters/01-hello-world.md) | drafted | `examples/learn/01-hello-world/main.rco` |
-| Part I: Orientation And Core Mental Model | 02 | Running Ricochet | [02-running-ricochet.md](chapters/02-running-ricochet.md) | drafted | REPL and CLI commands |
-| Part I: Orientation And Core Mental Model | 03 | Postfix Stack Thinking | [03-postfix-stack-thinking.md](chapters/03-postfix-stack-thinking.md) | drafted | `examples/learn/03-stack/main.rco` |
-| Part II: Language Core And Feedback Loop | 04 | Values And Literals | [04-values-and-literals.md](chapters/04-values-and-literals.md) | drafted | `examples/learn/04-values/value-tour.rco` |
-| Part II: Language Core And Feedback Loop | 05 | Bindings And Data | [05-bindings-and-data.md](chapters/05-bindings-and-data.md) | drafted | `examples/learn/05-bindings-and-data/profile-card.rco` |
-| Part II: Language Core And Feedback Loop | 06 | Numbers, Math, And Truth | [06-numbers-math-and-truth.md](chapters/06-numbers-math-and-truth.md) | drafted | `examples/learn/06-numbers-math-and-truth/budget.rco` |
-| Part II: Language Core And Feedback Loop | 07 | Strings, JSON, And Regex | [07-strings-json-and-regex.md](chapters/07-strings-json-and-regex.md) | drafted | `examples/learn/07-strings-json-and-regex/log-cleaner.rco` |
-| Part II: Language Core And Feedback Loop | 08 | Collections | [08-collections.md](chapters/08-collections.md) | drafted | `examples/learn/08-collections/main.rco` |
-| Part II: Language Core And Feedback Loop | 09 | Results And Errors | [09-results-and-errors.md](chapters/09-results-and-errors.md) | drafted | `examples/learn/09-results-and-errors/config-loader.rco` |
-| Part II: Language Core And Feedback Loop | 10 | Control Flow, Functions, And Blocks | [10-control-flow-functions-and-blocks.md](chapters/10-control-flow-functions-and-blocks.md) | drafted | `examples/learn/10-control-flow/main.rco` |
-| Part II: Language Core And Feedback Loop | 11 | OOP And Dispatch | [11-oop-and-dispatch.md](chapters/11-oop-and-dispatch.md) | drafted | `examples/learn/11-oop/main.rco` |
-| Part II: Language Core And Feedback Loop | 12 | Testing, Linting, And Formatting | [12-testing-linting-and-formatting.md](chapters/12-testing-linting-and-formatting.md) | drafted | `examples/learn/12-testing-linting-and-formatting/main.rco` |
-| Part II: Language Core And Feedback Loop | 13 | Introspection And Debug Basics | [13-introspection-and-debug-basics.md](chapters/13-introspection-and-debug-basics.md) | drafted | `examples/learn/13-introspection-and-debug-basics/debug-tour.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 14 | Date, Time, And Duration | [14-date-time-and-duration.md](chapters/14-date-time-and-duration.md) | drafted | `examples/learn/14-date-time-and-duration/reminder.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 15 | Async And Tasks | [15-async-and-tasks.md](chapters/15-async-and-tasks.md) | drafted | `examples/learn/15-async/parallel-checks.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 16 | Capabilities And Sandboxing | [16-capabilities-and-sandboxing.md](chapters/16-capabilities-and-sandboxing.md) | drafted | `examples/learn/16-capabilities-and-sandboxing/capability-report.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 17 | Files, Workspaces, Environment, Config, And Secrets | [17-files-workspaces-env-and-secrets.md](chapters/17-files-workspaces-env-and-secrets.md) | drafted | `examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 18 | HTTP And Streams | [18-http-and-streams.md](chapters/18-http-and-streams.md) | drafted | `examples/learn/18-http-streams/api-client.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 19 | TCP And WebSocket Sockets | [19-tcp-and-websocket-sockets.md](chapters/19-tcp-and-websocket-sockets.md) | drafted | `examples/learn/19-sockets/tcp_echo.rco`; `examples/learn/19-sockets/ws_echo.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 20 | Processes And PTYs | [20-processes-and-ptys.md](chapters/20-processes-and-ptys.md) | drafted | `examples/learn/20-processes-and-ptys/tool-runner.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 21 | Terminal UI | [21-terminal-ui.md](chapters/21-terminal-ui.md) | drafted | `examples/learn/21-tui/task-dashboard.rco` |
-| Part III: Host Capabilities And Local App Surfaces | 22 | Webview And Desktop GUI | [22-webview-and-desktop-gui.md](chapters/22-webview-and-desktop-gui.md) | drafted | `examples/learn/22-gui/notes_gui.rco` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 23 | MVC First App | [23-mvc-first-app.md](chapters/23-mvc-first-app.md) | drafted | `examples/learn/23-mvc/first_app` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 24 | Routes, Controllers, And Responses | [24-routes-controllers-and-responses.md](chapters/24-routes-controllers-and-responses.md) | drafted | `examples/learn/23-mvc/controllers` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 25 | Templates, Static Assets, And Uploads | [25-templates-static-assets-and-uploads.md](chapters/25-templates-static-assets-and-uploads.md) | drafted | `examples/learn/23-mvc/templates_uploads` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 26 | Data, Active Record, And Migrations | [26-data-active-record-and-migrations.md](chapters/26-data-active-record-and-migrations.md) | drafted | `examples/learn/26-data/contacts_app` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 27 | Sessions, Forms, Auth, And Passwords | [27-sessions-forms-auth-and-passwords.md](chapters/27-sessions-forms-auth-and-passwords.md) | drafted | `examples/learn/27-auth-forms/login_flow` |
-| Part IV: MVC, Data, Auth, Forms, And AI | 28 | AI Capabilities And The AI Package | [28-ai-capabilities-and-ai-package.md](chapters/28-ai-capabilities-and-ai-package.md) | drafted | `examples/learn/28-ai/fake_provider_chat` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 29 | Packages, Imports, And Dependencies | [29-packages-imports-and-dependencies.md](chapters/29-packages-imports-and-dependencies.md) | drafted | `examples/learn/29-packages/local_math_package` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 30 | Registries, Publish, Yank, And Mirror | [30-registries-publish-yank-and-mirror.md](chapters/30-registries-publish-yank-and-mirror.md) | drafted | `examples/learn/30-registries/local_registry_lab` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 31 | Macros And Expansion | [31-macros-and-expansion.md](chapters/31-macros-and-expansion.md) | drafted | `examples/learn/31-macros/route_macro` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 32 | Debugger, DAP, LSP, And Editor Tools | [32-debugger-dap-lsp-and-editor-tools.md](chapters/32-debugger-dap-lsp-and-editor-tools.md) | drafted | `examples/learn/32-debugger-editor/debuggable_app.rco` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 33 | Bytecode, Images, And Source Emission | [33-bytecode-images-and-source-emission.md](chapters/33-bytecode-images-and-source-emission.md) | drafted | `examples/learn/33-bytecode-images-and-source-emission/image_lab.rco` |
-| Part V: Packages, Registries, Macros, Tooling, And Release | 34 | Packaging, Release, And Updates | [34-packaging-release-and-updates.md](chapters/34-packaging-release-and-updates.md) | drafted | `examples/learn/34-packaging-release-and-updates/run-lab.ps1` |
-| Part VI: Capstone Applications | 35 | Capstone CLI Tool | [35-capstone-cli-tool.md](chapters/35-capstone-cli-tool.md) | drafted | `examples/learn/35-capstone-cli/worklog` |
-| Part VI: Capstone Applications | 36 | Capstone TUI Dashboard | [36-capstone-tui-dashboard.md](chapters/36-capstone-tui-dashboard.md) | drafted | `examples/learn/36-capstone-tui/service_dashboard` |
-| Part VI: Capstone Applications | 37 | Capstone MVC App | [37-capstone-mvc-app.md](chapters/37-capstone-mvc-app.md) | drafted | `examples/learn/37-capstone-mvc/project_journal` |
-| Part VI: Capstone Applications | 38 | Capstone Packaged GUI App | [38-capstone-packaged-gui-app.md](chapters/38-capstone-packaged-gui-app.md) | drafted | `examples/learn/38-capstone-gui/personal_ledger` |
-
-## Appendices
-
-| Appendix | Title | Source | Status | Purpose |
-| --- | --- | --- | --- | --- |
-| A | Word Catalog | [a-word-catalog.md](appendices/a-word-catalog.md) | drafted | Compact coverage table for the live word inventory. |
-| B | CLI Command Catalog | [b-cli-command-catalog.md](appendices/b-cli-command-catalog.md) | drafted | Command lookup by workflow. |
-| C | Capability Flags | [c-capability-flags.md](appendices/c-capability-flags.md) | drafted | Host-power flags and safety boundaries. |
-| D | Syntax Guardrails | [d-syntax-guardrails.md](appendices/d-syntax-guardrails.md) | drafted | Postfix syntax shapes and common corrections. |
-| E | Troubleshooting | [e-troubleshooting.md](appendices/e-troubleshooting.md) | drafted | Common error messages and recovery paths. |
-| F | Glossary | [f-glossary.md](appendices/f-glossary.md) | drafted | Short definitions for terms used across the manual. |
+| Chapter | Title | What the reader learns |
+| --- | --- | --- |
+| [00](chapters/00-orientation.md) | Chapter 00: Welcome to Ricochet | What Ricochet is, how the guide is organized, and why postfix order matters. |
+| [01](chapters/01-hello-world.md) | Chapter 01: Your First Program | How to run the smallest useful Ricochet script. |
+| [02](chapters/02-running-ricochet.md) | Chapter 02: Running Code and Getting Feedback | How to use `rco run`, `rco repl`, help, and diagnostics. |
+| [03](chapters/03-postfix-stack-thinking.md) | Chapter 03: How Postfix Reads | How to trace postfix code and use the starter stack vocabulary. |
+| [04](chapters/04-values-and-literals.md) | Chapter 04: Values, Literals, and Inspection | How to recognize and inspect runtime values. |
+| [05](chapters/05-bindings-and-data.md) | Chapter 05: Names, Bindings, and Small Data | How to use bindings, arrays, and maps to keep stack code readable. |
+| [06](chapters/06-numbers-math-and-truth.md) | Chapter 06: Numbers, Math, and Truth | How postfix arithmetic, comparisons, assertions, and conversions work. |
+| [07](chapters/07-strings-json-and-regex.md) | Chapter 07: Strings, JSON, and Regex | How to process strings, JSON, and regex results. |
+| [08](chapters/08-collections.md) | Chapter 08: Collections | How to use arrays, maps, sets, ranges, mutation, and block-based collection words. |
+| [09](chapters/09-results-and-errors.md) | Chapter 09: Results and Errors | How explicit `Result` values model success and failure. |
+| [10](chapters/10-control-flow-functions-and-blocks.md) | Chapter 10: Making Decisions and Reusing Code | How conditionals, loops, blocks, and functions shape programs. |
+| [11](chapters/11-oop-and-dispatch.md) | Chapter 11: OOP and Dispatch | How classes, accessors, methods, and dispatch work. |
+| [12](chapters/12-testing-linting-and-formatting.md) | Chapter 12: Testing, Linting, and Formatting | How tests, linting, and formatting create a feedback loop. |
+| [13](chapters/13-introspection-and-debug-basics.md) | Chapter 13: Introspection And Debug Basics | Once programs have names, data, functions, and tests, you need tools for seeing what the runtime sees. Introspection and debugging make stack behavior observable instead of mysterious. |
+| [14](chapters/14-date-time-and-duration.md) | Chapter 14: Date, Time, And Duration | Dates and durations are common in reminders, logs, packages, sessions, and release workflows. This chapter teaches time as data before you use it inside larger applications. |
+| [15](chapters/15-async-and-tasks.md) | Chapter 15: Async And Tasks | Async work lets a program wait for several things without turning every wait into a blocking pause. The important beginner model is that a task is a value you can start, wait on, and reason about. |
+| [16](chapters/16-capabilities-and-sandboxing.md) | Chapter 16: Capabilities And Sandboxing | Host capabilities are the safety boundary between Ricochet code and your machine. You should understand that boundary before reading files, calling HTTP, opening sockets, or launching processes. |
+| [17](chapters/17-files-workspaces-env-and-secrets.md) | Chapter 17: Files, Workspaces, Environment, Config, And Secrets | Useful scripts often need configuration, files, environment variables, and secrets. Ricochet treats those as explicit host interactions that should be scoped and checked. |
+| [18](chapters/18-http-and-streams.md) | Chapter 18: HTTP And Streams | HTTP connects Ricochet programs to services. Streams let programs handle data progressively instead of pretending every response is a small string. |
+| [19](chapters/19-tcp-and-websocket-sockets.md) | Chapter 19: TCP And WebSocket Sockets | Raw sockets and WebSockets are lower-level network tools. They are powerful, so this chapter emphasizes explicit hosts, loopback practice, and cleanup. |
+| [20](chapters/20-processes-and-ptys.md) | Chapter 20: Processes And PTYs | Process and PTY control lets Ricochet coordinate external tools. This is high-trust host power, so the chapter teaches deliberate opt-ins and clear boundaries. |
+| [21](chapters/21-terminal-ui.md) | Chapter 21: Terminal UI | Terminal UIs are local applications with visual state. The same stack and collection habits now drive frames, rows, keys, and cleanup. |
+| [22](chapters/22-webview-and-desktop-gui.md) | Chapter 22: Webview And Desktop GUI | Desktop GUI work introduces a browser-like surface while keeping your application local. The key model is data flowing between Ricochet and a webview document. |
+| [23](chapters/23-mvc-first-app.md) | Chapter 23: MVC First App | MVC apps are the first large application shape in the guide. Routes, controllers, views, and models are easier when you see them as named layers around the same Ricochet language. |
+| [24](chapters/24-routes-controllers-and-responses.md) | Chapter 24: Routes, Controllers, And Responses | Routes turn HTTP requests into controller actions. This chapter teaches how requests become data and how controller methods return responses. |
+| [25](chapters/25-templates-static-assets-and-uploads.md) | Chapter 25: Templates, Static Assets, And Uploads | Templates and assets turn controller data into user-facing pages. Uploads add a host-resource boundary, so the chapter keeps size, path, and cleanup concerns visible. |
+| [26](chapters/26-data-active-record-and-migrations.md) | Chapter 26: Data, Active Record, And Migrations | Persistent data requires a stronger mental model than maps in memory. Models, migrations, and records connect Ricochet objects to database state. |
+| [27](chapters/27-sessions-forms-auth-and-passwords.md) | Chapter 27: Sessions, Forms, Auth, And Passwords | Forms and sessions are where web apps meet user identity. This chapter teaches the flow without hiding password and session safety behind magic. |
+| [28](chapters/28-ai-capabilities-and-ai-package.md) | Chapter 28: AI Capabilities And The AI Package | AI features are application boundaries: prompts, providers, transcripts, tool permissions, and fallback behavior. The safest model is explicit capability, explicit provider, explicit result. |
+| [29](chapters/29-packages-imports-and-dependencies.md) | Chapter 29: Packages, Imports, And Dependencies | Packages let Ricochet projects reuse code. Imports, manifests, locks, verification, and audit commands keep reuse understandable and reproducible. |
+| [30](chapters/30-registries-publish-yank-and-mirror.md) | Chapter 30: Registries, Publish, Yank, And Mirror | Registries turn packages into shared artifacts. This chapter teaches local registry practice before public publishing concerns. |
+| [31](chapters/31-macros-and-expansion.md) | Chapter 31: Macros And Expansion | Macros generate code before runtime. They are powerful, so the chapter teaches ordinary functions and packages first, then introduces expansion as a deliberate tool. |
+| [32](chapters/32-debugger-dap-lsp-and-editor-tools.md) | Chapter 32: Debugger, DAP, LSP, And Editor Tools | Large projects need editor feedback, traces, breakpoints, and diagnostics. This chapter shows the professional tooling surface around Ricochet programs. |
+| [33](chapters/33-bytecode-images-and-source-emission.md) | Chapter 33: Bytecode, Images, And Source Emission | Bytecode and images are runtime artifacts. Understanding them helps you separate source, compiled code, saved VM state, and emitted source views. |
+| [34](chapters/34-packaging-release-and-updates.md) | Chapter 34: Packaging, Release, And Updates | Release work turns a working app into something another person can install. Packaging, signatures, metadata, and update channels are part of that handoff. |
+| [35](chapters/35-capstone-cli-tool.md) | Chapter 35: Capstone CLI Tool | The CLI capstone combines data, results, files, tests, and reporting into a complete command-line tool. |
+| [36](chapters/36-capstone-tui-dashboard.md) | Chapter 36: Capstone TUI Dashboard | The TUI capstone combines terminal rendering, data loading, tests, and safe cleanup into a complete local dashboard. |
+| [37](chapters/37-capstone-mvc-app.md) | Chapter 37: Capstone MVC App | The MVC capstone combines routes, controllers, views, data, migrations, seeds, and tests into a complete web application. |
+| [38](chapters/38-capstone-packaged-gui-app.md) | Chapter 38: Capstone Packaged GUI App | The final capstone combines GUI state, local data, tests, and packaging into a desktop-style application you can hand to someone else. |

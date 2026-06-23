@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 05: Names, Bindings, and Small Data | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a aria-current="page" href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 05: Names, Bindings, and Small Data</h1>
+<h2>Why this chapter matters</h2>
+<p>Postfix does not mean “never name anything.” Names are how you keep code readable when a value has a role in the problem. This chapter teaches bindings as the beginner-friendly escape hatch from stack overload.</p>
+<h2>What you will build</h2>
+<p>You will build a small profile-card data shape with named bindings, an array, and a map.</p>
+<h2>Concepts in plain English</h2>
+<p>A <strong>binding</strong> is a name for a value. You create one with <code>var</code> and read it with <code>$name</code>.</p>
+<pre><code class="language-rco">&quot;Ada Lovelace&quot; name var
+$name println
+</code></pre>
+<p>Use a binding when a value has meaning beyond the current expression. Use the stack for immediate transformations.</p>
+<h2>Words introduced</h2>
+<p>Primary words: <code>array</code>, <code>map</code>, <code>var</code>, <code>get</code>, <code>set</code>, <code>empty?</code>, and <code>nil?</code>.</p>
+<p><code>$name</code> is the normal way to read a known binding. The dynamic form <code>&quot;name&quot; get</code> is for cases where the name itself is data.</p>
+<h2>Guided example</h2>
+<p>Run the profile-card example:</p>
+<pre><code class="language-bash">rco run examples/learn/05-bindings-and-data/profile-card.rco
+</code></pre>
+<p>The first bindings are ordinary named values:</p>
+<pre><code class="language-rco">&quot;Ada Lovelace&quot; name var
+&quot;language designer&quot; role var
+</code></pre>
+<p>Read them with <code>$name</code> and <code>$role</code>:</p>
+<pre><code class="language-rco">$name println
+$role println
+</code></pre>
+<p>Build a map when you need named fields:</p>
+<pre><code class="language-rco">profile map
+$profile &quot;name&quot; $name put! drop
+$profile &quot;role&quot; $role put! drop
+</code></pre>
+<h2>How to read the code</h2>
+<p>This map update has a consistent order:</p>
+<pre><code class="language-rco">$profile &quot;name&quot; $name put! drop
+</code></pre>
+<p>Read it as: put the container on the stack, put the key on the stack, put the value on the stack, then call <code>put!</code>. The mutation word returns the collection, so <code>drop</code> removes that returned collection when you do not need it.</p>
+<p>Use static binding reads for ordinary code:</p>
+<pre><code class="language-rco">$name
+</code></pre>
+<p>Use dynamic lookup only when the name is data:</p>
+<pre><code class="language-rco">&quot;name&quot; get
+</code></pre>
+<h2>Try it</h2>
+<p>Add another field:</p>
+<pre><code class="language-rco">$profile &quot;city&quot; &quot;Chicago&quot; put! drop
+$profile &quot;city&quot; at println
+</code></pre>
+<p>Then add an array:</p>
+<pre><code class="language-rco">tags array
+$tags &quot;beginner&quot; push! drop
+$tags &quot;manual&quot; push! drop
+$tags &quot;, &quot; join println
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li><code>$name</code> reads a binding called <code>name</code>.</li>
+<li><code>&quot;name&quot; get</code> looks up a binding by a string at runtime.</li>
+<li><code>put!</code> mutates a map and returns the map.</li>
+<li><code>drop</code> is common after mutators when the returned collection is not needed.</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Reaching for dynamic lookup before a static binding would be clearer.</li>
+<li>Forgetting that collection mutation words return the collection.</li>
+<li>Reversing map access order. Use <code>container key at</code>.</li>
+<li>Using a map where two simple bindings would be easier to read.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You can name values, update bindings, choose between arrays and maps, and keep the stack readable by naming important values.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

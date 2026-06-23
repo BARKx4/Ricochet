@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 35: Capstone CLI Tool | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a aria-current="page" href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 35: Capstone CLI Tool</h1>
+<blockquote>
+<p>Part VI: Capstone Applications</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>The CLI capstone combines data, results, files, tests, and reporting into a complete command-line tool.</p>
+<h2>What you will build</h2>
+<p>You will build a complete command-line worklog reporter. It reads a sample
+JSON worklog, summarizes minutes and status counts, reports upcoming due items,
+prints each matching entry, and includes <code>rco test</code> coverage for the reusable
+report functions.</p>
+<h2>Concepts in plain English</h2>
+<p>A capstone is a complete project that proves several earlier skills work together.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Strings, collections, results, local files, config, tests, linting, and packaging in one application.</li>
+<li>Small feature additions with matching tests.</li>
+<li>Cleanup-free self-check commands.</li>
+<li>Keeping reusable logic in a small local module while the command stays easy
+to run.</li>
+<li>Treating a CLI’s input file and optional arguments as explicit boundaries.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>This chapter consolidates words taught earlier rather than introducing a new primary word family.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/35-capstone-cli/worklog</code>. The project has four important
+pieces:</p>
+<pre><code>data/entries.json
+lib/report.rco
+main.rco
+WorklogTest.rco
+</code></pre>
+<p>The data file is ordinary JSON:</p>
+<pre><code>{
+  &quot;date&quot;: &quot;2026-06-21&quot;,
+  &quot;due&quot;: &quot;2026-06-24&quot;,
+  &quot;project&quot;: &quot;Learn Ricochet&quot;,
+  &quot;task&quot;: &quot;Write CLI capstone&quot;,
+  &quot;minutes&quot;: 80,
+  &quot;status&quot;: &quot;open&quot;,
+  &quot;tags&quot;: [&quot;docs&quot;, &quot;cli&quot;]
+}
+</code></pre>
+<p><code>lib/report.rco</code> holds the reusable work:</p>
+<pre><code>( path -&gt; Result ) worklog_load_entries function
+  path var
+  [ json_decode ] $path fs_read_text and_then
+end
+
+( entries status -&gt; Array ) worklog_filter_status function
+  status var
+  entries var
+
+  $status &quot;all&quot; = if
+    $entries
+  else
+    [ &quot;status&quot; at $status = ] $entries select
+  end
+end
+</code></pre>
+<p>The command imports the local module:</p>
+<pre><code>&quot;lib/report&quot; import
+
+&quot;examples/learn/35-capstone-cli/worklog/data/entries.json&quot; inputPath var
+&quot;all&quot; filterStatus var
+</code></pre>
+<p>It accepts two optional arguments: input path and status filter.</p>
+<pre><code>args count 0 &gt; if
+  args 0 at inputPath set
+end
+
+args count 1 &gt; if
+  args 1 at filterStatus set
+end
+</code></pre>
+<p>Then it keeps file and JSON failures inside a <code>Result</code> boundary:</p>
+<pre><code>$inputPath worklog_load_entries entriesResult var
+
+$entriesResult ok? if
+  $entriesResult value entries var
+  $entries $filterStatus worklog_filter_status filtered var
+  &quot;2026-06-22&quot; date_parse value today var
+  $filtered $today worklog_summary summary var
+else
+  &quot;load failed:&quot; print
+  $entriesResult error &quot;kind&quot; at print
+  &quot;: &quot; print
+  $entriesResult error &quot;message&quot; at println
+end
+</code></pre>
+<p>Run the capstone:</p>
+<pre><code>rco run examples/learn/35-capstone-cli/worklog/main.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>Worklog CLI
+source:examples/learn/35-capstone-cli/worklog/data/entries.json
+filter:all
+entries:4
+minutes:250
+done:2
+open:2
+due soon:2
+items:
+- 2026-06-17 [done] Learn Ricochet: Draft package import lab (70m)
+- 2026-06-18 [done] Learn Ricochet: Validate debugger chapter (55m)
+- 2026-06-21 [open] Learn Ricochet: Write CLI capstone (80m)
+- 2026-06-22 [open] Release Prep: Review package metadata (45m)
+[]
+</code></pre>
+<p>Filter to open items:</p>
+<pre><code>rco run examples/learn/35-capstone-cli/worklog/main.rco examples/learn/35-capstone-cli/worklog/data/entries.json open
+</code></pre>
+<p>Run the tests:</p>
+<pre><code>rco test examples/learn/35-capstone-cli/worklog
+</code></pre>
+<p>Expected output:</p>
+<pre><code>PASS WorklogTest.testDueSoonSummary
+PASS WorklogTest.testSummarizesEntries
+2 tests, 0 failed
+</code></pre>
+<p><code>WorklogTest.rco</code> imports the same report module and checks totals, status
+counts, filtering, due-soon logic, and summary map fields.</p>
+<h2>How to read the example</h2>
+<p>Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.</p>
+<h2>Try it</h2>
+<p>Add a <code>&quot;blocked&quot;</code> entry to <code>data/entries.json</code>, then add a new assertion to
+<code>WorklogTest.rco</code>:</p>
+<pre><code>$entries &quot;blocked&quot; worklog_count_status
+1 assert_equals
+</code></pre>
+<p>Add a new report field to <code>worklog_summary</code>:</p>
+<pre><code>$summary &quot;blocked&quot; $entries &quot;blocked&quot; worklog_count_status put! drop
+</code></pre>
+<p>Then print it from <code>main.rco</code>:</p>
+<pre><code>&quot;blocked:&quot; print
+$summary &quot;blocked&quot; at println
+</code></pre>
+<p>Run the command, tests, and lint:</p>
+<pre><code>rco run examples/learn/35-capstone-cli/worklog/main.rco
+rco test examples/learn/35-capstone-cli/worklog
+rco lint examples/learn/35-capstone-cli/worklog
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>What earlier chapters does this capstone combine?</li>
+<li>What is the user-facing entry point?</li>
+<li>What data boundary does the app use?</li>
+<li>Which tests or checks prove the capstone still works?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Expanding scope before the core CLI workflow is stable.</li>
+<li>Skipping tests once the app becomes useful.</li>
+<li>Using <code>var</code> repeatedly inside a loop when you meant to update one loop
+binding. Declare once with <code>nil entry var</code>, then use <code>entry set</code> inside the
+loop.</li>
+<li>Reading CLI args without checking <code>args count</code>.</li>
+<li>Unwrapping <code>fs_read_text</code> or <code>json_decode</code> before deciding what failure
+should mean to the user.</li>
+<li>Hiding file writes in a capstone command. This example is read-only by
+default so it leaves no cleanup burden.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The capstone reads a sample JSON file and prints a report. It does not
+write, move, or delete files. If you extend it into an editor or importer,
+prefer <code>workspace_resolve</code>, containment checks, explicit overwrite behavior,
+and a confirmation step before destructive operations.</p>
+<h2>Production guidance</h2>
+<p>Production CLI tools should keep parsing, validation, reporting, and host
+effects separated. That makes tests small and keeps command behavior
+inspectable. Prefer status-specific functions over one large command body, and
+add a test when a new status, field, or date policy becomes user-visible.</p>
+<p>For distributable CLIs, package the final command only after the run, test,
+lint, and format loop is clean.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/learn/chapters/07-strings-json-and-regex.md</code></li>
+<li><code>docs/learn/chapters/08-collections.md</code></li>
+<li><code>docs/learn/chapters/09-results-and-errors.md</code></li>
+<li><code>docs/learn/chapters/12-testing-linting-and-formatting.md</code></li>
+<li><code>docs/learn/chapters/17-files-workspaces-env-and-secrets.md</code></li>
+<li><code>docs/reference/guides/language-runtime.html</code></li>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how to assemble the language core into a complete CLI: read a bounded
+input, decode structured data, keep failures explicit, summarize collections,
+accept optional arguments, print a useful report, and protect the behavior with
+tests.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

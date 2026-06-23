@@ -24,7 +24,7 @@ containers before the operation that consumes them.
 
 Public multiword names use underscores:
 
-```ricochet
+```
 json_encode
 find_record
 fs_read_text
@@ -35,7 +35,7 @@ tui_write
 
 Reserve `-` for subtraction and negative number literals:
 
-```ricochet
+```
 10 3 -
 -5
 ```
@@ -44,7 +44,7 @@ Reserve `-` for subtraction and negative number literals:
 
 Use capitalized meta words in class bodies and lowercase `end`:
 
-```ricochet
+```
 User Model Subclass
   "users" Table
   "email" Accessor
@@ -59,7 +59,7 @@ end
 
 Route verbs are words:
 
-```ricochet
+```
 GET "/" HomeController "index" route
 POST "/entries" JournalController "create" route
 ```
@@ -68,13 +68,13 @@ POST "/entries" JournalController "create" route
 
 Static imports use a string before `import`:
 
-```ricochet
+```
 "lib/report" import
 ```
 
 Dynamic runtime imports return a `Result`:
 
-```ricochet
+```
 "math_tools/stats" import_dynamic value stats var
 ```
 
@@ -82,5 +82,3 @@ Dynamic runtime imports return a `Result`:
 
 If lint or LSP suggests replacing `name get` with `$name`, do it for ordinary
 static binding reads. Keep `"name" get` only when the name is dynamic data.
-
-Status: drafted against the repo syntax guardrails.

@@ -1,36 +1,32 @@
-# Chapter 07: Strings, JSON, And Regex
+# Chapter 07: Strings, JSON, and Regex
 
-## What You Will Build
+## Why this chapter matters
 
-You will build a small log-cleaning workflow that cleans text, moves through
-JSON, and uses a regex for the one part direct string words do not express.
+Most useful programs cross text boundaries: command output, config files, logs, HTTP payloads, form fields, templates, and package metadata. This chapter teaches a practical order: use direct string words first, JSON words at structured boundaries, and regex only when pattern matching is truly the right tool.
 
-## Concepts
+## What you will build
 
-- Practical string cleanup and search.
-- JSON encode/decode patterns.
-- Regex matching, captures, and replacement.
-- Choosing direct string words before regex.
+You will build a small log-cleaning workflow that cleans text, moves through JSON, and uses a regex for the one part direct string words do not express.
 
-## Words Introduced
+## Concepts in plain English
 
-Primary coverage: `trim`, `trim_start`, `trim_end`, `blank?`, `slice`,
-`index_of`, `last_index_of`, `repeat`, `lines`, `chars`, `split`, `replace`,
-`contains?`, `starts_with?`, `ends_with?`, `uppercase`, `lowercase`, `concat`,
-`to_string`, `json_encode`, `json_decode`, `regex`, `matches?`, `regex_find`,
-`regex_replace`, and `captures`.
+A string is text. JSON is a text format for structured data. A regex is a compact pattern language for matching text. Regex is powerful, but direct words such as `trim`, `split`, `contains?`, `starts_with?`, and `replace` are usually easier to read.
 
-## Guided Example
+## Words introduced
 
-Open `examples/learn/07-strings-json-and-regex/log-cleaner.rco` and run:
+Primary words: `trim`, `trim_start`, `trim_end`, `blank?`, `slice`, `index_of`, `last_index_of`, `repeat`, `lines`, `chars`, `split`, `replace`, `contains?`, `starts_with?`, `ends_with?`, `uppercase`, `lowercase`, `concat`, `to_string`, `json_encode`, `json_decode`, `regex`, `matches?`, `regex_find`, `regex_replace`, and `captures`.
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/07-strings-json-and-regex/log-cleaner.rco
+## Guided example
+
+Run the log cleaner:
+
+```bash
+rco run examples/learn/07-strings-json-and-regex/log-cleaner.rco
 ```
 
 The first half uses direct string words:
 
-```ricochet
+```rco
 "  warn: user=ada  " trim cleaned var
 $cleaned uppercase println
 $cleaned "user=" contains? println
@@ -39,7 +35,7 @@ $cleaned ":" split count println
 
 The JSON section turns a Ricochet map into a JSON string and back:
 
-```ricochet
+```rco
 payload map
 $payload "ok" true put! drop
 $payload "name" "Ada" put! drop
@@ -47,22 +43,25 @@ $payload json_encode json var
 $json json_decode value "name" at println
 ```
 
-`json_decode` returns a `Result`, so this example unwraps with `value` only
-because the JSON was produced by `json_encode` in the line above.
-
 Regex work follows the same result habit:
 
-```ricochet
+```rco
 "\\d+" regex value digits var
 "ticket-42" $digits regex_find "text" at println
 $digits "ticket-42" "#" regex_replace println
 ```
 
-## Try It
+## How to read the code
+
+`"  warn: user=ada  " trim cleaned var` starts with a raw string, trims whitespace, and names the cleaned result. The later lines read `$cleaned` instead of repeating the cleanup pipeline.
+
+`json_decode` returns a `Result`. The example unwraps with `value` because the JSON was produced by `json_encode` immediately before. When JSON comes from a file, request, or user input, check `ok?` before unwrapping.
+
+## Try it
 
 Try these direct string words before reaching for regex:
 
-```ricochet
+```rco
 "Ricochet" 0 4 slice println
 "Ada\nGrace" lines count println
 "abc" chars "," join println
@@ -71,18 +70,24 @@ Try these direct string words before reaching for regex:
 
 Then intentionally decode bad JSON and inspect the error:
 
-```ricochet
+```rco
 "not json" json_decode error "kind" at println
 ```
 
-## Common Mistakes
+## Check your understanding
+
+- Use `trim` to clean edges before comparing text.
+- Use `split` and `lines` for simple structure.
+- Use `json_decode` at data boundaries and handle its `Result`.
+- Use regex when direct string words cannot express the pattern clearly.
+
+## Common mistakes
 
 - Treating JSON parse failure as an exception instead of a result path.
 - Using regex where direct string words are simpler.
 - Forgetting to escape backslashes in regex strings.
 - Assuming `concat` is the only way to join text. Collections can use `join`.
 
-## What You Know Now
+## What you know now
 
-You can process text, encode and decode structured payloads, and keep regex
-work explicit and result-checked.
+You can process text, encode and decode structured payloads, and keep regex work explicit and result-checked.

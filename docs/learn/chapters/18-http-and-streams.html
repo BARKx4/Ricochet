@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 18: HTTP And Streams | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a aria-current="page" href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 18: HTTP And Streams</h1>
+<blockquote>
+<p>Part III: Host Capabilities and Local App Surfaces</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>HTTP connects Ricochet programs to services. Streams let programs handle data progressively instead of pretending every response is a small string.</p>
+<h2>What you will build</h2>
+<p>You will build a small API client that talks to a loopback test server, sends
+JSON, awaits HTTP tasks, reads a retained response stream in bounded chunks,
+and releases the stream when it is done.</p>
+<h2>Concepts in plain English</h2>
+<p>An HTTP request is data sent to a host. An HTTP response is data returned from that host. Streams represent data you read or write in pieces.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Simple GET and POST requests.</li>
+<li>Structured request maps, headers, JSON, timeouts, and bearer helpers.</li>
+<li>Task-returning HTTP requests for work that should not block the current
+flow.</li>
+<li>Retained response streams, bounded offset reads, cancellation, and release.</li>
+<li>Host capability flags that make outbound network access explicit.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>http_request_new</code>, <code>http_header_put</code>,
+<code>http_bearer_auth</code>, <code>http_json_body</code>, <code>http_timeout</code>, <code>http_get</code>,
+<code>http_get_task</code>, <code>http_request</code>, <code>http_post_json</code>, <code>http_post_json_task</code>,
+<code>http_request_task</code>, <code>http_stream_start</code>, <code>http_streams</code>, <code>http_stream</code>,
+<code>http_stream_read</code>, <code>http_stream_cancel</code>, and <code>http_stream_release</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/18-http-streams/api-client.rco</code>. The example expects a
+base URL, so run it through the local fixture:</p>
+<pre><code>powershell -ExecutionPolicy Bypass -File examples/learn/18-http-streams/run-local.ps1
+</code></pre>
+<p>The fixture starts a loopback HTTP server and runs the example with an
+explicit host allow-list:</p>
+<pre><code>rco run --capability-profile trusted --http-allow-host 127.0.0.1 examples/learn/18-http-streams/api-client.rco http://127.0.0.1:PORT
+</code></pre>
+<p>Simple calls are the shortest path when you only need a URL and a small body:</p>
+<pre><code>$baseUrl &quot;/ping&quot; concat http_get value getResponse var
+$getResponse &quot;status&quot; at println
+
+payload map
+$payload &quot;message&quot; &quot;hello from Ricochet&quot; put! drop
+$baseUrl &quot;/messages&quot; concat $payload http_post_json value postResponse var
+</code></pre>
+<p>Use a structured request map when the request has policy, headers, or a
+prepared body:</p>
+<pre><code>&quot;POST&quot; $baseUrl &quot;/structured&quot; concat http_request_new value request var
+$request &quot;X-Learn&quot; &quot;manual&quot; http_header_put value request set
+$request &quot;learn-token&quot; http_bearer_auth value request set
+$request $payload http_json_body value request set
+$request 3000 http_timeout value request set
+$request http_request value structuredResponse var
+</code></pre>
+<p>The helper words return a new request map as a <code>Result</code>, so unwrap the value
+and store it back into the same variable before the next helper.</p>
+<p>Task variants let you start HTTP work and await the result later:</p>
+<pre><code>$baseUrl &quot;/task&quot; concat http_get_task getTask var
+$getTask await value taskResponse var
+$taskResponse &quot;body&quot; at println
+$getTask release_task drop
+</code></pre>
+<p>Retained streams are for responses you want to inspect incrementally. Start
+with a structured request, keep the returned <code>id</code>, and read with an options
+map:</p>
+<pre><code>&quot;GET&quot; $baseUrl &quot;/stream&quot; concat http_request_new value streamRequest var
+$streamRequest 3000 http_timeout value streamRequest set
+$streamRequest &quot;max_response_bytes&quot; 128 put! drop
+$streamRequest http_stream_start value stream var
+$stream &quot;id&quot; at streamId var
+
+readOptions map
+$readOptions &quot;max_bytes&quot; 6 put! drop
+$streamId $readOptions http_stream_read value firstChunk var
+$readOptions &quot;offset&quot; $firstChunk &quot;next_offset&quot; at put! drop
+$streamId $readOptions http_stream_read value secondChunk var
+$readOptions &quot;offset&quot; $secondChunk &quot;next_offset&quot; at put! drop
+</code></pre>
+<p><code>http_stream_read</code> reports <code>from_offset</code>, <code>next_offset</code>, <code>bytes_len</code>, and
+<code>done</code>. Store <code>next_offset</code> as the next read’s <code>offset</code> to avoid rereading
+bytes. When the retained job has stopped running, release it:</p>
+<pre><code>$streamId http_stream value streamState var
+$streamState &quot;running&quot; at while
+  25 sleep
+  $streamId http_stream value streamState set
+end
+
+$streamId http_stream_release value println
+</code></pre>
+<p>If a retained request is no longer useful, call <code>http_stream_cancel</code> with the
+stream id. Cancellation asks the host to stop the work; still check the stream
+snapshot before release, because a running stream cannot be released.</p>
+<h2>How to read the example</h2>
+<p>Read the command first, then the code. The command grants the host powers the program may use. Inside the program, host calls usually return <code>Result</code> values or retained resource handles, so keep the same habit from Chapter 09: check the result, unwrap deliberately, and release or close resources when you are done.</p>
+<h2>Try it</h2>
+<p>Change the fixture response for <code>/stream</code> and rerun the script. Then lower the
+example’s <code>max_response_bytes</code> from <code>128</code> to <code>10</code> and watch the stream snapshot
+report truncation.</p>
+<p>For a stricter run that does not use the stream polling sleep, you can run a
+simple request under the sandboxed profile:</p>
+<pre><code>rco run --capability-profile sandboxed --http-allow-host 127.0.0.1 examples/learn/18-http-streams/api-client.rco http://127.0.0.1:PORT
+</code></pre>
+<p>The full fixture uses the trusted profile only because <code>sleep</code> is disabled in
+the sandboxed profile. The HTTP host is still restricted to loopback by
+<code>--http-allow-host 127.0.0.1</code>.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>Can you name the host capability this example needs?</li>
+<li>Can you point to the command flag or profile that grants it?</li>
+<li>Can you identify which calls may return <code>Result</code> values?</li>
+<li>Can you describe how the example avoids touching more of the host system than necessary?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Forgetting capability flags for outbound HTTP.</li>
+<li>Leaving retained streams unreleased.</li>
+<li>Reading streams without carrying <code>next_offset</code> into the next read.</li>
+<li>Assuming redirects are followed. Ricochet HTTP requests keep redirects
+disabled.</li>
+<li>Treating task handles and stream handles as ordinary values that never need
+cleanup.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The runnable example uses a local loopback server. It does not call public
+services and it does not write files. Keep examples like this bounded: use
+timeouts, byte caps, explicit host allow-lists, and release retained handles.
+Do not print bearer tokens or resolved secrets.</p>
+<h2>Production guidance</h2>
+<p>Production clients should set <code>timeout_ms</code>, bound response size with
+<code>max_response_bytes</code>, and model failures as <code>Result</code> values. For external APIs,
+pair <code>http_bearer_auth</code> with <code>secret_env</code> or another secret reference instead
+of hard-coding tokens. Use task variants when an app can keep working while a
+request is in flight, and use retained streams when the response may be large
+or should be consumed incrementally.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+<li><code>docs/reference/guides/language-runtime.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how to make simple and structured HTTP requests, run HTTP requests as
+tasks, read retained streams with offsets, cancel work that is no longer
+needed, and release completed streams.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

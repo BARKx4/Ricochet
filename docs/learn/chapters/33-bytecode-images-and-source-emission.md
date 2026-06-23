@@ -1,30 +1,40 @@
 # Chapter 33: Bytecode, Images, And Source Emission
 
-## What You Will Build
+> Part V: Packages, Registries, Macros, Tooling, and Release
+
+## Why this chapter matters
+
+Bytecode and images are runtime artifacts. Understanding them helps you separate source, compiled code, saved VM state, and emitted source views.
+
+## What you will build
 
 You will build an image lab for compiled and persistent runtime artifacts. The
 example script creates ordinary language state, compiles to bytecode, runs that
 bytecode, saves a VM image after running the source file, inspects the image,
 and emits readable source-like text from the bytecode.
 
-## Concepts
+## Concepts in plain English
 
-- Bytecode build and run commands.
-- REPL images, save/load, and binding inspection.
-- Source emission as readable output rather than exact reconstruction.
-- Image safety boundaries for retained resources and sensitive values.
+Bytecode is compiled code. An image is saved VM state. Source emission is a readable representation produced from bytecode.
 
-## Words Introduced
+The chapter uses these concepts:
+
+* Bytecode build and run commands.
+* REPL images, save/load, and binding inspection.
+* Source emission as readable output rather than exact reconstruction.
+* Image safety boundaries for retained resources and sensitive values.
+
+## Vocabulary and commands
 
 Primary coverage: `rco build`, `.rcob` bytecode files, `rco run-bytecode`,
 `rco image save`, `rco image inspect`, `rco image inspect --json`, and
 `rco emit-source`.
 
-## Guided Example
+## Guided example
 
 Open `examples/learn/33-bytecode-images-and-source-emission/image_lab.rco`:
 
-```ricochet
+```
 "Image lab" println
 
 "ada" user_name var
@@ -56,30 +66,30 @@ $score_total println
 
 The lab runner builds, runs, saves, inspects, and emits in order:
 
-```powershell
+```
 powershell -ExecutionPolicy Bypass -File examples/learn/33-bytecode-images-and-source-emission/run-lab.ps1
 ```
 
 The runner changes into the example directory before calling the CLI, so
 generated files stay local to the lab:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- build image_lab.rco
-cargo run -q -p ricochet_cli --bin rco -- run-bytecode build/app.rcob
-cargo run -q -p ricochet_cli --bin rco -- image save session.rci --source image_lab.rco
-cargo run -q -p ricochet_cli --bin rco -- image inspect session.rci
-cargo run -q -p ricochet_cli --bin rco -- emit-source build/app.rcob
+```
+rco build image_lab.rco
+rco run-bytecode build/app.rcob
+rco image save session.rci --source image_lab.rco
+rco image inspect session.rci
+rco emit-source build/app.rcob
 ```
 
 The first command writes `build/app.rcob`:
 
-```text
+```
 built build/app.rcob
 ```
 
 Running the bytecode should match the source program:
 
-```text
+```
 Image lab
 user:ADA
 score total:42
@@ -88,13 +98,13 @@ score total:42
 
 `image save --source` runs the source file first, then stores safe VM state:
 
-```text
+```
 saved image session.rci (4 bindings, 1 functions, 0 classes)
 ```
 
 `image inspect` shows the preserved names:
 
-```text
+```
 format ricochet-vm-image
 format_version 1
 ricochet_version 0.1.19-rc.1
@@ -106,19 +116,19 @@ classes
 
 Use JSON for tooling:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- image inspect session.rci --json
+```
+rco image inspect session.rci --json
 ```
 
 `emit-source` is a readable view over compiled bytecode:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- emit-source build/app.rcob
+```
+rco emit-source build/app.rcob
 ```
 
 The output starts with a provenance comment:
 
-```ricochet
+```
 (( emitted from bytecode chunk "image_lab.rco" ))
 "Image lab"
 println
@@ -128,48 +138,58 @@ Do not expect emitted source to be the original file. It may show lower-level
 operations such as `"user_name" get` because it is explaining bytecode, not
 preserving author formatting.
 
-## Try It
+## How to read the example
+
+Read artifact examples by separating source from output. Source files are what you edit. Bytecode, images, packages, and update metadata are generated artifacts with their own verification steps.
+
+## Try it
 
 Run only the bytecode steps:
 
-```powershell
+```
 Push-Location examples/learn/33-bytecode-images-and-source-emission
-cargo run -q -p ricochet_cli --bin rco -- build image_lab.rco
-cargo run -q -p ricochet_cli --bin rco -- run-bytecode build/app.rcob
+rco build image_lab.rco
+rco run-bytecode build/app.rcob
 Pop-Location
 ```
 
 Inspect the image as JSON:
 
-```powershell
+```
 Push-Location examples/learn/33-bytecode-images-and-source-emission
-cargo run -q -p ricochet_cli --bin rco -- image inspect session.rci --json
+rco image inspect session.rci --json
 Pop-Location
 ```
 
 Experiment in the REPL with an image path:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- repl --image scratch-session.rci
+```
+rco repl --image scratch-session.rci
 ```
 
 Inside the REPL, use `:bindings`, `:save`, `:save other.rci`, and
 `:load other.rci` to manage checkpoints.
 
-## Common Mistakes
+## Check your understanding
 
-- Treating emitted source as the original file.
-- Assuming every retained runtime resource belongs in a saved image.
-- Building from the repo root and wondering why `build/app.rcob` appears there.
+- What new value shape, command, or host boundary did this chapter introduce?
+- Which line is most important to trace with a stack diagram?
+- Where would you add a binding to make the example easier to read?
+
+## Common mistakes
+
+* Treating emitted source as the original file.
+* Assuming every retained runtime resource belongs in a saved image.
+* Building from a directory that contains the example path and wondering why `build/app.rcob` appears there.
   Run build commands from the project or example directory you want to own the
   artifact.
-- Committing regenerated bytecode or image files without checking whether they
+* Committing regenerated bytecode or image files without checking whether they
   are meant to be source artifacts. This lab ignores `build/` and `session.rci`
   because they are reproducible outputs.
-- Expecting images to save process-local handles such as tasks, streams,
+* Expecting images to save process-local handles such as tasks, streams,
   sockets, processes, PTYs, active approvals, or literal secret references.
 
-## Safety Notes
+## Safety notes
 
 Images are VM-state snapshots, not operating-system process snapshots. They
 preserve ordinary language state such as nil, booleans, numbers, strings,
@@ -180,23 +200,27 @@ Review emitted source and image inspection output before sharing. They can
 include binding names and values that were safe to serialize but still private
 to your application.
 
-## Production Notes
+## Production guidance
 
 Production artifact workflows should preserve version metadata, source inputs,
-build commands, validation commands, and expected runtime capabilities. Use
+build commands, self-check commands, and expected runtime capabilities. Use
 `run-bytecode --trace-file` when you need debugger events from a compiled
 artifact, and use `emit-source` for inspection or recovery workflows, not as a
 source-code formatter.
 
-## Reference Links
+## Reference links
 
-- `docs/reference/guides/images-source.html`
-- `docs/wiki/language-runtime.md`
-- `docs/feature-map.md`
-- `docs/debugger-integrations.md`
+* `docs/reference/guides/images-source.html`
+* `docs/wiki/language-runtime.md`
+* `docs/feature-map.md`
+* `docs/debugger-integrations.md`
 
-## What You Know Now
+## What you know now
 
 You know how Ricochet exposes compiled artifacts and persistent runtime state:
 build bytecode, run bytecode, save and inspect VM images, use REPL image
 checkpoints, and emit readable source-like bytecode views.
+
+## Next step
+
+Continue to [Chapter 34: Packaging, Release, And Updates](34-packaging-release-and-updates.md).

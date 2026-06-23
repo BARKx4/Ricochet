@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 03: How Postfix Reads | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a aria-current="page" href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 03: How Postfix Reads</h1>
+<h2>Why this chapter matters</h2>
+<p>This is the chapter where Ricochet should stop feeling backwards. The goal is not to memorize every stack word. The goal is to build one durable habit: read values first, then words, and keep track of what each word consumes and leaves.</p>
+<h2>What you will build</h2>
+<p>You will build a receipt-style calculation and trace how values move through the stack.</p>
+<h2>Concepts in plain English</h2>
+<p>Postfix code is read left to right. A value pushes itself onto the stack. A word consumes the values it needs from the top of the stack and may leave a result.</p>
+<p>A stack diagram shows the values before and after each step:</p>
+<pre><code class="language-text">[]
+[4]
+[4, 3]
+[12]
+[]
+</code></pre>
+<p>The rightmost item is the top of the stack.</p>
+<h2>Words introduced</h2>
+<p>Start with these stack words:</p>
+<ul>
+<li><code>dup</code> copies the top value.</li>
+<li><code>drop</code> removes the top value.</li>
+<li><code>swap</code> exchanges the top two values.</li>
+<li><code>over</code> copies the value just below the top.</li>
+<li><code>depth</code> reports how many values are on the stack.</li>
+<li><code>clear</code> removes stack leftovers during experiments.</li>
+</ul>
+<p>Other stack words such as <code>rot</code>, <code>nip</code>, <code>tuck</code>, <code>pick</code>, and <code>roll</code> are useful later. Do not force them into beginner code.</p>
+<h2>Guided example</h2>
+<p>Create a receipt script:</p>
+<pre><code class="language-rco">&quot;Stack receipt&quot; println
+
+4 price var
+3 quantity var
+
+$price $quantity * subtotal var
+$subtotal 2 + total var
+
+&quot;items:&quot; print
+$quantity println
+
+&quot;total:&quot; print
+$total println
+</code></pre>
+<p>Run it:</p>
+<pre><code class="language-bash">rco run receipt.rco
+</code></pre>
+<p>Or run the guide example:</p>
+<pre><code class="language-bash">rco run examples/learn/03-stack/main.rco
+</code></pre>
+<h2>How to read the code</h2>
+<p>Focus on this line:</p>
+<pre><code class="language-rco">$price $quantity * subtotal var
+</code></pre>
+<table>
+<thead>
+<tr>
+  <th>Step</th>
+  <th>Stack before</th>
+  <th>Token</th>
+  <th>Stack after</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>1</td>
+  <td><code>[]</code></td>
+  <td><code>$price</code></td>
+  <td><code>[4]</code></td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>[4]</code></td>
+  <td><code>$quantity</code></td>
+  <td><code>[4, 3]</code></td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>[4, 3]</code></td>
+  <td><code>*</code></td>
+  <td><code>[12]</code></td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>[12]</code></td>
+  <td><code>subtotal var</code></td>
+  <td><code>[]</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>$price</code> and <code>$quantity</code> read named values. <code>*</code> consumes two numbers and leaves their product. <code>subtotal var</code> gives the product a name and consumes it from the stack.</p>
+<p>Naming <code>subtotal</code> is clearer than leaving <code>12</code> on the stack for many lines. Stack fluency includes knowing when to stop juggling.</p>
+<h2>Small stack motion examples</h2>
+<p>Try these in the REPL one at a time:</p>
+<pre><code class="language-rco">1 2 swap      (( leaves 2 1 ))
+7 dup *       (( leaves 49 ))
+1 2 over      (( leaves 1 2 1 ))
+1 2 3 drop    (( leaves 1 2 ))
+</code></pre>
+<p>Use <code>clear</code> between experiments if the stack gets noisy.</p>
+<h2>Check your understanding</h2>
+<p>Before running each expression, predict the final stack:</p>
+<pre><code class="language-rco">1 2 3 drop
+1 2 swap
+10 dup +
+1 2 over
+</code></pre>
+<p>Expected shapes:</p>
+<ul>
+<li><code>1 2 3 drop</code> leaves <code>1 2</code>.</li>
+<li><code>1 2 swap</code> leaves <code>2 1</code>.</li>
+<li><code>10 dup +</code> leaves <code>20</code>.</li>
+<li><code>1 2 over</code> leaves <code>1 2 1</code>.</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Keeping values on the stack longer than needed.</li>
+<li>Using stack motion where a named binding would be easier to read.</li>
+<li>Forgetting that <code>print</code>, <code>println</code>, <code>var</code>, and mutators such as <code>push!</code> consume values.</li>
+<li>Trying to learn every stack word before writing useful code.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You can read simple postfix expressions from left to right and explain how each word changes the stack. That is the mental model every later Ricochet surface uses.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

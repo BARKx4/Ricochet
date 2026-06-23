@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 21: Terminal UI | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a aria-current="page" href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 21: Terminal UI</h1>
+<blockquote>
+<p>Part III: Host Capabilities and Local App Surfaces</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Terminal UIs are local applications with visual state. The same stack and collection habits now drive frames, rows, keys, and cleanup.</p>
+<h2>What you will build</h2>
+<p>You will build a small terminal task dashboard that enters the alternate
+screen, clears it, writes a few positioned rows, polls for a key without
+blocking, flushes output, and restores the terminal.</p>
+<h2>Concepts in plain English</h2>
+<p>A TUI draws frames in the terminal. You manage entering the UI, rendering state, reading input, and leaving the terminal cleanly.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Alternate screen, cursor movement, terminal size, writes, flush, and key reading.</li>
+<li>Graceful terminal restoration.</li>
+<li>Packaging a terminal app.</li>
+<li>The difference between <code>rco run --allow-tui</code> and <code>rco tui</code>.</li>
+<li>Nonblocking key polling versus blocking key reads.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>tui_enter</code>, <code>tui_leave</code>, <code>tui_clear</code>, <code>tui_move_to</code>,
+<code>tui_write</code>, <code>tui_flush</code>, <code>tui_size</code>, <code>tui_poll_key</code>, <code>tui_read_key</code>, and the
+<code>rco tui</code> / <code>rco package --tui</code> workflow.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/21-tui/task-dashboard.rco</code> and run:</p>
+<pre><code>rco tui examples/learn/21-tui/task-dashboard.rco
+</code></pre>
+<p><code>rco tui</code> grants the terminal UI capability and suppresses the normal final
+stack dump. That makes it the right command for terminal apps.</p>
+<p>The example builds a small in-memory task list, then enters and clears the
+terminal:</p>
+<pre><code>tasks array
+$tasks &quot;read chapter&quot; push! drop
+$tasks &quot;run example&quot; push! drop
+$tasks &quot;release terminal state&quot; push! drop
+
+tui_enter value drop
+tui_clear value drop
+</code></pre>
+<p>Terminal size is a result map. Use it to adapt layout:</p>
+<pre><code>tui_size value size var
+
+0 0 tui_move_to value drop
+&quot;Ricochet task dashboard&quot; tui_write value drop
+
+0 2 tui_move_to value drop
+&quot;Terminal: &quot; tui_write value drop
+$size &quot;columns&quot; at to_string tui_write value drop
+&quot;x&quot; tui_write value drop
+$size &quot;rows&quot; at to_string tui_write value drop
+</code></pre>
+<p>Writes are queued until you flush:</p>
+<pre><code>0 index var
+$index $tasks count &lt; while
+  2 $index 5 + tui_move_to value drop
+  &quot;- &quot; tui_write value drop
+  $tasks $index at tui_write value drop
+  $index 1 + index set
+end
+
+tui_flush value drop
+</code></pre>
+<p>Use <code>tui_poll_key</code> when the app should keep rendering even if no key is ready:</p>
+<pre><code>0 tui_poll_key value key var
+$key nil? false = if
+  1 keyReady set
+end
+</code></pre>
+<p>Use <code>tui_read_key</code> for a blocking event loop:</p>
+<pre><code>tui_read_key value key var
+$key &quot;char&quot; at &quot;q&quot; = if
+  break
+end
+</code></pre>
+<p>Always leave the terminal before the app ends:</p>
+<pre><code>tui_leave value drop
+</code></pre>
+<h2>How to read the example</h2>
+<p>Trace one representative line from left to right. Identify the values placed on the stack, the word that consumes them, and the result or binding that carries the work forward.</p>
+<h2>Try it</h2>
+<p>Run the example with <code>rco run --capability-profile sandboxed</code> and no
+<code>--allow-tui</code>; it should fail with a terminal capability error. Then run:</p>
+<pre><code>rco run --capability-profile sandboxed --allow-tui examples/learn/21-tui/task-dashboard.rco
+</code></pre>
+<p>That command works, but it prints the normal final stack after terminal output.
+For real terminal apps, prefer <code>rco tui</code>.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>What new value shape, command, or host boundary did this chapter introduce?</li>
+<li>Which line is most important to trace with a stack diagram?</li>
+<li>Where would you add a binding to make the example easier to read?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Forgetting to restore terminal state after an error.</li>
+<li>Treating key polling as a blocking prompt.</li>
+<li>Forgetting that <code>tui_write</code> is queued until <code>tui_flush</code>.</li>
+<li>Using <code>tui_read_key</code> in automated checks or startup paths where no key is available.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>Terminal UI code changes the user’s terminal state. Keep <code>tui_leave</code> visible in
+simple examples, and structure larger apps so error paths also restore the
+terminal. Avoid blocking reads in automated examples.</p>
+<h2>Production guidance</h2>
+<p>Production TUIs should handle resize, exit, and cleanup paths deliberately.
+Use <code>tui_poll_key</code> for render loops, <code>tui_read_key</code> for blocking waits, and
+package terminal apps with <code>rco package --tui</code> so users do not see a final
+stack dump after the app exits.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/host-capabilities.html</code></li>
+<li><code>docs/reference/guides/language-runtime.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know the basic shape of a Ricochet terminal application: enter, clear,
+render with positioned writes, flush, read or poll input, and leave cleanly.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

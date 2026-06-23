@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 33: Bytecode, Images, And Source Emission | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a aria-current="page" href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 33: Bytecode, Images, And Source Emission</h1>
+<blockquote>
+<p>Part V: Packages, Registries, Macros, Tooling, and Release</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Bytecode and images are runtime artifacts. Understanding them helps you separate source, compiled code, saved VM state, and emitted source views.</p>
+<h2>What you will build</h2>
+<p>You will build an image lab for compiled and persistent runtime artifacts. The
+example script creates ordinary language state, compiles to bytecode, runs that
+bytecode, saves a VM image after running the source file, inspects the image,
+and emits readable source-like text from the bytecode.</p>
+<h2>Concepts in plain English</h2>
+<p>Bytecode is compiled code. An image is saved VM state. Source emission is a readable representation produced from bytecode.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Bytecode build and run commands.</li>
+<li>REPL images, save/load, and binding inspection.</li>
+<li>Source emission as readable output rather than exact reconstruction.</li>
+<li>Image safety boundaries for retained resources and sensitive values.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>rco build</code>, <code>.rcob</code> bytecode files, <code>rco run-bytecode</code>,
+<code>rco image save</code>, <code>rco image inspect</code>, <code>rco image inspect --json</code>, and
+<code>rco emit-source</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/33-bytecode-images-and-source-emission/image_lab.rco</code>:</p>
+<pre><code>&quot;Image lab&quot; println
+
+&quot;ada&quot; user_name var
+$user_name uppercase user_code var
+
+scores array
+$scores 10 push! drop
+$scores 20 push! drop
+$scores 12 push! drop
+
+( values -&gt; Number ) lab_sum function
+  values var
+  0 total var
+  [
+    value var
+    $total $value + total set
+  ] $values each drop
+  $total
+end
+
+$scores lab_sum score_total var
+
+&quot;user:&quot; print
+$user_code println
+
+&quot;score total:&quot; print
+$score_total println
+</code></pre>
+<p>The lab runner builds, runs, saves, inspects, and emits in order:</p>
+<pre><code>powershell -ExecutionPolicy Bypass -File examples/learn/33-bytecode-images-and-source-emission/run-lab.ps1
+</code></pre>
+<p>The runner changes into the example directory before calling the CLI, so
+generated files stay local to the lab:</p>
+<pre><code>rco build image_lab.rco
+rco run-bytecode build/app.rcob
+rco image save session.rci --source image_lab.rco
+rco image inspect session.rci
+rco emit-source build/app.rcob
+</code></pre>
+<p>The first command writes <code>build/app.rcob</code>:</p>
+<pre><code>built build/app.rcob
+</code></pre>
+<p>Running the bytecode should match the source program:</p>
+<pre><code>Image lab
+user:ADA
+score total:42
+[]
+</code></pre>
+<p><code>image save --source</code> runs the source file first, then stores safe VM state:</p>
+<pre><code>saved image session.rci (4 bindings, 1 functions, 0 classes)
+</code></pre>
+<p><code>image inspect</code> shows the preserved names:</p>
+<pre><code>format ricochet-vm-image
+format_version 1
+ricochet_version 0.1.19-rc.1
+stack 0
+variables score_total, scores, user_code, user_name
+functions lab_sum
+classes
+</code></pre>
+<p>Use JSON for tooling:</p>
+<pre><code>rco image inspect session.rci --json
+</code></pre>
+<p><code>emit-source</code> is a readable view over compiled bytecode:</p>
+<pre><code>rco emit-source build/app.rcob
+</code></pre>
+<p>The output starts with a provenance comment:</p>
+<pre><code>(( emitted from bytecode chunk &quot;image_lab.rco&quot; ))
+&quot;Image lab&quot;
+println
+</code></pre>
+<p>Do not expect emitted source to be the original file. It may show lower-level
+operations such as <code>&quot;user_name&quot; get</code> because it is explaining bytecode, not
+preserving author formatting.</p>
+<h2>How to read the example</h2>
+<p>Read artifact examples by separating source from output. Source files are what you edit. Bytecode, images, packages, and update metadata are generated artifacts with their own verification steps.</p>
+<h2>Try it</h2>
+<p>Run only the bytecode steps:</p>
+<pre><code>Push-Location examples/learn/33-bytecode-images-and-source-emission
+rco build image_lab.rco
+rco run-bytecode build/app.rcob
+Pop-Location
+</code></pre>
+<p>Inspect the image as JSON:</p>
+<pre><code>Push-Location examples/learn/33-bytecode-images-and-source-emission
+rco image inspect session.rci --json
+Pop-Location
+</code></pre>
+<p>Experiment in the REPL with an image path:</p>
+<pre><code>rco repl --image scratch-session.rci
+</code></pre>
+<p>Inside the REPL, use <code>:bindings</code>, <code>:save</code>, <code>:save other.rci</code>, and
+<code>:load other.rci</code> to manage checkpoints.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>What new value shape, command, or host boundary did this chapter introduce?</li>
+<li>Which line is most important to trace with a stack diagram?</li>
+<li>Where would you add a binding to make the example easier to read?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Treating emitted source as the original file.</li>
+<li>Assuming every retained runtime resource belongs in a saved image.</li>
+<li>Building from a directory that contains the example path and wondering why <code>build/app.rcob</code> appears there.
+Run build commands from the project or example directory you want to own the
+artifact.</li>
+<li>Committing regenerated bytecode or image files without checking whether they
+are meant to be source artifacts. This lab ignores <code>build/</code> and <code>session.rci</code>
+because they are reproducible outputs.</li>
+<li>Expecting images to save process-local handles such as tasks, streams,
+sockets, processes, PTYs, active approvals, or literal secret references.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>Images are VM-state snapshots, not operating-system process snapshots. They
+preserve ordinary language state such as nil, booleans, numbers, strings,
+arrays, lists, maps, sets, classes, instances, blocks, functions, and results.
+They reject process-local or sensitive state rather than silently dropping it.</p>
+<p>Review emitted source and image inspection output before sharing. They can
+include binding names and values that were safe to serialize but still private
+to your application.</p>
+<h2>Production guidance</h2>
+<p>Production artifact workflows should preserve version metadata, source inputs,
+build commands, self-check commands, and expected runtime capabilities. Use
+<code>run-bytecode --trace-file</code> when you need debugger events from a compiled
+artifact, and use <code>emit-source</code> for inspection or recovery workflows, not as a
+source-code formatter.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/reference/guides/images-source.html</code></li>
+<li><code>docs/wiki/language-runtime.md</code></li>
+<li><code>docs/feature-map.md</code></li>
+<li><code>docs/debugger-integrations.md</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how Ricochet exposes compiled artifacts and persistent runtime state:
+build bytecode, run bytecode, save and inspect VM images, use REPL image
+checkpoints, and emit readable source-like bytecode views.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

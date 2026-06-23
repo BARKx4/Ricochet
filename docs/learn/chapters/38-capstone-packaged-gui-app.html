@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 38: Capstone Packaged GUI App | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a aria-current="page" href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 38: Capstone Packaged GUI App</h1>
+<blockquote>
+<p>Part VI: Capstone Applications</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>The final capstone combines GUI state, local data, tests, and packaging into a desktop-style application you can hand to someone else.</p>
+<h2>What you will build</h2>
+<p>You will build and package a personal ledger desktop GUI app. The app builds a
+webview document from local ledger state, tests the ledger math and document
+shape, then packages the GUI as a standalone launcher in an ignored local
+<code>build/</code> directory.</p>
+<h2>Concepts in plain English</h2>
+<p>This capstone proves a GUI app can be built, tested, and packaged as a user-facing artifact.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Webview GUI or packaged local MVC.</li>
+<li>Local data, settings, result handling, release metadata, and packaging commands.</li>
+<li>Platform-specific validation notes.</li>
+<li>Escaped GUI fragments, explicit state, action callbacks, and packaging
+metadata in one end-to-end app.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>This chapter consolidates GUI, local data, results, MVC, and packaging concepts.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/38-capstone-gui/personal_ledger</code>:</p>
+<pre><code>lib/ledger.rco
+ledger_gui.rco
+LedgerTest.rco
+run-package.ps1
+.gitignore
+</code></pre>
+<p>The ledger logic creates local state:</p>
+<pre><code>( -&gt; Map ) ledger_sample_state function
+  entries array
+  $entries &quot;Client payment&quot; &quot;income&quot; 2400 ledger_entry push! drop
+  $entries &quot;Office rent&quot; &quot;expense&quot; 650 ledger_entry push! drop
+  $entries &quot;Tool &lt;subscription&gt;&quot; &quot;expense&quot; 220 ledger_entry push! drop
+  $entries &quot;Coffee&quot; &quot;expense&quot; 80 ledger_entry push! drop
+
+  state map
+  $state &quot;entries&quot; $entries put! drop
+  $state &quot;filter&quot; &quot;all&quot; put! drop
+  $state &quot;reviewed&quot; false put! drop
+  $state
+end
+</code></pre>
+<p>The balance function treats income and expense rows differently:</p>
+<pre><code>( entries -&gt; Number ) ledger_balance function
+  entries var
+  0 balance var
+  nil entry var
+
+  [
+    entry set
+    $entry &quot;kind&quot; at &quot;income&quot; = if
+      $balance $entry &quot;amount&quot; at + balance set
+    else
+      $balance $entry &quot;amount&quot; at - balance set
+    end
+  ] $entries each drop
+
+  $balance
+end
+</code></pre>
+<p><code>ledger_build_document</code> turns state into a webview document map. It uses
+webview helpers for user-facing text so labels such as <code>Tool &lt;subscription&gt;</code>
+are escaped before they become HTML:</p>
+<pre><code>&quot;Personal Ledger&quot; 1 webview_heading heading var
+&quot;Visible entries: &quot; $visibleEntries count to_string concat webview_text countLine var
+&quot;Balance: &quot; $balance to_string concat webview_text balanceLine var
+&quot;filter&quot; $filter webview_input filterInput var
+&quot;Mark reviewed&quot; &quot;review&quot; webview_button reviewButton var
+</code></pre>
+<p>The callback updates state and returns a fresh document:</p>
+<pre><code>( state event -&gt; Map ) mark_reviewed function
+  event var
+  state var
+  $state &quot;reviewed&quot; true put! drop
+  $state ledger_build_document
+end
+</code></pre>
+<p>Run the non-interactive self-check:</p>
+<pre><code>rco run examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>document title:Ricochet Ledger
+entries:4
+balance:1450
+actions:1
+reviewed:false
+html has escaped item?true
+[]
+</code></pre>
+<p>Preview it as a GUI document when you want a window:</p>
+<pre><code>rco gui examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco
+</code></pre>
+<p>Run the tests:</p>
+<pre><code>rco test examples/learn/38-capstone-gui/personal_ledger/LedgerTest.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>PASS LedgerTest.testDocumentShape
+PASS LedgerTest.testLedgerMath
+PASS LedgerTest.testMarkReviewedAction
+3 tests, 0 failed
+</code></pre>
+<p>Package the GUI app:</p>
+<pre><code>powershell -ExecutionPolicy Bypass -File examples/learn/38-capstone-gui/personal_ledger/run-package.ps1
+</code></pre>
+<p>Expected output:</p>
+<pre><code>packaged E:\LLM Projects\Ricochet\examples\learn\38-capstone-gui\personal_ledger\build\personal-ledger.exe
+packaged artifact: personal-ledger.exe
+artifact bytes: 32235143
+</code></pre>
+<p>The exact byte count can vary. The important part is that the package command
+creates a nonzero executable under the example’s ignored <code>build/</code> directory.</p>
+<h2>How to read the example</h2>
+<p>Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.</p>
+<h2>Try it</h2>
+<p>Change the starting filter to <code>&quot;expense&quot;</code> in <code>ledger_sample_state</code>:</p>
+<pre><code>$state &quot;filter&quot; &quot;expense&quot; put! drop
+</code></pre>
+<p>Then update the tests so the visible entry count matches the new default. Run:</p>
+<pre><code>rco run examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco
+rco test examples/learn/38-capstone-gui/personal_ledger/LedgerTest.rco
+powershell -ExecutionPolicy Bypass -File examples/learn/38-capstone-gui/personal_ledger/run-package.ps1
+</code></pre>
+<p>Inspect the generated artifact:</p>
+<pre><code>Get-Item -LiteralPath examples/learn/38-capstone-gui/personal_ledger/build/personal-ledger.exe |
+  Select-Object Name, Length, LastWriteTime
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>What earlier chapters does this capstone combine?</li>
+<li>What is the user-facing entry point?</li>
+<li>What data boundary does the app use?</li>
+<li>Which tests or checks prove the capstone still works?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Treating local GUI state as throwaway once packaging begins.</li>
+<li>Skipping artifact validation after packaging.</li>
+<li>Building HTML by string interpolation before escaping user-facing text.</li>
+<li>Forgetting that <code>rco gui</code> needs a document on the stack or in a <code>document</code>
+binding.</li>
+<li>Letting tests open a window. Use <code>rco run</code> and <code>rco test</code> for non-interactive checks;
+reserve <code>rco gui</code> for visual preview.</li>
+<li>Packaging before run/test/lint have passed.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>This capstone uses in-memory sample data and writes only the generated package
+artifact under <code>examples/learn/38-capstone-gui/personal_ledger/build/</code>. That
+directory is ignored because the executable is reproducible output. If you add
+file-backed ledger storage, keep the path explicit, check containment, and
+confirm before overwriting or deleting user data.</p>
+<h2>Production guidance</h2>
+<p>Production desktop apps should document settings storage, state migration,
+artifact manifests, signing or notarization status, and update policy. Use
+<code>rco package --gui</code> for local packaging, then graduate to the release scripts
+from Chapter 34 when you need cross-platform artifacts, checksums, signing
+reports, store validation, and update-channel metadata.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/learn/chapters/22-webview-and-desktop-gui.md</code></li>
+<li><code>docs/learn/chapters/34-packaging-release-and-updates.md</code></li>
+<li><code>docs/learn/chapters/35-capstone-cli-tool.md</code></li>
+<li><code>docs/learn/chapters/36-capstone-tui-dashboard.md</code></li>
+<li><code>docs/learn/chapters/37-capstone-mvc-app.md</code></li>
+<li><code>docs/reference/guides/development-release.html</code></li>
+<li><code>docs/reference/guides/store-packaging.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know the end-to-end shape of a packaged Ricochet desktop app: model local
+state, build escaped webview HTML, expose actions, validate the document without
+opening a window, test the business logic, package the GUI, and inspect the
+generated artifact before sharing it.</p>
+<h2>Next step</h2>
+<p>Return to the index and choose the next project path: CLI, TUI, MVC, packages, or GUI packaging.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

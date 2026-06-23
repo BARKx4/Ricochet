@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 14: Date, Time, And Duration | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a aria-current="page" href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 14: Date, Time, And Duration</h1>
+<blockquote>
+<p>Part III: Host Capabilities and Local App Surfaces</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Dates and durations are common in reminders, logs, packages, sessions, and release workflows. This chapter teaches time as data before you use it inside larger applications.</p>
+<h2>What you will build</h2>
+<p>You will build a reminder calculation that parses a timestamp, adds a
+duration, formats the result, and compares calendar dates.</p>
+<h2>Concepts in plain English</h2>
+<p>A timestamp names a moment. A duration names an amount of time. Date formatting turns time data into text for people or protocols.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>UTC timestamps and RFC3339 strings.</li>
+<li>Date parts, duration units, and date arithmetic.</li>
+<li>Duration values expressed in milliseconds.</li>
+<li>Result-based handling for invalid dates.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>now</code>, <code>timestamp_now</code>, <code>timestamp_parse</code>,
+<code>timestamp_format</code>, <code>timestamp_format_pattern</code>, <code>timestamp_parts</code>,
+<code>timestamp_from_parts</code>, <code>timestamp_add</code>, <code>timestamp_diff</code>,
+<code>date_from_timestamp</code>, <code>date_to_timestamp</code>, <code>date_parse</code>, <code>date_format</code>,
+<code>date_add_days</code>, <code>date_diff_days</code>, <code>duration_millis</code>, <code>duration_seconds</code>,
+<code>duration_minutes</code>, <code>duration_hours</code>, <code>duration_days</code>, <code>duration_weeks</code>, and
+<code>duration_parts</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/14-date-time-and-duration/reminder.rco</code> and run:</p>
+<pre><code>rco run examples/learn/14-date-time-and-duration/reminder.rco
+</code></pre>
+<p>Timestamps parse from RFC3339 strings and normalize to Ricochet’s UTC
+millisecond boundary:</p>
+<pre><code>&quot;2026-06-18T13:14:15.250Z&quot; timestamp_parse value startedAt var
+$startedAt timestamp_format value println
+$startedAt timestamp_parts value &quot;year&quot; at println
+</code></pre>
+<p>Duration unit words return millisecond durations as results:</p>
+<pre><code>$startedAt 2 duration_hours value timestamp_add value later var
+$startedAt $later timestamp_diff value println
+</code></pre>
+<p>Dates are calendar values. Use date words for day arithmetic instead of adding
+raw milliseconds:</p>
+<pre><code>&quot;2026-02-28&quot; date_parse value date var
+$date 1 date_add_days value nextDate var
+$nextDate &quot;%Y-%m-%d&quot; date_format value println
+$date $nextDate date_diff_days value println
+</code></pre>
+<h2>How to read the example</h2>
+<p>Trace one representative line from left to right. Identify the values placed on the stack, the word that consumes them, and the result or binding that carries the work forward.</p>
+<h2>Try it</h2>
+<p>Change the example to use your own timestamp. Then try a custom format:</p>
+<pre><code>$startedAt &quot;%Y-%m-%d %H:%M:%S&quot; timestamp_format_pattern value println
+</code></pre>
+<p>Try an invalid date and inspect the error:</p>
+<pre><code>&quot;2026-02-30&quot; date_parse error &quot;kind&quot; at println
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>What new value shape, command, or host boundary did this chapter introduce?</li>
+<li>Which line is most important to trace with a stack diagram?</li>
+<li>Where would you add a binding to make the example easier to read?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Assuming local time when a value is UTC.</li>
+<li>Adding days as raw milliseconds when calendar date arithmetic is clearer.</li>
+<li>Ignoring invalid-date results.</li>
+<li>Forgetting to unwrap <code>Result</code> values before indexing maps.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how Ricochet represents timestamps, dates, and durations, and you can
+keep invalid time input in the same explicit <code>Result</code> flow used by conversions
+and host APIs.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 28: AI Capabilities And The AI Package | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a aria-current="page" href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 28: AI Capabilities And The AI Package</h1>
+<blockquote>
+<p>Part IV: MVC, Data, Auth, Forms, and AI</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>AI features are application boundaries: prompts, providers, transcripts, tool permissions, and fallback behavior. The safest model is explicit capability, explicit provider, explicit result.</p>
+<h2>What you will build</h2>
+<p>You will build a fake-provider AI chat flow that does not require live
+credentials. The example uses the <code>@ricochet/ai</code> package to create a neutral
+chat contract, retry a transient provider response, normalize a successful
+OpenAI-compatible response, run a local tool handler, validate the response
+shape, and parse a tiny server-sent-event stream body.</p>
+<h2>Concepts in plain English</h2>
+<p>An AI provider is an external or local model boundary. Ricochet code should treat prompts, providers, responses, and tool permissions as explicit data.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>MVC AI capability boundaries and application ownership.</li>
+<li>Provider-neutral request, message, response, error, tool, retry, and stream
+maps from <code>@ricochet/ai</code>.</li>
+<li>Fake-provider executors for tests and local examples.</li>
+<li>Schema validation for AI responses.</li>
+<li>Small response stream parsing versus retained HTTP stream state.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: the <code>@ricochet/ai</code> package vocabulary, including
+<code>ai_provider</code>, <code>ai_system_message</code>, <code>ai_user_message</code>, <code>ai_chat_request</code>,
+<code>ai_retry_policy</code>, <code>ai_openai_execute_chat</code>, <code>ai_schema</code>,
+<code>ai_validate_schema</code>, <code>ai_tool_handlers</code>, <code>ai_tool_handler_put</code>,
+<code>ai_execute_tool_calls</code>, and <code>ai_openai_stream_events</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/28-ai/fake_provider_chat</code>. Its manifest vendors the AI
+package into the example so the path stays inside the project:</p>
+<pre><code>[dependencies.ai]
+path = &quot;.ricochet/packages/ai&quot;
+</code></pre>
+<p>Run the harness:</p>
+<pre><code>rco run examples/learn/28-ai/fake_provider_chat/fake_provider.rco
+</code></pre>
+<p>The first step builds the neutral provider and messages. This does not contact
+the network:</p>
+<pre><code>&quot;ai/openai&quot; import
+
+&quot;openai&quot; &quot;https://api.example.test/v1&quot; &quot;gpt-fake&quot; ai_provider provider var
+
+messages array
+$messages &quot;Keep answers short and structured.&quot; ai_system_message push! drop
+$messages &quot;Return a fake provider response.&quot; ai_user_message push! drop
+</code></pre>
+<p>The request keeps model choice, messages, options, tool declarations, and retry
+policy together:</p>
+<pre><code>options map
+$options &quot;temperature&quot; 0.2 put! drop
+tools array
+3 0 0 ai_retry_policy retry var
+$provider &quot;gpt-fake&quot; $messages $options $tools $retry ai_chat_request request var
+</code></pre>
+<p>The executor block is the fake provider. It receives the neutral request and
+the 1-based retry attempt. The first attempt returns a <code>503</code> response map; the
+second returns an OpenAI-compatible success body with text and a tool call:</p>
+<pre><code>[
+  attempt var
+  providerRequest var
+  $attempts $attempt push! drop
+
+  response map
+  $attempt 1 = if
+    $response &quot;status&quot; 503 put! drop
+    $response &quot;body&quot; &quot;{\&quot;error\&quot;:{\&quot;message\&quot;:\&quot;busy\&quot;}}&quot; put! drop
+  else
+    $response &quot;status&quot; 200 put! drop
+    $response &quot;body&quot; &quot;{\&quot;model\&quot;:\&quot;gpt-fake\&quot;,\&quot;choices\&quot;:[{\&quot;message\&quot;:{\&quot;content\&quot;:\&quot;fake provider ready\&quot;,\&quot;tool_calls\&quot;:[{\&quot;id\&quot;:\&quot;call-1\&quot;,\&quot;type\&quot;:\&quot;function\&quot;,\&quot;function\&quot;:{\&quot;name\&quot;:\&quot;get_weather\&quot;,\&quot;arguments\&quot;:\&quot;{\\\&quot;city\\\&quot;:\\\&quot;Chicago\\\&quot;}\&quot;}}]}}]}&quot; put! drop
+  end
+  $response ok
+] executor var
+
+$request $executor ai_openai_execute_chat result var
+</code></pre>
+<p><code>ai_openai_execute_chat</code> applies the retry policy, converts non-2xx HTTP-like
+responses into AI error maps, and converts success bodies into the neutral
+<code>ai_chat_response</code> shape. The harness then validates the response map:</p>
+<pre><code>$result value chat var
+
+ai_schema &quot;text&quot; &quot;string&quot; true ai_schema_field &quot;provider&quot; &quot;map&quot; true ai_schema_field schema var
+$chat $schema ai_validate_schema schemaResult var
+</code></pre>
+<p>Tool handlers are local blocks keyed by tool name. The normalized tool call
+keeps its <code>id</code>, <code>name</code>, and parsed <code>arguments</code> map:</p>
+<pre><code>ai_tool_handlers handlers var
+$handlers &quot;get_weather&quot; [
+  arguments var
+  toolCall var
+  content map
+  $content &quot;name&quot; $toolCall &quot;name&quot; at put! drop
+  $content &quot;city&quot; $arguments &quot;city&quot; at put! drop
+  $content &quot;forecast&quot; &quot;dry-run only&quot; put! drop
+  $content
+] ai_tool_handler_put handlers set
+
+$chat &quot;tool_calls&quot; at $handlers ai_execute_tool_calls toolResult var
+</code></pre>
+<p>Small stream bodies can be parsed directly:</p>
+<pre><code>&quot;data: {\&quot;choices\&quot;:[{\&quot;delta\&quot;:{\&quot;content\&quot;:\&quot;Hel\&quot;}}]}\n\ndata: {\&quot;choices\&quot;:[{\&quot;delta\&quot;:{\&quot;content\&quot;:\&quot;lo\&quot;}}]}\n\ndata: [DONE]\n\n&quot; ai_openai_stream_events streamResult var
+</code></pre>
+<p>The example prints a single JSON summary:</p>
+<pre><code>{&quot;text&quot;:&quot;fake provider ready&quot;,&quot;attempts&quot;:2,&quot;provider&quot;:&quot;openai&quot;,&quot;schema_ok&quot;:true,&quot;tool_city&quot;:&quot;Chicago&quot;,&quot;tool_forecast&quot;:&quot;dry-run only&quot;,&quot;stream_events&quot;:3,&quot;stream_done&quot;:true}
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read the AI example as an application boundary, not as magic. Prompts, model configuration, provider responses, and tool permissions are data. Keep fallback behavior explicit and avoid giving a provider more capability than the example needs.</p>
+<h2>Try it</h2>
+<p>Change the retry policy from <code>3 0 0 ai_retry_policy</code> to
+<code>1 0 0 ai_retry_policy</code>. The harness should report the normalized error from
+the fake <code>503</code> response instead of the success summary.</p>
+<p>Then change the schema to require <code>&quot;text&quot; &quot;number&quot;</code>. The provider still
+returns successfully, but <code>schema_ok</code> becomes false because the response text is
+a string. That is the important split: transport success, model output shape,
+and application validation are separate decisions.</p>
+<p>When you are ready to use a real provider, keep the same neutral request shape
+and replace the executor with one that builds an HTTP request using a resolved
+secret, sends it through <code>http_request</code>, and returns that HTTP result. In MVC,
+the <code>[ai.default]</code> capability belongs at the application boundary: controllers
+may ask for AI work, but provider choice, credentials, rate limits, logging,
+and data policy remain explicit app decisions.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>What new value shape, command, or host boundary did this chapter introduce?</li>
+<li>Which line is most important to trace with a stack diagram?</li>
+<li>Where would you add a binding to make the example easier to read?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Mixing secret setup with first-time AI package learning.</li>
+<li>Treating provider success as proof that the response matches your app schema.</li>
+<li>Calling a live model before the fake-provider path is covered by tests.</li>
+<li>Hiding retry policy, model selection, or provider selection in a controller.</li>
+<li>Parsing partial stream frames without retained stream state.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The example uses <code>https://api.example.test/v1</code> and a fake executor. It never
+reads API keys, opens sockets, or sends data to a provider. Do not paste real
+credentials into example files. Use secret references, explicit capability
+flags, and provider allowlists when you move from fake executors to HTTP calls.</p>
+<h2>Production guidance</h2>
+<p>Production AI integrations should make provider selection, credentials, rate
+limits, retry budgets, timeout policy, request logging, prompt retention,
+stream lifecycle, local tool permissions, schema validation, and user-visible
+failure behavior explicit.</p>
+<p>Use fake executors in tests for provider retry/error handling. Use retained
+HTTP streams plus provider-specific stream state for long-running responses:
+<code>ai_openai_stream_state</code> with <code>ai_openai_stream_read_events</code>,
+<code>ai_anthropic_stream_state</code> with <code>ai_anthropic_stream_read_events</code>, or
+<code>ai_ollama_stream_state</code> with <code>ai_ollama_stream_read_events</code>.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>packages/ricochet_ai/README.md</code></li>
+<li><code>examples/showcase/ai_provider_probe/fake_provider.rco</code></li>
+<li><code>docs/feature-map.md</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how AI features fit into Ricochet’s package and capability model. You
+can build a neutral chat request, test provider retry behavior without live
+credentials, normalize provider responses, run local tool calls, validate
+response maps, and choose the right stream parsing pattern for small bodies or
+retained HTTP streams.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

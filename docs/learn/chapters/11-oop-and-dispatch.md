@@ -1,31 +1,34 @@
-# Chapter 11: OOP And Dispatch
+# Chapter 11: OOP and Dispatch
 
-## What You Will Build
+## Why this chapter matters
 
-You will build a contact-book model using Ricochet's dynamic OOP vocabulary.
+Maps are excellent for flexible data, but sometimes data has behavior. A contact can format itself. A model can validate itself. A controller can respond to a route. Ricochet’s dynamic OOP vocabulary gives you those shapes while keeping postfix reading order.
 
-## Concepts
+The key beginner question is: should this be a map or a class? Use a map for a simple payload. Use a class when named behavior, generated accessors, inheritance, or framework integration makes the code clearer.
 
-- Class bodies and postfix declarations.
-- Fields, accessors, methods, inheritance, and overrides.
-- Generated selectors such as `email.get` and `email.set`.
+## What you will build
 
-## Words Introduced
+You will build a contact-book model using Ricochet’s dynamic OOP vocabulary.
 
-Primary coverage: `Subclass`, `Field`, `Accessor`, `Table`, `new`, `self`,
-`Method`, `send`, and generated `field.get` / `field.set` selectors.
+## Concepts in plain English
 
-## Guided Example
+A class describes a kind of object. A field stores data. An accessor is a generated word for reading or writing a field. A method is behavior attached to an object. Dispatch means Ricochet chooses the method implementation for the receiver you send the message to.
 
-Open `examples/learn/11-oop/main.rco` and run:
+## Words introduced
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/11-oop/main.rco
+Primary words: `Subclass`, `Field`, `Accessor`, `Table`, `new`, `self`, `Method`, `send`, and generated `field.get` / `field.set` selectors.
+
+## Guided example
+
+Run the OOP example:
+
+```bash
+rco run examples/learn/11-oop/main.rco
 ```
 
 The class body uses capitalized declaration words:
 
-```ricochet
+```rco
 Contact Object Subclass
   "name" Accessor
   "email" Accessor
@@ -39,32 +42,43 @@ Contact Object Subclass
 end
 ```
 
-Generated accessors stay postfix. Put the value below the receiver for a
-setter:
+Generated accessors stay postfix. Put the value below the receiver for a setter:
 
-```ricochet
+```rco
 "Ada Lovelace" $contact name.set contact set
 "ada@example.com" $contact email.set contact set
 ```
 
 Read with a selector after the receiver:
 
-```ricochet
+```rco
 $contact card println
 $contact name.get println
 ```
 
 When a method name is data, use `send`:
 
-```ricochet
+```rco
 $contact "card" send println
 ```
 
-## Try It
+## How to read the code
+
+Inside a method, `self` is the current receiver. `self name.get` reads the current object’s `name` field. The string pieces are then concatenated into a display card.
+
+A setter returns an updated object. That is why examples often assign the result back to the binding:
+
+```rco
+"Ada Lovelace" $contact name.set contact set
+```
+
+Read it as: value, receiver, setter, then update the `contact` binding with the returned object.
+
+## Try it
 
 Add a `label` method that returns only the name:
 
-```ricochet
+```rco
 [
   self name.get
 ] "label" Method
@@ -72,20 +86,24 @@ Add a `label` method that returns only the name:
 
 Then call it:
 
-```ricochet
+```rco
 $contact label println
 ```
 
-## Common Mistakes
+## Check your understanding
 
-- Writing receiver-first pseudo-object calls instead of postfix selectors.
-- Reversing setter order. Use `"value" receiver field.set`.
-- Using class declarations when a map would be simpler.
-- Forgetting that MVC model declarations reuse this vocabulary but add
-  database table mapping.
+- Selector reads put the receiver first: `$contact name.get`.
+- Selector writes put the value before the receiver: `"Ada" $contact name.set`.
+- Use `send` when the method name is data.
+- Prefer a map if you only need a flexible record with no behavior.
 
-## What You Know Now
+## Common mistakes
 
-You understand the OOP vocabulary reused by MVC model declarations: classes
-are declared in postfix style, methods receive `self`, and generated accessors
-are ordinary selectors.
+- Treating selectors as dot syntax.
+- Forgetting that OOP declarations are still postfix-shaped.
+- Reaching for a class before a map has stopped being clear.
+- Forgetting to assign the result of a setter when the surrounding code expects the binding to change.
+
+## What you know now
+
+You can read a Ricochet class, create objects, use generated accessors, and decide when behavior belongs with data.

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 37: Capstone MVC App | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a aria-current="page" href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 37: Capstone MVC App</h1>
+<blockquote>
+<p>Part VI: Capstone Applications</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>The MVC capstone combines routes, controllers, views, data, migrations, seeds, and tests into a complete web application.</p>
+<h2>What you will build</h2>
+<p>You will build a database-backed project journal MVC app. The sample app
+has routes, a controller, an Active Record model, an escaped HTML view, static
+CSS, reversible SQL migrations, seeds, and MVC tests. The self-check commands
+inspect and compile the app without applying migrations or creating local
+database state.</p>
+<h2>Concepts in plain English</h2>
+<p>This capstone proves the web app layers can work together without losing testability.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>Routes, controllers, templates, static assets, uploads, sessions, forms, auth helpers, migrations, seeds, and tests.</li>
+<li>SQLite locally, with deployment notes for other databases.</li>
+<li>Debug mode, watch mode, and route inspection.</li>
+<li>Read-only self-check before serving or changing database state.</li>
+<li>Keeping model behavior, controller response policy, and template rendering
+in separate places.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>This chapter consolidates MVC, data, auth, forms, and testing concepts.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/37-capstone-mvc/project_journal</code>:</p>
+<pre><code>ricochet.toml
+config/routes.rco
+app/Controllers/JournalController.rco
+app/Models/JournalEntry.rco
+app/Views/journal/index.html
+public/app.css
+db/migrations/0001_create_journal_entries.up.sql
+db/migrations/0001_create_journal_entries.down.sql
+db/seeds/001_journal_entries.sql
+tests/JournalEntryTest.rco
+</code></pre>
+<p>The manifest declares an MVC app, static assets, escaped views, and a local
+SQLite development database:</p>
+<pre><code>[web]
+mode = &quot;mvc&quot;
+routes = &quot;config/routes.rco&quot;
+
+[web.views]
+escape = &quot;html&quot;
+
+[database.default]
+adapter = &quot;sqlite&quot;
+url = &quot;db/development.sqlite3&quot;
+</code></pre>
+<p>Routes are still postfix:</p>
+<pre><code>GET &quot;/&quot; JournalController &quot;index&quot; route
+GET &quot;/entries&quot; JournalController &quot;index&quot; route
+GET &quot;/entries/export&quot; JournalController &quot;export_json&quot; route
+GET &quot;/entries/status&quot; JournalController &quot;by_status&quot; route
+GET &quot;/entries/:id&quot; JournalController &quot;show&quot; route
+POST &quot;/entries&quot; JournalController &quot;create&quot; route
+POST &quot;/entries/:id&quot; JournalController &quot;update&quot; route
+</code></pre>
+<p>Validate the route table:</p>
+<pre><code>rco routes examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>Expected output:</p>
+<pre><code>GET / JournalController#index
+GET /entries JournalController#index
+GET /entries/export JournalController#export_json
+GET /entries/status JournalController#by_status
+GET /entries/:id JournalController#show
+POST /entries JournalController#create
+POST /entries/:id JournalController#update
+</code></pre>
+<p>The model maps to the migration table and adds one display method:</p>
+<pre><code>JournalEntry Model Subclass
+  &quot;journal_entries&quot; Table
+  &quot;id&quot; Accessor
+  &quot;title&quot; Accessor
+  &quot;body&quot; Accessor
+  &quot;status&quot; Accessor
+  &quot;mood&quot; Accessor
+  &quot;created_on&quot; Accessor
+
+  [
+    self title.get
+    &quot; [&quot; concat
+    self status.get concat
+    &quot;]&quot; concat
+  ] &quot;label&quot; Method
+end
+</code></pre>
+<p>The index action uses database results defensively, so an uncreated local
+development database still gives the view empty arrays and counts during
+compile-time checks:</p>
+<pre><code>JournalEntry default_page dup ok? if
+  value entries var
+else
+  drop
+  entries array
+end
+
+JournalEntry count_records dup ok? if
+  value totalEntries var
+else
+  drop
+  0 totalEntries var
+end
+</code></pre>
+<p>Run the doctor:</p>
+<pre><code>rco doctor examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>Expected output includes:</p>
+<pre><code>OK manifest: package learn_project_journal
+OK project kind: MVC app
+OK routes: 7 route(s)
+OK MVC app build: controllers, models, routes, and views compile
+Doctor found no issues.
+</code></pre>
+<p>Inspect migrations without applying them:</p>
+<pre><code>rco migrate status examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>Expected output:</p>
+<pre><code>[ ] 0001_create_journal_entries
+</code></pre>
+<p>Run the MVC tests:</p>
+<pre><code>rco test examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>Expected output:</p>
+<pre><code>PASS JournalEntryTest.testEntriesCollection
+PASS JournalEntryTest.testEntryLabel
+2 tests, 0 failed
+</code></pre>
+<p>The tests exercise model behavior without creating the database:</p>
+<pre><code>JournalEntry new
+&quot;Manual outline&quot; swap title.set
+&quot;published&quot; swap status.set
+label
+&quot;Manual outline [published]&quot; assert_equals
+</code></pre>
+<h2>How to read the example</h2>
+<p>Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.</p>
+<h2>Try it</h2>
+<p>Add a <code>&quot;tag&quot;</code> column:</p>
+<ol>
+<li>Add <code>&quot;tag&quot; Accessor</code> to <code>JournalEntry.rco</code>.</li>
+<li>Add <code>tag text not null default 'general'</code> to the up migration.</li>
+<li>Add <code>tag</code> data to the seed file.</li>
+<li>Print <code>{ entry get &quot;tag&quot; at }</code> in the view.</li>
+<li>Add a model test that sets <code>tag</code> and verifies the value.</li>
+</ol>
+<p>Then run:</p>
+<pre><code>rco routes examples/learn/37-capstone-mvc/project_journal
+rco doctor examples/learn/37-capstone-mvc/project_journal
+rco test examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>When you intentionally want local database state, apply migrations and seeds:</p>
+<pre><code>rco migrate apply examples/learn/37-capstone-mvc/project_journal
+rco seed examples/learn/37-capstone-mvc/project_journal
+</code></pre>
+<p>Those commands create or update <code>db/development.sqlite3</code>, so they are not part
+of the default the Learn self-check manifest.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li>What earlier chapters does this capstone combine?</li>
+<li>What is the user-facing entry point?</li>
+<li>What data boundary does the app use?</li>
+<li>Which tests or checks prove the capstone still works?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Mixing scaffold convenience with production assumptions.</li>
+<li>Letting controller, model, and template responsibilities blur.</li>
+<li>Running <code>migrate apply</code> or <code>seed</code> just to check syntax. Use <code>routes</code>,
+<code>doctor</code>, <code>migrate status</code>, and <code>test</code> first.</li>
+<li>Treating a scaffold login loop or local seed data as production policy.</li>
+<li>Returning raw database failures to users without choosing response status and
+message shape deliberately.</li>
+<li>Forgetting that route action args bind request data and context according to
+the MVC binding rules.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>The main self-check path is read-only. <code>migrate status</code> inspects migration
+state, while <code>migrate apply</code>, <code>migrate rollback</code>, and <code>seed</code> intentionally
+change the local development database. The down migration contains the rollback
+SQL needed for a reversible schema, but this chapter does not run it.</p>
+<h2>Production guidance</h2>
+<p>Production MVC apps should review database adapter settings, migration policy,
+session secrets, authentication and CSRF policy, upload limits, static assets,
+logging, and capability declarations. Keep environment-backed secrets out of
+the repository, and keep seed data separate from production migrations.</p>
+<p>Use <code>rco serve --watch</code> for local development and <code>rco serve --debug</code> when you
+want request-fault pause reporting before HTTP 500 responses.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/learn/chapters/23-mvc-first-app.md</code></li>
+<li><code>docs/learn/chapters/24-routes-controllers-and-responses.md</code></li>
+<li><code>docs/learn/chapters/25-templates-static-assets-and-uploads.md</code></li>
+<li><code>docs/learn/chapters/26-data-active-record-and-migrations.md</code></li>
+<li><code>docs/learn/chapters/27-sessions-forms-auth-and-passwords.md</code></li>
+<li><code>docs/learn/chapters/32-debugger-dap-lsp-and-editor-tools.md</code></li>
+<li><code>docs/reference/guides/web-and-data.html</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how the Ricochet web stack fits together in a complete app: manifest,
+routes, controller actions, model mapping, templates, static assets, migrations,
+seeds, route inspection, project doctor checks, and MVC tests.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

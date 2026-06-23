@@ -1,36 +1,37 @@
-# Chapter 04: Values And Literals
+# Chapter 04: Values, Literals, and Inspection
 
-## What You Will Build
+## Why this chapter matters
 
-You will build a value tour that prints and inspects representative Ricochet
-values.
+A stack is only useful if you know what kinds of values are sitting on it. This chapter introduces Ricochet’s everyday value families and gives you two tools, `type` and `inspect`, for checking your assumptions.
 
-## Concepts
+## What you will build
 
-- Runtime value families.
-- Integer, float, string, boolean, nil, collection, block, task, result, regex,
-  and capability values.
-- Predicates such as `nil?` and `empty?`.
-- Inspection as a learning tool.
+You will build a value tour that prints and inspects representative Ricochet values.
 
-## Words Introduced
+## Concepts in plain English
 
-Primary coverage here: `nil`, `true`, and `false`.
+A **literal** is a value written directly in source code, such as `42`, `3.5`, `true`, `false`, `nil`, or `"Ada"`. Collections, blocks, results, regexes, capabilities, and tasks are also values, but you will learn those gradually.
 
-This chapter also previews `nil?`, `empty?`, `type`, `inspect`, and
-`callable?`; their primary coverage comes in later chapters.
+`nil` is its own value. It is not the same thing as `false`, an empty string, or an empty collection.
 
-## Guided Example
+## Words introduced
 
-Open `examples/learn/04-values/value-tour.rco` and run:
+- `nil`, `true`, and `false` create basic literal values.
+- `type` tells you the runtime family of a value.
+- `inspect` creates a debug string while keeping the original value available.
+- `nil?`, `empty?`, and `callable?` are predicates: words that answer a yes/no question.
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/04-values/value-tour.rco
+## Guided example
+
+Run the value tour:
+
+```bash
+rco run examples/learn/04-values/value-tour.rco
 ```
 
 The example prints the runtime kind of common values:
 
-```ricochet
+```rco
 "true type:" print
 true type println
 
@@ -41,38 +42,53 @@ true type println
 3.5 type println
 ```
 
-It also shows a useful inspection pattern:
+## How to read the code
 
-```ricochet
+This line leaves a value, then transforms it into a type name:
+
+```rco
+true type println
+```
+
+Read it as: put `true` on the stack, ask for its type, print the type string.
+
+This inspection pattern is slightly different:
+
+```rco
 $values inspect println drop
 ```
 
-`inspect` leaves the original value in place and pushes a debug string above
-it. `println` consumes the debug string, then `drop` removes the original value
-so the final stack stays clean.
+`inspect` leaves the original value in place and pushes a debug string above it. `println` consumes the debug string. `drop` removes the original value so the final stack stays clean.
 
-## Try It
+## Try it
 
 Add these lines to the example and compare the printed values:
 
-```ricochet
+```rco
 "text" empty? println
 "" empty? println
 nil nil? println
 false nil? println
 ```
 
-`nil` is its own value. It is not the same thing as `false`, an empty string,
-or an empty collection.
+Then try:
 
-## Common Mistakes
+```rco
+42 inspect println drop
+```
+
+## Check your understanding
+
+- `nil nil?` should print true.
+- `false nil?` should print false.
+- `"" empty?` asks whether a string is empty, not whether it is `nil`.
+
+## Common mistakes
 
 - Assuming every language treats truthiness the same way.
-- Treating decimal literals as integers. `3` is an integer `Number`; `3.0` is
-  a `Float`.
-- Leaving inspection helper values on the stack while experimenting.
+- Treating decimal literals as integers.
+- Forgetting that `inspect` leaves the original value on the stack.
 
-## What You Know Now
+## What you know now
 
-You know the literal booleans and nil value, and you have a safe way to inspect
-other runtime values before learning mutation and control flow.
+You can recognize basic values, inspect a value without losing it, and separate `nil`, booleans, strings, numbers, and collections in your head.

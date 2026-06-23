@@ -1,18 +1,15 @@
 # Appendix C: Capability Flags
 
-## Purpose
-
-This appendix summarizes the host capability flags used by local scripts and
-tests. Capabilities decide what a program can ask the host process to do.
+Capabilities decide what a program can ask the host process to do. Use the smallest permission that lets your program run.
 
 ## Profiles
 
 | Profile | Default behavior |
 | --- | --- |
-| `trusted` | Enables filesystem, HTTP, TUI, webview, environment, sleep, and workspace-style local development powers. Process, PTY, and raw sockets remain opt-in. |
-| `sandboxed` | Starts with broad host powers disabled. Open only the specific roots, hosts, variables, or UI surfaces the program needs. |
+| `trusted` | Enables common local development powers such as filesystem, HTTP, TUI, webview, environment, sleep, and workspace access. Process, PTY, and raw sockets remain opt-in. |
+| `sandboxed` | Starts with broad host powers disabled. Open only the roots, hosts, variables, or UI surfaces the program needs. |
 
-## Common Flags
+## Common flags
 
 | Need | Flags |
 | --- | --- |
@@ -34,34 +31,30 @@ tests. Capabilities decide what a program can ask the host process to do.
 
 ## Examples
 
-Run a file-reading script in a sandbox rooted at the repo:
+Run a file-reading script in a sandbox rooted at the current directory:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --fs-root . examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco
+```bash
+rco run --capability-profile sandboxed --fs-root . examples/learn/17-files-workspaces-env-and-secrets/settings-loader.rco
 ```
 
 Run a local HTTP example against loopback only:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run --capability-profile sandboxed --http-allow-host 127.0.0.1 app.rco http://127.0.0.1:3000
+```bash
+rco run --capability-profile sandboxed --http-allow-host 127.0.0.1 app.rco http://127.0.0.1:3000
 ```
 
 Run a terminal app with the terminal capability:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- tui examples/learn/36-capstone-tui/service_dashboard/dashboard.rco
+```bash
+rco tui examples/learn/36-capstone-tui/service_dashboard/dashboard.rco
 ```
 
 Run a process/PTY example with explicit opt-ins:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco
+```bash
+rco run --allow-process --allow-pty examples/learn/20-processes-and-ptys/tool-runner.rco
 ```
 
-## Safety Rule
+## Safety rule
 
-Treat destructive words such as `fs_delete` and `workspace_delete` as explicit
-operator actions. Resolve and inspect paths before writing, moving, or deleting
-anything.
-
-Status: drafted from current `rco run --help`.
+Treat destructive words such as `fs_delete` and `workspace_delete` as explicit operator actions. Resolve and inspect paths before writing, moving, or deleting anything.

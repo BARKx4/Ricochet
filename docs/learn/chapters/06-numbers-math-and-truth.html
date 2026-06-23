@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 06: Numbers, Math, and Truth | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a aria-current="page" href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 06: Numbers, Math, and Truth</h1>
+<h2>Why this chapter matters</h2>
+<p>Arithmetic is the simplest place to practice postfix reading because the stack effects are small: two numbers go in, one number comes out. Comparisons build on the same shape and leave booleans that later chapters use for conditionals.</p>
+<h2>What you will build</h2>
+<p>You will build a budget calculator and use it to learn numeric operations, comparisons, boolean helpers, checked conversions, and assertions.</p>
+<h2>Concepts in plain English</h2>
+<p>Ricochet has integer and float numeric values. Symbolic arithmetic words such as <code>+</code> and <code>*</code> are compact. Readable aliases such as <code>add</code> and <code>multiply</code> can make teaching code clearer.</p>
+<p>Comparison words consume two values and leave <code>true</code> or <code>false</code>. Conversion words such as <code>to_integer</code> can fail, so they return <code>Result</code> values instead of pretending every string is a valid number.</p>
+<h2>Words introduced</h2>
+<p>Arithmetic and comparison words: <code>+</code>, <code>add</code>, <code>-</code>, <code>subtract</code>, <code>*</code>, <code>multiply</code>, <code>/</code>, <code>divide</code>, <code>%</code>, <code>modulo</code>, <code>equals</code>, <code>=</code>, <code>not_equals?</code>, <code>!=</code>, <code>&lt;</code>, <code>less_than?</code>, <code>&gt;</code>, <code>greater_than?</code>, <code>&lt;=</code>, <code>less_or_equals?</code>, <code>&gt;=</code>, and <code>greater_or_equals?</code>.</p>
+<p>Helpers: <code>negate</code>, <code>abs</code>, <code>min</code>, <code>max</code>, <code>clamp</code>, <code>not</code>, <code>and</code>, <code>or</code>, <code>assert</code>, <code>assert_true</code>, <code>assert_false</code>, and <code>assert_equals</code>.</p>
+<p>Conversions include <code>to_number</code>, <code>to_integer</code>, <code>to_float</code>, and size-specific integer and float conversions.</p>
+<h2>Guided example</h2>
+<p>Run the budget example:</p>
+<pre><code class="language-bash">rco run examples/learn/06-numbers-math-and-truth/budget.rco
+</code></pre>
+<p>The core calculation is ordinary postfix math:</p>
+<pre><code class="language-rco">$rent $food + spent var
+$income $spent - remaining var
+$remaining 0 &gt; println
+</code></pre>
+<h2>How to read the code</h2>
+<p><code>$rent $food + spent var</code> reads the two named values, adds them, and names the result <code>spent</code>.</p>
+<table>
+<thead>
+<tr>
+  <th>Stack before</th>
+  <th>Token</th>
+  <th>Stack after</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>[]</code></td>
+  <td><code>$rent</code></td>
+  <td><code>[rent]</code></td>
+</tr>
+<tr>
+  <td><code>[rent]</code></td>
+  <td><code>$food</code></td>
+  <td><code>[rent, food]</code></td>
+</tr>
+<tr>
+  <td><code>[rent, food]</code></td>
+  <td><code>+</code></td>
+  <td><code>[sum]</code></td>
+</tr>
+<tr>
+  <td><code>[sum]</code></td>
+  <td><code>spent var</code></td>
+  <td><code>[]</code></td>
+</tr>
+</tbody>
+</table>
+<p>Checked conversions return <code>Result</code> values:</p>
+<pre><code class="language-rco">&quot;42&quot; to_integer dup ok? if
+  value println
+else
+  error &quot;kind&quot; at println
+end
+</code></pre>
+<p>The <code>dup ok? if ... else ... end</code> pattern keeps the original result below the condition so the chosen branch can unwrap either <code>value</code> or <code>error</code>.</p>
+<h2>Try it</h2>
+<p>Change <code>income</code>, <code>rent</code>, and <code>food</code>. Then add one assertion:</p>
+<pre><code class="language-rco">$remaining 57 assert_equals
+</code></pre>
+<p>If the value is wrong, the VM fails loudly. Assertions are useful in examples, tests, and small scripts where a wrong assumption should stop execution.</p>
+<h2>Check your understanding</h2>
+<ul>
+<li><code>1 2 +</code> leaves <code>3</code>.</li>
+<li><code>1 2 &lt;</code> leaves <code>true</code>.</li>
+<li><code>&quot;42&quot; to_integer</code> leaves a <code>Result</code>, not a bare integer.</li>
+<li>Use <code>ok?</code> before unwrapping a result whose input came from outside your control.</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Ignoring <code>Result</code> values from conversions.</li>
+<li>Assuming mixed numeric operations never promote values. Integer plus float produces a float.</li>
+<li>Using truthy values where a precise comparison would explain intent.</li>
+<li>Forgetting that <code>/</code> with two integers stays integer division.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You know how Ricochet handles everyday numeric work, truth checks, assertions, and checked conversions. Later host APIs use the same <code>Result</code> habit for recoverable failures.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

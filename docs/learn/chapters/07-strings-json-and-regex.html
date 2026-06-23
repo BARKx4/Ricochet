@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 07: Strings, JSON, and Regex | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a aria-current="page" href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 07: Strings, JSON, and Regex</h1>
+<h2>Why this chapter matters</h2>
+<p>Most useful programs cross text boundaries: command output, config files, logs, HTTP payloads, form fields, templates, and package metadata. This chapter teaches a practical order: use direct string words first, JSON words at structured boundaries, and regex only when pattern matching is truly the right tool.</p>
+<h2>What you will build</h2>
+<p>You will build a small log-cleaning workflow that cleans text, moves through JSON, and uses a regex for the one part direct string words do not express.</p>
+<h2>Concepts in plain English</h2>
+<p>A string is text. JSON is a text format for structured data. A regex is a compact pattern language for matching text. Regex is powerful, but direct words such as <code>trim</code>, <code>split</code>, <code>contains?</code>, <code>starts_with?</code>, and <code>replace</code> are usually easier to read.</p>
+<h2>Words introduced</h2>
+<p>Primary words: <code>trim</code>, <code>trim_start</code>, <code>trim_end</code>, <code>blank?</code>, <code>slice</code>, <code>index_of</code>, <code>last_index_of</code>, <code>repeat</code>, <code>lines</code>, <code>chars</code>, <code>split</code>, <code>replace</code>, <code>contains?</code>, <code>starts_with?</code>, <code>ends_with?</code>, <code>uppercase</code>, <code>lowercase</code>, <code>concat</code>, <code>to_string</code>, <code>json_encode</code>, <code>json_decode</code>, <code>regex</code>, <code>matches?</code>, <code>regex_find</code>, <code>regex_replace</code>, and <code>captures</code>.</p>
+<h2>Guided example</h2>
+<p>Run the log cleaner:</p>
+<pre><code class="language-bash">rco run examples/learn/07-strings-json-and-regex/log-cleaner.rco
+</code></pre>
+<p>The first half uses direct string words:</p>
+<pre><code class="language-rco">&quot;  warn: user=ada  &quot; trim cleaned var
+$cleaned uppercase println
+$cleaned &quot;user=&quot; contains? println
+$cleaned &quot;:&quot; split count println
+</code></pre>
+<p>The JSON section turns a Ricochet map into a JSON string and back:</p>
+<pre><code class="language-rco">payload map
+$payload &quot;ok&quot; true put! drop
+$payload &quot;name&quot; &quot;Ada&quot; put! drop
+$payload json_encode json var
+$json json_decode value &quot;name&quot; at println
+</code></pre>
+<p>Regex work follows the same result habit:</p>
+<pre><code class="language-rco">&quot;\\d+&quot; regex value digits var
+&quot;ticket-42&quot; $digits regex_find &quot;text&quot; at println
+$digits &quot;ticket-42&quot; &quot;#&quot; regex_replace println
+</code></pre>
+<h2>How to read the code</h2>
+<p><code>&quot;  warn: user=ada  &quot; trim cleaned var</code> starts with a raw string, trims whitespace, and names the cleaned result. The later lines read <code>$cleaned</code> instead of repeating the cleanup pipeline.</p>
+<p><code>json_decode</code> returns a <code>Result</code>. The example unwraps with <code>value</code> because the JSON was produced by <code>json_encode</code> immediately before. When JSON comes from a file, request, or user input, check <code>ok?</code> before unwrapping.</p>
+<h2>Try it</h2>
+<p>Try these direct string words before reaching for regex:</p>
+<pre><code class="language-rco">&quot;Ricochet&quot; 0 4 slice println
+&quot;Ada\nGrace&quot; lines count println
+&quot;abc&quot; chars &quot;,&quot; join println
+&quot;warning&quot; &quot;warn&quot; starts_with? println
+</code></pre>
+<p>Then intentionally decode bad JSON and inspect the error:</p>
+<pre><code class="language-rco">&quot;not json&quot; json_decode error &quot;kind&quot; at println
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>Use <code>trim</code> to clean edges before comparing text.</li>
+<li>Use <code>split</code> and <code>lines</code> for simple structure.</li>
+<li>Use <code>json_decode</code> at data boundaries and handle its <code>Result</code>.</li>
+<li>Use regex when direct string words cannot express the pattern clearly.</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Treating JSON parse failure as an exception instead of a result path.</li>
+<li>Using regex where direct string words are simpler.</li>
+<li>Forgetting to escape backslashes in regex strings.</li>
+<li>Assuming <code>concat</code> is the only way to join text. Collections can use <code>join</code>.</li>
+</ul>
+<h2>What you know now</h2>
+<p>You can process text, encode and decode structured payloads, and keep regex work explicit and result-checked.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

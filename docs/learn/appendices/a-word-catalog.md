@@ -1,95 +1,61 @@
-# Appendix A: Word Catalog
+# Appendix A: Word Groups at a Glance
 
-## Purpose
+This appendix is a friendly orientation to Ricochet word families. Use the reference site or `rco words` for exact signatures, descriptions, examples, and search.
 
-This appendix is the compact orientation layer for the live Ricochet word
-inventory. The full source of truth is the CLI:
+## First commands
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- words --json
+```bash
+rco words
+rco words --json
 ```
 
-Use the static reference site for full descriptions, examples, and search:
+## Word groups
 
-```text
-docs/reference/index.html
-```
+| Group | What it covers | Learn path |
+| --- | --- | --- |
+| Stack | Small stack motion and cleanup words. | Chapters 03 and 13 |
+| Math | Arithmetic, comparison, boolean helpers, assertions, and numeric conversion. | Chapter 06 |
+| Data | Literals, predicates, bindings, and basic value inspection. | Chapters 04 and 05 |
+| Collection | Arrays, lists, maps, sets, ranges, lookup, mutation, and block-based traversal. | Chapter 08 |
+| String | Cleanup, slicing, search, replacement, JSON, and regex. | Chapter 07 |
+| Result | Explicit success and failure values. | Chapter 09 |
+| OOP | Classes, accessors, selectors, methods, and dynamic dispatch. | Chapter 11 |
+| Control | Functions, blocks, conditionals, loops, tasks, and macros. | Chapters 10, 15, and 31 |
+| Inspect | Runtime discovery, debugging, stack visibility, and traces. | Chapters 13 and 32 |
+| Web and MVC | Routes, controllers, responses, templates, sessions, forms, and data. | Chapters 23 through 28 and 37 |
+| System | Files, workspaces, HTTP, sockets, processes, PTYs, TUI, GUI, packaging, bytecode, and release workflows. | Chapters 14 through 22 and 32 through 38 |
 
-## Live Group Summary
+## How to read a word entry
 
-The current validated inventory contains 347 words:
+A reference word entry should answer four questions:
 
-| Detail group | Count | Start with |
-| --- | ---: | --- |
-| `stack` | 11 | Chapters 03 and 13 |
-| `math` | 52 | Chapter 06 |
-| `data` | 10 | Chapters 04 and 05 |
-| `collection` | 28 | Chapter 08 |
-| `string` | 26 | Chapter 07 |
-| `oop` | 9 | Chapter 11 |
-| `control` | 14 | Chapters 10 and 15 |
-| `result` | 12 | Chapter 09 |
-| `inspect` | 17 | Chapter 13 |
-| `web` | 23 | Chapters 23 through 27 and 37 |
-| `system` | 144 | Chapters 14 through 22 and 32 through 38 |
-
-## How To Read A Word Entry
-
-A reference word entry answers four questions:
-
-- What stack shape does the word consume and produce?
-- What value family does it belong to?
-- Does it return a `Result` that must be checked or unwrapped?
-- Which capability, if any, must be enabled by the host command?
+1. What stack shape does the word consume and produce?
+2. What value family does it belong to?
+3. Does it return a `Result` that must be checked or unwrapped?
+4. Which capability, if any, must be enabled by the host command?
 
 Examples:
 
-```ricochet
+```rco
 20 22 +
 ```
 
 Consumes two numbers and leaves one number.
 
-```ricochet
+```rco
 "settings.json" fs_read_text value
 ```
 
-Reads through the filesystem capability and returns a `Result`; `value` unwraps
-only after you have decided that failure should abort the current run.
+Reads through the filesystem capability and returns a `Result`. Use `value` only after deciding that failure should stop the current run.
 
-```ricochet
+```rco
 $settings "theme" at
 ```
 
-Keeps the container before the key.
+Uses container-first access: container, key, then `at`.
 
-## Alias Notes
+## Alias notes
 
-Ricochet has symbolic words such as `+` and readable aliases such as `add`.
-Prefer the shape that best teaches the surrounding code. In beginner examples,
-readable aliases can help; in compact arithmetic, symbols are natural.
+Ricochet has symbolic words such as `+` and readable aliases such as `add`. Prefer the shape that best teaches the surrounding code. In beginner examples, readable aliases can help; in compact arithmetic, symbols are natural.
 
-Case matters. `get` and `GET` are different public words because one is dynamic
-data access and the other is an HTTP route verb.
-
-## Verification
-
-When public words, reference docs, or editor grammar change, run:
-
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
-```
-
-For Learn manual coverage, run:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-learn-manual.ps1
-```
-
-## Maintenance
-
-Do not hand-edit generated word inventories. Regenerate from
-`rco words --json`, then validate with `words --check` and the Learn manual
-validator.
-
-Status: drafted from the live `rco words --json` inventory.
+Case matters. `get` and `GET` are different public words because one is dynamic data access and the other is an HTTP route verb.

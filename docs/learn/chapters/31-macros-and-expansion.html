@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chapter 31: Macros And Expansion | Learn Ricochet</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav><h1><a href="../index.html">Learn Ricochet</a></h1>
+<h2>Start</h2><ul>
+<li><a href="../index.html">Learn Ricochet</a></li>
+<li><a href="../manual-map.html">Learn Ricochet Manual Map</a></li>
+</ul>
+<h2>Start Here</h2><ul>
+<li><a href="../start-here/00-what-is-ricochet-for.html">What Ricochet Is For</a></li>
+<li><a href="../start-here/01-how-postfix-reads.html">How Postfix Reads</a></li>
+<li><a href="../start-here/02-the-stack-as-a-workbench.html">The Stack as a Workbench</a></li>
+<li><a href="../start-here/03-how-to-use-this-guide.html">How to Use This Guide</a></li>
+</ul>
+<h2>Chapters</h2><ul>
+<li><a href="00-orientation.html">Chapter 00: Welcome to Ricochet</a></li>
+<li><a href="01-hello-world.html">Chapter 01: Your First Program</a></li>
+<li><a href="02-running-ricochet.html">Chapter 02: Running Code and Getting Feedback</a></li>
+<li><a href="03-postfix-stack-thinking.html">Chapter 03: How Postfix Reads</a></li>
+<li><a href="04-values-and-literals.html">Chapter 04: Values, Literals, and Inspection</a></li>
+<li><a href="05-bindings-and-data.html">Chapter 05: Names, Bindings, and Small Data</a></li>
+<li><a href="06-numbers-math-and-truth.html">Chapter 06: Numbers, Math, and Truth</a></li>
+<li><a href="07-strings-json-and-regex.html">Chapter 07: Strings, JSON, and Regex</a></li>
+<li><a href="08-collections.html">Chapter 08: Collections</a></li>
+<li><a href="09-results-and-errors.html">Chapter 09: Results and Errors</a></li>
+<li><a href="10-control-flow-functions-and-blocks.html">Chapter 10: Making Decisions and Reusing Code</a></li>
+<li><a href="11-oop-and-dispatch.html">Chapter 11: OOP and Dispatch</a></li>
+<li><a href="12-testing-linting-and-formatting.html">Chapter 12: Testing, Linting, and Formatting</a></li>
+<li><a href="13-introspection-and-debug-basics.html">Chapter 13: Introspection And Debug Basics</a></li>
+<li><a href="14-date-time-and-duration.html">Chapter 14: Date, Time, And Duration</a></li>
+<li><a href="15-async-and-tasks.html">Chapter 15: Async And Tasks</a></li>
+<li><a href="16-capabilities-and-sandboxing.html">Chapter 16: Capabilities And Sandboxing</a></li>
+<li><a href="17-files-workspaces-env-and-secrets.html">Chapter 17: Files, Workspaces, Environment, Config, And Secrets</a></li>
+<li><a href="18-http-and-streams.html">Chapter 18: HTTP And Streams</a></li>
+<li><a href="19-tcp-and-websocket-sockets.html">Chapter 19: TCP And WebSocket Sockets</a></li>
+<li><a href="20-processes-and-ptys.html">Chapter 20: Processes And PTYs</a></li>
+<li><a href="21-terminal-ui.html">Chapter 21: Terminal UI</a></li>
+<li><a href="22-webview-and-desktop-gui.html">Chapter 22: Webview And Desktop GUI</a></li>
+<li><a href="23-mvc-first-app.html">Chapter 23: MVC First App</a></li>
+<li><a href="24-routes-controllers-and-responses.html">Chapter 24: Routes, Controllers, And Responses</a></li>
+<li><a href="25-templates-static-assets-and-uploads.html">Chapter 25: Templates, Static Assets, And Uploads</a></li>
+<li><a href="26-data-active-record-and-migrations.html">Chapter 26: Data, Active Record, And Migrations</a></li>
+<li><a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a></li>
+<li><a href="28-ai-capabilities-and-ai-package.html">Chapter 28: AI Capabilities And The AI Package</a></li>
+<li><a href="29-packages-imports-and-dependencies.html">Chapter 29: Packages, Imports, And Dependencies</a></li>
+<li><a href="30-registries-publish-yank-and-mirror.html">Chapter 30: Registries, Publish, Yank, And Mirror</a></li>
+<li><a aria-current="page" href="31-macros-and-expansion.html">Chapter 31: Macros And Expansion</a></li>
+<li><a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a></li>
+<li><a href="33-bytecode-images-and-source-emission.html">Chapter 33: Bytecode, Images, And Source Emission</a></li>
+<li><a href="34-packaging-release-and-updates.html">Chapter 34: Packaging, Release, And Updates</a></li>
+<li><a href="35-capstone-cli-tool.html">Chapter 35: Capstone CLI Tool</a></li>
+<li><a href="36-capstone-tui-dashboard.html">Chapter 36: Capstone TUI Dashboard</a></li>
+<li><a href="37-capstone-mvc-app.html">Chapter 37: Capstone MVC App</a></li>
+<li><a href="38-capstone-packaged-gui-app.html">Chapter 38: Capstone Packaged GUI App</a></li>
+</ul>
+<h2>Concepts</h2><ul>
+<li><a href="../concepts/application-surfaces.html">Concept: Application Surfaces</a></li>
+<li><a href="../concepts/bindings-vs-stack-juggling.html">Concept: Bindings vs. Stack Juggling</a></li>
+<li><a href="../concepts/capabilities-and-sandboxing.html">Concept: Capabilities and Sandboxing</a></li>
+<li><a href="../concepts/postfix-evaluation.html">Concept: Postfix Evaluation</a></li>
+<li><a href="../concepts/results-and-errors.html">Concept: Results and Errors</a></li>
+<li><a href="../concepts/stack-effects.html">Concept: Stack Effects</a></li>
+</ul>
+<h2>How-To</h2><ul>
+<li><a href="../how-to/choose-a-data-shape.html">How to Choose a Data Shape</a></li>
+<li><a href="../how-to/install-and-run.html">How to Install and Run Ricochet</a></li>
+<li><a href="../how-to/read-diagnostics.html">How to Read Diagnostics</a></li>
+<li><a href="../how-to/use-examples.html">How to Use the Examples</a></li>
+</ul>
+<h2>Appendices</h2><ul>
+<li><a href="../appendices/a-word-catalog.html">Appendix A: Word Groups at a Glance</a></li>
+<li><a href="../appendices/b-cli-command-catalog.html">Appendix B: CLI Command Catalog</a></li>
+<li><a href="../appendices/c-capability-flags.html">Appendix C: Capability Flags</a></li>
+<li><a href="../appendices/d-syntax-guardrails.html">Appendix D: Syntax Guardrails</a></li>
+<li><a href="../appendices/e-troubleshooting.html">Appendix E: Troubleshooting</a></li>
+<li><a href="../appendices/f-glossary.html">Appendix F: Glossary</a></li>
+</ul>
+</nav>
+    <main>
+      <h1>Chapter 31: Macros And Expansion</h1>
+<blockquote>
+<p>Part V: Packages, Registries, Macros, Tooling, and Release</p>
+</blockquote>
+<h2>Why this chapter matters</h2>
+<p>Macros generate code before runtime. They are powerful, so the chapter teaches ordinary functions and packages first, then introduces expansion as a deliberate tool.</p>
+<h2>What you will build</h2>
+<p>You will build a route macro lab. The example defines one expression macro
+that splices route data into generated print code and one item-row macro that
+generates a route-printer function. Then you will inspect the expanded source
+with <code>rco expand</code>.</p>
+<h2>Concepts in plain English</h2>
+<p>A macro creates code before normal execution. Expansion is the generated code you can inspect.</p>
+<p>The chapter uses these concepts:</p>
+<ul>
+<li>String-named macro declarations and explicit macro calls.</li>
+<li><code>quote_ast</code>, <code>ast_splice</code>, and <code>quote_items</code>.</li>
+<li>Expansion, source maps, cache metadata, and package macro lookup.</li>
+<li>Compile-time restrictions: macros transform parsed AST and cannot perform
+host effects.</li>
+</ul>
+<h2>Vocabulary and commands</h2>
+<p>Primary coverage: <code>&quot;name&quot; Macro</code>, <code>macro_call</code>, <code>quote_ast</code>, <code>ast_splice</code>,
+<code>quote_items</code>, <code>rco expand</code>, and <code>rco expand --json</code>.</p>
+<h2>Guided example</h2>
+<p>Open <code>examples/learn/31-macros/route_macro/main.rco</code>.</p>
+<p>The first macro is an expression macro. It receives three parsed operands:
+<code>method</code>, <code>path</code>, and <code>action</code>. <code>quote_ast</code> turns the quoted block into AST for
+the caller, and <code>$method ast_splice</code> inserts the caller’s original parsed
+operand:</p>
+<pre><code>&quot;emit_route&quot; Macro
+  ( method path action -&gt; expansion )
+  [
+    [
+      &quot;route &quot; print
+      $method ast_splice print
+      &quot; &quot; print
+      $path ast_splice print
+      &quot; -&gt; &quot; print
+      $action ast_splice println
+    ] quote_ast
+  ]
+end
+</code></pre>
+<p>The second macro emits a whole declaration item with <code>quote_items</code>. This is how
+a macro can generate a function, class row, or another top-level item:</p>
+<pre><code>&quot;install_route_printers&quot; Macro
+  [
+    [
+      [
+        &quot;Generated route table&quot; println
+        &quot;GET / -&gt; HomeController#index&quot; println
+        &quot;POST /messages -&gt; MessagesController#create&quot; println
+      ] &quot;print_routes&quot; function
+    ] quote_items
+  ]
+end
+</code></pre>
+<p>Macro calls are explicit:</p>
+<pre><code>&quot;install_route_printers&quot; macro_call
+
+print_routes drop
+&quot;PATCH&quot; &quot;/messages/:id&quot; &quot;MessagesController#update&quot; &quot;emit_route&quot; macro_call
+</code></pre>
+<p>Run the example:</p>
+<pre><code>rco run examples/learn/31-macros/route_macro/main.rco
+</code></pre>
+<p>Expected output:</p>
+<pre><code>Generated route table
+GET / -&gt; HomeController#index
+POST /messages -&gt; MessagesController#create
+route PATCH /messages/:id -&gt; MessagesController#update
+[]
+</code></pre>
+<p>Now inspect the expanded source without running the program:</p>
+<pre><code>rco expand examples/learn/31-macros/route_macro/main.rco
+</code></pre>
+<p>The plain expansion is readable Ricochet source:</p>
+<pre><code>print_routes function
+  &quot;Generated route table&quot; println
+  &quot;GET / -&gt; HomeController#index&quot; println
+  &quot;POST /messages -&gt; MessagesController#create&quot; println
+end
+
+print_routes drop
+
+&quot;route &quot; print &quot;PATCH&quot; print &quot; &quot; print &quot;/messages/:id&quot; print &quot; -&gt; &quot; print &quot;MessagesController#update&quot; println
+</code></pre>
+<p>Use JSON expansion when you need tooling detail:</p>
+<pre><code>rco expand examples/learn/31-macros/route_macro/main.rco --json
+</code></pre>
+<p>The JSON form includes <code>schema</code>, <code>sources</code>, <code>source_map</code>, <code>cache</code>,
+<code>expanded_ast</code>, <code>macro_tables</code>, <code>trace</code>, <code>diagnostics</code>, and <code>output_hash</code>.
+Those fields are for tools, reviews, and cache-aware build flows.</p>
+<h2>How to read the example</h2>
+<p>Read macro examples in two passes. First read the source that asks for expansion. Then inspect the expanded output as if it were ordinary Ricochet code. A macro should make repeated structure clearer, not hide behavior.</p>
+<h2>Try it</h2>
+<p>Change the <code>PATCH</code> route call to use <code>DELETE</code>, then run <code>rco expand</code> again.
+Only the generated expression line should change.</p>
+<p>Add another function body to the <code>quote_items</code> macro and rerun the program. If
+you try to place a <code>quote_items</code> macro in the middle of a larger expression,
+Ricochet should fail with a diagnostic explaining that <code>quote_items</code> must own a
+whole item. Use <code>quote_ast</code> for expression-position output.</p>
+<p>To experiment with package-authored macros, inspect
+<code>examples/showcase/package_macro_queue_report</code>. Its lockfile may need
+<code>rco install</code> before <code>rco verify</code>; the important shape is the package import:</p>
+<pre><code>&quot;queue_macros/macros&quot; import
+&quot;install_queue_report&quot; macro_call
+</code></pre>
+<h2>Check your understanding</h2>
+<ul>
+<li>What source shape triggers expansion?</li>
+<li>What code is produced?</li>
+<li>Could an ordinary function be clearer than a macro here?</li>
+</ul>
+<h2>Common mistakes</h2>
+<ul>
+<li>Using macros before normal function or package factoring would be clearer.</li>
+<li>Expecting expansion output to be a byte-for-byte source rewrite.</li>
+<li>Calling a macro implicitly. Macro invocation is always explicit:
+<code>&quot;name&quot; macro_call</code>.</li>
+<li>Using <code>quote_items</code> where only expression output is valid.</li>
+<li>Forgetting <code>ast_splice</code>, which generates a runtime variable read instead of
+inserting the caller’s operand.</li>
+<li>Expecting runtime <code>import_dynamic</code> to load macros. Macro lookup comes from
+static imports during compilation.</li>
+</ul>
+<h2>Safety notes</h2>
+<p>Macros run in a restricted compile-time evaluator. They should not perform host
+effects and cannot use filesystem, network, process, database, clock,
+randomness, task, or capability APIs. Keep generated output small enough to
+review with <code>rco expand</code>.</p>
+<h2>Production guidance</h2>
+<p>Production macros should be documented, deterministic, conservative, and backed
+by expansion snapshots or tests. Prefer ordinary functions when all you need is
+runtime reuse. Reach for macros when you need to generate repeated declarations
+or source shapes that stay clearer after expansion than they would as
+handwritten boilerplate.</p>
+<p>For package macros, review <code>rco expand --json</code> trace and source-map metadata so
+you can tell which package supplied each macro. Qualified calls such as
+<code>&quot;package/module#macro_name&quot; macro_call</code> are useful when multiple imports expose
+the same public macro name.</p>
+<h2>Reference links</h2>
+<ul>
+<li><code>docs/wiki/macros.md</code></li>
+<li><code>docs/feature-map.md</code></li>
+<li><code>examples/showcase/package_macro_queue_report</code></li>
+</ul>
+<h2>What you know now</h2>
+<p>You understand when compile-time generation is appropriate, how expression and
+item-row macros differ, how to splice caller operands, how to inspect expanded
+source, and why macro output should remain boring enough to review.</p>
+<h2>Next step</h2>
+<p>Continue to <a href="32-debugger-dap-lsp-and-editor-tools.html">Chapter 32: Debugger, DAP, LSP, And Editor Tools</a>.</p>
+
+      <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
+    </main>
+  </div>
+</body>
+</html>

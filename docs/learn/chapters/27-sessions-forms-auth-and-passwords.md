@@ -1,6 +1,12 @@
 # Chapter 27: Sessions, Forms, Auth, And Passwords
 
-## What You Will Build
+> Part IV: MVC, Data, Auth, Forms, and AI
+
+## Why this chapter matters
+
+Forms and sessions are where web apps meet user identity. This chapter teaches the flow without hiding password and session safety behind magic.
+
+## What you will build
 
 You will build the logic for a local login flow: form maps, schema validation,
 credential normalization, password hashing and verification, session maps, CSRF
@@ -8,26 +14,30 @@ checks, and route guards. The runnable example is a command-line harness so it
 can validate the auth/form behavior without starting a server or logging
 secrets.
 
-## Concepts
+## Concepts in plain English
 
-- Sessions and form handling.
-- Auth helpers and password policy words from `@ricochet/auth`.
-- Form field and schema helpers from `@ricochet/forms`.
-- Core password hashing and verification words.
-- CSRF checks and route guard result maps.
-- Local beta scaffold auth versus production auth decisions.
+A form submits user input. A session remembers a user across requests. Password handling must hash, verify, and avoid logging secrets.
 
-## Words Introduced
+The chapter uses these concepts:
+
+* Sessions and form handling.
+* Auth helpers and password policy words from `@ricochet/auth`.
+* Form field and schema helpers from `@ricochet/forms`.
+* Core password hashing and verification words.
+* CSRF checks and route guard result maps.
+* Local beta scaffold auth versus production auth decisions.
+
+## Vocabulary and commands
 
 Primary coverage: sessions, auth package helpers, forms package helpers,
 `password_hash`, and `password_verify`.
 
-## Guided Example
+## Guided example
 
 Open `examples/learn/27-auth-forms/login_flow`. Its manifest imports the local
 first-party auth and forms packages by path:
 
-```toml
+```
 [dependencies.auth]
 path = ".ricochet/packages/auth"
 
@@ -37,14 +47,14 @@ path = ".ricochet/packages/forms"
 
 Run the harness:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/27-auth-forms/login_flow/auth_flow.rco
+```
+rco run examples/learn/27-auth-forms/login_flow/auth_flow.rco
 ```
 
 The first section demonstrates the core password words without printing the
 hash:
 
-```ricochet
+```
 "Long unique passphrase 2026" password_hash value rawHash var
 "Long unique passphrase 2026" $rawHash password_verify value println
 ```
@@ -52,7 +62,7 @@ hash:
 For application flows, prefer the auth package wrapper so password policy and
 credential normalization stay in one place:
 
-```ricochet
+```
 "ada@example.com" "Long unique passphrase 2026" auth_password_hash value storedHash var
 " ADA@Example.COM " "Long unique passphrase 2026" "ada@example.com" $storedHash auth_credentials_verify login var
 $login "authenticated" at println
@@ -64,7 +74,7 @@ it with the stored credential and hash.
 
 Session helpers work with ordinary maps:
 
-```ricochet
+```
 "ada" "csrf-token-123" auth_session_for_user session var
 $session auth_user_present
 $session "csrf-token-123" auth_csrf_valid
@@ -76,7 +86,7 @@ easy for controllers to inspect before returning a view or redirect.
 
 Form helpers build field maps and schema-shaped validation results:
 
-```ricochet
+```
 "email" "ada@example.com" form_field emailField var
 $emailField "value" at form_required
 
@@ -93,7 +103,7 @@ $formData $schema form_schema_validate validForm var
 
 The harness prints only booleans and policy names:
 
-```text
+```
 Core password verify:true
 Auth login authenticated:true
 Session user present:true
@@ -106,7 +116,11 @@ Empty form valid:false
 Cookie same_site:Lax
 ```
 
-## Try It
+## How to read the example
+
+Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.
+
+## Try it
 
 Change the submitted password in the `auth_credentials_verify` call and rerun
 the harness. The result should keep `ok` true for the verification operation
@@ -116,36 +130,47 @@ To move this logic into MVC controllers, bind declared args such as
 `( email password session ctx -> Response )`, validate the form, verify the
 credentials, then write the session map only after authentication succeeds.
 
-## Common Mistakes
+## Check your understanding
 
-- Reusing scaffold auth choices without reviewing production needs.
-- Logging password or session material.
-- Treating `ok` from a credential verification map as the same as
+- Which route, controller, view, model, or form boundary is this chapter teaching?
+- Where does request data become ordinary Ricochet data?
+- Where can failure happen, and is it represented as a result, response, or diagnostic?
+- What would you test before serving the app?
+
+## Common mistakes
+
+* Reusing scaffold auth choices without reviewing production needs.
+* Logging password or session material.
+* Treating `ok` from a credential verification map as the same as
   `authenticated`.
-- Skipping CSRF checks because a route is "just local".
-- Storing raw passwords instead of PHC-format hashes.
+* Skipping CSRF checks because a route is “just local”.
+* Storing raw passwords instead of PHC-format hashes.
 
-## Safety Notes
+## Safety notes
 
 The example does not print password hashes, session cookies, or CSRF tokens.
 The literal passphrase is a local learning fixture, not an application secret.
 Do not log submitted credentials, stored hashes, session cookies, or CSRF
 tokens in real apps.
 
-## Production Notes
+## Production guidance
 
 Production auth should document password policy, session lifetime, cookie
 settings, CSRF policy, secret handling, reset/recovery flows, lockout/rate-limit
 policy, audit logging, and deployment assumptions. The scaffold login loop is a
 copyable local beta starting point, not a complete production auth system.
 
-## Reference Links
+## Reference links
 
-- `docs/reference/guides/web-and-data.html`
-- `packages/ricochet_auth/README.md`
-- `packages/ricochet_forms/README.md`
+* `docs/reference/guides/web-and-data.html`
+* `packages/ricochet_auth/README.md`
+* `packages/ricochet_forms/README.md`
 
-## What You Know Now
+## What you know now
 
 You know where form validation, credential normalization, password hashing,
 CSRF checks, route guards, and session maps fit in a Ricochet MVC login flow.
+
+## Next step
+
+Continue to [Chapter 28: AI Capabilities And The AI Package](28-ai-capabilities-and-ai-package.md).

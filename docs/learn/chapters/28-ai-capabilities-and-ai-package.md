@@ -1,6 +1,12 @@
 # Chapter 28: AI Capabilities And The AI Package
 
-## What You Will Build
+> Part IV: MVC, Data, Auth, Forms, and AI
+
+## Why this chapter matters
+
+AI features are application boundaries: prompts, providers, transcripts, tool permissions, and fallback behavior. The safest model is explicit capability, explicit provider, explicit result.
+
+## What you will build
 
 You will build a fake-provider AI chat flow that does not require live
 credentials. The example uses the `@ricochet/ai` package to create a neutral
@@ -8,16 +14,20 @@ chat contract, retry a transient provider response, normalize a successful
 OpenAI-compatible response, run a local tool handler, validate the response
 shape, and parse a tiny server-sent-event stream body.
 
-## Concepts
+## Concepts in plain English
 
-- MVC AI capability boundaries and application ownership.
-- Provider-neutral request, message, response, error, tool, retry, and stream
+An AI provider is an external or local model boundary. Ricochet code should treat prompts, providers, responses, and tool permissions as explicit data.
+
+The chapter uses these concepts:
+
+* MVC AI capability boundaries and application ownership.
+* Provider-neutral request, message, response, error, tool, retry, and stream
   maps from `@ricochet/ai`.
-- Fake-provider executors for tests and local examples.
-- Schema validation for AI responses.
-- Small response stream parsing versus retained HTTP stream state.
+* Fake-provider executors for tests and local examples.
+* Schema validation for AI responses.
+* Small response stream parsing versus retained HTTP stream state.
 
-## Words Introduced
+## Vocabulary and commands
 
 Primary coverage: the `@ricochet/ai` package vocabulary, including
 `ai_provider`, `ai_system_message`, `ai_user_message`, `ai_chat_request`,
@@ -25,26 +35,26 @@ Primary coverage: the `@ricochet/ai` package vocabulary, including
 `ai_validate_schema`, `ai_tool_handlers`, `ai_tool_handler_put`,
 `ai_execute_tool_calls`, and `ai_openai_stream_events`.
 
-## Guided Example
+## Guided example
 
 Open `examples/learn/28-ai/fake_provider_chat`. Its manifest vendors the AI
 package into the example so the path stays inside the project:
 
-```toml
+```
 [dependencies.ai]
 path = ".ricochet/packages/ai"
 ```
 
 Run the harness:
 
-```powershell
-cargo run -q -p ricochet_cli --bin rco -- run examples/learn/28-ai/fake_provider_chat/fake_provider.rco
+```
+rco run examples/learn/28-ai/fake_provider_chat/fake_provider.rco
 ```
 
 The first step builds the neutral provider and messages. This does not contact
 the network:
 
-```ricochet
+```
 "ai/openai" import
 
 "openai" "https://api.example.test/v1" "gpt-fake" ai_provider provider var
@@ -57,7 +67,7 @@ $messages "Return a fake provider response." ai_user_message push! drop
 The request keeps model choice, messages, options, tool declarations, and retry
 policy together:
 
-```ricochet
+```
 options map
 $options "temperature" 0.2 put! drop
 tools array
@@ -69,7 +79,7 @@ The executor block is the fake provider. It receives the neutral request and
 the 1-based retry attempt. The first attempt returns a `503` response map; the
 second returns an OpenAI-compatible success body with text and a tool call:
 
-```ricochet
+```
 [
   attempt var
   providerRequest var
@@ -93,7 +103,7 @@ $request $executor ai_openai_execute_chat result var
 responses into AI error maps, and converts success bodies into the neutral
 `ai_chat_response` shape. The harness then validates the response map:
 
-```ricochet
+```
 $result value chat var
 
 ai_schema "text" "string" true ai_schema_field "provider" "map" true ai_schema_field schema var
@@ -103,7 +113,7 @@ $chat $schema ai_validate_schema schemaResult var
 Tool handlers are local blocks keyed by tool name. The normalized tool call
 keeps its `id`, `name`, and parsed `arguments` map:
 
-```ricochet
+```
 ai_tool_handlers handlers var
 $handlers "get_weather" [
   arguments var
@@ -120,17 +130,21 @@ $chat "tool_calls" at $handlers ai_execute_tool_calls toolResult var
 
 Small stream bodies can be parsed directly:
 
-```ricochet
+```
 "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n" ai_openai_stream_events streamResult var
 ```
 
 The example prints a single JSON summary:
 
-```json
+```
 {"text":"fake provider ready","attempts":2,"provider":"openai","schema_ok":true,"tool_city":"Chicago","tool_forecast":"dry-run only","stream_events":3,"stream_done":true}
 ```
 
-## Try It
+## How to read the example
+
+Read the AI example as an application boundary, not as magic. Prompts, model configuration, provider responses, and tool permissions are data. Keep fallback behavior explicit and avoid giving a provider more capability than the example needs.
+
+## Try it
 
 Change the retry policy from `3 0 0 ai_retry_policy` to
 `1 0 0 ai_retry_policy`. The harness should report the normalized error from
@@ -148,22 +162,28 @@ the `[ai.default]` capability belongs at the application boundary: controllers
 may ask for AI work, but provider choice, credentials, rate limits, logging,
 and data policy remain explicit app decisions.
 
-## Common Mistakes
+## Check your understanding
 
-- Mixing secret setup with first-time AI package learning.
-- Treating provider success as proof that the response matches your app schema.
-- Calling a live model before the fake-provider path is covered by tests.
-- Hiding retry policy, model selection, or provider selection in a controller.
-- Parsing partial stream frames without retained stream state.
+- What new value shape, command, or host boundary did this chapter introduce?
+- Which line is most important to trace with a stack diagram?
+- Where would you add a binding to make the example easier to read?
 
-## Safety Notes
+## Common mistakes
+
+* Mixing secret setup with first-time AI package learning.
+* Treating provider success as proof that the response matches your app schema.
+* Calling a live model before the fake-provider path is covered by tests.
+* Hiding retry policy, model selection, or provider selection in a controller.
+* Parsing partial stream frames without retained stream state.
+
+## Safety notes
 
 The example uses `https://api.example.test/v1` and a fake executor. It never
 reads API keys, opens sockets, or sends data to a provider. Do not paste real
 credentials into example files. Use secret references, explicit capability
 flags, and provider allowlists when you move from fake executors to HTTP calls.
 
-## Production Notes
+## Production guidance
 
 Production AI integrations should make provider selection, credentials, rate
 limits, retry budgets, timeout policy, request logging, prompt retention,
@@ -176,16 +196,20 @@ HTTP streams plus provider-specific stream state for long-running responses:
 `ai_anthropic_stream_state` with `ai_anthropic_stream_read_events`, or
 `ai_ollama_stream_state` with `ai_ollama_stream_read_events`.
 
-## Reference Links
+## Reference links
 
-- `packages/ricochet_ai/README.md`
-- `examples/showcase/ai_provider_probe/fake_provider.rco`
-- `docs/feature-map.md`
+* `packages/ricochet_ai/README.md`
+* `examples/showcase/ai_provider_probe/fake_provider.rco`
+* `docs/feature-map.md`
 
-## What You Know Now
+## What you know now
 
-You know how AI features fit into Ricochet's package and capability model. You
+You know how AI features fit into Ricochet’s package and capability model. You
 can build a neutral chat request, test provider retry behavior without live
 credentials, normalize provider responses, run local tool calls, validate
 response maps, and choose the right stream parsing pattern for small bodies or
 retained HTTP streams.
+
+## Next step
+
+Continue to [Chapter 29: Packages, Imports, And Dependencies](29-packages-imports-and-dependencies.md).
