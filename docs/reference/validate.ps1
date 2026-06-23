@@ -92,9 +92,10 @@ if ($failures.Count -eq 0) {
 
     $requiredLearnMarkers = @(
         "Learn Ricochet",
-        "Manual Chapters",
+        "10-Stop Tour",
         "drafted guided manual",
         "Read The Full Manual",
+        "Browse All 39 Chapters",
         "../../learn/",
         "../guides/index.html"
     )
@@ -109,7 +110,7 @@ if ($failures.Count -eq 0) {
         $failures.Add("docs/learn/index.html is missing; the reference Learn page must link to a published manual landing page")
     } else {
         $publishedLearnIndex = Get-Content -LiteralPath $publishedLearnIndexPath -Raw
-        foreach ($marker in @("Learn Ricochet Manual", "index.md", "manual-map.md", "chapters/38-capstone-packaged-gui-app.md")) {
+        foreach ($marker in @("Learn Ricochet Manual", "All 39 Chapters", "manual-map.html", "chapters/38-capstone-packaged-gui-app.html")) {
             if (-not $publishedLearnIndex.Contains($marker)) {
                 $failures.Add("docs/learn/index.html is missing marker: $marker")
             }

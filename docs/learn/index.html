@@ -25,10 +25,10 @@
     <main id="top">
       <section class="hero section-band">
         <div class="hero-copy">
-          <p class="eyebrow">Manual source</p>
+          <p class="eyebrow">Manual</p>
           <h1>Learn Ricochet</h1>
           <p class="lede">The drafted Learn Ricochet manual covers the stack model, language core, host capabilities, MVC apps, packages, registries, tooling, release workflows, and complete capstone applications.</p>
-          <div class="command-strip" aria-label="Manual source links">
+          <div class="command-strip" aria-label="Manual stats">
             <code>39 chapters</code>
             <code>6 appendices</code>
             <code>runnable examples</code>
@@ -40,32 +40,84 @@
       <section class="section-band" aria-labelledby="read-title">
         <div class="section-heading">
           <p class="eyebrow">Read</p>
-          <h2 id="read-title">Manual Sources</h2>
-          <p class="guide-kicker">These links open the checked-in manual sources published with the docs site. The reference landing page stays at <a href="../reference/learn/index.html">reference/learn</a>.</p>
+          <h2 id="read-title">Start Reading</h2>
+          <p class="guide-kicker">These links open the rendered Learn Ricochet manual. The reference landing page stays at <a href="../reference/learn/index.html">reference/learn</a> for the shorter orientation path.</p>
         </div>
         <div class="guide-card-grid">
-          <a class="guide-card" href="index.md"><strong>Manual Index</strong><span>Start here for the full reading path, parts, chapters, and appendices.</span></a>
-          <a class="guide-card" href="manual-map.md"><strong>Manual Map</strong><span>Browse every chapter, appendix, status, and runnable example path.</span></a>
+          <a class="guide-card" href="chapters/00-orientation.html"><strong>Start With Chapter 00</strong><span>Begin with the manual orientation, reading path, and toolchain expectations.</span></a>
+          <a class="guide-card" href="manual-map.html"><strong>Manual Map</strong><span>Browse every chapter, appendix, status, and runnable example path.</span></a>
           <a class="guide-card" href="../reference/learn/index.html"><strong>Reference Landing</strong><span>Use the styled docs-site entry point for the Learn path and key chapter jumps.</span></a>
         </div>
       </section>
 
-      <section class="section-band" aria-labelledby="chapters-title">
+      <section id="all-chapters" class="section-band" aria-labelledby="chapters-title">
         <div class="section-heading">
           <p class="eyebrow">Chapters</p>
-          <h2 id="chapters-title">Key Entry Points</h2>
+          <h2 id="chapters-title">All 39 Chapters</h2>
+          <p class="guide-kicker">Read in order for the intended course, or jump directly to the surface you are working on.</p>
         </div>
+
+        <h3>Part I: Orientation And Core Mental Model</h3>
         <div class="guide-card-grid">
-          <a class="guide-card" href="chapters/00-orientation.md"><strong>Orientation</strong><span>What Ricochet is for and how the manual is organized.</span></a>
-          <a class="guide-card" href="chapters/03-postfix-stack-thinking.md"><strong>Postfix Stack Thinking</strong><span>The core habit of keeping values below the word that consumes them.</span></a>
-          <a class="guide-card" href="chapters/16-capabilities-and-sandboxing.md"><strong>Capabilities</strong><span>Trusted and sandboxed host powers for local apps.</span></a>
-          <a class="guide-card" href="chapters/23-mvc-first-app.md"><strong>MVC First App</strong><span>The manifest, route, controller, model, view, and static asset shape.</span></a>
-          <a class="guide-card" href="chapters/29-packages-imports-and-dependencies.md"><strong>Packages</strong><span>Path dependencies, imports, dynamic modules, and lockfile integrity.</span></a>
-          <a class="guide-card" href="chapters/34-packaging-release-and-updates.md"><strong>Packaging And Release</strong><span>Local packaging, release scripts, manifests, signing, and update channels.</span></a>
-          <a class="guide-card" href="chapters/35-capstone-cli-tool.md"><strong>CLI Capstone</strong><span>A tested worklog command-line app.</span></a>
-          <a class="guide-card" href="chapters/36-capstone-tui-dashboard.md"><strong>TUI Capstone</strong><span>A tested terminal service dashboard.</span></a>
-          <a class="guide-card" href="chapters/37-capstone-mvc-app.md"><strong>MVC Capstone</strong><span>A checked-in project journal web app.</span></a>
-          <a class="guide-card" href="chapters/38-capstone-packaged-gui-app.md"><strong>Packaged GUI Capstone</strong><span>A tested personal ledger GUI package.</span></a>
+          <a class="guide-card" href="chapters/00-orientation.html"><strong>00. Orientation</strong><span>What Ricochet is for and how the manual is organized.</span></a>
+          <a class="guide-card" href="chapters/01-hello-world.html"><strong>01. Hello World</strong><span>Run your first script and understand the captured output.</span></a>
+          <a class="guide-card" href="chapters/02-running-ricochet.html"><strong>02. Running Ricochet</strong><span>Use the `rco` workflow for scripts, tests, docs, and apps.</span></a>
+          <a class="guide-card" href="chapters/03-postfix-stack-thinking.html"><strong>03. Postfix Stack Thinking</strong><span>Keep values below the word that consumes them.</span></a>
+        </div>
+
+        <h3>Part II: Language Core And Feedback Loop</h3>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="chapters/04-values-and-literals.html"><strong>04. Values And Literals</strong><span>Nil, booleans, numbers, strings, blocks, arrays, and maps.</span></a>
+          <a class="guide-card" href="chapters/05-bindings-and-data.html"><strong>05. Bindings And Data</strong><span>Named values, dynamic reads, and simple data shapes.</span></a>
+          <a class="guide-card" href="chapters/06-numbers-math-and-truth.html"><strong>06. Numbers, Math, And Truth</strong><span>Arithmetic, comparison, conversion, and truthy behavior.</span></a>
+          <a class="guide-card" href="chapters/07-strings-json-and-regex.html"><strong>07. Strings, JSON, And Regex</strong><span>Text cleanup, JSON values, and regular expression helpers.</span></a>
+          <a class="guide-card" href="chapters/08-collections.html"><strong>08. Collections</strong><span>Arrays, maps, sets, iteration, and collection mutation.</span></a>
+          <a class="guide-card" href="chapters/09-results-and-errors.html"><strong>09. Results And Errors</strong><span>Explicit success and failure with `ok?`, `value`, and `error`.</span></a>
+          <a class="guide-card" href="chapters/10-control-flow-functions-and-blocks.html"><strong>10. Control Flow, Functions, And Blocks</strong><span>Conditionals, loops, functions, blocks, and returns.</span></a>
+          <a class="guide-card" href="chapters/11-oop-and-dispatch.html"><strong>11. OOP And Dispatch</strong><span>Classes, accessors, fields, methods, and receiver-first selectors.</span></a>
+          <a class="guide-card" href="chapters/12-testing-linting-and-formatting.html"><strong>12. Testing, Linting, And Formatting</strong><span>Keep scripts readable and checked with the CLI toolchain.</span></a>
+          <a class="guide-card" href="chapters/13-introspection-and-debug-basics.html"><strong>13. Introspection And Debug Basics</strong><span>Inspect values, classes, methods, and task state.</span></a>
+        </div>
+
+        <h3>Part III: Host Capabilities And Local App Surfaces</h3>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="chapters/14-date-time-and-duration.html"><strong>14. Date, Time, And Duration</strong><span>Work with timestamps, dates, durations, and formatting.</span></a>
+          <a class="guide-card" href="chapters/15-async-and-tasks.html"><strong>15. Async And Tasks</strong><span>Spawn, await, inspect, and release background work.</span></a>
+          <a class="guide-card" href="chapters/16-capabilities-and-sandboxing.html"><strong>16. Capabilities And Sandboxing</strong><span>Trusted and sandboxed host powers plus approval records.</span></a>
+          <a class="guide-card" href="chapters/17-files-workspaces-env-and-secrets.html"><strong>17. Files, Workspaces, Env, And Secrets</strong><span>Read files, resolve workspace paths, and handle environment values.</span></a>
+          <a class="guide-card" href="chapters/18-http-and-streams.html"><strong>18. HTTP And Streams</strong><span>Make bounded HTTP requests and release retained streams.</span></a>
+          <a class="guide-card" href="chapters/19-tcp-and-websocket-sockets.html"><strong>19. TCP And WebSocket Sockets</strong><span>Use loopback socket examples with explicit retained resource cleanup.</span></a>
+          <a class="guide-card" href="chapters/20-processes-and-ptys.html"><strong>20. Processes And PTYs</strong><span>Opt in to process and pseudo-terminal host capabilities.</span></a>
+          <a class="guide-card" href="chapters/21-terminal-ui.html"><strong>21. Terminal UI</strong><span>Draw alternate-screen TUI output and poll terminal keys.</span></a>
+          <a class="guide-card" href="chapters/22-webview-and-desktop-gui.html"><strong>22. Webview And Desktop GUI</strong><span>Build escaped desktop GUI documents and action callbacks.</span></a>
+        </div>
+
+        <h3>Part IV: MVC, Data, Auth, Forms, And AI</h3>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="chapters/23-mvc-first-app.html"><strong>23. MVC First App</strong><span>The manifest, route, controller, model, view, and static asset shape.</span></a>
+          <a class="guide-card" href="chapters/24-routes-controllers-and-responses.html"><strong>24. Routes, Controllers, And Responses</strong><span>Map requests to actions and return text, JSON, redirects, and status.</span></a>
+          <a class="guide-card" href="chapters/25-templates-static-assets-and-uploads.html"><strong>25. Templates, Static Assets, And Uploads</strong><span>Render views, mount assets, and release upload streams.</span></a>
+          <a class="guide-card" href="chapters/26-data-active-record-and-migrations.html"><strong>26. Data, Active Record, And Migrations</strong><span>Use mapped models, SQL migrations, seeds, and database commands.</span></a>
+          <a class="guide-card" href="chapters/27-sessions-forms-auth-and-passwords.html"><strong>27. Sessions, Forms, Auth, And Passwords</strong><span>Wire local login flow helpers, forms, sessions, and password storage.</span></a>
+          <a class="guide-card" href="chapters/28-ai-capabilities-and-ai-package.html"><strong>28. AI Capabilities And The AI Package</strong><span>Use the offline fake-provider harness and first-party AI helpers.</span></a>
+        </div>
+
+        <h3>Part V: Packages, Registries, Macros, Tooling, And Release</h3>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="chapters/29-packages-imports-and-dependencies.html"><strong>29. Packages, Imports, And Dependencies</strong><span>Path dependencies, imports, dynamic modules, and lockfile integrity.</span></a>
+          <a class="guide-card" href="chapters/30-registries-publish-yank-and-mirror.html"><strong>30. Registries, Publish, Yank, And Mirror</strong><span>Build, check, search, and publish local registry fixtures.</span></a>
+          <a class="guide-card" href="chapters/31-macros-and-expansion.html"><strong>31. Macros And Expansion</strong><span>Use compile-time macro expansion with explicit postfix calls.</span></a>
+          <a class="guide-card" href="chapters/32-debugger-dap-lsp-and-editor-tools.html"><strong>32. Debugger, DAP, LSP, And Editor Tools</strong><span>Trace, pause, inspect, and connect editor tooling.</span></a>
+          <a class="guide-card" href="chapters/33-bytecode-images-and-source-emission.html"><strong>33. Bytecode, Images, And Source Emission</strong><span>Build bytecode, save VM images, and emit source-like views.</span></a>
+          <a class="guide-card" href="chapters/34-packaging-release-and-updates.html"><strong>34. Packaging, Release, And Updates</strong><span>Package apps, inspect artifacts, and reason about update channels.</span></a>
+        </div>
+
+        <h3>Part VI: Capstone Applications</h3>
+        <div class="guide-card-grid">
+          <a class="guide-card" href="chapters/35-capstone-cli-tool.html"><strong>35. Capstone CLI Tool</strong><span>A tested worklog command-line app.</span></a>
+          <a class="guide-card" href="chapters/36-capstone-tui-dashboard.html"><strong>36. Capstone TUI Dashboard</strong><span>A tested terminal service dashboard.</span></a>
+          <a class="guide-card" href="chapters/37-capstone-mvc-app.html"><strong>37. Capstone MVC App</strong><span>A checked-in project journal web app.</span></a>
+          <a class="guide-card" href="chapters/38-capstone-packaged-gui-app.html"><strong>38. Capstone Packaged GUI App</strong><span>A tested personal ledger GUI package.</span></a>
         </div>
       </section>
 
@@ -75,12 +127,12 @@
           <h2 id="appendices-title">Appendices</h2>
         </div>
         <div class="guide-card-grid">
-          <a class="guide-card" href="appendices/a-word-catalog.md"><strong>Word Catalog</strong><span>Live word inventory groups and validation commands.</span></a>
-          <a class="guide-card" href="appendices/b-cli-command-catalog.md"><strong>CLI Commands</strong><span>Command lookup by workflow.</span></a>
-          <a class="guide-card" href="appendices/c-capability-flags.md"><strong>Capability Flags</strong><span>Trusted and sandboxed host-power flags.</span></a>
-          <a class="guide-card" href="appendices/d-syntax-guardrails.md"><strong>Syntax Guardrails</strong><span>Postfix syntax shapes and common corrections.</span></a>
-          <a class="guide-card" href="appendices/e-troubleshooting.md"><strong>Troubleshooting</strong><span>From error message to next command.</span></a>
-          <a class="guide-card" href="appendices/f-glossary.md"><strong>Glossary</strong><span>Manual terminology in one place.</span></a>
+          <a class="guide-card" href="appendices/a-word-catalog.html"><strong>Word Catalog</strong><span>Live word inventory groups and validation commands.</span></a>
+          <a class="guide-card" href="appendices/b-cli-command-catalog.html"><strong>CLI Commands</strong><span>Command lookup by workflow.</span></a>
+          <a class="guide-card" href="appendices/c-capability-flags.html"><strong>Capability Flags</strong><span>Trusted and sandboxed host-power flags.</span></a>
+          <a class="guide-card" href="appendices/d-syntax-guardrails.html"><strong>Syntax Guardrails</strong><span>Postfix syntax shapes and common corrections.</span></a>
+          <a class="guide-card" href="appendices/e-troubleshooting.html"><strong>Troubleshooting</strong><span>From error message to next command.</span></a>
+          <a class="guide-card" href="appendices/f-glossary.html"><strong>Glossary</strong><span>Manual terminology in one place.</span></a>
         </div>
       </section>
     </main>
