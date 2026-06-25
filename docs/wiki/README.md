@@ -41,4 +41,4 @@ For an ordered learning path, start with the Learn Ricochet manual:
 - [Reference Website Notes](../reference/README.html)
 - [Adding Public Words](../adding-words.html)
 - [Debugger Integrations](../debugger-integrations.html)
-- [Current Release Candidate Notes](../releases/v0.1.19-rc.2.html)
+- [Current Release Candidate Notes](../releases/v0.1.19-rc.3.html)

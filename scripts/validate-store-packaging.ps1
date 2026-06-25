@@ -248,7 +248,12 @@ if ($checksumsPath) {
 switch ($Target) {
     "windows-x64" {
         $installer = Get-Artifact $artifacts { param($artifact) $artifact.kind -eq "installer" -and $artifact.name -like "*-setup.exe" }
-        $installerPath = Assert-Artifact $errors $installer "Windows installer"
+        $installerPath = $null
+        if ($installer) {
+            $installerPath = Assert-Artifact $errors $installer "Windows installer"
+        } elseif ($RequireProduction) {
+            Add-Error $errors "Production Windows store packaging requires the signed installer artifact."
+        }
         if ($checksumsPath -and $installer -and -not (Get-Content -LiteralPath $checksumsPath -Raw).Contains([string]$installer.name)) {
             Add-Error $errors "Checksum file does not include Windows installer '$($installer.name)'."
         }
@@ -264,6 +269,7 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "rco.exe",
                     "rco-gui.exe",
+                    "rco-app.exe",
                     "ricochet.exe",
                     "README.md",
                     "LICENSE",
@@ -276,9 +282,6 @@ switch ($Target) {
             } catch {
                 Add-Error $errors $_.Exception.Message
             }
-        }
-        if ($RequireProduction -and -not $installerPath) {
-            Add-Error $errors "Production Windows store packaging requires the signed installer artifact."
         }
     }
     "linux-x64" {
@@ -297,6 +300,7 @@ switch ($Target) {
                     Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                         "*/rco",
                         "*/rco-gui",
+                        "*/rco-app",
                         "*/ricochet",
                         "*/install.sh",
                         "*/share/applications/ricochet-repl.desktop",
@@ -315,6 +319,7 @@ switch ($Target) {
                     $contents = Get-DpkgOutput $debPath @("--contents")
                     Assert-DebContains $errors $contents "usr/bin/rco$"
                     Assert-DebContains $errors $contents "usr/bin/rco-gui$"
+                    Assert-DebContains $errors $contents "usr/bin/rco-app$"
                     Assert-DebContains $errors $contents "usr/bin/ricochet$"
                     Assert-DebContains $errors $contents "usr/share/applications/ricochet-repl\.desktop$"
                     Assert-DebContains $errors $contents "usr/share/icons/hicolor/scalable/apps/ricochet\.svg$"
@@ -369,6 +374,7 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "*/rco",
                     "*/rco-gui",
+                    "*/rco-app",
                     "*/ricochet",
                     "*/install.sh",
                     "*/README.md",

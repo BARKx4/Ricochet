@@ -327,6 +327,7 @@ EOF
     <binary>rco</binary>
     <binary>ricochet</binary>
     <binary>rco-gui</binary>
+    <binary>rco-app</binary>
   </provides>
   <releases>
     <release version="$version" />
@@ -375,6 +376,7 @@ target_dir="$repo_root/target/$configuration"
 binaries=(
   "$target_dir/rco"
   "$target_dir/rco-gui"
+  "$target_dir/rco-app"
   "$target_dir/ricochet"
 )
 
@@ -388,7 +390,8 @@ done
 mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
 install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
-install -m 755 "${binaries[2]}" "$package_dir/ricochet"
+install -m 755 "${binaries[2]}" "$package_dir/rco-app"
+install -m 755 "${binaries[3]}" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
@@ -405,6 +408,7 @@ Commands:
   rco --help
   rco gui examples/webview_ui.rco
   rco package examples/webview_ui.rco --gui --output webview-ui
+  rco package examples/native_showcase_app.rco --app --backend slint --output native-showcase
   ricochet --help
 
 Install locally:
@@ -430,8 +434,9 @@ bin_dir="$prefix/bin"
 mkdir -p "$bin_dir"
 cp "$script_dir/rco" "$bin_dir/rco"
 cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
+cp "$script_dir/rco-app" "$bin_dir/rco-app"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
-chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
+chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/rco-app" "$bin_dir/ricochet"
 
 share_dir="$prefix/share"
 if [ -d "$script_dir/share/applications" ]; then
@@ -468,7 +473,8 @@ if [[ "$build_deb" -eq 1 ]]; then
 
   install -m 755 "${binaries[0]}" "$deb_root/usr/bin/rco"
   install -m 755 "${binaries[1]}" "$deb_root/usr/bin/rco-gui"
-  install -m 755 "${binaries[2]}" "$deb_root/usr/bin/ricochet"
+  install -m 755 "${binaries[2]}" "$deb_root/usr/bin/rco-app"
+  install -m 755 "${binaries[3]}" "$deb_root/usr/bin/ricochet"
   cp "$repo_root/README.md" "$deb_root/usr/share/doc/ricochet/README.md"
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
   cat > "$deb_root/usr/share/doc/ricochet/changelog" <<EOF

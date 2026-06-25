@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.3 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.3 Release Candidate Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#highlights">Highlights</a>
+          <a href="#security-fixes-carried-forward">Security Fixes Carried Forward</a>
+          <a href="#current-boundaries">Current Boundaries</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-06-25</p>
+<p>Ricochet v0.1.19-rc.3 is the native app UI release candidate on the v0.1.19 train. It supersedes v0.1.19-rc.2 without replacing that immutable candidate tag, and carries forward the rc.2 security hardening fixes.</p>
+<h2 id="highlights">Highlights</h2>
+<ul>
+<li><code>@ricochet/ui</code> now provides the backend-neutral native app contract for windows, controls, events, commands, tree views, drag/drop metadata, data grids, and rich text.</li>
+<li><code>@ricochet/winui</code> and <code>@ricochet/slint</code> are first-party backend packages with scoped native option helpers, keeping app code portable across native renderers.</li>
+<li><code>rco app PATH --backend winui</code> can launch the Windows App SDK / WinUI host when the host is built or provided, while JSON export and replay remain the stable non-window smoke boundary.</li>
+<li><code>rco app PATH --backend slint</code> now launches the built-in Slint renderer, and <code>--slint-validate-only</code> compiles the generated native renderer document without opening a window.</li>
+<li><code>rco package PATH --app --backend winui|slint</code> creates native app executables through the <code>rco-app</code> launcher. Packaged WinUI apps keep JSON export/replay smoke validation; packaged Slint apps also support <code>RICOCHET_SLINT_VALIDATE_ONLY=1</code>.</li>
+<li>Windows, Linux, and macOS release packages now include and validate <code>rco-app</code> alongside <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, so packaged native app executables have their launcher in the release bundle.</li>
+<li>The <code>native_showcase_app.rco</code> release desk combines commands, summary state, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one useful app.</li>
+<li>Audit policy now records Slint's transitive <code>typed-index-collections</code> / <code>bincode</code> compiler dependency warning explicitly, so `cargo audit --deny warnings` remains green while still failing on new advisories.</li>
+</ul>
+<h2 id="security-fixes-carried-forward">Security Fixes Carried Forward</h2>
+<ul>
+<li>Hosted registry discovery pins discovered mutation and fetch URLs to the requested registry origin before bearer tokens are used.</li>
+<li>Hosted registry idempotency records are capped and prune oldest records under pressure.</li>
+<li>Runtime approval records can be explicitly released and are capped with pruning for expired or final records.</li>
+<li>The VS Code extension blocks Ricochet run/debug surfaces in untrusted workspaces and cleans stack visualizer traces from the OS temp directory after loading them.</li>
+<li>MVC AI provider error bodies redact configured API keys before returning structured <code>AiError</code> results.</li>
+<li>Process and PTY child environments follow the VM environment policy: restricted environment capability clears inherited parent environment, and explicit child <code>env</code> entries must be allowed by the same env allowlist.</li>
+<li>Linux release signing cleans up generated GNUPGHOME directories after production signature verification.</li>
+<li>MVC session cookies in automatic mode no longer allow a request-supplied <code>Host: localhost</code> header to remove the <code>Secure</code> attribute.</li>
+</ul>
+<h2 id="current-boundaries">Current Boundaries</h2>
+<ul>
+<li>WinUI live rendering is Windows-only and depends on the WinUI host being built or supplied with <code>--winui-host</code> / <code>RICOCHET_WINUI_HOST</code>.</li>
+<li>The Slint renderer is a v1 native projection with real native buttons for click/command dispatch and readable projected content for richer controls. Fuller retained-control parity can iterate behind the same backend contract.</li>
+<li>Data-grid and rich-text helpers are useful v1 app contracts, not spreadsheet or full word-processor implementations.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this candidate, run:</p>
+<pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.3"
+$smoke = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version"
+New-Item -ItemType Directory -Path $smoke -Force | Out-Null
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+
+cargo build -p ricochet_cli --bins
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend winui --export-ui-json (Join-Path $smoke "native-showcase-winui.json")
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend slint --slint-validate-only
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend winui --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseWinui.exe")
+$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-winui.json"
+&amp; (Join-Path $smoke "NativeShowcaseWinui.exe")
+Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend slint --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseSlint.exe")
+$env:RICOCHET_SLINT_VALIDATE_ONLY = "1"
+&amp; (Join-Path $smoke "NativeShowcaseSlint.exe")
+Remove-Item Env:\RICOCHET_SLINT_VALIDATE_ONLY -ErrorAction SilentlyContinue
+
+$releaseOut = Join-Path $smoke "release-windows"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -SigningMode dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+<p>After the GitHub release workflow publishes artifacts, verify that the release is marked as a prerelease, is not marked latest, includes <code>UPDATE-CHANNEL-candidate.json</code>, and includes the Windows, Linux, and macOS packages plus checksum, signing-status, artifact-manifest, notary, and update channel reports.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

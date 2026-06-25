@@ -4720,7 +4720,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_bytecode"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -4728,7 +4728,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_cli"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -4764,7 +4764,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_compiler"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "anyhow",
  "ricochet_bytecode",
@@ -4776,14 +4776,14 @@ dependencies = [
 
 [[package]]
 name = "ricochet_syntax"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "ricochet_vm"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "argon2",
  "base64",
@@ -4804,7 +4804,7 @@ dependencies = [
 
 [[package]]
 name = "ricochet_web"
-version = "0.1.19-rc.2"
+version = "0.1.19-rc.3"
 dependencies = [
  "anyhow",
  "axum",

@@ -365,6 +365,7 @@ $TargetDir = Join-Path $RepoRoot "target\$Configuration"
 $Binaries = @(
     (Join-Path $TargetDir "rco$ExeSuffix")
     (Join-Path $TargetDir "rco-gui$ExeSuffix")
+    (Join-Path $TargetDir "rco-app$ExeSuffix")
     (Join-Path $TargetDir "ricochet$ExeSuffix")
 )
 
@@ -404,6 +405,7 @@ Commands:
   rco --help
   rco gui examples\webview_ui.rco
   rco package examples\webview_ui.rco --gui --output webview-ui.exe
+  rco package examples\native_showcase_app.rco --app --backend winui --output native-showcase
   ricochet --help
 
 On Windows, run "Ricochet Shell.cmd" to open a command prompt with this folder

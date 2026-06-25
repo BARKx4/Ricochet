@@ -222,7 +222,7 @@ function Assert-WindowsReleaseSignatures {
     $tempDir = New-VerificationTempDirectory
     try {
         Expand-Archive -LiteralPath $zipPath -DestinationPath $tempDir
-        foreach ($binaryName in @("rco.exe", "rco-gui.exe", "ricochet.exe")) {
+        foreach ($binaryName in @("rco.exe", "rco-gui.exe", "rco-app.exe", "ricochet.exe")) {
             Assert-AuthenticodeSignature (Get-ExtractedFile -Root $tempDir -FileName $binaryName)
         }
     } finally {
@@ -340,7 +340,7 @@ function Assert-MacosReleaseSignatures {
     $tempDir = New-VerificationTempDirectory
     try {
         Invoke-ExternalCommand -CommandName "tar" -Arguments @("-xzf", $archivePath, "-C", $tempDir) | Out-Null
-        foreach ($binaryName in @("rco", "rco-gui", "ricochet")) {
+        foreach ($binaryName in @("rco", "rco-gui", "rco-app", "ricochet")) {
             Assert-CodesignedBinary (Get-ExtractedFile -Root $tempDir -FileName $binaryName)
         }
     } finally {
