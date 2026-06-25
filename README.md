@@ -61,11 +61,14 @@ and the first WinUI backend:
 
 ```powershell
 rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
 rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
 ```
 
 Omit `--export-ui-json` to launch the WinUI host after building
-`hosts/winui/Ricochet.WinUI.Host`.
+`hosts/winui/Ricochet.WinUI.Host`. The native showcase app is a small release
+desk that combines commands, a tree view with drag/drop metadata, a data grid,
+rich text, and stateful update handling in one window.
 
 ## Documentation
 

@@ -92,6 +92,35 @@ if ($nativeUiExport.backend -ne "winui" -or $nativeUiExport.document.type -ne "w
     throw "Native UI counter export did not produce a WinUI window document"
 }
 
+$nativeShowcaseJson = Join-Path $TempRoot "native-ui-showcase.json"
+Invoke-Rco "native UI showcase JSON export" @(
+    "app",
+    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
+    "--backend",
+    "winui",
+    "--export-ui-json",
+    $nativeShowcaseJson
+)
+$nativeShowcaseRaw = Get-Content -LiteralPath $nativeShowcaseJson -Raw
+$nativeShowcaseExport = $nativeShowcaseRaw | ConvertFrom-Json
+if ($nativeShowcaseExport.backend -ne "winui" -or $nativeShowcaseExport.document.props.title -ne "Native Release Desk") {
+    throw "Native UI showcase export did not produce the expected WinUI release desk"
+}
+$nativeShowcasePatterns = @(
+    '"id"\s*:\s*"release_tree"',
+    '"id"\s*:\s*"release_grid"',
+    '"id"\s*:\s*"release_notes"',
+    '"type"\s*:\s*"tree"',
+    '"type"\s*:\s*"data_grid"',
+    '"type"\s*:\s*"rich_text_input"',
+    '"text"\s*:\s*"Ship confidence: 82%"'
+)
+foreach ($pattern in $nativeShowcasePatterns) {
+    if ($nativeShowcaseRaw -notmatch $pattern) {
+        throw "Native UI showcase export did not include pattern: $pattern"
+    }
+}
+
 $env:RICOCHET_EXAMPLE_TEST = "present"
 Invoke-Rco "example cli_system.rco" @(
     "run",

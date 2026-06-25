@@ -6549,6 +6549,60 @@ fn app_exports_native_ui_json_for_winui_backend() {
 }
 
 #[test]
+fn native_showcase_example_exports_useful_desktop_ui_json() {
+    let root = repo_root_for_test();
+    let export_path = temp_source_path()
+        .parent()
+        .expect("temp source path should have parent")
+        .join("native-showcase-ui.json");
+    fs::create_dir_all(export_path.parent().expect("export path has parent"))
+        .expect("showcase export directory should be created");
+    let example = root
+        .join("packages")
+        .join("ricochet_ui")
+        .join("examples")
+        .join("native_showcase_app.rco");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg(&example)
+        .arg("--backend")
+        .arg("winui")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .output()
+        .expect("rco app showcase export should launch");
+    assert_run_success_for("rco app", "native_showcase_app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("showcase UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("showcase UI JSON export should parse");
+    assert_eq!(exported["backend"], "winui");
+    assert_eq!(
+        exported["document"]["props"]["title"],
+        "Native Release Desk"
+    );
+
+    let exported = serde_json::to_string(&exported).expect("showcase JSON should encode");
+    for marker in [
+        "\"release_command_bar\"",
+        "\"release_tree\"",
+        "\"release_grid\"",
+        "\"release_notes\"",
+        "\"ready_score\"",
+        "\"type\":\"data_grid\"",
+        "\"type\":\"tree\"",
+        "\"type\":\"rich_text_input\"",
+        "\"Ship confidence: 82%\"",
+    ] {
+        assert!(
+            exported.contains(marker),
+            "showcase export should contain {marker}, got:\n{exported}"
+        );
+    }
+}
+
+#[test]
 fn app_replays_events_before_exporting_native_ui_json() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");

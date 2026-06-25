@@ -56,4 +56,11 @@ rco run packages/ricochet_ui/examples/counter_app.rco
 rco run packages/ricochet_ui/examples/project_tree_drag_drop.rco
 rco run packages/ricochet_ui/examples/data_grid_viewer.rco
 rco run packages/ricochet_ui/examples/rich_text_note.rco
+rco run packages/ricochet_ui/examples/native_showcase_app.rco
+```
+
+Export the native showcase app as a deterministic WinUI payload with:
+
+```powershell
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
 ```
