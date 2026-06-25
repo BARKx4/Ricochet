@@ -19,14 +19,15 @@ $options "style" "fluent" put! drop
 $options slint_required_options
 ```
 
-Use the CLI backend name `slint` for deterministic native app payload exports
-and exportable app packaging:
+Use the CLI backend name `slint` for native app rendering, deterministic
+renderer validation, payload exports, and app packaging:
 
 ```powershell
+rco app app.rco --backend slint
+rco app app.rco --backend slint --slint-validate-only
 rco app app.rco --backend slint --export-ui-json app-slint-ui.json
 rco package app.rco --app --backend slint --output MyApp.exe
 ```
 
-The first Slint slice is export/package ready. Live Slint rendering is kept as a
-separate host implementation step so the portable `@ricochet/ui` contract can
-settle before adding the GUI runtime.
+Set `RICOCHET_SLINT_VALIDATE_ONLY=1` when launching packaged Slint apps to
+compile the generated Slint renderer document without opening a window.

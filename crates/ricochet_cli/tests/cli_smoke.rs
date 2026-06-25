@@ -6708,6 +6708,30 @@ fn app_replays_events_before_exporting_slint_ui_json() {
 }
 
 #[test]
+fn app_slint_validate_only_compiles_live_renderer_document() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("slint")
+        .arg("--slint-validate-only")
+        .current_dir(root)
+        .output()
+        .expect("rco app slint validate-only should launch");
+    assert_run_success_for("rco app slint validate-only", "app.rco", &output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Slint renderer validated Counter"),
+        "Slint validate-only should report the rendered window title, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -6784,6 +6808,48 @@ fn package_app_can_embed_slint_backend_for_exportable_native_ui_json() {
     assert_eq!(
         exported["document"]["children"][0]["props"]["text"],
         "Count: 0"
+    );
+}
+
+#[test]
+fn packaged_slint_app_validate_only_compiles_live_renderer_document() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let output_path = root.join(format!(
+        "slint-renderer-app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("app.rco")
+        .arg("--app")
+        .arg("--backend")
+        .arg("slint")
+        .arg("--app-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-app"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --app --backend slint should launch");
+    assert_run_success_for("rco package --app", "app.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_SLINT_VALIDATE_ONLY", "1")
+        .output()
+        .expect("packaged Slint native renderer app should launch");
+    assert_run_success_for(
+        "packaged Slint validate-only app",
+        "slint-renderer-app",
+        &output,
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Slint renderer validated Counter"),
+        "packaged Slint validate-only should report the rendered window title, got:\n{stdout}"
     );
 }
 

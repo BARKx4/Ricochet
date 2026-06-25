@@ -337,16 +337,21 @@ Implemented:
   replays event fixtures through the same backend-neutral app loop.
 - `rco app PATH --backend winui` launches the WinUI host when built or provided
   through `--winui-host PATH` / `RICOCHET_WINUI_HOST`.
+- `rco app PATH --backend slint` launches the built-in Slint renderer.
+- `rco app PATH --backend slint --slint-validate-only` compiles the generated
+  Slint renderer document without opening a window.
 - `rco package PATH --app --backend winui --output APP.exe` embeds native app
   bytecode into the `rco-app` launcher. Packaged apps support
   `RICOCHET_APP_EXPORT_UI_JSON` and `RICOCHET_APP_REPLAY_EVENTS_JSON` for
   non-window smoke validation.
 - `rco package PATH --app --backend slint --output APP.exe` embeds native app
-  bytecode with a Slint backend marker for exportable cross-platform payload
-  validation.
+  bytecode with a Slint backend marker. Packaged Slint apps support
+  `RICOCHET_SLINT_VALIDATE_ONLY=1` for non-window renderer validation.
 - The WinUI host is a self-contained Windows App SDK project under
   `hosts/winui/Ricochet.WinUI.Host` with `--validate-only`, document parsing,
   v1 control rendering, and JSONL event/response protocol hooks.
+- The Slint renderer uses Slint's Rust interpreter to compile a native
+  cross-platform window from the same `@ricochet/ui` document model.
 
 Evidence:
 
@@ -365,8 +370,9 @@ Current boundaries:
 - WinUI and Slint are backends, not the public app model.
 - The live WinUI renderer is Windows-only and depends on the WinUI host being
   built or provided. JSON export and replay remain the stable CI boundary.
-- The Slint backend is currently export/package ready; live Slint rendering is
-  a separate host implementation step.
+- The Slint renderer projects v1 Ricochet UI documents into native Slint
+  controls and projected text; fuller retained-control parity can iterate
+  behind the same backend contract.
 - Data grid and rich text are basic v1 contracts, not spreadsheet or full word
   processor implementations.
 - Ordinary Ricochet app code does not receive raw WinUI handles.

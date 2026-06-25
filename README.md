@@ -57,20 +57,22 @@ rco serve
 ```
 
 Native desktop UI work starts with the backend-neutral `@ricochet/ui` package,
-the live WinUI backend, and exportable Slint payloads for cross-platform native
+the live WinUI backend, and the live Slint renderer for cross-platform native
 availability:
 
 ```powershell
 rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
 rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
 ```
 
 Omit `--export-ui-json` to launch the WinUI host after building
-`hosts/winui/Ricochet.WinUI.Host`. The native showcase app is a small release
-desk that combines commands, a tree view with drag/drop metadata, a data grid,
-rich text, and stateful update handling in one window.
+`hosts/winui/Ricochet.WinUI.Host`, or to launch the Slint renderer directly.
+The native showcase app is a small release desk that combines commands, a tree
+view with drag/drop metadata, a data grid, rich text, and stateful update
+handling in one window.
 
 ## Documentation
 

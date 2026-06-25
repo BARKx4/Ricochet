@@ -135,6 +135,13 @@ $nativeSlintShowcaseExport = Get-Content -LiteralPath $nativeSlintShowcaseJson -
 if ($nativeSlintShowcaseExport.backend -ne "slint" -or $nativeSlintShowcaseExport.document.props.title -ne "Native Release Desk") {
     throw "Native UI Slint showcase export did not produce the expected release desk"
 }
+Invoke-Rco "native UI showcase Slint renderer validation" @(
+    "app",
+    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
+    "--backend",
+    "slint",
+    "--slint-validate-only"
+)
 
 $env:RICOCHET_EXAMPLE_TEST = "present"
 Invoke-Rco "example cli_system.rco" @(

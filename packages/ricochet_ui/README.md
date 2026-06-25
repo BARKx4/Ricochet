@@ -64,4 +64,5 @@ Export the native showcase app as a deterministic WinUI payload with:
 ```powershell
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
 ```
