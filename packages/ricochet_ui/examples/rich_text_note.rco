@@ -1,0 +1,19 @@
+"../rich_text" import
+
+( -> Map ) build_note function
+  spans array
+  plainMarks array
+  $spans "A note with " $plainMarks nil ui_rich_span push! drop
+  boldMarks array
+  $boldMarks "bold" push! drop
+  $spans "native UI" $boldMarks nil ui_rich_span push! drop
+  blocks array
+  $blocks $spans ui_rich_paragraph push! drop
+  $blocks ui_rich_document document var
+  "note_editor" "Note" $document ui_rich_text_input
+end
+
+build_note note var
+$note "type" at "rich_text_input" assert_equals
+$note "props" at "document" at "blocks" at count 1 assert_equals
+$note "props" at "document" at "blocks" at first "spans" at last "marks" at first "bold" assert_equals

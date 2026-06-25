@@ -7,6 +7,9 @@ The package does not replace `@ricochet/ui`. It provides a WinUI backend
 descriptor and scoped option maps that native Windows renderers can consume
 while ordinary app code keeps using portable `ui_*` words.
 
+Use WinUI options for native Windows polish only. App structure, state, events,
+and commands should stay in the portable `@ricochet/ui` document contract.
+
 ## Modules
 
 - `backend.rco`: backend descriptor plus required/advisory WinUI option maps.
