@@ -72,6 +72,7 @@ foreach ($example in $examples) {
 Invoke-Rco "check example tui_counter.rco" @("check", (Join-Path $examplesRoot "tui_counter.rco"))
 Invoke-Rco "native UI package tests" @("test", (Join-Path $Root "packages\ricochet_ui"))
 Invoke-Rco "WinUI package tests" @("test", (Join-Path $Root "packages\ricochet_winui"))
+Invoke-Rco "Slint package tests" @("test", (Join-Path $Root "packages\ricochet_slint"))
 
 if ([string]::IsNullOrWhiteSpace($TempRoot)) {
     $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ricochet-acceptance-" + [System.Guid]::NewGuid().ToString("N"))
@@ -119,6 +120,20 @@ foreach ($pattern in $nativeShowcasePatterns) {
     if ($nativeShowcaseRaw -notmatch $pattern) {
         throw "Native UI showcase export did not include pattern: $pattern"
     }
+}
+
+$nativeSlintShowcaseJson = Join-Path $TempRoot "native-ui-showcase-slint.json"
+Invoke-Rco "native UI showcase Slint JSON export" @(
+    "app",
+    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
+    "--backend",
+    "slint",
+    "--export-ui-json",
+    $nativeSlintShowcaseJson
+)
+$nativeSlintShowcaseExport = Get-Content -LiteralPath $nativeSlintShowcaseJson -Raw | ConvertFrom-Json
+if ($nativeSlintShowcaseExport.backend -ne "slint" -or $nativeSlintShowcaseExport.document.props.title -ne "Native Release Desk") {
+    throw "Native UI Slint showcase export did not produce the expected release desk"
 }
 
 $env:RICOCHET_EXAMPLE_TEST = "present"

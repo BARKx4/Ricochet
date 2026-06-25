@@ -1,6 +1,6 @@
 # @ricochet/winui
 
-`@ricochet/winui` is the first native backend package for Ricochet's
+`@ricochet/winui` is the Windows native backend package for Ricochet's
 backend-neutral `@ricochet/ui` app model.
 
 The package does not replace `@ricochet/ui`. It provides a WinUI backend

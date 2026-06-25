@@ -3169,6 +3169,38 @@ const PACKAGE_WORDS = [
     "stack": "options -> map",
     "body": "Marks WinUI options as advisory so a backend may ignore them with diagnostics.",
     "example": "options winui_advisory_options"
+  },
+  {
+    "word": "slint_backend",
+    "aliases": ["@ricochet/slint"],
+    "group": "slint",
+    "stack": "-> map",
+    "body": "Returns the Slint backend descriptor for cross-platform native app payloads.",
+    "example": "slint_backend"
+  },
+  {
+    "word": "slint_option",
+    "aliases": ["@ricochet/slint"],
+    "group": "slint",
+    "stack": "key value -> map",
+    "body": "Builds a one-entry Slint option map.",
+    "example": "\"style\" \"fluent\" slint_option"
+  },
+  {
+    "word": "slint_required_options",
+    "aliases": ["@ricochet/slint"],
+    "group": "slint",
+    "stack": "options -> map",
+    "body": "Marks Slint options as required so an unsupported backend detail fails loudly.",
+    "example": "options slint_required_options"
+  },
+  {
+    "word": "slint_advisory_options",
+    "aliases": ["@ricochet/slint"],
+    "group": "slint",
+    "stack": "options -> map",
+    "body": "Marks Slint options as advisory so a backend may ignore them with diagnostics.",
+    "example": "options slint_advisory_options"
   }
 ];
 
@@ -3187,7 +3219,8 @@ const groupLabels = {
   "system": "System",
   "inspect": "Introspection",
   "ui": "@ricochet/ui",
-  "winui": "@ricochet/winui"
+  "winui": "@ricochet/winui",
+  "slint": "@ricochet/slint"
 };
 
 const grid = document.querySelector("#word-grid");

@@ -56,12 +56,14 @@ cd my_app
 rco serve
 ```
 
-Native desktop UI work starts with the backend-neutral `@ricochet/ui` package
-and the first WinUI backend:
+Native desktop UI work starts with the backend-neutral `@ricochet/ui` package,
+the live WinUI backend, and exportable Slint payloads for cross-platform native
+availability:
 
 ```powershell
 rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
 rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
 ```
 

@@ -6549,6 +6549,37 @@ fn app_exports_native_ui_json_for_winui_backend() {
 }
 
 #[test]
+fn app_exports_native_ui_json_for_slint_backend() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let export_path = root.join("slint-ui.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("slint")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app slint export should launch");
+    assert_run_success_for("rco app", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("Slint UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("Slint UI JSON export should parse");
+    assert_eq!(exported["backend"], "slint");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(exported["state"]["count"], 0);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
+#[test]
 fn native_showcase_example_exports_useful_desktop_ui_json() {
     let root = repo_root_for_test();
     let export_path = temp_source_path()
@@ -6640,6 +6671,43 @@ fn app_replays_events_before_exporting_native_ui_json() {
 }
 
 #[test]
+fn app_replays_events_before_exporting_slint_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    write_source_at(
+        root,
+        "events.json",
+        r#"[{"type":"click","id":"increment_button","value":null}]"#,
+    );
+    let export_path = root.join("after-slint.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("slint")
+        .arg("--replay-events")
+        .arg("events.json")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app slint replay should launch");
+    assert_run_success_for("rco app replay", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("Slint UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("Slint UI JSON export should parse");
+    assert_eq!(exported["backend"], "slint");
+    assert_eq!(exported["state"]["count"], 1);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 1"
+    );
+}
+
+#[test]
 fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -6672,6 +6740,46 @@ fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
     let exported: serde_json::Value =
         serde_json::from_str(&exported).expect("packaged UI export should parse");
     assert_eq!(exported["backend"], "winui");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
+#[test]
+fn package_app_can_embed_slint_backend_for_exportable_native_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let output_path = root.join(format!("slint-native-app{}", std::env::consts::EXE_SUFFIX));
+    let export_path = root.join("packaged-slint-ui.json");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("app.rco")
+        .arg("--app")
+        .arg("--backend")
+        .arg("slint")
+        .arg("--app-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-app"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --app --backend slint should launch");
+    assert_run_success_for("rco package --app", "app.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_APP_EXPORT_UI_JSON", &export_path)
+        .output()
+        .expect("packaged Slint native app should launch");
+    assert_run_success_for("packaged Slint native app", "slint-native-app", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("packaged Slint UI export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("packaged Slint UI export should parse");
+    assert_eq!(exported["backend"], "slint");
     assert_eq!(exported["document"]["type"], "window");
     assert_eq!(
         exported["document"]["children"][0]["props"]["text"],

@@ -51,8 +51,8 @@ graph TD
 | --- | --- | --- | --- |
 | Project and MVC | implemented beta | `rco new`, `routes`, `serve`, `migrate`, `doctor` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_web`, `README.md`, `docs/reference/index.html` |
 | Runtime | implemented beta | `repl`, `run`, `debug`, `run-bytecode`, `build`, `test`, `image`, `emit-source` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_vm/src/vm.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
-| Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--app --backend winui`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs`, `hosts/winui`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
-| Native app UI | beta | `@ricochet/ui`, `@ricochet/winui`, `rco app --backend winui`, `rco package --app --backend winui` | `packages/ricochet_ui`, `packages/ricochet_winui`, `hosts/winui/Ricochet.WinUI.Host`, `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
+| Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--app --backend winui|slint`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs`, `hosts/winui`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
+| Native app UI | beta | `@ricochet/ui`, `@ricochet/winui`, `@ricochet/slint`, `rco app --backend winui|slint`, `rco package --app --backend winui|slint` | `packages/ricochet_ui`, `packages/ricochet_winui`, `packages/ricochet_slint`, `hosts/winui/Ricochet.WinUI.Host`, `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Dependencies | implemented beta | `add`, `install`, `verify`, `audit` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Registries | implemented beta | `publish`, `registry rebuild`, `registry check`, `registry yank`, `search` | `crates/ricochet_cli/src/lib.rs`, `README.md`, `docs/reference/index.html` |
 | Editor and diagnostics | implemented beta | `lsp`, `lsp-diagnostics`, `lint`, `fmt`, `words` | `crates/ricochet_cli/src/lsp.rs`, `editors/vscode`, `scripts/validate-editor-assets.ps1` |
@@ -89,6 +89,8 @@ Current top-level groups are:
   drag/drop, data-grid, and rich-text helper words from `@ricochet/ui`.
 - `winui` package: WinUI backend descriptor and scoped native option helpers
   from `@ricochet/winui`.
+- `slint` package: Slint backend descriptor and scoped native option helpers
+  from `@ricochet/slint`.
 
 ## Language Core
 
@@ -320,19 +322,28 @@ Implemented:
 
 - `@ricochet/ui` defines a backend-neutral native app document, response,
   event, command, tree view, drag/drop, data-grid, and rich-text contract.
-- `@ricochet/winui` provides the first backend descriptor and scoped WinUI
+- `@ricochet/winui` provides the Windows backend descriptor and scoped WinUI
   required/advisory native option helpers.
+- `@ricochet/slint` provides a cross-platform backend descriptor and scoped
+  Slint required/advisory native option helpers.
 - Native app source files expose `app_init`, `app_view`, and `app_update`.
 - `rco app PATH --backend winui --export-ui-json PATH` renders deterministic
   portable UI JSON without opening a native window.
+- `rco app PATH --backend slint --export-ui-json PATH` renders the same
+  portable document/state payload tagged for the Slint backend.
 - `rco app PATH --backend winui --replay-events PATH --export-ui-json PATH`
   replays event fixtures through `app_update`.
+- `rco app PATH --backend slint --replay-events PATH --export-ui-json PATH`
+  replays event fixtures through the same backend-neutral app loop.
 - `rco app PATH --backend winui` launches the WinUI host when built or provided
   through `--winui-host PATH` / `RICOCHET_WINUI_HOST`.
 - `rco package PATH --app --backend winui --output APP.exe` embeds native app
   bytecode into the `rco-app` launcher. Packaged apps support
   `RICOCHET_APP_EXPORT_UI_JSON` and `RICOCHET_APP_REPLAY_EVENTS_JSON` for
   non-window smoke validation.
+- `rco package PATH --app --backend slint --output APP.exe` embeds native app
+  bytecode with a Slint backend marker for exportable cross-platform payload
+  validation.
 - The WinUI host is a self-contained Windows App SDK project under
   `hosts/winui/Ricochet.WinUI.Host` with `--validate-only`, document parsing,
   v1 control rendering, and JSONL event/response protocol hooks.
@@ -341,6 +352,7 @@ Evidence:
 
 - `packages/ricochet_ui`
 - `packages/ricochet_winui`
+- `packages/ricochet_slint`
 - `packages/ricochet_ui/examples`
 - `hosts/winui/Ricochet.WinUI.Host`
 - `crates/ricochet_cli/src/lib.rs`
@@ -350,9 +362,11 @@ Evidence:
 
 Current boundaries:
 
-- WinUI is the first backend, not the public app model.
+- WinUI and Slint are backends, not the public app model.
 - The live WinUI renderer is Windows-only and depends on the WinUI host being
   built or provided. JSON export and replay remain the stable CI boundary.
+- The Slint backend is currently export/package ready; live Slint rendering is
+  a separate host implementation step.
 - Data grid and rich text are basic v1 contracts, not spreadsheet or full word
   processor implementations.
 - Ordinary Ricochet app code does not receive raw WinUI handles.
@@ -679,7 +693,7 @@ Implemented:
   or MVC bundles.
 - `rco package --tui`, `--gui`, and `--gui --mvc` cover console, native
   WebView or Linux system-browser GUI launchers, and local-server desktop apps.
-- `rco package --app --backend winui` covers backend-neutral native app
+- `rco package --app --backend winui|slint` covers backend-neutral native app
   executables through the `rco-app` launcher and supports environment-driven
   JSON export and event replay smoke validation.
 - Linux `rco package` can also emit tarballs and Debian packages.

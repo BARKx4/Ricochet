@@ -1,0 +1,35 @@
+(( Slint backend descriptor and scoped native option helpers. ))
+( -> Map ) slint_backend function
+  backend map
+  $backend "id" "slint" put! drop
+  $backend "name" "Slint" put! drop
+  $backend "platform" "cross_platform" put! drop
+  $backend "native" true put! drop
+  $backend
+end
+
+( key value -> Map ) slint_option function
+  value var
+  key var
+  option map
+  $option $key $value put! drop
+  $option
+end
+
+( options -> Map ) slint_required_options function
+  options var
+  wrapped map
+  $wrapped "backend" "slint" put! drop
+  $wrapped "required" true put! drop
+  $wrapped "options" $options put! drop
+  $wrapped
+end
+
+( options -> Map ) slint_advisory_options function
+  options var
+  wrapped map
+  $wrapped "backend" "slint" put! drop
+  $wrapped "required" false put! drop
+  $wrapped "options" $options put! drop
+  $wrapped
+end

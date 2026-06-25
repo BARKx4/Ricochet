@@ -74,6 +74,7 @@ const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
 const EMBEDDED_NATIVE_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_APP_V1\0";
+const EMBEDDED_NATIVE_SLINT_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_SLINT_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
@@ -239,7 +240,12 @@ enum Command {
         #[command(flatten)]
         capabilities: CapabilityOptions,
         path: String,
-        #[arg(long, default_value = "winui")]
+        #[arg(
+            long,
+            default_value = "winui",
+            value_name = "BACKEND",
+            help = "Native backend to use: winui or slint"
+        )]
         backend: String,
         #[arg(long = "export-ui-json")]
         export_ui_json: Option<PathBuf>,
@@ -285,7 +291,12 @@ enum Command {
         gui_launcher: Option<PathBuf>,
         #[arg(long, help = "Package as a native app using --backend")]
         app: bool,
-        #[arg(long, default_value = "winui")]
+        #[arg(
+            long,
+            default_value = "winui",
+            value_name = "BACKEND",
+            help = "Native app backend to embed: winui or slint"
+        )]
         backend: String,
         #[arg(
             long = "app-launcher",
@@ -647,6 +658,7 @@ enum EmbeddedAppKind {
     Gui,
     MvcGui,
     NativeApp,
+    NativeSlintApp,
 }
 
 impl EmbeddedAppKind {
@@ -657,7 +669,53 @@ impl EmbeddedAppKind {
             EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
             EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
             EmbeddedAppKind::NativeApp => EMBEDDED_NATIVE_APP_MARKER,
+            EmbeddedAppKind::NativeSlintApp => EMBEDDED_NATIVE_SLINT_APP_MARKER,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeAppBackend {
+    Winui,
+    Slint,
+}
+
+impl NativeAppBackend {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "winui" => Ok(Self::Winui),
+            "slint" => Ok(Self::Slint),
+            other => bail!(
+                "unsupported native app backend {other:?}; supported backends: {}",
+                Self::supported_list()
+            ),
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Winui => "winui",
+            Self::Slint => "slint",
+        }
+    }
+
+    fn embedded_kind(self) -> EmbeddedAppKind {
+        match self {
+            Self::Winui => EmbeddedAppKind::NativeApp,
+            Self::Slint => EmbeddedAppKind::NativeSlintApp,
+        }
+    }
+
+    fn from_embedded_kind(kind: EmbeddedAppKind) -> Option<Self> {
+        match kind {
+            EmbeddedAppKind::NativeApp => Some(Self::Winui),
+            EmbeddedAppKind::NativeSlintApp => Some(Self::Slint),
+            _ => None,
+        }
+    }
+
+    fn supported_list() -> &'static str {
+        "winui, slint"
     }
 }
 
@@ -927,8 +985,12 @@ pub async fn run_cli() -> Result<()> {
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
                 run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
             }
-            EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::NativeApp => {
-                run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), "winui")?
+            EmbeddedAppPayload::Chunk(chunk)
+                if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
+            {
+                let backend = NativeAppBackend::from_embedded_kind(app.kind)
+                    .expect("native app backend should be available for native app marker");
+                run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)?
             }
             EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
                 run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await?
@@ -1302,8 +1364,12 @@ pub fn run_app_launcher() -> Result<()> {
     };
 
     match app.payload {
-        EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::NativeApp => {
-            run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), "winui")
+        EmbeddedAppPayload::Chunk(chunk)
+            if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
+        {
+            let backend = NativeAppBackend::from_embedded_kind(app.kind)
+                .expect("native app backend should be available for native app marker");
+            run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)
         }
         _ => bail!("rco-app can only launch native app payloads packaged with `rco package --app`"),
     }
@@ -7407,9 +7473,7 @@ fn run_app_file(
     replay_events: Option<&Path>,
     winui_host: Option<&Path>,
 ) -> Result<()> {
-    if backend != "winui" {
-        bail!("unsupported native app backend {backend:?}; supported backends: winui");
-    }
+    let backend = NativeAppBackend::parse(backend)?;
 
     let source_path = Path::new(path);
     let chunk = compile_source_file(source_path)?;
@@ -7426,11 +7490,16 @@ fn run_app_file(
     }
 
     if let Some(path) = export_path {
-        write_app_export_json(&path, backend, &session.render())?;
+        write_app_export_json(&path, backend.id(), &session.render())?;
         return Ok(());
     }
 
-    run_live_winui_backend(&mut session, backend, winui_host)
+    match backend {
+        NativeAppBackend::Winui => run_live_winui_backend(&mut session, backend.id(), winui_host),
+        NativeAppBackend::Slint => bail!(
+            "Slint live backend host is not implemented yet; use --export-ui-json for deterministic Slint payloads"
+        ),
+    }
 }
 
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
@@ -7462,11 +7531,11 @@ fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     )
 }
 
-fn run_embedded_native_app(chunk: &Chunk, args: Vec<String>, backend: &str) -> Result<()> {
-    if backend != "winui" {
-        bail!("unsupported native app backend {backend:?}; supported backends: winui");
-    }
-
+fn run_embedded_native_app(
+    chunk: &Chunk,
+    args: Vec<String>,
+    backend: NativeAppBackend,
+) -> Result<()> {
     let export_path = std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from);
     let replay_path = std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from);
     let mut session = NativeAppSession::start(
@@ -7480,11 +7549,16 @@ fn run_embedded_native_app(chunk: &Chunk, args: Vec<String>, backend: &str) -> R
     }
 
     if let Some(path) = export_path {
-        write_app_export_json(&path, backend, &session.render())?;
+        write_app_export_json(&path, backend.id(), &session.render())?;
         return Ok(());
     }
 
-    run_live_winui_backend(&mut session, backend, None)
+    match backend {
+        NativeAppBackend::Winui => run_live_winui_backend(&mut session, backend.id(), None),
+        NativeAppBackend::Slint => bail!(
+            "Slint live backend host is not implemented yet; use RICOCHET_APP_EXPORT_UI_JSON for deterministic Slint payloads"
+        ),
+    }
 }
 
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
@@ -11268,12 +11342,11 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if options.app_launcher.is_some() && !options.app {
         bail!("--app-launcher requires --app");
     }
-    if options.app && options.backend != "winui" {
-        bail!(
-            "unsupported native app backend {:?}; supported backends: winui",
-            options.backend
-        );
-    }
+    let native_app_backend = if options.app {
+        Some(NativeAppBackend::parse(options.backend)?)
+    } else {
+        None
+    };
     if options.gui && !native_gui_packaging_supported() {
         bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
     }
@@ -11287,7 +11360,9 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     let package_kind = if options.mvc {
         EmbeddedAppKind::MvcGui
     } else if options.app {
-        EmbeddedAppKind::NativeApp
+        native_app_backend
+            .expect("native app backend should be parsed when --app is set")
+            .embedded_kind()
     } else if options.gui {
         EmbeddedAppKind::Gui
     } else if options.tui {
@@ -12285,6 +12360,7 @@ fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
 fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
     for kind in [
         EmbeddedAppKind::MvcGui,
+        EmbeddedAppKind::NativeSlintApp,
         EmbeddedAppKind::NativeApp,
         EmbeddedAppKind::Gui,
         EmbeddedAppKind::Tui,
@@ -12325,7 +12401,8 @@ fn embedded_app_from_bytes_with_marker(
         EmbeddedAppKind::Console
         | EmbeddedAppKind::Tui
         | EmbeddedAppKind::Gui
-        | EmbeddedAppKind::NativeApp => {
+        | EmbeddedAppKind::NativeApp
+        | EmbeddedAppKind::NativeSlintApp => {
             EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
         }
         EmbeddedAppKind::MvcGui => {
