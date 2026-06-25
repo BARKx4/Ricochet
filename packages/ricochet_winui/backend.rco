@@ -1,0 +1,35 @@
+(( WinUI backend descriptor and scoped native option helpers. ))
+( -> Map ) winui_backend function
+  backend map
+  $backend "id" "winui" put! drop
+  $backend "name" "WinUI" put! drop
+  $backend "platform" "windows" put! drop
+  $backend "native" true put! drop
+  $backend
+end
+
+( key value -> Map ) winui_option function
+  value var
+  key var
+  option map
+  $option $key $value put! drop
+  $option
+end
+
+( options -> Map ) winui_required_options function
+  options var
+  wrapped map
+  $wrapped "backend" "winui" put! drop
+  $wrapped "required" true put! drop
+  $wrapped "options" $options put! drop
+  $wrapped
+end
+
+( options -> Map ) winui_advisory_options function
+  options var
+  wrapped map
+  $wrapped "backend" "winui" put! drop
+  $wrapped "required" false put! drop
+  $wrapped "options" $options put! drop
+  $wrapped
+end
