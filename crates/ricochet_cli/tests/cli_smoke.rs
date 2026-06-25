@@ -6625,6 +6625,85 @@ fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
     );
 }
 
+#[test]
+fn winui_host_validate_only_accepts_exported_native_ui_json() {
+    let Some(host_path) = built_winui_host_path() else {
+        eprintln!("skipping WinUI host validation smoke: host executable is not built");
+        return;
+    };
+
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let export_path = root.join("ui.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("winui")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app should launch");
+    assert_run_success_for("rco app", "app.rco", &output);
+
+    let output = Command::new(host_path)
+        .arg("--document")
+        .arg(&export_path)
+        .arg("--validate-only")
+        .output()
+        .expect("WinUI host validate-only should launch");
+    assert_run_success_for("WinUI host validate-only", "ui.json", &output);
+}
+
+fn built_winui_host_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("RICOCHET_WINUI_HOST").map(PathBuf::from) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    for configuration in ["Release", "Debug"] {
+        let candidate = repo_root
+            .join("hosts")
+            .join("winui")
+            .join("Ricochet.WinUI.Host")
+            .join("bin")
+            .join(configuration)
+            .join("net10.0-windows10.0.19041.0")
+            .join("win-x64")
+            .join(format!(
+                "Ricochet.WinUI.Host{}",
+                std::env::consts::EXE_SUFFIX
+            ));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+
+        let candidate = repo_root
+            .join("hosts")
+            .join("winui")
+            .join("Ricochet.WinUI.Host")
+            .join("bin")
+            .join(configuration)
+            .join("net10.0-windows10.0.19041.0")
+            .join(format!(
+                "Ricochet.WinUI.Host{}",
+                std::env::consts::EXE_SUFFIX
+            ));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {

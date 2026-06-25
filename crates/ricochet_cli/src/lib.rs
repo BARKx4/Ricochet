@@ -80,6 +80,7 @@ const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
 const APP_EXPORT_UI_JSON_ENV: &str = "RICOCHET_APP_EXPORT_UI_JSON";
 const APP_REPLAY_EVENTS_JSON_ENV: &str = "RICOCHET_APP_REPLAY_EVENTS_JSON";
+const APP_WINUI_HOST_ENV: &str = "RICOCHET_WINUI_HOST";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -244,6 +245,12 @@ enum Command {
         export_ui_json: Option<PathBuf>,
         #[arg(long = "replay-events")]
         replay_events: Option<PathBuf>,
+        #[arg(
+            long = "winui-host",
+            value_name = "PATH",
+            help = "Use a specific Ricochet.WinUI.Host executable for live WinUI rendering"
+        )]
+        winui_host: Option<PathBuf>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -1069,6 +1076,7 @@ pub async fn run_cli() -> Result<()> {
             backend,
             export_ui_json,
             replay_events,
+            winui_host,
             args,
         } => run_app_file(
             &path,
@@ -1077,6 +1085,7 @@ pub async fn run_cli() -> Result<()> {
             &backend,
             export_ui_json.as_deref(),
             replay_events.as_deref(),
+            winui_host.as_deref(),
         )?,
         Command::Tui {
             capabilities,
@@ -7396,6 +7405,7 @@ fn run_app_file(
     backend: &str,
     export_ui_json: Option<&Path>,
     replay_events: Option<&Path>,
+    winui_host: Option<&Path>,
 ) -> Result<()> {
     if backend != "winui" {
         bail!("unsupported native app backend {backend:?}; supported backends: winui");
@@ -7410,27 +7420,17 @@ fn run_app_file(
     let replay_path = replay_events
         .map(PathBuf::from)
         .or_else(|| std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from));
-    let rendered = render_app_document(
-        &chunk,
-        args,
-        capabilities,
-        dynamic_import_parent,
-        replay_path.as_deref(),
-    )?;
+    let mut session = NativeAppSession::start(&chunk, args, capabilities, dynamic_import_parent)?;
+    if let Some(path) = replay_path.as_deref() {
+        session.replay_events(path)?;
+    }
 
     if let Some(path) = export_path {
-        let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
-        let json = serde_json::to_string_pretty(&payload)?;
-        fs::write(&path, json).with_context(|| {
-            format!(
-                "failed to write native app UI JSON export requested at {}",
-                path.display()
-            )
-        })?;
+        write_app_export_json(&path, backend, &session.render())?;
         return Ok(());
     }
 
-    bail!("live native app backend {backend:?} is not available yet; use --export-ui-json or set {APP_EXPORT_UI_JSON_ENV}")
+    run_live_winui_backend(&mut session, backend, winui_host)
 }
 
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
@@ -7469,27 +7469,22 @@ fn run_embedded_native_app(chunk: &Chunk, args: Vec<String>, backend: &str) -> R
 
     let export_path = std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from);
     let replay_path = std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from);
-    let rendered = render_app_document(
+    let mut session = NativeAppSession::start(
         chunk,
         args,
         CapabilityOptions::default(),
         current_dir_for_dynamic_imports()?,
-        replay_path.as_deref(),
     )?;
+    if let Some(path) = replay_path.as_deref() {
+        session.replay_events(path)?;
+    }
 
     if let Some(path) = export_path {
-        let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
-        let json = serde_json::to_string_pretty(&payload)?;
-        fs::write(&path, json).with_context(|| {
-            format!(
-                "failed to write native app UI JSON export requested by {APP_EXPORT_UI_JSON_ENV}={}",
-                path.display()
-            )
-        })?;
+        write_app_export_json(&path, backend, &session.render())?;
         return Ok(());
     }
 
-    bail!("live native app backend {backend:?} is not available yet; set {APP_EXPORT_UI_JSON_ENV} to export portable UI JSON")
+    run_live_winui_backend(&mut session, backend, None)
 }
 
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
@@ -7664,32 +7659,57 @@ struct NativeAppRender {
     document: Value,
 }
 
-fn render_app_document(
-    chunk: &Chunk,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    dynamic_import_parent: PathBuf,
-    replay_events: Option<&Path>,
-) -> Result<NativeAppRender> {
-    let mut vm = cli_vm(args, &capabilities)?;
-    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
-    run_app_chunk(&mut vm, chunk, "app source")?;
+struct NativeAppSession {
+    vm: Vm,
+    state: Value,
+    document: Value,
+}
 
-    let mut state = call_app_function(&mut vm, "app_init", Vec::new())?;
-    let mut document = call_app_function(&mut vm, "app_view", vec![state.clone()])?;
-    ensure_native_app_document(&document)?;
+impl NativeAppSession {
+    fn start(
+        chunk: &Chunk,
+        args: Vec<String>,
+        capabilities: CapabilityOptions,
+        dynamic_import_parent: PathBuf,
+    ) -> Result<Self> {
+        let mut vm = cli_vm(args, &capabilities)?;
+        install_dynamic_module_loader(&mut vm, dynamic_import_parent);
+        run_app_chunk(&mut vm, chunk, "app source")?;
 
-    if let Some(path) = replay_events {
-        for event in read_app_replay_events(path)? {
-            let response = call_app_function(&mut vm, "app_update", vec![state.clone(), event])?;
-            let parts = native_app_response_parts(response)?;
-            state = parts.state;
-            document = parts.document;
-            ensure_native_app_document(&document)?;
-        }
+        let state = call_app_function(&mut vm, "app_init", Vec::new())?;
+        let document = call_app_function(&mut vm, "app_view", vec![state.clone()])?;
+        ensure_native_app_document(&document)?;
+
+        Ok(Self {
+            vm,
+            state,
+            document,
+        })
     }
 
-    Ok(NativeAppRender { state, document })
+    fn replay_events(&mut self, path: &Path) -> Result<()> {
+        for event in read_app_replay_events(path)? {
+            self.apply_event(event)?;
+        }
+        Ok(())
+    }
+
+    fn apply_event(&mut self, event: Value) -> Result<NativeAppRender> {
+        let response =
+            call_app_function(&mut self.vm, "app_update", vec![self.state.clone(), event])?;
+        let parts = native_app_response_parts(response)?;
+        ensure_native_app_document(&parts.document)?;
+        self.state = parts.state;
+        self.document = parts.document;
+        Ok(self.render())
+    }
+
+    fn render(&self) -> NativeAppRender {
+        NativeAppRender {
+            state: self.state.clone(),
+            document: self.document.clone(),
+        }
+    }
 }
 
 fn run_app_chunk(vm: &mut Vm, chunk: &Chunk, label: &str) -> Result<()> {
@@ -7780,6 +7800,173 @@ fn app_export_json(backend: &str, state: &Value, document: &Value) -> Result<ser
         "state": ricochet_value_to_json(state)?,
         "document": ricochet_value_to_json(document)?,
     }))
+}
+
+fn write_app_export_json(path: &Path, backend: &str, rendered: &NativeAppRender) -> Result<()> {
+    let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
+    let json = serde_json::to_string_pretty(&payload)?;
+    fs::write(path, json).with_context(|| {
+        format!(
+            "failed to write native app UI JSON export requested at {}",
+            path.display()
+        )
+    })
+}
+
+fn run_live_winui_backend(
+    session: &mut NativeAppSession,
+    backend: &str,
+    winui_host: Option<&Path>,
+) -> Result<()> {
+    let host = resolve_winui_host(winui_host)?;
+    let protocol_dir = create_winui_protocol_dir()?;
+    let document_path = protocol_dir.join("initial-ui.json");
+    let events_path = protocol_dir.join("events.jsonl");
+    let responses_path = protocol_dir.join("responses.jsonl");
+
+    write_app_export_json(&document_path, backend, &session.render())?;
+    fs::write(&events_path, "")
+        .with_context(|| format!("failed to initialize {}", events_path.display()))?;
+    fs::write(&responses_path, "")
+        .with_context(|| format!("failed to initialize {}", responses_path.display()))?;
+
+    let mut child = std::process::Command::new(&host)
+        .arg("--document")
+        .arg(&document_path)
+        .arg("--events")
+        .arg(&events_path)
+        .arg("--responses")
+        .arg(&responses_path)
+        .spawn()
+        .with_context(|| format!("failed to launch WinUI backend host {}", host.display()))?;
+
+    let mut events_offset = 0_usize;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to poll WinUI backend host")?
+        {
+            if status.success() {
+                return Ok(());
+            }
+            bail!("WinUI backend host exited with status {status}");
+        }
+
+        for line in read_new_json_lines(&events_path, &mut events_offset)? {
+            let event: serde_json::Value = serde_json::from_str(&line)
+                .with_context(|| format!("WinUI backend wrote invalid event JSON: {line}"))?;
+            let rendered = session.apply_event(json_to_ricochet_value(event))?;
+            let response = app_export_json(backend, &rendered.state, &rendered.document)?;
+            let response = serde_json::to_string(&response)?;
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&responses_path)
+                .with_context(|| format!("failed to open {}", responses_path.display()))?
+                .write_all(format!("{response}\n").as_bytes())
+                .with_context(|| format!("failed to write {}", responses_path.display()))?;
+        }
+
+        std::thread::sleep(Duration::from_millis(30));
+    }
+}
+
+fn resolve_winui_host(winui_host: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = winui_host {
+        return ensure_winui_host_path(path);
+    }
+
+    if let Some(path) = std::env::var_os(APP_WINUI_HOST_ENV) {
+        return ensure_winui_host_path(Path::new(&path));
+    }
+
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
+    let host_name = format!("Ricochet.WinUI.Host{exe_suffix}");
+    let mut candidates = Vec::new();
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidates.push(parent.join(&host_name));
+        }
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        for configuration in ["Release", "Debug"] {
+            candidates.push(
+                current_dir
+                    .join("hosts")
+                    .join("winui")
+                    .join("Ricochet.WinUI.Host")
+                    .join("bin")
+                    .join(configuration)
+                    .join("net10.0-windows10.0.19041.0")
+                    .join("win-x64")
+                    .join(&host_name),
+            );
+            candidates.push(
+                current_dir
+                    .join("hosts")
+                    .join("winui")
+                    .join("Ricochet.WinUI.Host")
+                    .join("bin")
+                    .join(configuration)
+                    .join("net10.0-windows10.0.19041.0")
+                    .join(&host_name),
+            );
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    bail!(
+        "WinUI backend host not found; build it with dotnet publish hosts/winui/Ricochet.WinUI.Host/Ricochet.WinUI.Host.csproj or pass --winui-host PATH"
+    )
+}
+
+fn ensure_winui_host_path(path: &Path) -> Result<PathBuf> {
+    if !path.is_file() {
+        bail!("WinUI backend host does not exist: {}", path.display());
+    }
+    Ok(path.to_path_buf())
+}
+
+fn create_winui_protocol_dir() -> Result<PathBuf> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("ricochet-winui-{}-{now}", std::process::id()));
+    fs::create_dir_all(&dir).with_context(|| {
+        format!(
+            "failed to create WinUI protocol directory {}",
+            dir.display()
+        )
+    })?;
+    Ok(dir)
+}
+
+fn read_new_json_lines(path: &Path, offset: &mut usize) -> Result<Vec<String>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read WinUI event stream {}", path.display()))?;
+    if *offset > source.len() {
+        *offset = 0;
+    }
+    let new_source = &source[*offset..];
+    *offset = source.len();
+    Ok(new_source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 fn render_webview_document(
