@@ -1526,10 +1526,10 @@ fn words_check_rejects_duplicate_reference_words() {
     "example": "\"RICOCHET_EXAMPLE_TEST\" env_get"
   }
 ];"#;
-    let terminator = if source.contains("\r\n];\r\n\r\nconst groupLabels") {
-        "\r\n];\r\n\r\nconst groupLabels"
+    let terminator = if source.contains("\r\n];\r\n\r\nconst PACKAGE_WORDS") {
+        "\r\n];\r\n\r\nconst PACKAGE_WORDS"
     } else {
-        "\n];\n\nconst groupLabels"
+        "\n];\n\nconst PACKAGE_WORDS"
     };
     assert!(
         source.contains(terminator),
@@ -1537,7 +1537,7 @@ fn words_check_rejects_duplicate_reference_words() {
     );
     let source = source.replacen(
         terminator,
-        &format!(",\n{duplicate}\n\nconst groupLabels"),
+        &format!(",\n{duplicate}\n\nconst PACKAGE_WORDS"),
         1,
     );
     assert!(
@@ -1588,10 +1588,10 @@ fn words_check_rejects_malformed_reference_word_entries() {
     "example": ""
   }
 ];"#;
-    let terminator = if source.contains("\r\n];\r\n\r\nconst groupLabels") {
-        "\r\n];\r\n\r\nconst groupLabels"
+    let terminator = if source.contains("\r\n];\r\n\r\nconst PACKAGE_WORDS") {
+        "\r\n];\r\n\r\nconst PACKAGE_WORDS"
     } else {
-        "\n];\n\nconst groupLabels"
+        "\n];\n\nconst PACKAGE_WORDS"
     };
     assert!(
         source.contains(terminator),
@@ -1599,7 +1599,7 @@ fn words_check_rejects_malformed_reference_word_entries() {
     );
     let source = source.replacen(
         terminator,
-        &format!(",\n{malformed}\n\nconst groupLabels"),
+        &format!(",\n{malformed}\n\nconst PACKAGE_WORDS"),
         1,
     );
     fs::write(&docs_app, source).expect("malformed docs app fixture should be written");

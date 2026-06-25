@@ -70,6 +70,27 @@ foreach ($example in $examples) {
 }
 
 Invoke-Rco "check example tui_counter.rco" @("check", (Join-Path $examplesRoot "tui_counter.rco"))
+Invoke-Rco "native UI package tests" @("test", (Join-Path $Root "packages\ricochet_ui"))
+Invoke-Rco "WinUI package tests" @("test", (Join-Path $Root "packages\ricochet_winui"))
+
+if ([string]::IsNullOrWhiteSpace($TempRoot)) {
+    $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ricochet-acceptance-" + [System.Guid]::NewGuid().ToString("N"))
+}
+
+New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
+$nativeUiJson = Join-Path $TempRoot "native-ui-counter.json"
+Invoke-Rco "native UI counter JSON export" @(
+    "app",
+    (Join-Path $Root "packages\ricochet_ui\examples\counter_app.rco"),
+    "--backend",
+    "winui",
+    "--export-ui-json",
+    $nativeUiJson
+)
+$nativeUiExport = Get-Content -LiteralPath $nativeUiJson -Raw | ConvertFrom-Json
+if ($nativeUiExport.backend -ne "winui" -or $nativeUiExport.document.type -ne "window") {
+    throw "Native UI counter export did not produce a WinUI window document"
+}
 
 $env:RICOCHET_EXAMPLE_TEST = "present"
 Invoke-Rco "example cli_system.rco" @(
@@ -80,11 +101,6 @@ Invoke-Rco "example cli_system.rco" @(
     "beta"
 )
 
-if ([string]::IsNullOrWhiteSpace($TempRoot)) {
-    $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ricochet-acceptance-" + [System.Guid]::NewGuid().ToString("N"))
-}
-
-New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 $project = Join-Path $TempRoot "app"
 
 Invoke-Rco "scaffold app" @("new", $project)

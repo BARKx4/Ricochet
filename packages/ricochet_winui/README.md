@@ -31,3 +31,14 @@ once the app host is available:
 rco app app.rco --backend winui
 rco package app.rco --app --backend winui --output MyApp.exe
 ```
+
+For a source checkout, build the first live host before launching a window:
+
+```powershell
+dotnet build hosts/winui/Ricochet.WinUI.Host/Ricochet.WinUI.Host.csproj -c Release
+```
+
+The host is configured as a self-contained Windows App SDK `win-x64` build so
+the development output does not depend on a separately installed Windows App
+Runtime component. JSON export and replay smoke tests do not require opening a
+native window.

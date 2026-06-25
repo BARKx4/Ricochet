@@ -6,11 +6,11 @@
 
 Ricochet is a modern, pure-postfix programming language for building real
 software in a deliberately different way: stack-first code with a Rust bytecode
-VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, debugger
-support, and sandboxable host capabilities. It keeps the directness and
-composability that make Forth-like languages compelling, while adding the
-tools, safety boundaries, documentation, packaging, and editor support expected
-from a serious development platform.
+VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, native app UI
+experiments, debugger support, and sandboxable host capabilities. It keeps the
+directness and composability that make Forth-like languages compelling, while
+adding the tools, safety boundaries, documentation, packaging, and editor
+support expected from a serious development platform.
 
 Website: [try.ricochet.today](https://try.ricochet.today/)
 
@@ -55,6 +55,17 @@ rco routes my_app
 cd my_app
 rco serve
 ```
+
+Native desktop UI work starts with the backend-neutral `@ricochet/ui` package
+and the first WinUI backend:
+
+```powershell
+rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
+rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
+```
+
+Omit `--export-ui-json` to launch the WinUI host after building
+`hosts/winui/Ricochet.WinUI.Host`.
 
 ## Documentation
 
