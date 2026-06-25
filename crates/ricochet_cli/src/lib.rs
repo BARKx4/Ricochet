@@ -77,6 +77,8 @@ const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
+const APP_EXPORT_UI_JSON_ENV: &str = "RICOCHET_APP_EXPORT_UI_JSON";
+const APP_REPLAY_EVENTS_JSON_ENV: &str = "RICOCHET_APP_REPLAY_EVENTS_JSON";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -228,6 +230,19 @@ enum Command {
         #[command(flatten)]
         capabilities: CapabilityOptions,
         path: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    App {
+        #[command(flatten)]
+        capabilities: CapabilityOptions,
+        path: String,
+        #[arg(long, default_value = "winui")]
+        backend: String,
+        #[arg(long = "export-ui-json")]
+        export_ui_json: Option<PathBuf>,
+        #[arg(long = "replay-events")]
+        replay_events: Option<PathBuf>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -1032,6 +1047,21 @@ pub async fn run_cli() -> Result<()> {
             path,
             args,
         } => run_gui_file(&path, args, capabilities)?,
+        Command::App {
+            capabilities,
+            path,
+            backend,
+            export_ui_json,
+            replay_events,
+            args,
+        } => run_app_file(
+            &path,
+            args,
+            capabilities,
+            &backend,
+            export_ui_json.as_deref(),
+            replay_events.as_deref(),
+        )?,
         Command::Tui {
             capabilities,
             path,
@@ -7322,6 +7352,50 @@ fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
     )
 }
 
+fn run_app_file(
+    path: &str,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+    backend: &str,
+    export_ui_json: Option<&Path>,
+    replay_events: Option<&Path>,
+) -> Result<()> {
+    if backend != "winui" {
+        bail!("unsupported native app backend {backend:?}; supported backends: winui");
+    }
+
+    let source_path = Path::new(path);
+    let chunk = compile_source_file(source_path)?;
+    let dynamic_import_parent = dynamic_import_parent_for_source(source_path)?;
+    let export_path = export_ui_json
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from));
+    let replay_path = replay_events
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from));
+    let rendered = render_app_document(
+        &chunk,
+        args,
+        capabilities,
+        dynamic_import_parent,
+        replay_path.as_deref(),
+    )?;
+
+    if let Some(path) = export_path {
+        let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
+        let json = serde_json::to_string_pretty(&payload)?;
+        fs::write(&path, json).with_context(|| {
+            format!(
+                "failed to write native app UI JSON export requested at {}",
+                path.display()
+            )
+        })?;
+        return Ok(());
+    }
+
+    bail!("live native app backend {backend:?} is not available yet; use --export-ui-json or set {APP_EXPORT_UI_JSON_ENV}")
+}
+
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
     let source_path = Path::new(path);
     let chunk = compile_source_file(source_path)?;
@@ -7517,6 +7591,130 @@ fn run_gui_chunk(
     open_native_webview(document)
 }
 
+#[derive(Clone)]
+struct NativeAppRender {
+    state: Value,
+    document: Value,
+}
+
+fn render_app_document(
+    chunk: &Chunk,
+    args: Vec<String>,
+    capabilities: CapabilityOptions,
+    dynamic_import_parent: PathBuf,
+    replay_events: Option<&Path>,
+) -> Result<NativeAppRender> {
+    let mut vm = cli_vm(args, &capabilities)?;
+    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
+    run_app_chunk(&mut vm, chunk, "app source")?;
+
+    let mut state = call_app_function(&mut vm, "app_init", Vec::new())?;
+    let mut document = call_app_function(&mut vm, "app_view", vec![state.clone()])?;
+    ensure_native_app_document(&document)?;
+
+    if let Some(path) = replay_events {
+        for event in read_app_replay_events(path)? {
+            let response = call_app_function(&mut vm, "app_update", vec![state.clone(), event])?;
+            let parts = native_app_response_parts(response)?;
+            state = parts.state;
+            document = parts.document;
+            ensure_native_app_document(&document)?;
+        }
+    }
+
+    Ok(NativeAppRender { state, document })
+}
+
+fn run_app_chunk(vm: &mut Vm, chunk: &Chunk, label: &str) -> Result<()> {
+    let result = vm.run_chunk(chunk);
+    print!("{}", vm.stdout());
+    eprint!("{}", vm.stderr());
+    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
+        std::process::exit(code);
+    }
+    if let Err(error) = result {
+        bail!("{}", runtime_error_message(vm, &error));
+    }
+    if vm.stack().last().is_none() && label.is_empty() {
+        bail!("native app host received an empty chunk label");
+    }
+    Ok(())
+}
+
+fn call_app_function(vm: &mut Vm, name: &str, arguments: Vec<Value>) -> Result<Value> {
+    let before = vm.stack().len();
+    for argument in arguments {
+        vm.push_value(argument);
+    }
+    let mut chunk = Chunk::new(format!("<app:{name}>"));
+    chunk.push(Op::CallWord(name.to_string()), app_host_span(name));
+    run_app_chunk(vm, &chunk, name)?;
+    vm.stack()
+        .last()
+        .cloned()
+        .filter(|_| vm.stack().len() > before)
+        .with_context(|| format!("native app function {name:?} must return one value"))
+        .and_then(unwrap_native_app_value)
+}
+
+fn unwrap_native_app_value(value: Value) -> Result<Value> {
+    match value {
+        Value::Result(RicochetResult::Ok(inner)) => unwrap_native_app_value(*inner),
+        Value::Result(RicochetResult::Err(error)) => {
+            bail!(
+                "native app returned an error result: {}: {}",
+                error.kind,
+                error.message
+            )
+        }
+        value => Ok(value),
+    }
+}
+
+fn ensure_native_app_document(value: &Value) -> Result<()> {
+    let Value::Map(map) = value else {
+        bail!("native app document must be a map, got {value:?}");
+    };
+    match map.get("type") {
+        Some(Value::String(kind)) if kind == "window" => Ok(()),
+        Some(value) => bail!("native app document root type must be \"window\", got {value:?}"),
+        None => bail!("native app document is missing root `type`"),
+    }
+}
+
+fn native_app_response_parts(response: Value) -> Result<NativeAppRender> {
+    let Value::Map(map) = response else {
+        bail!("native app update response must be a map");
+    };
+    let state = map
+        .get("state")
+        .context("native app update response is missing `state`")?;
+    let document = map
+        .get("document")
+        .context("native app update response is missing `document`")?;
+    Ok(NativeAppRender { state, document })
+}
+
+fn read_app_replay_events(path: &Path) -> Result<Vec<Value>> {
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read native app replay events {}", path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&source)
+        .with_context(|| format!("native app replay events must be JSON: {}", path.display()))?;
+    let serde_json::Value::Array(events) = json else {
+        bail!("native app replay events must be a JSON array");
+    };
+    Ok(events.into_iter().map(json_to_ricochet_value).collect())
+}
+
+fn app_export_json(backend: &str, state: &Value, document: &Value) -> Result<serde_json::Value> {
+    Ok(json!({
+        "schema_version": 1,
+        "backend": backend,
+        "state": ricochet_value_to_json(state)?,
+        "document": ricochet_value_to_json(document)?,
+    }))
+}
+
 fn render_webview_document(
     chunk: &Chunk,
     args: Vec<String>,
@@ -7689,6 +7887,16 @@ fn gui_event_span() -> SourceSpan {
     }
 }
 
+fn app_host_span(function: &str) -> SourceSpan {
+    SourceSpan {
+        file: format!("<app:{function}>"),
+        start: 0,
+        end: 0,
+        line: 1,
+        column: 1,
+    }
+}
+
 fn json_to_ricochet_value(value: serde_json::Value) -> Value {
     match value {
         serde_json::Value::Null => Value::Nil,
@@ -7719,6 +7927,51 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
                 .collect::<BTreeMap<_, _>>()
                 .into(),
         ),
+    }
+}
+
+fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
+    match value {
+        Value::Nil => Ok(serde_json::Value::Null),
+        Value::Bool(value) => Ok(serde_json::Value::Bool(*value)),
+        Value::Number(value) => Ok(json!(*value)),
+        Value::Float(value) => serde_json::Number::from_f64(*value)
+            .map(serde_json::Value::Number)
+            .with_context(|| format!("cannot encode non-finite float {value} as JSON")),
+        Value::String(value) => Ok(serde_json::Value::String(value.clone())),
+        Value::Array(values) => values
+            .snapshot()
+            .iter()
+            .map(ricochet_value_to_json)
+            .collect::<Result<Vec<_>>>()
+            .map(serde_json::Value::Array),
+        Value::List(values) => values
+            .snapshot()
+            .iter()
+            .map(ricochet_value_to_json)
+            .collect::<Result<Vec<_>>>()
+            .map(serde_json::Value::Array),
+        Value::Set(values) => values
+            .snapshot()
+            .iter()
+            .map(ricochet_value_to_json)
+            .collect::<Result<Vec<_>>>()
+            .map(serde_json::Value::Array),
+        Value::Map(values) => values
+            .snapshot()
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), ricochet_value_to_json(value)?)))
+            .collect::<Result<serde_json::Map<_, _>>>()
+            .map(serde_json::Value::Object),
+        Value::Result(RicochetResult::Ok(value)) => ricochet_value_to_json(value),
+        Value::Result(RicochetResult::Err(error)) => {
+            bail!(
+                "cannot encode error result as native app JSON: {}: {}",
+                error.kind,
+                error.message
+            )
+        }
+        value => bail!("cannot encode {value:?} as native app JSON"),
     }
 }
 

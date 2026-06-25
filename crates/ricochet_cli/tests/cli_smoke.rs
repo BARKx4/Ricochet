@@ -6517,6 +6517,74 @@ state get render_counter document var
     assert!(event_html.contains("\"count\":2"));
 }
 
+#[test]
+fn app_exports_native_ui_json_for_winui_backend() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let export_path = root.join("ui.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("winui")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app should launch");
+    assert_run_success_for("rco app", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("UI JSON export should parse");
+    assert_eq!(exported["backend"], "winui");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(exported["state"]["count"], 0);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
+#[test]
+fn app_replays_events_before_exporting_native_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    write_source_at(
+        root,
+        "events.json",
+        r#"[{"type":"click","id":"increment_button","value":null}]"#,
+    );
+    let export_path = root.join("after.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("winui")
+        .arg("--replay-events")
+        .arg("events.json")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app replay should launch");
+    assert_run_success_for("rco app replay", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("UI JSON export should parse");
+    assert_eq!(exported["backend"], "winui");
+    assert_eq!(exported["state"]["count"], 1);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 1"
+    );
+}
+
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
@@ -13399,6 +13467,97 @@ fn accept_local_test_connection(listener: TcpListener) -> Option<std::net::TcpSt
         }
     }
     None
+}
+
+fn native_counter_app_source() -> &'static str {
+    r#"
+( -> Map ) app_init function
+  state map
+  $state "count" 0 put! drop
+  $state
+end
+
+( id text -> Map ) app_text function
+  text var
+  id var
+  props map
+  $props "text" $text put! drop
+  children array
+  events array
+  native map
+  node map
+  $node "schema_version" 1 put! drop
+  $node "id" $id put! drop
+  $node "type" "text" put! drop
+  $node "props" $props put! drop
+  $node "children" $children put! drop
+  $node "events" $events put! drop
+  $node "native_options" $native put! drop
+  $node
+end
+
+( id label -> Map ) app_button function
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  children array
+  events array
+  $events "click" push! drop
+  native map
+  node map
+  $node "schema_version" 1 put! drop
+  $node "id" $id put! drop
+  $node "type" "button" put! drop
+  $node "props" $props put! drop
+  $node "children" $children put! drop
+  $node "events" $events put! drop
+  $node "native_options" $native put! drop
+  $node
+end
+
+( state -> Map ) app_view function
+  state var
+  props map
+  $props "title" "Counter" put! drop
+  children array
+  $children "count_label" "Count: " $state "count" at to_string concat app_text push! drop
+  $children "increment_button" "Increment" app_button push! drop
+  events array
+  $events "close" push! drop
+  native map
+  window map
+  $window "schema_version" 1 put! drop
+  $window "id" "main" put! drop
+  $window "type" "window" put! drop
+  $window "props" $props put! drop
+  $window "children" $children put! drop
+  $window "events" $events put! drop
+  $window "native_options" $native put! drop
+  $window
+end
+
+( state event -> Map ) app_update function
+  event var
+  state var
+  $event "type" at "click" = if
+    $event "id" at "increment_button" = if
+      $state "count" at 1 + nextCount var
+      $state "count" $nextCount put! drop
+    end
+  end
+  $state app_view document var
+  commands array
+  diagnostics array
+  response map
+  $response "schema_version" 1 put! drop
+  $response "state" $state put! drop
+  $response "document" $document put! drop
+  $response "commands" $commands put! drop
+  $response "diagnostics" $diagnostics put! drop
+  $response
+end
+"#
 }
 
 fn escape_ricochet_string(value: &str) -> String {
