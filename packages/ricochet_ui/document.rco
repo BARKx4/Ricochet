@@ -1,0 +1,192 @@
+(( Backend-neutral native app UI document builders. ))
+( id type props children events nativeOptions -> Map ) ui_node function
+  nativeOptions var
+  events var
+  children var
+  props var
+  type var
+  id var
+  node map
+  $node "schema_version" 1 put! drop
+  $node "id" $id put! drop
+  $node "type" $type put! drop
+  $node "props" $props put! drop
+  $node "children" $children put! drop
+  $node "events" $events put! drop
+  $node "native_options" $nativeOptions put! drop
+  $node
+end
+
+( id text -> Map ) ui_text function
+  text var
+  id var
+  props map
+  $props "text" $text put! drop
+  children array
+  events array
+  native map
+  $id "text" $props $children $events $native ui_node
+end
+
+( id text level -> Map ) ui_heading function
+  level var
+  text var
+  id var
+  props map
+  $props "text" $text put! drop
+  $props "level" $level put! drop
+  children array
+  events array
+  native map
+  $id "heading" $props $children $events $native ui_node
+end
+
+( id label -> Map ) ui_button function
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  children array
+  events array
+  $events "click" push! drop
+  native map
+  $id "button" $props $children $events $native ui_node
+end
+
+( id label value -> Map ) ui_text_input function
+  value var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "value" $value put! drop
+  children array
+  events array
+  $events "change" push! drop
+  $events "submit" push! drop
+  native map
+  $id "text_input" $props $children $events $native ui_node
+end
+
+( id label value -> Map ) ui_multiline_text_input function
+  value var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "value" $value put! drop
+  children array
+  events array
+  $events "change" push! drop
+  $events "submit" push! drop
+  native map
+  $id "multiline_text_input" $props $children $events $native ui_node
+end
+
+( id label checked -> Map ) ui_checkbox function
+  checked var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "checked" $checked put! drop
+  children array
+  events array
+  $events "change" push! drop
+  native map
+  $id "checkbox" $props $children $events $native ui_node
+end
+
+( id label checked -> Map ) ui_toggle function
+  checked var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "checked" $checked put! drop
+  children array
+  events array
+  $events "change" push! drop
+  native map
+  $id "toggle" $props $children $events $native ui_node
+end
+
+( id label value options -> Map ) ui_select function
+  options var
+  value var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "value" $value put! drop
+  $props "options" $options put! drop
+  children array
+  events array
+  $events "change" push! drop
+  native map
+  $id "select" $props $children $events $native ui_node
+end
+
+( id orientation children -> Map ) ui_stack function
+  children var
+  orientation var
+  id var
+  props map
+  $props "orientation" $orientation put! drop
+  events array
+  native map
+  $id "stack" $props $children $events $native ui_node
+end
+
+( id columns rows children -> Map ) ui_grid function
+  children var
+  rows var
+  columns var
+  id var
+  props map
+  $props "columns" $columns put! drop
+  $props "rows" $rows put! drop
+  events array
+  native map
+  $id "grid" $props $children $events $native ui_node
+end
+
+( id title children -> Result ) ui_window function
+  children var
+  title var
+  id var
+  props map
+  $props "title" $title put! drop
+  events array
+  $events "close" push! drop
+  native map
+  $id "window" $props $children $events $native ui_node ok
+end
+
+( state document commands -> Result ) ui_response function
+  commands var
+  document var
+  state var
+  response map
+  $response "schema_version" 1 put! drop
+  $response "state" $state put! drop
+  $response "document" $document put! drop
+  $response "commands" $commands put! drop
+  diagnostics array
+  $response "diagnostics" $diagnostics put! drop
+  $response ok
+end
+
+( node backend options required -> Map ) ui_native_options function
+  required var
+  options var
+  backend var
+  node var
+  $node "native_options" at nativeOptions var
+  backendOptions map
+  $backendOptions "required" $required put! drop
+  $backendOptions "options" $options put! drop
+  $nativeOptions $backend $backendOptions put! drop
+  $node "native_options" $nativeOptions put! drop
+  $node
+end

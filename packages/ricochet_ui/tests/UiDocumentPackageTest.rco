@@ -1,0 +1,36 @@
+"../document" import
+
+UiDocumentPackageTest TestCase Subclass
+  [
+    props map
+    children array
+    events array
+    native map
+    "save" "button" $props $children $events $native ui_node node var
+    $node "schema_version" at 1 assert_equals
+    $node "id" at "save" assert_equals
+    $node "type" at "button" assert_equals
+  ] "testNodeShape" Method
+  [
+    children array
+    $children "title" "Hello" ui_text push! drop
+    "main" "Demo" $children ui_window result var
+    $result ok? true assert_equals
+    $result value "type" at "window" assert_equals
+    $result value "props" at "title" at "Demo" assert_equals
+  ] "testWindowResult" Method
+  [
+    "save" "Save" ui_button button var
+    $button "events" at "click" has? true assert_equals
+    $button "props" at "label" at "Save" assert_equals
+  ] "testButtonRegistersClickEvent" Method
+  [
+    state map
+    document map
+    commands array
+    $state $document $commands ui_response result var
+    $result ok? true assert_equals
+    $result value "state" at $state assert_equals
+    $result value "commands" at count 0 assert_equals
+  ] "testResponseShape" Method
+end

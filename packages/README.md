@@ -12,6 +12,8 @@ language core.
   fake-provider execution/normalization helpers, tool call/result and
   tool-handler execution helpers, schema validation, OpenAI-compatible request
   builders, and SSE response-body/event parsing layered on core secret refs.
+- `@ricochet/ui`: backend-neutral native app UI document, event, command, and
+  validation helpers for Ricochet app executables.
 - `@ricochet/python`: process-backed JSON-lines worker helpers for importing
   Python modules, calling SDK functions/classes/methods, retaining Python object
   references, inspecting module exports, and generating static Ricochet wrapper
@@ -26,6 +28,7 @@ Publish the packages into a local static registry:
 ```powershell
 rco publish packages/ricochet_auth --registry .registry
 rco publish packages/ricochet_ai --registry .registry
+rco publish packages/ricochet_ui --registry .registry
 rco publish packages/ricochet_python --registry .registry
 rco publish packages/ricochet_forms --registry .registry
 rco publish packages/ricochet_test_helpers --registry .registry
