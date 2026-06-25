@@ -17,6 +17,10 @@ path = "src/bin/ricochet.rs"
 name = "rco-gui"
 path = "src/bin/rco_gui.rs"
 
+[[bin]]
+name = "rco-app"
+path = "src/bin/rco_app.rs"
+
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }

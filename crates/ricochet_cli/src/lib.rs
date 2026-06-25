@@ -73,6 +73,7 @@ const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
+const EMBEDDED_NATIVE_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
@@ -275,6 +276,16 @@ enum Command {
             help = "Use a specific rco-gui launcher executable for --gui packages"
         )]
         gui_launcher: Option<PathBuf>,
+        #[arg(long, help = "Package as a native app using --backend")]
+        app: bool,
+        #[arg(long, default_value = "winui")]
+        backend: String,
+        #[arg(
+            long = "app-launcher",
+            value_name = "PATH",
+            help = "Use a specific rco-app launcher executable for --app packages"
+        )]
+        app_launcher: Option<PathBuf>,
         #[arg(
             long = "linux-package",
             value_enum,
@@ -628,6 +639,7 @@ enum EmbeddedAppKind {
     Tui,
     Gui,
     MvcGui,
+    NativeApp,
 }
 
 impl EmbeddedAppKind {
@@ -637,6 +649,7 @@ impl EmbeddedAppKind {
             EmbeddedAppKind::Tui => EMBEDDED_TUI_APP_MARKER,
             EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
             EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
+            EmbeddedAppKind::NativeApp => EMBEDDED_NATIVE_APP_MARKER,
         }
     }
 }
@@ -907,6 +920,9 @@ pub async fn run_cli() -> Result<()> {
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
                 run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
             }
+            EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::NativeApp => {
+                run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), "winui")?
+            }
             EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
                 run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await?
             }
@@ -1074,6 +1090,9 @@ pub async fn run_cli() -> Result<()> {
             gui,
             mvc,
             gui_launcher,
+            app,
+            backend,
+            app_launcher,
             linux_packages,
             package_name,
             package_version,
@@ -1086,6 +1105,9 @@ pub async fn run_cli() -> Result<()> {
                 gui,
                 mvc,
                 gui_launcher: gui_launcher.as_deref(),
+                app,
+                backend: &backend,
+                app_launcher: app_launcher.as_deref(),
                 linux_packages: &linux_packages,
                 package_name: package_name.as_deref(),
                 package_version: &package_version,
@@ -1260,6 +1282,21 @@ pub async fn run_gui_launcher() -> Result<()> {
         _ => {
             bail!("rco-gui can only launch apps packaged with `rco package --gui`");
         }
+    }
+}
+
+pub fn run_app_launcher() -> Result<()> {
+    let Some(app) = embedded_app_from_current_exe()? else {
+        bail!(
+            "rco-app can only launch apps packaged with `rco package --app`; no embedded native app payload was found"
+        );
+    };
+
+    match app.payload {
+        EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::NativeApp => {
+            run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), "winui")
+        }
+        _ => bail!("rco-app can only launch native app payloads packaged with `rco package --app`"),
     }
 }
 
@@ -7425,6 +7462,36 @@ fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     )
 }
 
+fn run_embedded_native_app(chunk: &Chunk, args: Vec<String>, backend: &str) -> Result<()> {
+    if backend != "winui" {
+        bail!("unsupported native app backend {backend:?}; supported backends: winui");
+    }
+
+    let export_path = std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from);
+    let replay_path = std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from);
+    let rendered = render_app_document(
+        chunk,
+        args,
+        CapabilityOptions::default(),
+        current_dir_for_dynamic_imports()?,
+        replay_path.as_deref(),
+    )?;
+
+    if let Some(path) = export_path {
+        let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
+        let json = serde_json::to_string_pretty(&payload)?;
+        fs::write(&path, json).with_context(|| {
+            format!(
+                "failed to write native app UI JSON export requested by {APP_EXPORT_UI_JSON_ENV}={}",
+                path.display()
+            )
+        })?;
+        return Ok(());
+    }
+
+    bail!("live native app backend {backend:?} is not available yet; set {APP_EXPORT_UI_JSON_ENV} to export portable UI JSON")
+}
+
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     run_chunk_cli(
         chunk,
@@ -10993,8 +11060,17 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if options.tui && options.gui {
         bail!("--tui cannot be used with --gui");
     }
+    if options.app && options.tui {
+        bail!("--app cannot be used with --tui");
+    }
+    if options.app && options.gui {
+        bail!("--app cannot be used with --gui");
+    }
     if options.tui && options.mvc {
         bail!("--mvc requires --gui and cannot be used with --tui");
+    }
+    if options.app && options.mvc {
+        bail!("--mvc requires --gui and cannot be used with --app");
     }
     if options.mvc && !options.gui {
         bail!("--mvc requires --gui");
@@ -11002,8 +11078,20 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if options.gui_launcher.is_some() && !options.gui {
         bail!("--gui-launcher requires --gui");
     }
+    if options.app_launcher.is_some() && !options.app {
+        bail!("--app-launcher requires --app");
+    }
+    if options.app && options.backend != "winui" {
+        bail!(
+            "unsupported native app backend {:?}; supported backends: winui",
+            options.backend
+        );
+    }
     if options.gui && !native_gui_packaging_supported() {
         bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
+    }
+    if options.app && !options.linux_packages.is_empty() {
+        bail!("--linux-package is not supported with --app yet");
     }
     if !options.linux_packages.is_empty() {
         ensure_linux_package_host()?;
@@ -11011,6 +11099,8 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
 
     let package_kind = if options.mvc {
         EmbeddedAppKind::MvcGui
+    } else if options.app {
+        EmbeddedAppKind::NativeApp
     } else if options.gui {
         EmbeddedAppKind::Gui
     } else if options.tui {
@@ -11023,7 +11113,11 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     } else {
         compile_source_file(Path::new(path))?.to_bytes()?
     };
-    let launcher = package_launcher(options.gui, options.gui_launcher)?;
+    let launcher = if options.app {
+        package_app_launcher(options.app_launcher)?
+    } else {
+        package_launcher(options.gui, options.gui_launcher)?
+    };
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -11058,6 +11152,9 @@ struct PackageOptions<'a> {
     gui: bool,
     mvc: bool,
     gui_launcher: Option<&'a Path>,
+    app: bool,
+    backend: &'a str,
+    app_launcher: Option<&'a Path>,
     linux_packages: &'a [LinuxPackageFormat],
     package_name: Option<&'a str>,
     package_version: &'a str,
@@ -11402,6 +11499,35 @@ fn package_launcher(gui: bool, gui_launcher: Option<&Path>) -> Result<PathBuf> {
 
     bail!(
         "rco package --gui requires the rco-gui launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-gui` or pass --gui-launcher PATH"
+    )
+}
+
+fn package_app_launcher(app_launcher: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = app_launcher {
+        if !path.is_file() {
+            bail!("native app launcher does not exist: {}", path.display());
+        }
+        return Ok(path.to_path_buf());
+    }
+
+    let current_exe =
+        std::env::current_exe().context("failed to locate current Ricochet executable")?;
+    if current_exe
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem == "rco-app")
+    {
+        return Ok(current_exe);
+    }
+
+    let app_launcher =
+        current_exe.with_file_name(format!("rco-app{}", std::env::consts::EXE_SUFFIX));
+    if app_launcher.is_file() {
+        return Ok(app_launcher);
+    }
+
+    bail!(
+        "rco package --app requires the rco-app launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-app` or pass --app-launcher PATH"
     )
 }
 
@@ -11972,6 +12098,7 @@ fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
 fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
     for kind in [
         EmbeddedAppKind::MvcGui,
+        EmbeddedAppKind::NativeApp,
         EmbeddedAppKind::Gui,
         EmbeddedAppKind::Tui,
         EmbeddedAppKind::Console,
@@ -12008,7 +12135,10 @@ fn embedded_app_from_bytes_with_marker(
     let payload_start = marker_start - chunk_len;
     let payload_bytes = &bytes[payload_start..marker_start];
     let payload = match kind {
-        EmbeddedAppKind::Console | EmbeddedAppKind::Tui | EmbeddedAppKind::Gui => {
+        EmbeddedAppKind::Console
+        | EmbeddedAppKind::Tui
+        | EmbeddedAppKind::Gui
+        | EmbeddedAppKind::NativeApp => {
             EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
         }
         EmbeddedAppKind::MvcGui => {

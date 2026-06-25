@@ -6585,6 +6585,46 @@ fn app_replays_events_before_exporting_native_ui_json() {
     );
 }
 
+#[test]
+fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let output_path = root.join(format!("native-app{}", std::env::consts::EXE_SUFFIX));
+    let export_path = root.join("packaged-ui.json");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("app.rco")
+        .arg("--app")
+        .arg("--backend")
+        .arg("winui")
+        .arg("--app-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-app"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --app should launch");
+    assert_run_success_for("rco package --app", "app.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_APP_EXPORT_UI_JSON", &export_path)
+        .output()
+        .expect("packaged native app should launch");
+    assert_run_success_for("packaged native app", "native-app", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("packaged UI export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("packaged UI export should parse");
+    assert_eq!(exported["backend"], "winui");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
