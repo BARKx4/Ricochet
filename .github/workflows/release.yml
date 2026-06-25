@@ -248,6 +248,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux native UI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+
       - name: Import Linux GPG signing key
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash

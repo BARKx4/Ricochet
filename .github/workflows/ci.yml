@@ -21,6 +21,12 @@ jobs:
         with:
           components: clippy,rustfmt
 
+      - name: Install Linux native UI dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
