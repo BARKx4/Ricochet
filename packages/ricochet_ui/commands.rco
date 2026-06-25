@@ -1,0 +1,90 @@
+(( Portable imperative UI command helpers. ))
+( type target payload required -> Map ) ui_command function
+  required var
+  payload var
+  target var
+  type var
+  command map
+  $command "schema_version" 1 put! drop
+  $command "type" $type put! drop
+  $command "target" $target put! drop
+  $command "payload" $payload put! drop
+  $command "required" $required put! drop
+  $command
+end
+
+( target -> Map ) ui_focus function
+  target var
+  payload map
+  "focus" $target $payload true ui_command
+end
+
+( target -> Map ) ui_open_dialog function
+  target var
+  payload map
+  "open_dialog" $target $payload true ui_command
+end
+
+( target -> Map ) ui_close_dialog function
+  target var
+  payload map
+  "close_dialog" $target $payload true ui_command
+end
+
+( title message -> Map ) ui_show_message function
+  message var
+  title var
+  payload map
+  $payload "title" $title put! drop
+  $payload "message" $message put! drop
+  "show_message" "window" $payload true ui_command
+end
+
+( id title -> Map ) ui_open_file_picker function
+  title var
+  id var
+  payload map
+  $payload "title" $title put! drop
+  "open_file_picker" $id $payload true ui_command
+end
+
+( id title -> Map ) ui_save_file_picker function
+  title var
+  id var
+  payload map
+  $payload "title" $title put! drop
+  "save_file_picker" $id $payload true ui_command
+end
+
+( id title -> Map ) ui_open_folder_picker function
+  title var
+  id var
+  payload map
+  $payload "title" $title put! drop
+  "open_folder_picker" $id $payload true ui_command
+end
+
+( text -> Map ) ui_clipboard_write function
+  text var
+  payload map
+  $payload "text" $text put! drop
+  "clipboard_write" "clipboard" $payload true ui_command
+end
+
+( target -> Map ) ui_scroll_into_view function
+  target var
+  payload map
+  "scroll_into_view" $target $payload false ui_command
+end
+
+( state -> Map ) ui_set_window_state function
+  state var
+  payload map
+  $payload "state" $state put! drop
+  "set_window_state" "window" $payload true ui_command
+end
+
+( -> Map ) ui_close_window function
+  payload map
+  "close_window" "window" $payload true ui_command
+end

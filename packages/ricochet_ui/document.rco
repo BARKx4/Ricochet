@@ -151,6 +151,222 @@ end
   $id "grid" $props $children $events $native ui_node
 end
 
+( id orientation first second -> Map ) ui_split_pane function
+  second var
+  first var
+  orientation var
+  id var
+  props map
+  $props "orientation" $orientation put! drop
+  children array
+  $children $first push! drop
+  $children $second push! drop
+  events array
+  native map
+  $id "split_pane" $props $children $events $native ui_node
+end
+
+( id child -> Map ) ui_scroll_view function
+  child var
+  id var
+  props map
+  children array
+  $children $child push! drop
+  events array
+  native map
+  $id "scroll_view" $props $children $events $native ui_node
+end
+
+( id title children -> Map ) ui_group function
+  children var
+  title var
+  id var
+  props map
+  $props "title" $title put! drop
+  events array
+  native map
+  $id "group" $props $children $events $native ui_node
+end
+
+( id -> Map ) ui_spacer function
+  id var
+  props map
+  children array
+  events array
+  native map
+  $id "spacer" $props $children $events $native ui_node
+end
+
+( id items selectedIds -> Map ) ui_list function
+  selectedIds var
+  items var
+  id var
+  props map
+  $props "items" $items put! drop
+  $props "selected_ids" $selectedIds put! drop
+  children array
+  events array
+  $events "select" push! drop
+  $events "activate" push! drop
+  native map
+  $id "list" $props $children $events $native ui_node
+end
+
+( id label children -> Map ) ui_tree_node function
+  children var
+  label var
+  id var
+  node map
+  props map
+  $node "id" $id put! drop
+  $node "label" $label put! drop
+  $node "props" $props put! drop
+  $node "children" $children put! drop
+  $node
+end
+
+( id nodes expandedIds selectedIds -> Map ) ui_tree function
+  selectedIds var
+  expandedIds var
+  nodes var
+  id var
+  props map
+  $props "nodes" $nodes put! drop
+  $props "expanded_ids" $expandedIds put! drop
+  $props "selected_ids" $selectedIds put! drop
+  children array
+  events array
+  $events "select" push! drop
+  $events "activate" push! drop
+  $events "expand" push! drop
+  $events "collapse" push! drop
+  $events "drag_start" push! drop
+  $events "drag_over" push! drop
+  $events "drop" push! drop
+  native map
+  $id "tree" $props $children $events $native ui_node
+end
+
+( id title kind width -> Map ) ui_grid_column function
+  width var
+  kind var
+  title var
+  id var
+  column map
+  $column "id" $id put! drop
+  $column "title" $title put! drop
+  $column "kind" $kind put! drop
+  $column "width" $width put! drop
+  $column
+end
+
+( id cells -> Map ) ui_grid_row function
+  cells var
+  id var
+  row map
+  $row "id" $id put! drop
+  $row "cells" $cells put! drop
+  $row
+end
+
+( id columns rows selectedRowIds -> Map ) ui_data_grid function
+  selectedRowIds var
+  rows var
+  columns var
+  id var
+  props map
+  $props "columns" $columns put! drop
+  $props "rows" $rows put! drop
+  $props "selected_row_ids" $selectedRowIds put! drop
+  children array
+  events array
+  $events "select" push! drop
+  $events "activate" push! drop
+  $events "sort" push! drop
+  $events "filter" push! drop
+  native map
+  $id "data_grid" $props $children $events $native ui_node
+end
+
+( id items -> Map ) ui_menu_bar function
+  items var
+  id var
+  props map
+  $props "items" $items put! drop
+  children array
+  events array
+  native map
+  $id "menu_bar" $props $children $events $native ui_node
+end
+
+( id items -> Map ) ui_command_bar function
+  items var
+  id var
+  props map
+  $props "items" $items put! drop
+  children array
+  events array
+  native map
+  $id "command_bar" $props $children $events $native ui_node
+end
+
+( id items -> Map ) ui_context_menu function
+  items var
+  id var
+  props map
+  $props "items" $items put! drop
+  children array
+  events array
+  native map
+  $id "context_menu" $props $children $events $native ui_node
+end
+
+( id label shortcut -> Map ) ui_command_item function
+  shortcut var
+  label var
+  id var
+  item map
+  $item "id" $id put! drop
+  $item "label" $label put! drop
+  $item "shortcut" $shortcut put! drop
+  $item
+end
+
+( kind value -> Map ) ui_drag_payload function
+  value var
+  kind var
+  payload map
+  $payload "kind" $kind put! drop
+  $payload "value" $value put! drop
+  $payload
+end
+
+( node payload operations -> Map ) ui_drag_source function
+  operations var
+  payload var
+  node var
+  $node "props" at props var
+  drag map
+  $drag "payload" $payload put! drop
+  $drag "operations" $operations put! drop
+  $props "drag" $drag put! drop
+  $node "props" $props put! drop
+  $node
+end
+
+( node accepts operations -> Map ) ui_drop_target function
+  operations var
+  accepts var
+  node var
+  $node "props" at props var
+  dropTarget map
+  $dropTarget "accepts" $accepts put! drop
+  $dropTarget "operations" $operations put! drop
+  $props "drop" $dropTarget put! drop
+  $node "props" $props put! drop
+  $node
+end
+
 ( id title children -> Result ) ui_window function
   children var
   title var

@@ -1,0 +1,55 @@
+"./document" import
+
+(( Portable rich text document helpers. ))
+( text marks href -> Map ) ui_rich_span function
+  href var
+  marks var
+  text var
+  span map
+  $span "text" $text put! drop
+  $span "marks" $marks put! drop
+  $span "href" $href put! drop
+  $span
+end
+
+( spans -> Map ) ui_rich_paragraph function
+  spans var
+  paragraph map
+  $paragraph "type" "paragraph" put! drop
+  $paragraph "spans" $spans put! drop
+  $paragraph
+end
+
+( blocks -> Map ) ui_rich_document function
+  blocks var
+  document map
+  $document "schema_version" 1 put! drop
+  $document "blocks" $blocks put! drop
+  $document
+end
+
+( id document -> Map ) ui_rich_text function
+  document var
+  id var
+  props map
+  $props "document" $document put! drop
+  children array
+  events array
+  native map
+  $id "rich_text" $props $children $events $native ui_node
+end
+
+( id label document -> Map ) ui_rich_text_input function
+  document var
+  label var
+  id var
+  props map
+  $props "label" $label put! drop
+  $props "document" $document put! drop
+  children array
+  events array
+  $events "change" push! drop
+  $events "submit" push! drop
+  native map
+  $id "rich_text_input" $props $children $events $native ui_node
+end
