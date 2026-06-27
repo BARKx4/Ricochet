@@ -7920,17 +7920,18 @@ fn run_live_slint_backend(session: NativeAppSession, validate_only: bool) -> Res
     let rendered = session.render();
     let plan = slint_render_plan(&rendered.document)?;
     let definition = compile_slint_render_plan(&plan)?;
+
+    if validate_only || slint_validate_only_from_env() {
+        println!("Slint renderer validated {}", plan.title);
+        return Ok(());
+    }
+
     let instance = definition
         .create()
         .context("failed to create Slint renderer instance")?;
     instance
         .set_property("projection", slint_string_value(&plan.projection))
         .context("failed to initialize Slint projection property")?;
-
-    if validate_only || slint_validate_only_from_env() {
-        println!("Slint renderer validated {}", plan.title);
-        return Ok(());
-    }
 
     let session = Rc::new(RefCell::new(session));
     let instance_weak = instance.as_weak();
