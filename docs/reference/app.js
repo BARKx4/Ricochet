@@ -245,7 +245,7 @@ const WORDS = [
     "group": "data",
     "stack": "name?:string -> | -> array",
     "body": "With a name on top, declares a mutable array variable. With no name, pushes a new empty array. Anonymous construction is also available as `Array new`.",
-    "example": "users array\n$users \"Ada\" push! drop"
+    "example": "users array\n$users \"Ada\" push drop"
   },
   {
     "word": "map",
@@ -253,7 +253,7 @@ const WORDS = [
     "group": "data",
     "stack": "name?:string -> | -> map",
     "body": "With a name on top, declares a mutable map variable. With no name, pushes a new empty map. Anonymous construction is also available as `Map new`.",
-    "example": "settings map\n$settings \"theme\" \"dark\" put! drop"
+    "example": "settings map\n$settings \"theme\" \"dark\" put drop"
   },
   {
     "word": "var",
@@ -509,7 +509,7 @@ const WORDS = [
     "group": "web",
     "stack": "body:any -> action",
     "body": "Builds a JSON controller response from nil, bool, number, float, string, array, or map values.",
-    "example": "payload map\n$payload \"ok\" true put! drop\n$payload json"
+    "example": "payload map\n$payload \"ok\" true put drop\n$payload json"
   },
   {
     "word": "redirect",
@@ -637,7 +637,7 @@ const WORDS = [
     "group": "web",
     "stack": "attributes:map ModelClass -> result(record)",
     "body": "Inserts a row using mapped non-id fields and returns the inserted record.",
-    "example": "attributes map\n$attributes \"email\" \"ada@example.com\" put! drop\n$attributes User insert"
+    "example": "attributes map\n$attributes \"email\" \"ada@example.com\" put drop\n$attributes User insert"
   },
   {
     "word": "update",
@@ -645,7 +645,7 @@ const WORDS = [
     "group": "web",
     "stack": "id attributes:map ModelClass -> result(record)",
     "body": "Updates a row by id using mapped non-id fields and returns the updated record.",
-    "example": "updates map\n$updates \"email\" \"grace@example.com\" put! drop\n42 $updates User update"
+    "example": "updates map\n$updates \"email\" \"grace@example.com\" put drop\n42 $updates User update"
   },
   {
     "word": "*",
@@ -789,7 +789,7 @@ const WORDS = [
     "group": "collection",
     "stack": "name?:string -> | -> list",
     "body": "Declares a mutable list variable when given a name, otherwise pushes an empty list.",
-    "example": "queue list\n$queue 1 push! drop"
+    "example": "queue list\n$queue 1 push drop"
   },
   {
     "word": "Set",
@@ -797,7 +797,7 @@ const WORDS = [
     "group": "collection",
     "stack": "name?:string -> | -> Class(Set)",
     "body": "With a name on top, declares a mutable set variable. With no name, pushes the Set class for `Set new`.",
-    "example": "tags Set\n$tags \"rco\" push! drop"
+    "example": "tags Set\n$tags \"rco\" push drop"
   },
   {
     "word": "range",
@@ -808,52 +808,52 @@ const WORDS = [
     "example": "0 6 range"
   },
   {
-    "word": "push!",
+    "word": "push",
     "aliases": [],
     "group": "collection",
     "stack": "collection value -> sameCollection",
     "body": "Mutates an array, list, or set in place and returns the same collection for chaining.",
-    "example": "$users \"Ada\" push! \"Grace\" push! drop"
+    "example": "$users \"Ada\" push \"Grace\" push drop"
   },
   {
-    "word": "put!",
+    "word": "put",
     "aliases": [],
     "group": "collection",
     "stack": "map key:string value:any -> sameMap",
     "body": "Mutates a map in place and returns the same map for chaining.",
-    "example": "$settings \"theme\" \"dark\" put! drop"
+    "example": "$settings \"theme\" \"dark\" put drop"
   },
   {
-    "word": "insert!",
+    "word": "insert_at",
     "aliases": [],
     "group": "collection",
     "stack": "index:number value:any array|list -> sameCollection",
     "body": "Inserts at a zero-based index.",
-    "example": "$users 1 \"Lin\" insert! drop"
+    "example": "$users 1 \"Lin\" insert_at drop"
   },
   {
-    "word": "remove!",
+    "word": "remove",
     "aliases": [],
     "group": "collection",
     "stack": "value:any collection -> sameCollection | key:string map -> sameMap",
     "body": "Removes a matching value from arrays/lists/sets or a key from maps.",
-    "example": "$settings \"theme\" remove! drop"
+    "example": "$settings \"theme\" remove drop"
   },
   {
-    "word": "remove_at!",
+    "word": "remove_at",
     "aliases": [],
     "group": "collection",
     "stack": "index:number array|list -> sameCollection",
     "body": "Removes the value at a zero-based index.",
-    "example": "$users 0 remove_at! drop"
+    "example": "$users 0 remove_at drop"
   },
   {
-    "word": "clear!",
+    "word": "clear_items",
     "aliases": [],
     "group": "collection",
     "stack": "collection -> sameCollection",
     "body": "Clears a mutable collection in place.",
-    "example": "$users clear! drop"
+    "example": "$users clear_items drop"
   },
   {
     "word": "at",
@@ -1405,7 +1405,7 @@ const WORDS = [
     "group": "result",
     "stack": "result options:map -> map",
     "body": "Converts a Result into a shared `{ ok, data, error, meta }` map for app and API boundaries. The options map becomes `meta`; when it contains a non-empty string `capability`, error envelopes also include `error.capability`. Error `code` currently mirrors the Result kind.",
-    "example": "options map\n$options \"capability\" \"workspace.read\" put! drop\n\"payload\" ok $options result_envelope"
+    "example": "options map\n$options \"capability\" \"workspace.read\" put drop\n\"payload\" ok $options result_envelope"
   },
   {
     "word": "print",
@@ -1501,7 +1501,7 @@ const WORDS = [
     "group": "system",
     "stack": "config:map key-or-path:string|array -> result(value)",
     "body": "Reads a required config value from a map. A string reads one key; an array/list of strings walks nested maps and returns a `ConfigError` result if the path is missing.",
-    "example": "path array\n$path \"provider\" push! drop\n$path \"token\" push! drop\n$config $path config_get value"
+    "example": "path array\n$path \"provider\" push drop\n$path \"token\" push drop\n$config $path config_get value"
   },
   {
     "word": "cwd",
@@ -1605,7 +1605,7 @@ const WORDS = [
     "group": "system",
     "stack": "command:string args:array options:map -> result(map)",
     "body": "Starts a command in a real pseudo-terminal when the PTY capability is enabled. Options include `cwd`, `clear_env`, `env`, `rows`, `cols`, and `output_max_bytes`.",
-    "example": "args array\n$args \"repl\" push! drop\noptions map\n\"rco\" $args $options pty_start value"
+    "example": "args array\n$args \"repl\" push drop\noptions map\n\"rco\" $args $options pty_start value"
   },
   {
     "word": "pty_write",
@@ -2021,7 +2021,7 @@ const WORDS = [
     "group": "system",
     "stack": "path:string options:map -> result(map)",
     "body": "Deletes a workspace file, symlink, empty directory, or recursive directory when filesystem writes are enabled. Options include `recursive` and `missing_ok`, both defaulting to false. The configured filesystem root itself is never deleted.",
-    "example": "options map\n$options \"recursive\" true put! drop\n\"tmp/cache\" $options workspace_delete value"
+    "example": "options map\n$options \"recursive\" true put drop\n\"tmp/cache\" $options workspace_delete value"
   },
   {
     "word": "workspace_copy",
@@ -2101,7 +2101,7 @@ const WORDS = [
     "group": "system",
     "stack": "request:map -> result(map)",
     "body": "Runs an HTTP request from a map with `url`, optional `method`, optional `headers`, and optional `json` or string `body`. Request maps may also include `timeout_ms`, `max_response_bytes`, `allowed_hosts`, `allowed_schemes`, and `follow_redirects=false`; redirects remain disabled.",
-    "example": "$request \"timeout_ms\" 30000 put! drop\n$request http_request value"
+    "example": "$request \"timeout_ms\" 30000 put drop\n$request http_request value"
   },
   {
     "word": "http_post_json",
@@ -2157,7 +2157,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Reads retained HTTP stream body text from `offset`, optionally bounded by `max_bytes`, and returns the same snapshot fields plus `body`, `from_offset`, `next_offset`, backward-compatible `offset` as the next offset, `bytes_len`, and `done`. Missing or nil `offset` starts at 0; missing or nil `max_bytes` reads all currently retained bytes from that offset. `done` is true only when the stream is no longer running and the read consumed all retained bytes.",
-    "example": "options map\n$options \"max_bytes\" 4096 put! drop\n$stream \"id\" at $options http_stream_read value"
+    "example": "options map\n$options \"max_bytes\" 4096 put drop\n$stream \"id\" at $options http_stream_read value"
   },
   {
     "word": "http_stream_cancel",
@@ -2197,7 +2197,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Reads a bounded chunk from a retained MVC upload stream. Options may include `offset` and `max_bytes`; the result includes upload metadata plus `offset`, `next_offset`, `eof`, `bytes_len`, `data_base64`, and UTF-8 `text` when available.",
-    "example": "options map\noptions \"max_bytes\" 4096 put! drop\n$file \"stream_id\" at $options upload_read value"
+    "example": "options map\noptions \"max_bytes\" 4096 put drop\n$file \"stream_id\" at $options upload_read value"
   },
   {
     "word": "upload_release",

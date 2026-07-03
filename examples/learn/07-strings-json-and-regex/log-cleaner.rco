@@ -17,8 +17,8 @@ $cleaned "user=" contains? println
 $cleaned ":" split count println
 
 payload map
-$payload "ok" true put! drop
-$payload "name" "Ada" put! drop
+$payload "ok" true put drop
+$payload "name" "Ada" put drop
 $payload json_encode json var
 
 "json:" print

@@ -12,7 +12,7 @@ $getResponse "status" at println
 $getResponse "body" at println
 
 payload map
-$payload "message" "hello from Ricochet" put! drop
+$payload "message" "hello from Ricochet" put drop
 
 "POST JSON status:" print
 $baseUrl "/messages" concat $payload http_post_json value postResponse var
@@ -54,25 +54,25 @@ $requestTask release_task drop
 
 "GET" $baseUrl "/stream" concat http_request_new value streamRequest var
 $streamRequest 3000 http_timeout value streamRequest set
-$streamRequest "max_response_bytes" 128 put! drop
+$streamRequest "max_response_bytes" 128 put drop
 $streamRequest http_stream_start value stream var
 $stream "id" at streamId var
 
 25 sleep
 
 readOptions map
-$readOptions "max_bytes" 6 put! drop
+$readOptions "max_bytes" 6 put drop
 
 $streamId $readOptions http_stream_read value firstChunk var
 "Stream first chunk:" print
 $firstChunk "body" at println
 
-$readOptions "offset" $firstChunk "next_offset" at put! drop
+$readOptions "offset" $firstChunk "next_offset" at put drop
 $streamId $readOptions http_stream_read value secondChunk var
 "Stream second chunk:" print
 $secondChunk "body" at println
 
-$readOptions "offset" $secondChunk "next_offset" at put! drop
+$readOptions "offset" $secondChunk "next_offset" at put drop
 
 $streamId http_stream value streamState var
 $streamState "running" at while

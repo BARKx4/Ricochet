@@ -4,10 +4,10 @@
   id var
   type var
   event map
-  $event "schema_version" 1 put! drop
-  $event "type" $type put! drop
-  $event "id" $id put! drop
-  $event "value" $value put! drop
+  $event "schema_version" 1 put drop
+  $event "type" $type put drop
+  $event "id" $id put drop
+  $event "value" $value put drop
   $event
 end
 

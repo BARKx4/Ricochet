@@ -1,13 +1,13 @@
 (( Run with: rco run examples/collections.rco ))
 
 users array
-$users "Ada" push! drop
-$users "Grace" push! drop
-$users 1 "Lin" insert! drop
-$users 1 remove_at! drop
+$users "Ada" push drop
+$users "Grace" push drop
+$users 1 "Lin" insert_at drop
+$users 1 remove_at drop
 
 settings map
-$settings "theme" "dark" put! drop
+$settings "theme" "dark" put drop
 
 0 6 range numbers var
 [ 2 * ] $numbers transform doubled var
@@ -29,11 +29,11 @@ $settings keys count println
 [ 8 = ] $doubled find println
 
 queue list
-$queue 1 push! drop
-$queue 2 push! drop
+$queue 1 push drop
+$queue 2 push drop
 $queue count println
 
 tags Set
-$tags "rco" push! drop
-$tags "rco" push! drop
+$tags "rco" push drop
+$tags "rco" push drop
 $tags count println

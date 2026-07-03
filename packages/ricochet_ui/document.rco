@@ -7,13 +7,13 @@
   type var
   id var
   node map
-  $node "schema_version" 1 put! drop
-  $node "id" $id put! drop
-  $node "type" $type put! drop
-  $node "props" $props put! drop
-  $node "children" $children put! drop
-  $node "events" $events put! drop
-  $node "native_options" $nativeOptions put! drop
+  $node "schema_version" 1 put drop
+  $node "id" $id put drop
+  $node "type" $type put drop
+  $node "props" $props put drop
+  $node "children" $children put drop
+  $node "events" $events put drop
+  $node "native_options" $nativeOptions put drop
   $node
 end
 
@@ -21,7 +21,7 @@ end
   text var
   id var
   props map
-  $props "text" $text put! drop
+  $props "text" $text put drop
   children array
   events array
   native map
@@ -33,8 +33,8 @@ end
   text var
   id var
   props map
-  $props "text" $text put! drop
-  $props "level" $level put! drop
+  $props "text" $text put drop
+  $props "level" $level put drop
   children array
   events array
   native map
@@ -45,10 +45,10 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
+  $props "label" $label put drop
   children array
   events array
-  $events "click" push! drop
+  $events "click" push drop
   native map
   $id "button" $props $children $events $native ui_node
 end
@@ -58,12 +58,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
   children array
   events array
-  $events "change" push! drop
-  $events "submit" push! drop
+  $events "change" push drop
+  $events "submit" push drop
   native map
   $id "text_input" $props $children $events $native ui_node
 end
@@ -73,12 +73,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
   children array
   events array
-  $events "change" push! drop
-  $events "submit" push! drop
+  $events "change" push drop
+  $events "submit" push drop
   native map
   $id "multiline_text_input" $props $children $events $native ui_node
 end
@@ -88,11 +88,11 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "checked" $checked put! drop
+  $props "label" $label put drop
+  $props "checked" $checked put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "checkbox" $props $children $events $native ui_node
 end
@@ -102,11 +102,11 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "checked" $checked put! drop
+  $props "label" $label put drop
+  $props "checked" $checked put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "toggle" $props $children $events $native ui_node
 end
@@ -117,12 +117,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
-  $props "options" $options put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
+  $props "options" $options put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "select" $props $children $events $native ui_node
 end
@@ -132,7 +132,7 @@ end
   orientation var
   id var
   props map
-  $props "orientation" $orientation put! drop
+  $props "orientation" $orientation put drop
   events array
   native map
   $id "stack" $props $children $events $native ui_node
@@ -144,8 +144,8 @@ end
   columns var
   id var
   props map
-  $props "columns" $columns put! drop
-  $props "rows" $rows put! drop
+  $props "columns" $columns put drop
+  $props "rows" $rows put drop
   events array
   native map
   $id "grid" $props $children $events $native ui_node
@@ -157,10 +157,10 @@ end
   orientation var
   id var
   props map
-  $props "orientation" $orientation put! drop
+  $props "orientation" $orientation put drop
   children array
-  $children $first push! drop
-  $children $second push! drop
+  $children $first push drop
+  $children $second push drop
   events array
   native map
   $id "split_pane" $props $children $events $native ui_node
@@ -171,7 +171,7 @@ end
   id var
   props map
   children array
-  $children $child push! drop
+  $children $child push drop
   events array
   native map
   $id "scroll_view" $props $children $events $native ui_node
@@ -182,7 +182,7 @@ end
   title var
   id var
   props map
-  $props "title" $title put! drop
+  $props "title" $title put drop
   events array
   native map
   $id "group" $props $children $events $native ui_node
@@ -202,12 +202,12 @@ end
   items var
   id var
   props map
-  $props "items" $items put! drop
-  $props "selected_ids" $selectedIds put! drop
+  $props "items" $items put drop
+  $props "selected_ids" $selectedIds put drop
   children array
   events array
-  $events "select" push! drop
-  $events "activate" push! drop
+  $events "select" push drop
+  $events "activate" push drop
   native map
   $id "list" $props $children $events $native ui_node
 end
@@ -218,10 +218,10 @@ end
   id var
   node map
   props map
-  $node "id" $id put! drop
-  $node "label" $label put! drop
-  $node "props" $props put! drop
-  $node "children" $children put! drop
+  $node "id" $id put drop
+  $node "label" $label put drop
+  $node "props" $props put drop
+  $node "children" $children put drop
   $node
 end
 
@@ -231,18 +231,18 @@ end
   nodes var
   id var
   props map
-  $props "nodes" $nodes put! drop
-  $props "expanded_ids" $expandedIds put! drop
-  $props "selected_ids" $selectedIds put! drop
+  $props "nodes" $nodes put drop
+  $props "expanded_ids" $expandedIds put drop
+  $props "selected_ids" $selectedIds put drop
   children array
   events array
-  $events "select" push! drop
-  $events "activate" push! drop
-  $events "expand" push! drop
-  $events "collapse" push! drop
-  $events "drag_start" push! drop
-  $events "drag_over" push! drop
-  $events "drop" push! drop
+  $events "select" push drop
+  $events "activate" push drop
+  $events "expand" push drop
+  $events "collapse" push drop
+  $events "drag_start" push drop
+  $events "drag_over" push drop
+  $events "drop" push drop
   native map
   $id "tree" $props $children $events $native ui_node
 end
@@ -253,10 +253,10 @@ end
   title var
   id var
   column map
-  $column "id" $id put! drop
-  $column "title" $title put! drop
-  $column "kind" $kind put! drop
-  $column "width" $width put! drop
+  $column "id" $id put drop
+  $column "title" $title put drop
+  $column "kind" $kind put drop
+  $column "width" $width put drop
   $column
 end
 
@@ -264,8 +264,8 @@ end
   cells var
   id var
   row map
-  $row "id" $id put! drop
-  $row "cells" $cells put! drop
+  $row "id" $id put drop
+  $row "cells" $cells put drop
   $row
 end
 
@@ -275,15 +275,15 @@ end
   columns var
   id var
   props map
-  $props "columns" $columns put! drop
-  $props "rows" $rows put! drop
-  $props "selected_row_ids" $selectedRowIds put! drop
+  $props "columns" $columns put drop
+  $props "rows" $rows put drop
+  $props "selected_row_ids" $selectedRowIds put drop
   children array
   events array
-  $events "select" push! drop
-  $events "activate" push! drop
-  $events "sort" push! drop
-  $events "filter" push! drop
+  $events "select" push drop
+  $events "activate" push drop
+  $events "sort" push drop
+  $events "filter" push drop
   native map
   $id "data_grid" $props $children $events $native ui_node
 end
@@ -292,7 +292,7 @@ end
   items var
   id var
   props map
-  $props "items" $items put! drop
+  $props "items" $items put drop
   children array
   events array
   native map
@@ -303,7 +303,7 @@ end
   items var
   id var
   props map
-  $props "items" $items put! drop
+  $props "items" $items put drop
   children array
   events array
   native map
@@ -314,7 +314,7 @@ end
   items var
   id var
   props map
-  $props "items" $items put! drop
+  $props "items" $items put drop
   children array
   events array
   native map
@@ -326,9 +326,9 @@ end
   label var
   id var
   item map
-  $item "id" $id put! drop
-  $item "label" $label put! drop
-  $item "shortcut" $shortcut put! drop
+  $item "id" $id put drop
+  $item "label" $label put drop
+  $item "shortcut" $shortcut put drop
   $item
 end
 
@@ -336,8 +336,8 @@ end
   value var
   kind var
   payload map
-  $payload "kind" $kind put! drop
-  $payload "value" $value put! drop
+  $payload "kind" $kind put drop
+  $payload "value" $value put drop
   $payload
 end
 
@@ -347,10 +347,10 @@ end
   node var
   $node "props" at props var
   drag map
-  $drag "payload" $payload put! drop
-  $drag "operations" $operations put! drop
-  $props "drag" $drag put! drop
-  $node "props" $props put! drop
+  $drag "payload" $payload put drop
+  $drag "operations" $operations put drop
+  $props "drag" $drag put drop
+  $node "props" $props put drop
   $node
 end
 
@@ -360,10 +360,10 @@ end
   node var
   $node "props" at props var
   dropTarget map
-  $dropTarget "accepts" $accepts put! drop
-  $dropTarget "operations" $operations put! drop
-  $props "drop" $dropTarget put! drop
-  $node "props" $props put! drop
+  $dropTarget "accepts" $accepts put drop
+  $dropTarget "operations" $operations put drop
+  $props "drop" $dropTarget put drop
+  $node "props" $props put drop
   $node
 end
 
@@ -372,9 +372,9 @@ end
   title var
   id var
   props map
-  $props "title" $title put! drop
+  $props "title" $title put drop
   events array
-  $events "close" push! drop
+  $events "close" push drop
   native map
   $id "window" $props $children $events $native ui_node ok
 end
@@ -384,12 +384,12 @@ end
   document var
   state var
   response map
-  $response "schema_version" 1 put! drop
-  $response "state" $state put! drop
-  $response "document" $document put! drop
-  $response "commands" $commands put! drop
+  $response "schema_version" 1 put drop
+  $response "state" $state put drop
+  $response "document" $document put drop
+  $response "commands" $commands put drop
   diagnostics array
-  $response "diagnostics" $diagnostics put! drop
+  $response "diagnostics" $diagnostics put drop
   $response ok
 end
 
@@ -400,9 +400,9 @@ end
   node var
   $node "native_options" at nativeOptions var
   backendOptions map
-  $backendOptions "required" $required put! drop
-  $backendOptions "options" $options put! drop
-  $nativeOptions $backend $backendOptions put! drop
-  $node "native_options" $nativeOptions put! drop
+  $backendOptions "required" $required put drop
+  $backendOptions "options" $options put drop
+  $nativeOptions $backend $backendOptions put drop
+  $node "native_options" $nativeOptions put drop
   $node
 end

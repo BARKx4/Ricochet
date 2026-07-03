@@ -90,34 +90,34 @@
 <h2>What you will build</h2>
 <p>You will build a task-list data workflow with arrays, maps, mutation, lookup, and summary operations.</p>
 <h2>Concepts in plain English</h2>
-<p>A list or array is ordered. A map stores values under keys. A set stores unique values. Mutation words ending in <code>!</code> change a collection. Higher-order collection words such as <code>transform</code>, <code>select</code>, and <code>reduce</code> run a block against items.</p>
+<p>A list or array is ordered. A map stores values under keys. A set stores unique values. Collection mutation words change a collection in place and return it. Higher-order collection words such as <code>transform</code>, <code>select</code>, and <code>reduce</code> run a block against items.</p>
 <h2>Words introduced</h2>
-<p>Primary words: <code>list</code>, <code>Set</code>, <code>range</code>, <code>push!</code>, <code>put!</code>, <code>insert!</code>, <code>remove!</code>, <code>remove_at!</code>, <code>clear!</code>, <code>at</code>, <code>count</code>, <code>first</code>, <code>last</code>, <code>take</code>, <code>skip</code>, <code>reverse</code>, <code>has?</code>, <code>keys</code>, <code>values</code>, <code>each</code>, <code>transform</code>, <code>select</code>, <code>reduce</code>, <code>find</code>, <code>any?</code>, <code>all?</code>, <code>join</code>, and <code>length</code>.</p>
+<p>Primary words: <code>list</code>, <code>Set</code>, <code>range</code>, <code>push</code>, <code>put</code>, <code>insert_at</code>, <code>remove</code>, <code>remove_at</code>, <code>clear_items</code>, <code>at</code>, <code>count</code>, <code>first</code>, <code>last</code>, <code>take</code>, <code>skip</code>, <code>reverse</code>, <code>has?</code>, <code>keys</code>, <code>values</code>, <code>each</code>, <code>transform</code>, <code>select</code>, <code>reduce</code>, <code>find</code>, <code>any?</code>, <code>all?</code>, <code>join</code>, and <code>length</code>.</p>
 <h2>Guided example</h2>
 <p>Run the collection example:</p>
 <pre><code class="language-bash">rco run examples/learn/08-collections/main.rco
 </code></pre>
 <p>The example uses an array as an ordered list:</p>
 <pre><code class="language-rco">tasks array
-$tasks &quot;read the chapter&quot; push! drop
-$tasks &quot;run the example&quot; push! drop
-$tasks &quot;change one line&quot; push! drop
+$tasks &quot;read the chapter&quot; push drop
+$tasks &quot;run the example&quot; push drop
+$tasks &quot;change one line&quot; push drop
 </code></pre>
 <p>It uses a map for named fields:</p>
 <pre><code class="language-rco">details map
-$details &quot;owner&quot; &quot;Ada&quot; put! drop
-$details &quot;status&quot; &quot;open&quot; put! drop
+$details &quot;owner&quot; &quot;Ada&quot; put drop
+$details &quot;status&quot; &quot;open&quot; put drop
 </code></pre>
 <p>The container comes before the key:</p>
 <pre><code class="language-rco">$details &quot;owner&quot; at println
 </code></pre>
 <h2>How to read the code</h2>
 <p>Mutation words usually return the collection they changed. That makes chaining possible, but beginner examples often use <code>drop</code> to keep the final stack clean.</p>
-<pre><code class="language-rco">$tasks &quot;read the chapter&quot; push! drop
+<pre><code class="language-rco">$tasks &quot;read the chapter&quot; push drop
 </code></pre>
 <p>Read it as: get the tasks array, put the new item on the stack, push the item, drop the returned array.</p>
 <p>The same container-first rule appears in maps:</p>
-<pre><code class="language-rco">$details &quot;status&quot; &quot;done&quot; put! drop
+<pre><code class="language-rco">$details &quot;status&quot; &quot;done&quot; put drop
 $details &quot;status&quot; at println
 </code></pre>
 <h2>Try it</h2>
@@ -134,14 +134,14 @@ $details keys &quot;, &quot; join println
 <h2>Check your understanding</h2>
 <ul>
 <li><code>at</code> reads with <code>container key at</code>.</li>
-<li><code>put!</code> writes with <code>container key value put!</code>.</li>
-<li><code>push!</code> mutates and returns the collection.</li>
+<li><code>put</code> writes with <code>container key value put</code>.</li>
+<li><code>push</code> mutates and returns the collection.</li>
 <li><code>transform</code> takes a block and applies it to each item.</li>
 </ul>
 <h2>Common mistakes</h2>
 <ul>
 <li>Forgetting that collection mutation can affect shared values.</li>
-<li>Leaving the returned collection from <code>push!</code> or <code>put!</code> on the stack.</li>
+<li>Leaving the returned collection from <code>push</code> or <code>put</code> on the stack.</li>
 <li>Using higher-order words before the block shape is clear.</li>
 <li>Reversing the map order. Use <code>container key at</code>, not <code>key container at</code>.</li>
 </ul>

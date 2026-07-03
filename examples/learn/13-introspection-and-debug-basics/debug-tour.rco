@@ -3,8 +3,8 @@
 "Inspect tour" println
 
 settings map
-$settings "theme" "dark" put! drop
-$settings "retries" 3 put! drop
+$settings "theme" "dark" put drop
+$settings "retries" 3 put drop
 
 "settings type:" print
 $settings type println

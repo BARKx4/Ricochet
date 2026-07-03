@@ -74,11 +74,11 @@ end
   entries var
   summary map
 
-  $summary "entries" $entries count put! drop
-  $summary "minutes" $entries worklog_total_minutes put! drop
-  $summary "done" $entries "done" worklog_count_status put! drop
-  $summary "open" $entries "open" worklog_count_status put! drop
-  $summary "due_soon" $entries $today 7 worklog_due_soon_count put! drop
+  $summary "entries" $entries count put drop
+  $summary "minutes" $entries worklog_total_minutes put drop
+  $summary "done" $entries "done" worklog_count_status put drop
+  $summary "open" $entries "open" worklog_count_status put drop
+  $summary "due_soon" $entries $today 7 worklog_due_soon_count put drop
 
   $summary
 end

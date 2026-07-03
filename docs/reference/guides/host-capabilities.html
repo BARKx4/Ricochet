@@ -51,13 +51,13 @@
           <p>Workspace helpers provide structured filesystem access for local apps while preserving the same <code>--fs-root</code> and <code>--fs-readonly</code> bounds as the lower-level <code>fs_*</code> words. <code>fs_delete</code> removes a file, symlink, or empty directory; <code>workspace_delete</code> adds explicit <code>recursive</code> and <code>missing_ok</code> options and refuses to delete the configured filesystem root:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>options map
 writeOptions map
-$writeOptions &quot;create_parent_dirs&quot; true put! drop
+$writeOptions &quot;create_parent_dirs&quot; true put drop
 &quot;README.md&quot; $options workspace_read_text value readme var
 &quot;.&quot; $options workspace_list value entries var
 &quot;generated/out.txt&quot; &quot;hello&quot; $writeOptions workspace_write_text value written var
 $written &quot;relative_path&quot; at println
 deleteOptions map
-$deleteOptions &quot;recursive&quot; true put! drop
+$deleteOptions &quot;recursive&quot; true put drop
 &quot;generated&quot; $deleteOptions workspace_delete value drop
 runtime_capabilities &quot;workspace&quot; at &quot;root&quot; at println</code></pre>
           <h2 id="process-environment">Process Environment</h2>
@@ -69,16 +69,16 @@ $options &quot;GIT_TERMINAL_PROMPT&quot; &quot;0&quot; process_env_put value opt
           <h2 id="process-execution">Process Execution</h2>
           <p>Process execution is stronger than the ordinary trusted local profile and stays disabled unless you pass <code>--allow-process</code>. Use <code>process_spawn</code> with a direct command string, an argument array, and an options map when you want to run a process to completion. <code>--process-root PATH</code> narrows process and PTY <code>cwd</code> values independently from <code>--fs-root</code>; when omitted, process cwd containment falls back to the filesystem root if one is configured:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>args array
-$args &quot;status&quot; push! drop
+$args &quot;status&quot; push drop
 options map
-$options &quot;timeout_ms&quot; 10000 put! drop
+$options &quot;timeout_ms&quot; 10000 put drop
 &quot;git&quot; $args $options process_spawn value result var
 $result &quot;success&quot; at println</code></pre>
           <p>Use <code>process_start</code> for long-running jobs. The runtime keeps a retained job registry with bounded captured output, and it can be inspected across MVC requests with <code>process_jobs</code>, <code>process_job</code>, <code>process_read</code>, and <code>process_cancel</code>. Set <code>stdin_open</code> to true when the child needs incremental input through <code>process_write</code>. Release completed jobs with <code>process_release</code>:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>args array
-$args &quot;status&quot; push! drop
+$args &quot;status&quot; push drop
 options map
-$options &quot;stdout_max_bytes&quot; 1048576 put! drop
+$options &quot;stdout_max_bytes&quot; 1048576 put drop
 &quot;git&quot; $args $options process_start value job var
 readOptions map
 $job &quot;id&quot; at $readOptions process_read value output var
@@ -87,7 +87,7 @@ $job &quot;id&quot; at process_release value drop</code></pre>
           <h2 id="pty-sessions">PTY Sessions</h2>
           <p>PTY sessions are separate and also opt in. Use <code>--allow-pty</code> for trusted scripts or MVC apps that need a real pseudo-terminal. Command names and shell newlines are host-specific:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>args array
-$args &quot;repl&quot; push! drop
+$args &quot;repl&quot; push drop
 options map
 &quot;rco&quot; $args $options pty_start value session var
 $session &quot;id&quot; at &quot;1 2 +\r\n&quot; pty_write value drop
@@ -100,8 +100,8 @@ $session &quot;id&quot; at pty_release value drop</code></pre>
           <h2 id="approvals">Approvals</h2>
           <p>Approval records are runtime-local and shared across MVC requests. <code>approval_create</code> returns a generated token once; <code>approval_claim</code> consumes that token exactly once before the caller performs the mutating operation:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>operation map
-$operation &quot;capability&quot; &quot;workspace.write&quot; put! drop
-$operation &quot;summary&quot; &quot;Write generated file&quot; put! drop
+$operation &quot;capability&quot; &quot;workspace.write&quot; put drop
+$operation &quot;summary&quot; &quot;Write generated file&quot; put drop
 options map
 $operation $options approval_create value approval var
 $approval &quot;id&quot; at $approval &quot;token&quot; at approval_claim value claim var

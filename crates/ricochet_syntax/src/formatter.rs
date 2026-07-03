@@ -236,7 +236,6 @@ fn is_inline_expr(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::Symbol(_)
-            | Expr::BangWord(_)
             | Expr::DotWord(_)
             | Expr::Reference(_)
             | Expr::String(_)
@@ -297,7 +296,7 @@ fn split_if_sequence(
 
 fn format_expr_inline(expr: &Expr) -> String {
     match expr {
-        Expr::Symbol(word) | Expr::BangWord(word) => word.clone(),
+        Expr::Symbol(word) => word.clone(),
         Expr::DotWord(word) => word.clone(),
         Expr::Reference(name) => format!("${name}"),
         Expr::String(value) => format!("\"{}\"", escape_string(value)),

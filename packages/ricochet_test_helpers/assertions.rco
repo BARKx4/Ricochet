@@ -30,15 +30,15 @@ end
   name var
   value var
   fixture map
-  $fixture "name" $name put! drop
-  $fixture "value" $value put! drop
+  $fixture "name" $name put drop
+  $fixture "value" $value put drop
   $fixture
 end
 
 ( name -> Map ) test_workspace function
   name var
   workspace map
-  $workspace "name" $name put! drop
-  $workspace "root" ".tmp/" $name concat put! drop
+  $workspace "name" $name put drop
+  $workspace "root" ".tmp/" $name concat put drop
   $workspace
 end

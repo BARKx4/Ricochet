@@ -144,8 +144,8 @@ escape hatches for native polish:
 ```ricochet
 "save_button" "Save" ui_button
   "winui" map
-    "style" "AccentButtonStyle" put!
-    "icon" "Save" put!
+    "style" "AccentButtonStyle" put
+    "icon" "Save" put
   ui_native_options
 ```
 
@@ -171,7 +171,7 @@ functions. The initial shape is:
 ```ricochet
 ( -> Map ) app_init function
   state map
-  $state "count" 0 put! drop
+  $state "count" 0 put drop
   $state
 end
 
@@ -216,7 +216,7 @@ implementation, but the direction is stable.
 
 ( -> Map ) app_init function
   state map
-  $state "count" 0 put! drop
+  $state "count" 0 put drop
   $state
 end
 
@@ -228,13 +228,13 @@ end
     "count_label"
     "Count: " $state "count" at to_string concat
     ui_text
-    push! drop
+    push drop
 
   $children
     "increment_button"
     "Increment"
     ui_button
-    push! drop
+    push drop
 
   "Counter" $children ui_window value
 end
@@ -245,7 +245,7 @@ end
 
   $event "id" at "increment_button" = if
     $state "count" at 1 + count var
-    $state "count" $count put! drop
+    $state "count" $count put drop
   end
 
   $state app_view document var

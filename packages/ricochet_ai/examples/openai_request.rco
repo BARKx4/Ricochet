@@ -4,11 +4,11 @@ messages array
 
 message map
 
-$message "role" "user" put! drop
+$message "role" "user" put drop
 
-$message "content" "Say hello from Ricochet." put! drop
+$message "content" "Say hello from Ricochet." put drop
 
-$messages $message push! drop
+$messages $message push drop
 
 "https://api.openai.com/v1" "token" "gpt-4.1-mini" $messages ai_openai_chat_request json_encode println
 

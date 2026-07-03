@@ -5,7 +5,7 @@
   event var
   state var
   actions array
-  $actions "Save" "save-profile" "save_profile" webview_action push! drop
+  $actions "Save" "save-profile" "save_profile" webview_action push drop
   "Saved profile for " $state "name" at concat webview_text saved var
   "Ricochet Desktop UI" $saved $state $actions webview_window_state value
 end
@@ -18,11 +18,11 @@ end
 
 state map
 
-$state "name" "Ada" put! drop
+$state "name" "Ada" put drop
 
 actions array
 
-$actions "Save" "save-profile" "save_profile" webview_action push! drop
+$actions "Save" "save-profile" "save_profile" webview_action push drop
 
 "<main>" $heading concat
 

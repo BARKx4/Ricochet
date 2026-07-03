@@ -4,23 +4,23 @@
   label var
 
   entry map
-  $entry "label" $label put! drop
-  $entry "kind" $kind put! drop
-  $entry "amount" $amount put! drop
+  $entry "label" $label put drop
+  $entry "kind" $kind put drop
+  $entry "amount" $amount put drop
   $entry
 end
 
 ( -> Map ) ledger_sample_state function
   entries array
-  $entries "Client payment" "income" 2400 ledger_entry push! drop
-  $entries "Office rent" "expense" 650 ledger_entry push! drop
-  $entries "Tool <subscription>" "expense" 220 ledger_entry push! drop
-  $entries "Coffee" "expense" 80 ledger_entry push! drop
+  $entries "Client payment" "income" 2400 ledger_entry push drop
+  $entries "Office rent" "expense" 650 ledger_entry push drop
+  $entries "Tool <subscription>" "expense" 220 ledger_entry push drop
+  $entries "Coffee" "expense" 80 ledger_entry push drop
 
   state map
-  $state "entries" $entries put! drop
-  $state "filter" "all" put! drop
-  $state "reviewed" false put! drop
+  $state "entries" $entries put drop
+  $state "filter" "all" put drop
+  $state "reviewed" false put drop
   $state
 end
 
@@ -119,7 +119,7 @@ end
   webview_container body var
 
   actions array
-  $actions "Mark reviewed" "review" "mark_reviewed" webview_action push! drop
+  $actions "Mark reviewed" "review" "mark_reviewed" webview_action push drop
 
   "Ricochet Ledger" $body $state $actions webview_window_state value
 end
@@ -127,6 +127,6 @@ end
 ( state event -> Map ) mark_reviewed function
   event var
   state var
-  $state "reviewed" true put! drop
+  $state "reviewed" true put drop
   $state ledger_build_document
 end

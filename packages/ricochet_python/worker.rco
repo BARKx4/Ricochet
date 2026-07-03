@@ -16,14 +16,14 @@ end
   end
   $modulePath nil? false = if
     $modulePath blank? false = if
-      $envMap "PYTHONPATH" $modulePath put! drop
+      $envMap "PYTHONPATH" $modulePath put drop
     end
   end
-  $options "stdin_open" true put! drop
-  $options "stdout_max_bytes" 1048576 put! drop
-  $options "stderr_max_bytes" 262144 put! drop
-  $options "timeout_ms" 300000 put! drop
-  $options "env" $envMap put! drop
+  $options "stdin_open" true put drop
+  $options "stdout_max_bytes" 1048576 put drop
+  $options "stderr_max_bytes" 262144 put drop
+  $options "timeout_ms" 300000 put drop
+  $options "env" $envMap put drop
   $options
 end
 
@@ -33,20 +33,20 @@ end
   workerDir var
   python var
   args array
-  $args $workerDir py_worker_script_path push! drop
+  $args $workerDir py_worker_script_path push drop
   $modulePath $env py_worker_options options var
   $python $args $options process_start startResult var
   $startResult ok? if
     $startResult value snapshot var
     worker map
-    $worker "job_id" $snapshot "id" at put! drop
-    $worker "stdout_offset" 0 put! drop
-    $worker "stderr_offset" 0 put! drop
-    $worker "stdout_buffer" "" put! drop
-    $worker "next_id" 1 put! drop
-    $worker "python" $python put! drop
-    $worker "worker_dir" $workerDir put! drop
-    $worker "module_path" $modulePath put! drop
+    $worker "job_id" $snapshot "id" at put drop
+    $worker "stdout_offset" 0 put drop
+    $worker "stderr_offset" 0 put drop
+    $worker "stdout_buffer" "" put drop
+    $worker "next_id" 1 put drop
+    $worker "python" $python put drop
+    $worker "worker_dir" $workerDir put drop
+    $worker "module_path" $modulePath put drop
     $worker ok
   else
     $startResult
@@ -56,15 +56,15 @@ end
 ( worker -> Number ) py_worker_next_id function
   worker var
   $worker "next_id" at current var
-  $worker "next_id" $current 1 + put! drop
+  $worker "next_id" $current 1 + put drop
   $current
 end
 
 ( worker read -> Map ) py_worker_commit_read function
   read var
   worker var
-  $worker "stdout_offset" $read "stdout_offset" at put! drop
-  $worker "stderr_offset" $read "stderr_offset" at put! drop
+  $worker "stdout_offset" $read "stdout_offset" at put drop
+  $worker "stderr_offset" $read "stderr_offset" at put drop
   $worker
 end
 
@@ -97,8 +97,8 @@ end
     0 attempts var
     $finalResult nil? $attempts 200 < and while
       readOptions map
-      $readOptions "stdout_offset" $worker "stdout_offset" at put! drop
-      $readOptions "stderr_offset" $worker "stderr_offset" at put! drop
+      $readOptions "stdout_offset" $worker "stdout_offset" at put drop
+      $readOptions "stderr_offset" $worker "stderr_offset" at put drop
       $worker "job_id" at $readOptions process_read readResult var
       $readResult ok? false = if
         $readResult finalResult set
@@ -127,7 +127,7 @@ end
         end
         $lineIndex 1 + lineIndex set
       end
-      $worker "stdout_buffer" $nextBuffer put! drop
+      $worker "stdout_buffer" $nextBuffer put drop
       $finalResult nil? false = if
         break
       end

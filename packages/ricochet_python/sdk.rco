@@ -5,7 +5,7 @@
   module var
   worker var
   payload map
-  $payload "module" $module put! drop
+  $payload "module" $module put drop
   $worker "import" $payload py_worker_request
 end
 
@@ -14,8 +14,8 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
-  $payload "name" $name put! drop
+  $payload "target" $target put drop
+  $payload "name" $name put drop
   $worker "getattr" $payload py_worker_request
 end
 
@@ -25,9 +25,9 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
-  $payload "name" $name put! drop
-  $payload "value" $value put! drop
+  $payload "target" $target put drop
+  $payload "name" $name put drop
+  $payload "value" $value put drop
   $worker "setattr" $payload py_worker_request
 end
 
@@ -37,9 +37,9 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
-  $payload "args" $args put! drop
-  $payload "kwargs" $kwargs put! drop
+  $payload "target" $target put drop
+  $payload "args" $args put drop
+  $payload "kwargs" $kwargs put drop
   $worker "call" $payload py_worker_request
 end
 
@@ -59,9 +59,9 @@ end
   classPath var
   worker var
   payload map
-  $payload "class" $classPath put! drop
-  $payload "args" $args put! drop
-  $payload "kwargs" $kwargs put! drop
+  $payload "class" $classPath put drop
+  $payload "args" $args put drop
+  $payload "kwargs" $kwargs put drop
   $worker "construct" $payload py_worker_request
 end
 
@@ -72,10 +72,10 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
-  $payload "name" $name put! drop
-  $payload "args" $args put! drop
-  $payload "kwargs" $kwargs put! drop
+  $payload "target" $target put drop
+  $payload "name" $name put drop
+  $payload "args" $args put drop
+  $payload "kwargs" $kwargs put drop
   $worker "method" $payload py_worker_request
 end
 
@@ -83,7 +83,7 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
+  $payload "target" $target put drop
   $worker "dir" $payload py_worker_request
 end
 
@@ -91,7 +91,7 @@ end
   target var
   worker var
   payload map
-  $payload "target" $target put! drop
+  $payload "target" $target put drop
   $worker "inspect" $payload py_worker_request
 end
 
@@ -100,8 +100,8 @@ end
   module var
   worker var
   payload map
-  $payload "module" $module put! drop
-  $payload "include_private" $includePrivate put! drop
+  $payload "module" $module put drop
+  $payload "include_private" $includePrivate put drop
   $worker "exports" $payload py_worker_request
 end
 
@@ -109,6 +109,6 @@ end
   refs var
   worker var
   payload map
-  $payload "refs" $refs put! drop
+  $payload "refs" $refs put drop
   $worker "release" $payload py_worker_request
 end

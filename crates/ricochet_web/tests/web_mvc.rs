@@ -624,7 +624,7 @@ fn ricochet_controller_returns_json_response() {
 ApiController Controller Subclass
   [
     map
-    "name" "Ada" put!
+    "name" "Ada" put
     json
   ] "show" Method
 end
@@ -921,9 +921,9 @@ escape = "html"
 SessionController Controller Subclass
   [
     map payload var
-    payload get "id" ctx get "params" at "id" at put! drop
-    payload get "title" ctx get "form" at "title" at put! drop
-    payload get "metadata" ctx get "form" at "metadata" at put! drop
+    payload get "id" ctx get "params" at "id" at put drop
+    payload get "title" ctx get "form" at "title" at put drop
+    payload get "metadata" ctx get "form" at "metadata" at put drop
     payload get json
   ] "update" Method
 end
@@ -996,14 +996,14 @@ ProbeController Controller Subclass
     id var
 
     map data var
-    data get "id" id get put! drop
-    data get "name" name get put! drop
-    data get "status" status get put! drop
+    data get "id" id get put drop
+    data get "name" name get put drop
+    data get "status" status get put drop
 
     map response var
-    response get "ok" true put! drop
-    response get "data" data get put! drop
-    response get "error" nil put! drop
+    response get "ok" true put drop
+    response get "data" data get put drop
+    response get "error" nil put drop
     response get json
   ] "update" Method
 end
@@ -1099,13 +1099,13 @@ JsonController Controller Subclass
     id var
 
     map response var
-    response get "id" id get put! drop
-    response get "name" name get put! drop
-    response get "enabled" enabled get put! drop
-    response get "meta_kind" meta get "kind" at put! drop
-    response get "tags_count" tags get count put! drop
-    response get "ctx_name" ctx get "request" at "json" at "name" at put! drop
-    response get "body_kind" ctx get "request" at "body" at "meta" at "kind" at put! drop
+    response get "id" id get put drop
+    response get "name" name get put drop
+    response get "enabled" enabled get put drop
+    response get "meta_kind" meta get "kind" at put drop
+    response get "tags_count" tags get count put drop
+    response get "ctx_name" ctx get "request" at "json" at "name" at put drop
+    response get "body_kind" ctx get "request" at "body" at "meta" at "kind" at put drop
     response get json
   ] "update" Method
 end
@@ -1243,19 +1243,19 @@ UploadController Controller Subclass
     id var
 
     map response var
-    response get "id" id get put! drop
-    response get "title" title get put! drop
-    response get "form_title" ctx get "request" at "form" at "title" at put! drop
-    response get "filename" file get "filename" at put! drop
-    response get "field" file get "field" at put! drop
-    response get "stream_id" file get "stream_id" at put! drop
-    response get "content_type" file get "content_type" at put! drop
-    response get "size_known" file get "size_known" at put! drop
-    response get "size" file get "size" at put! drop
-    response get "text" file get "text" at put! drop
-    response get "data_base64" file get "data_base64" at put! drop
-    response get "ctx_upload_text" ctx get "request" at "uploads" at "file" at "text" at put! drop
-    response get "files_count" ctx get "request" at "files" at count put! drop
+    response get "id" id get put drop
+    response get "title" title get put drop
+    response get "form_title" ctx get "request" at "form" at "title" at put drop
+    response get "filename" file get "filename" at put drop
+    response get "field" file get "field" at put drop
+    response get "stream_id" file get "stream_id" at put drop
+    response get "content_type" file get "content_type" at put drop
+    response get "size_known" file get "size_known" at put drop
+    response get "size" file get "size" at put drop
+    response get "text" file get "text" at put drop
+    response get "data_base64" file get "data_base64" at put drop
+    response get "ctx_upload_text" ctx get "request" at "uploads" at "file" at "text" at put drop
+    response get "files_count" ctx get "request" at "files" at count put drop
     response get json
   ] "create" Method
 end
@@ -1347,26 +1347,26 @@ UploadController Controller Subclass
     file var
 
     map readOptions var
-    readOptions get "max_bytes" 16 put! drop
+    readOptions get "max_bytes" 16 put drop
     file get "stream_id" at readOptions get upload_read value readResult var
     file get "stream_id" at upload_stream value detail var
 
     map response var
-    response get "stream_count_before_release" upload_streams count put! drop
-    response get "stream_id" file get "stream_id" at put! drop
-    response get "filename" file get "filename" at put! drop
-    response get "field" file get "field" at put! drop
-    response get "size_known" file get "size_known" at put! drop
-    response get "size" file get "size" at put! drop
-    response get "text_is_nil" file get "text" at nil? put! drop
-    response get "data_base64_is_nil" file get "data_base64" at nil? put! drop
-    response get "read_text" readResult get "text" at put! drop
-    response get "read_len" readResult get "bytes_len" at put! drop
-    response get "read_next_offset" readResult get "next_offset" at put! drop
-    response get "detail_size" detail get "size" at put! drop
+    response get "stream_count_before_release" upload_streams count put drop
+    response get "stream_id" file get "stream_id" at put drop
+    response get "filename" file get "filename" at put drop
+    response get "field" file get "field" at put drop
+    response get "size_known" file get "size_known" at put drop
+    response get "size" file get "size" at put drop
+    response get "text_is_nil" file get "text" at nil? put drop
+    response get "data_base64_is_nil" file get "data_base64" at nil? put drop
+    response get "read_text" readResult get "text" at put drop
+    response get "read_len" readResult get "bytes_len" at put drop
+    response get "read_next_offset" readResult get "next_offset" at put drop
+    response get "detail_size" detail get "size" at put drop
     file get "stream_id" at upload_release value released var
-    response get "released" released get put! drop
-    response get "stream_count_after_release" upload_streams count put! drop
+    response get "released" released get put drop
+    response get "stream_count_after_release" upload_streams count put drop
     response get json
   ] "create" Method
 end
@@ -1939,8 +1939,8 @@ escape = "html"
 HomeController Controller Subclass
   [
     users array
-    users get "Ada <Lovelace>" push! drop
-    users get "Grace" push! drop
+    users get "Ada <Lovelace>" push drop
+    users get "Grace" push drop
     true show var
     ctx get
     "home/index" swap view
@@ -2594,7 +2594,7 @@ url = "${DATABASE_URL}"
 ApiController Controller Subclass
   [
     map
-    "name" "Ada" put!
+    "name" "Ada" put
     json
   ] "show" Method
 end
@@ -2675,23 +2675,23 @@ ForkController Controller Subclass
     sourceEvents get 0 at sourceEvent var
 
     map fork var
-    fork get "id" "fork" put! drop
+    fork get "id" "fork" put drop
     array forkEvents var
-    fork get "events" forkEvents get put! drop
-    forkEvents get sourceEvent get push! drop
+    fork get "events" forkEvents get put drop
+    forkEvents get sourceEvent get push drop
 
     map forkEvent var
-    forkEvent get "role" "system" put! drop
-    forkEvent get "text" "forked" put! drop
-    forkEvents get forkEvent get push! drop
+    forkEvent get "role" "system" put drop
+    forkEvent get "text" "forked" put drop
+    forkEvents get forkEvent get push drop
 
-    sessions get fork get push! drop
-    state get "sessions" sessions get put! drop
+    sessions get fork get push drop
+    state get "sessions" sessions get put drop
     "sessions.json" state get json_encode fs_write_text value drop
 
     map
-    "ok" true put!
-    "session_count" sessions get count put!
+    "ok" true put
+    "session_count" sessions get count put
     json
   ] "create" Method
 end
@@ -2735,7 +2735,7 @@ end
     let written = fs::read_to_string(project_root.join("sessions.json"))
         .expect("controller should write JSON file");
     assert!(
-        !written.contains("Member(\"put!\")"),
+        !written.contains("Member(\"put\")"),
         "internal member leaked into written JSON: {written}"
     );
     let written: serde_json::Value =
@@ -2995,11 +2995,11 @@ CapabilityController Controller Subclass
     "RICOCHET_MVC_MANIFEST_ENV_TEST" env_get value envValue var
     runtime_capabilities caps var
     map data var
-    data get "env" envValue get put! drop
-    data get "fs_enabled" caps get "filesystem" at "enabled" at put! drop
-    data get "process_enabled" caps get "process" at "enabled" at put! drop
-    data get "pty_enabled" caps get "pty" at "enabled" at put! drop
-    data get "http_enabled" caps get "http" at "enabled" at put! drop
+    data get "env" envValue get put drop
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put drop
+    data get "process_enabled" caps get "process" at "enabled" at put drop
+    data get "pty_enabled" caps get "pty" at "enabled" at put drop
+    data get "http_enabled" caps get "http" at "enabled" at put drop
     data get json
   ] "show" Method
 end
@@ -3089,13 +3089,13 @@ CapabilityController Controller Subclass
     runtime_capabilities caps var
     map data var
     "RICOCHET_MVC_WATCH_ENV_EXTRA" env_get value extraEnvValue var
-    data get "env" envValue get put! drop
-    data get "extra_env" extraEnvValue get put! drop
-    data get "fs_enabled" caps get "filesystem" at "enabled" at put! drop
-    data get "process_enabled" caps get "process" at "enabled" at put! drop
-    data get "pty_enabled" caps get "pty" at "enabled" at put! drop
-    data get "http_enabled" caps get "http" at "enabled" at put! drop
-    data get "revision" "before" put! drop
+    data get "env" envValue get put drop
+    data get "extra_env" extraEnvValue get put drop
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put drop
+    data get "process_enabled" caps get "process" at "enabled" at put drop
+    data get "pty_enabled" caps get "pty" at "enabled" at put drop
+    data get "http_enabled" caps get "http" at "enabled" at put drop
+    data get "revision" "before" put drop
     data get json
   ] "show" Method
 end
@@ -3151,9 +3151,9 @@ CapabilityController Controller Subclass
   [
     runtime_capabilities caps var
     map data var
-    data get "process_enabled" caps get "process" at "enabled" at put! drop
-    data get "http_enabled" caps get "http" at "enabled" at put! drop
-    data get "revision" "after" put! drop
+    data get "process_enabled" caps get "process" at "enabled" at put drop
+    data get "http_enabled" caps get "http" at "enabled" at put drop
+    data get "revision" "after" put drop
     data get json
   ] "show" Method
 end
@@ -3428,7 +3428,7 @@ GET "/caps" ProcessController "caps" route
     let mut arg_lines = String::new();
     for arg in args {
         arg_lines.push_str(&format!(
-            "    args get \"{}\" push! drop\n",
+            "    args get \"{}\" push drop\n",
             escape_ricochet_string_for_test(arg)
         ));
     }
@@ -3441,7 +3441,7 @@ ProcessController Controller Subclass
   [
     args array
 {arg_lines}    options map
-    options get "timeout_ms" 10000 put! drop
+    options get "timeout_ms" 10000 put drop
     "{command}" args get options get process_start value "id" at json
   ] "start" Method
 
@@ -3551,10 +3551,10 @@ GET "/caps" ApprovalController "caps" route
 ApprovalController Controller Subclass
   [
     operation map
-    operation get "capability" "workspace.write" put! drop
+    operation get "capability" "workspace.write" put drop
     options map
-    options get "id" "mvc-approval" put! drop
-    options get "token" "secret-token" put! drop
+    options get "id" "mvc-approval" put drop
+    options get "token" "secret-token" put drop
     operation get options get approval_create value "pending" at json
   ] "create" Method
 
@@ -4124,11 +4124,11 @@ ContextController Controller Subclass
     cookies var
     request var
     map
-    "method" request get "method" at put!
-    "path" request get "path" at put!
-    "theme" cookies get "theme" at put!
-    "session" cookies get "session" at put!
-    "package" config get "package" at "name" at put!
+    "method" request get "method" at put
+    "path" request get "path" at put
+    "theme" cookies get "theme" at put
+    "session" cookies get "session" at put
+    "package" config get "package" at "name" at put
     json
   ] "show" Method
 end
@@ -4197,7 +4197,7 @@ SessionController Controller Subclass
   ( session ) [
     session var
     session get "user" at nil? if
-      session get "user" "Ada" put! drop
+      session get "user" "Ada" put drop
     end
     session get "user" at text
   ] "show" Method
@@ -4305,7 +4305,7 @@ SessionController Controller Subclass
   ( session ) [
     session var
     session get "user" at nil? if
-      session get "user" "Ada" put! drop
+      session get "user" "Ada" put drop
       "new" text
     else
       session get "user" at text
@@ -4389,7 +4389,7 @@ SessionController Controller Subclass
   ( session ) [
     session var
     session get "user" at nil? if
-      session get "user" "Ada" put! drop
+      session get "user" "Ada" put drop
       "new" text
     else
       session get "user" at text
@@ -4526,7 +4526,7 @@ SessionController Controller Subclass
   ( session ) [
     session var
     session get "user" at nil? if
-      session get "user" "Ada" put! drop
+      session get "user" "Ada" put drop
       "new" text
     else
       session get "user" at text
@@ -4765,7 +4765,7 @@ AiPackageController Controller Subclass
   [
     "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
     messages array
-    $messages "hello from mvc" ai_user_message push! drop
+    $messages "hello from mvc" ai_user_message push drop
     options map
     tools array
     2 0 0 ai_retry_policy retry var
@@ -4775,14 +4775,14 @@ AiPackageController Controller Subclass
     [
       attempt var
       providerRequest var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       response map
       $attempt 1 = if
-        $response "status" 503 put! drop
-        $response "body" "{\"error\":{\"message\":\"busy\"}}" put! drop
+        $response "status" 503 put drop
+        $response "body" "{\"error\":{\"message\":\"busy\"}}" put drop
       else
-        $response "status" 200 put! drop
-        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"mvc fake provider\"}}]}" put! drop
+        $response "status" 200 put drop
+        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"mvc fake provider\"}}]}" put drop
       end
       $response ok
     ] executor var
@@ -4790,9 +4790,9 @@ AiPackageController Controller Subclass
     $request $executor ai_openai_execute_chat result var
     $result ok? if
       output map
-      $output "attempts" $attempts count put! drop
-      $output "provider" $result value "provider" at "provider" at put! drop
-      $output "text" $result value "text" at put! drop
+      $output "attempts" $attempts count put drop
+      $output "provider" $result value "provider" at "provider" at put drop
+      $output "text" $result value "text" at put drop
       $output json
     else
       $result error "message" at text
@@ -4882,9 +4882,9 @@ AiStreamPackageController Controller Subclass
     ai_openai_stream_state state var
 
     firstRead map
-    $firstRead "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put! drop
-    $firstRead "next_offset" 12 put! drop
-    $firstRead "done" false put! drop
+    $firstRead "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put drop
+    $firstRead "next_offset" 12 put drop
+    $firstRead "done" false put drop
     $state $firstRead ai_openai_stream_read_events firstResult var
     $firstResult ok? false = if
       $firstResult error "message" at text
@@ -4892,18 +4892,18 @@ AiStreamPackageController Controller Subclass
       $firstResult value "state" at state set
 
       secondRead map
-      $secondRead "body" "lo\"}}]}\n\ndata: [DONE]\n\n" put! drop
-      $secondRead "next_offset" 40 put! drop
-      $secondRead "done" true put! drop
+      $secondRead "body" "lo\"}}]}\n\ndata: [DONE]\n\n" put drop
+      $secondRead "next_offset" 40 put drop
+      $secondRead "done" true put drop
       $state $secondRead ai_openai_stream_read_events secondResult var
       $secondResult ok? if
         $secondResult value "events" at events var
         output map
-        $output "count" $events count put! drop
-        $output "text" $events first "data" at put! drop
-        $output "done" $secondResult value "done" at put! drop
-        $output "offset" $secondResult value "offset" at put! drop
-        $output "event_offset" $secondResult value "state" at "event_offset" at put! drop
+        $output "count" $events count put drop
+        $output "text" $events first "data" at put drop
+        $output "done" $secondResult value "done" at put drop
+        $output "offset" $secondResult value "offset" at put drop
+        $output "event_offset" $secondResult value "state" at "event_offset" at put drop
         $output json
       else
         $secondResult error "message" at text

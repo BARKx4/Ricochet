@@ -7,7 +7,7 @@
 PythonPackageTest TestCase Subclass
   [
     payload map
-    $payload "module" "fake_sdk" put! drop
+    $payload "module" "fake_sdk" put drop
     7 "import" $payload py_request request var
     $request "id" at 7 assert_equals
     $request "op" at "import" assert_equals
@@ -23,8 +23,8 @@ PythonPackageTest TestCase Subclass
     $workerResult ok? true assert_equals
     $workerResult value worker var
     args array
-    $args 2 push! drop
-    $args 3 push! drop
+    $args 2 push drop
+    $args 3 push drop
     kwargs map
     $worker "fake_sdk.add" $args $kwargs py_call callResult var
     $callResult ok? true assert_equals
@@ -38,7 +38,7 @@ PythonPackageTest TestCase Subclass
     $workerResult ok? true assert_equals
     $workerResult value worker var
     args array
-    $args "sdk" push! drop
+    $args "sdk" push drop
     kwargs map
     $worker "fake_sdk.noisy" $args $kwargs py_call callResult var
     $callResult ok? true assert_equals
@@ -52,15 +52,15 @@ PythonPackageTest TestCase Subclass
     $workerResult ok? true assert_equals
     $workerResult value worker var
     args array
-    $args "Ada" push! drop
+    $args "Ada" push drop
     kwargs map
-    $kwargs "token" "secret" put! drop
+    $kwargs "token" "secret" put drop
     $worker "fake_sdk.Client" $args $kwargs py_construct clientResult var
     $clientResult ok? true assert_equals
     $clientResult value client var
     $client py_ref? true assert_equals
     methodArgs array
-    $methodArgs "Grace" push! drop
+    $methodArgs "Grace" push drop
     methodKwargs map
     $worker $client "greeting" $methodArgs $methodKwargs py_call_method greetingResult var
     $greetingResult ok? true assert_equals
@@ -69,7 +69,7 @@ PythonPackageTest TestCase Subclass
     $inspectResult ok? true assert_equals
     $inspectResult value "type" at "Client" assert_equals
     refs array
-    $refs $client push! drop
+    $refs $client push drop
     $worker $refs py_release releaseResult var
     $releaseResult ok? true assert_equals
     $releaseResult value "released" at count 1 assert_equals

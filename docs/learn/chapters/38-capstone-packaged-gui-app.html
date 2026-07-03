@@ -118,15 +118,15 @@ run-package.ps1
 <p>The ledger logic creates local state:</p>
 <pre><code>( -&gt; Map ) ledger_sample_state function
   entries array
-  $entries &quot;Client payment&quot; &quot;income&quot; 2400 ledger_entry push! drop
-  $entries &quot;Office rent&quot; &quot;expense&quot; 650 ledger_entry push! drop
-  $entries &quot;Tool &lt;subscription&gt;&quot; &quot;expense&quot; 220 ledger_entry push! drop
-  $entries &quot;Coffee&quot; &quot;expense&quot; 80 ledger_entry push! drop
+  $entries &quot;Client payment&quot; &quot;income&quot; 2400 ledger_entry push drop
+  $entries &quot;Office rent&quot; &quot;expense&quot; 650 ledger_entry push drop
+  $entries &quot;Tool &lt;subscription&gt;&quot; &quot;expense&quot; 220 ledger_entry push drop
+  $entries &quot;Coffee&quot; &quot;expense&quot; 80 ledger_entry push drop
 
   state map
-  $state &quot;entries&quot; $entries put! drop
-  $state &quot;filter&quot; &quot;all&quot; put! drop
-  $state &quot;reviewed&quot; false put! drop
+  $state &quot;entries&quot; $entries put drop
+  $state &quot;filter&quot; &quot;all&quot; put drop
+  $state &quot;reviewed&quot; false put drop
   $state
 end
 </code></pre>
@@ -161,7 +161,7 @@ are escaped before they become HTML:</p>
 <pre><code>( state event -&gt; Map ) mark_reviewed function
   event var
   state var
-  $state &quot;reviewed&quot; true put! drop
+  $state &quot;reviewed&quot; true put drop
   $state ledger_build_document
 end
 </code></pre>
@@ -203,7 +203,7 @@ creates a nonzero executable under the example’s ignored <code>build/</code> d
 <p>Read the capstone from the outside in. Start with the user command or app surface, identify the data boundary, follow the core transformation, and then check tests and packaging. The point is integration, not new syntax.</p>
 <h2>Try it</h2>
 <p>Change the starting filter to <code>&quot;expense&quot;</code> in <code>ledger_sample_state</code>:</p>
-<pre><code>$state &quot;filter&quot; &quot;expense&quot; put! drop
+<pre><code>$state &quot;filter&quot; &quot;expense&quot; put drop
 </code></pre>
 <p>Then update the tests so the visible entry count matches the new default. Run:</p>
 <pre><code>rco run examples/learn/38-capstone-gui/personal_ledger/ledger_gui.rco

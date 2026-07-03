@@ -136,11 +136,11 @@ impl Vm {
                     | "skip"
                     | "reverse"
                     | "has?"
-                    | "push!"
-                    | "insert!"
-                    | "remove!"
-                    | "remove_at!"
-                    | "clear!"
+                    | "push"
+                    | "insert_at"
+                    | "remove"
+                    | "remove_at"
+                    | "clear_items"
                     | "each"
                     | "transform"
                     | "select"
@@ -159,9 +159,9 @@ impl Vm {
                     | "skip"
                     | "reverse"
                     | "has?"
-                    | "push!"
-                    | "remove!"
-                    | "clear!"
+                    | "push"
+                    | "remove"
+                    | "clear_items"
                     | "each"
                     | "transform"
                     | "select"
@@ -178,9 +178,9 @@ impl Vm {
                     | "has?"
                     | "keys"
                     | "values"
-                    | "put!"
-                    | "remove!"
-                    | "clear!"
+                    | "put"
+                    | "remove"
+                    | "clear_items"
                     | "each"
                     | "transform"
                     | "select"
@@ -205,7 +205,7 @@ impl Vm {
             Value::Capability(Capability::FileSystem) => {
                 matches!(
                     method,
-                    "read_text" | "write_text!" | "exists?" | "list" | "create_dir!" | "delete!"
+                    "read_text" | "write_text" | "exists?" | "list" | "create_dir" | "delete"
                 )
             }
             Value::Capability(Capability::Http) => {
@@ -221,12 +221,12 @@ impl Vm {
             }
             Value::Capability(Capability::Terminal) => matches!(
                 method,
-                "enter!"
-                    | "leave!"
-                    | "clear!"
-                    | "move_to!"
-                    | "write!"
-                    | "flush!"
+                "enter"
+                    | "leave"
+                    | "clear"
+                    | "move_to"
+                    | "write"
+                    | "flush"
                     | "size"
                     | "poll_key"
                     | "read_key"
@@ -279,14 +279,15 @@ impl Vm {
             "has?" | "contains?" => self.method_has(receiver, method),
             "keys" => self.method_keys(receiver, method),
             "values" => self.method_values(receiver, method),
-            "push!" => self.method_push(receiver, method),
-            "put!" => self.method_put(receiver, method),
-            "insert!" => self.method_insert(receiver, method),
-            "remove!" => self.method_remove(receiver, method),
-            "remove_at!" => self.method_remove_at(receiver, method),
-            "clear!" => match receiver {
+            "push" => self.method_push(receiver, method),
+            "put" => self.method_put(receiver, method),
+            "insert_at" => self.method_insert(receiver, method),
+            "remove" => self.method_remove(receiver, method),
+            "remove_at" => self.method_remove_at(receiver, method),
+            "clear_items" => self.method_clear(receiver, method),
+            "clear" => match receiver {
                 Value::Capability(Capability::Terminal) => self.method_tui_clear(receiver, method),
-                receiver => self.method_clear(receiver, method),
+                receiver => Err(method_type_error(method, "terminal capability", &receiver)),
             },
             "each" => self.method_each(receiver, method),
             "transform" => self.method_transform(receiver, method),
@@ -334,22 +335,22 @@ impl Vm {
             "completed?" => self.method_task_completed(receiver, method),
             "failed?" => self.method_task_failed(receiver, method),
             "read_text" => self.method_fs_read_text(receiver, method),
-            "write_text!" => self.method_fs_write_text(receiver, method),
+            "write_text" => self.method_fs_write_text(receiver, method),
             "exists?" => self.method_fs_exists(receiver, method),
             "list" => self.method_fs_list(receiver, method),
-            "create_dir!" => self.method_fs_create_dir(receiver, method),
-            "delete!" => self.method_fs_delete(receiver, method),
+            "create_dir" => self.method_fs_create_dir(receiver, method),
+            "delete" => self.method_fs_delete(receiver, method),
             "get" => self.method_http_get(receiver, method),
             "post_json" => self.method_http_post_json(receiver, method),
             "request" => self.method_http_request(receiver, method),
             "get_task" => self.method_http_get_task(receiver, method),
             "post_json_task" => self.method_http_post_json_task(receiver, method),
             "request_task" => self.method_http_request_task(receiver, method),
-            "enter!" => self.method_tui_enter(receiver, method),
-            "leave!" => self.method_tui_leave(receiver, method),
-            "move_to!" => self.method_tui_move_to(receiver, method),
-            "write!" => self.method_tui_write(receiver, method),
-            "flush!" => self.method_tui_flush(receiver, method),
+            "enter" => self.method_tui_enter(receiver, method),
+            "leave" => self.method_tui_leave(receiver, method),
+            "move_to" => self.method_tui_move_to(receiver, method),
+            "write" => self.method_tui_write(receiver, method),
+            "flush" => self.method_tui_flush(receiver, method),
             "size" => self.method_tui_size(receiver, method),
             "poll_key" => self.method_tui_poll_key(receiver, method),
             "read_key" => self.method_tui_read_key(receiver, method),

@@ -112,14 +112,14 @@ fn new_creates_mvc_project_skeleton() {
     assert!(model.contains("\"displayName\""));
     assert!(user_controller.contains("UserController Controller Subclass"));
     assert!(user_controller.contains("users array"));
-    assert!(user_controller.contains("push!"));
+    assert!(user_controller.contains("push"));
     assert!(user_controller.contains("userCount var"));
     assert!(users_view.contains("{ $userCount }"));
     assert!(test.contains("ApplicationSmokeTest TestCase Subclass"));
     assert!(test.contains("User new"));
     assert!(test.contains("displayName"));
     assert!(test.contains("users array"));
-    assert!(test.contains("push!"));
+    assert!(test.contains("push"));
 
     let _app = ricochet_web::server::build_app_from_dir(&project_path)
         .expect("scaffolded MVC app should build");
@@ -230,7 +230,7 @@ fn new_with_sqlite_creates_ready_database_project() {
     )
     .expect("auth controller should exist");
     assert!(auth_controller.contains("$session \"user_email\""));
-    assert!(auth_controller.contains("remove!"));
+    assert!(auth_controller.contains("remove"));
     assert!(auth_controller.contains("\"/me\" redirect"));
 
     let login_view = fs::read_to_string(
@@ -397,7 +397,7 @@ end
     fs::write(
         project_path.join("db").join("seeds").join("002_notes.rco"),
         r#"
-map "body" "from rco seed" put! Note insert value drop
+map "body" "from rco seed" put Note insert value drop
 "#,
     )
     .expect("ricochet seed should be written");
@@ -2157,11 +2157,11 @@ LookupProbe Object Subclass
     target var
     array xs var
     map a var
-    a get "id" "a" put! a set
-    xs get a get push! xs set
+    a get "id" "a" put a set
+    xs get a get push xs set
     map b var
-    b get "id" "b" put! b set
-    xs get b get push! xs set
+    b get "id" "b" put b set
+    xs get b get push xs set
     nil found var
     0 index var
     index get xs get count < while
@@ -2276,7 +2276,7 @@ fn run_executes_map_put_script() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
-    fs::write(&source_path, r#"map "name" "Ada" put! "name" at"#)
+    fs::write(&source_path, r#"map "name" "Ada" put "name" at"#)
         .expect("temp source should be written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
@@ -3150,7 +3150,7 @@ fn run_reads_variables_with_dollar_reference_prefix() {
         r#"
 "users" name var
 $name array
-$users "Ada" push! drop
+$users "Ada" push drop
 $users count println
 $users 0 at println
 "#,
@@ -3321,7 +3321,7 @@ end
         r#"
 "lib/dynamic" import_dynamic value loaded var
 args array
-args get 7 push! drop
+args get 7 push drop
 loaded get "triple" args get module_call value println
 loaded get "label" module_get value println
 loaded get "triple" module_get error "message" at println
@@ -5607,7 +5607,7 @@ fn first_party_packages_publish_to_static_registry_and_import_from_aliases() {
 "test_helpers/assertions" import
 
 session map
-session get "user_id" "ada" put! drop
+session get "user_id" "ada" put drop
 session get auth_user_present
 
 headers map
@@ -6466,19 +6466,19 @@ fn gui_exports_state_actions_and_dispatches_action_callbacks() {
   state var
   "Count: " state get "count" at to_string concat webview_text body var
   actions array
-  actions get "Increment" "increment" "increment_counter" webview_action push! drop
+  actions get "Increment" "increment" "increment_counter" webview_action push drop
   "Counter" body get state get actions get webview_window_state value
 end
 
 ( state event -> Map ) increment_counter function
   event var
   state var
-  state get "count" state get "count" at 1 + put! drop
+  state get "count" state get "count" at 1 + put drop
   state get render_counter
 end
 
 state map
-state get "count" 1 put! drop
+state get "count" 1 put drop
 state get render_counter document var
 "#,
     );
@@ -6988,7 +6988,7 @@ GET "/caps" CapabilityController "show" route
   [
     "ricochet.toml" fs_exists? exists var
     map data var
-    data get "exists" exists get put! data set
+    data get "exists" exists get put data set
     data get json
   ] "show" Method
 end
@@ -7005,11 +7005,11 @@ end
 "RICOCHET_MVC_PACKAGE_ENV_TEST" env_get value envValue var
     runtime_capabilities caps var
     map data var
-    data get "env" envValue get put! data set
-    data get "fs_enabled" caps get "filesystem" at "enabled" at put! data set
-    data get "process_enabled" caps get "process" at "enabled" at put! data set
-    data get "pty_enabled" caps get "pty" at "enabled" at put! data set
-    data get "http_enabled" caps get "http" at "enabled" at put! data set
+    data get "env" envValue get put data set
+    data get "fs_enabled" caps get "filesystem" at "enabled" at put data set
+    data get "process_enabled" caps get "process" at "enabled" at put data set
+    data get "pty_enabled" caps get "pty" at "enabled" at put data set
+    data get "http_enabled" caps get "http" at "enabled" at put data set
     data get json
   ] "show" Method
 end
@@ -9187,7 +9187,7 @@ fn run_spawned_task_can_complete_before_await() {
 events array
 [
   50 sleep
-  events get "done" push! drop
+  events get "done" push drop
   7
 ] spawn task var
 0 attempts var
@@ -9330,8 +9330,8 @@ fn run_awaits_multiple_tasks_with_await_all() {
     let output = run_source(
         r#"
 handles array
-[ 20 2 + ] spawn handles get swap push! drop
-[ 30 4 + ] spawn handles get swap push! drop
+[ 20 2 + ] spawn handles get swap push drop
+[ 30 4 + ] spawn handles get swap push drop
 handles get await_all
 handles get await_all
 tasks count
@@ -9433,13 +9433,13 @@ fn run_supports_reference_collections_and_collection_algorithms() {
     let output = run_source(
         r#"
 array users var
-users get "Ada" push! drop
-users get "Grace" push! drop
-users get 1 "Lin" insert! drop
-users get 1 remove_at! drop
+users get "Ada" push drop
+users get "Grace" push drop
+users get 1 "Lin" insert_at drop
+users get 1 remove_at drop
 
 map settings var
-settings get "theme" "dark" put! drop
+settings get "theme" "dark" put drop
 
 0 6 range numbers var
 [ 2 * ] numbers get transform doubled var
@@ -9456,13 +9456,13 @@ settings get keys count
 [ 8 = ] doubled get find
 
 list queue var
-queue get 1 push! drop
-queue get 2 push! drop
+queue get 1 push drop
+queue get 2 push drop
 queue get count
 
 Set new tags var
-tags get "rco" push! drop
-tags get "rco" push! drop
+tags get "rco" push drop
+tags get "rco" push drop
 tags get count
 "#,
     );
@@ -9487,23 +9487,50 @@ tags get count
 }
 
 #[test]
+fn run_rejects_old_bang_collection_mutators() {
+    for base_word in ["push", "put", "insert", "remove", "remove_at", "clear"] {
+        let old_word = format!("{base_word}{}", "!");
+        let source = match base_word {
+            "push" => format!(r#"array "Ada" {old_word} drop"#),
+            "put" => format!(r#"map "name" "Ada" {old_word} drop"#),
+            "insert" => format!(r#"array 0 "Ada" {old_word} drop"#),
+            "remove" => format!(r#"array "Ada" push "Ada" {old_word} drop"#),
+            "remove_at" => format!(r#"array "Ada" push 0 {old_word} drop"#),
+            "clear" => format!(r#"array "Ada" push {old_word} drop"#),
+            _ => unreachable!("case list is exhaustive"),
+        };
+        let output = run_source(&source);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            !output.status.success(),
+            "{old_word} should fail without a compatibility alias"
+        );
+        assert!(
+            stderr.contains(&format!("unknown word: {old_word}")),
+            "stderr for {old_word} should name the unknown word, got:\n{stderr}"
+        );
+    }
+}
+
+#[test]
 fn run_supports_name_first_collection_declarations() {
     let output = run_source(
         r#"
 users array
-users get "Ada" push! drop
+users get "Ada" push drop
 
 "dynamicUsers" array
-dynamicUsers get "Grace" push! drop
+dynamicUsers get "Grace" push drop
 
 settings map
-settings get "theme" "dark" put! drop
+settings get "theme" "dark" put drop
 
 queue list
-queue get 1 push! drop
+queue get 1 push drop
 
 tags Set
-tags get "rco" push! drop
+tags get "rco" push drop
 
 users get count
 users get 0 at
@@ -9669,7 +9696,7 @@ fn run_supports_string_conversion_and_json_words() {
 42 to_string
 "42" to_number value
 map payload var
-payload get "name" "Ada" put! drop
+payload get "name" "Ada" put drop
 payload get json_encode
 "{\"name\":\"Ada\"}" json_decode value "name" at
 "#,
@@ -9752,9 +9779,9 @@ fn run_supports_collection_view_quality_of_life_words() {
     let output = run_source(
         r#"
 names array
-names get "Ada" push! drop
-names get "Grace" push! drop
-names get "Lin" push! drop
+names get "Ada" push drop
+names get "Grace" push drop
+names get "Lin" push drop
 array first nil?
 array last nil?
 names get first
@@ -9792,7 +9819,7 @@ false assert_false
 42 ok assert_ok
 "ValidationError" "bad input" fail assert_error
 bag map
-bag get "name" "Ada" put! drop
+bag get "name" "Ada" put drop
 bag get inspect println
 "Ada" debug
 bag get count
@@ -9880,15 +9907,15 @@ fn run_supports_result_envelope_contract_maps() {
     let output = run_source(
         r#"
 meta map
-meta get "capability" "workspace.read" put! drop
-meta get "duration_ms" 25 put! drop
+meta get "capability" "workspace.read" put drop
+meta get "duration_ms" 25 put drop
 "payload" ok meta get result_envelope okEnvelope var
 okEnvelope get "ok" at
 okEnvelope get "data" at
 okEnvelope get "error" at nil?
 okEnvelope get "meta" at "capability" at
 errorMeta map
-errorMeta get "capability" "process.spawn" put! drop
+errorMeta get "capability" "process.spawn" put drop
 "ProcessTimeout" "Process exceeded timeout." fail errorMeta get result_envelope errEnvelope var
 errEnvelope get "ok" at false =
 errEnvelope get "data" at nil?
@@ -10178,18 +10205,18 @@ secretRef get secret_resolve value
 
 config map
 provider map
-provider get "token" secretRef get put! drop
-config get "provider" provider get put! drop
+provider get "token" secretRef get put drop
+config get "provider" provider get put drop
 
 path array
-path get "provider" push! drop
-path get "token" push! drop
+path get "provider" push drop
+path get "token" push drop
 config get path get config_get value secret_resolve value
 
 "POST" "https://api.example.test/v1/chat" http_request_new value request var
 request get "secret-token" http_bearer_auth value request set
 payload map
-payload get "ok" true put! drop
+payload get "ok" true put drop
 request get payload get http_json_body value request set
 request get 3000 http_timeout value request set
 request get "headers" at "Authorization" at
@@ -10616,10 +10643,10 @@ fn run_process_spawn_executes_direct_command_when_allowed() {
         format!(
             r#"
 args array
-args get "check" push! drop
-args get "{checked}" push! drop
+args get "check" push drop
+args get "{checked}" push drop
 options map
-options get "timeout_ms" 10000 put! drop
+options get "timeout_ms" 10000 put drop
 "{rco}" args get options get process_spawn value result var
 result get "success" at
 result get "stdout" at "checked" contains?
@@ -10670,21 +10697,21 @@ fn run_process_root_bounds_process_cwd_when_allowed() {
         format!(
             r#"
 args array
-args get "check" push! drop
-args get "checked.rco" push! drop
+args get "check" push drop
+args get "checked.rco" push drop
 options map
-options get "cwd" "{process_root_source}" put! drop
-options get "timeout_ms" 10000 put! drop
+options get "cwd" "{process_root_source}" put drop
+options get "timeout_ms" 10000 put drop
 "{bounded_rco_source}" args get options get process_spawn value result var
 result get "success" at
 result get "stdout" at "checked" contains?
 runtime_capabilities "process" at "root" at "{process_root_source}" =
 outsideOptions map
-outsideOptions get "cwd" "{outside_root_source}" put! drop
+outsideOptions get "cwd" "{outside_root_source}" put drop
 "{bounded_rco_source}" args get outsideOptions get process_spawn error deniedCwd var
 deniedCwd get "kind" at
 outsideCommandOptions map
-outsideCommandOptions get "cwd" "{process_root_source}" put! drop
+outsideCommandOptions get "cwd" "{process_root_source}" put drop
 "{rco}" args get outsideCommandOptions get process_spawn error deniedCommand var
 deniedCommand get "kind" at
 "#
@@ -10727,10 +10754,10 @@ fn run_process_start_reads_completed_job_when_allowed() {
         format!(
             r#"
 args array
-args get "check" push! drop
-args get "{checked}" push! drop
+args get "check" push drop
+args get "{checked}" push drop
 options map
-options get "timeout_ms" 10000 put! drop
+options get "timeout_ms" 10000 put drop
 "{rco}" args get options get process_start value job var
 nil snapshot var
 0 attempts var
@@ -10786,11 +10813,11 @@ fn run_process_write_sends_stdin_to_retained_job_when_allowed() {
         format!(
             r#"
 args array
-$args "run" push! drop
-$args "{echo}" push! drop
+$args "run" push drop
+$args "{echo}" push drop
 options map
-$options "timeout_ms" 10000 put! drop
-$options "stdin_open" true put! drop
+$options "timeout_ms" 10000 put drop
+$options "stdin_open" true put drop
 "{rco}" $args $options process_start value job var
 $job "stdin_open" at
 $job "id" at "hello from stdin\n" process_write value writeSnapshot var
@@ -10841,10 +10868,10 @@ fn run_process_release_drops_completed_job_when_allowed() {
         format!(
             r#"
 args array
-args get "check" push! drop
-args get "{checked}" push! drop
+args get "check" push drop
+args get "{checked}" push drop
 options map
-options get "timeout_ms" 10000 put! drop
+options get "timeout_ms" 10000 put drop
 "{rco}" args get options get process_start value job var
 nil snapshot var
 0 attempts var
@@ -10897,10 +10924,10 @@ fn run_process_cancel_marks_job_cancelled_when_allowed() {
         format!(
             r#"
 args array
-args get "run" push! drop
-args get "{sleeping}" push! drop
+args get "run" push drop
+args get "{sleeping}" push drop
 options map
-options get "timeout_ms" 30000 put! drop
+options get "timeout_ms" 30000 put drop
 "{rco}" args get options get process_start value job var
 job get "id" at process_cancel value cancelResult var
 200 sleep
@@ -10941,11 +10968,11 @@ fn run_process_output_caps_are_reported_when_allowed() {
         format!(
             r#"
 args array
-args get "run" push! drop
-args get "{noisy}" push! drop
+args get "run" push drop
+args get "{noisy}" push drop
 options map
-options get "timeout_ms" 10000 put! drop
-options get "stdout_max_bytes" 3 put! drop
+options get "timeout_ms" 10000 put drop
+options get "stdout_max_bytes" 3 put drop
 "{rco}" args get options get process_start value job var
 nil read var
 0 attempts var
@@ -11026,7 +11053,7 @@ fn run_pty_start_captures_output_when_allowed() {
     let mut arg_lines = String::new();
     for arg in args {
         arg_lines.push_str(&format!(
-            "args get \"{}\" push! drop\n",
+            "args get \"{}\" push drop\n",
             escape_ricochet_string(arg)
         ));
     }
@@ -11091,7 +11118,7 @@ fn run_pty_release_drops_exited_session_when_allowed() {
     let mut arg_lines = String::new();
     for arg in args {
         arg_lines.push_str(&format!(
-            "args get \"{}\" push! drop\n",
+            "args get \"{}\" push drop\n",
             escape_ricochet_string(arg)
         ));
     }
@@ -11154,8 +11181,8 @@ fn run_pty_stop_marks_session_stopped_when_allowed() {
         format!(
             r#"
 args array
-args get "run" push! drop
-args get "{sleeping}" push! drop
+args get "run" push drop
+args get "{sleeping}" push drop
 options map
 "{rco}" args get options get pty_start value session var
 stopOptions map
@@ -11186,10 +11213,10 @@ fn run_approval_words_claim_once_and_complete() {
     let source_path = write_source(
         r#"
 operation map
-operation get "capability" "git.commit" put! drop
-operation get "summary" "Commit staged changes" put! drop
+operation get "capability" "git.commit" put drop
+operation get "summary" "Commit staged changes" put drop
 options map
-options get "id" "approval-fixed" put! drop
+options get "id" "approval-fixed" put drop
 operation get options get approval_create value created var
 created get "id" at "approval-fixed" =
 created get "token" at nil? false =
@@ -11201,7 +11228,7 @@ claim get "token" at nil?
 created get "id" at created get "token" at approval_claim error duplicate var
 duplicate get "kind" at "ApprovalAlreadyClaimed" =
 result map
-result get "ok" true put! drop
+result get "ok" true put drop
 created get "id" at result get approval_complete value completed var
 completed get "completed" at
 created get "id" at approval_detail value detail var
@@ -11232,9 +11259,9 @@ fn run_approval_claim_rejects_expired_records() {
     let source_path = write_source(
         r#"
 operation map
-operation get "capability" "filesystem.write" put! drop
+operation get "capability" "filesystem.write" put drop
 options map
-options get "expires_at_ms" 1 put! drop
+options get "expires_at_ms" 1 put drop
 operation get options get approval_create value created var
 created get "id" at created get "token" at approval_claim error expired var
 expired get "kind" at
@@ -11370,7 +11397,7 @@ fn run_workspace_words_use_bounded_filesystem_root() {
             r#"
 options map
 writeOptions map
-$writeOptions "create_parent_dirs" true put! drop
+$writeOptions "create_parent_dirs" true put drop
 copyOptions map
 "inside.txt" $options workspace_read_text value
 "." $options workspace_resolve value resolved var
@@ -11388,13 +11415,13 @@ $copied "exists" at
 $deletedFile "deleted" at
 "generated/delete-me.txt" fs_exists? false =
 recursiveOptions map
-$recursiveOptions "recursive" true put! drop
+$recursiveOptions "recursive" true put drop
 "generated/delete-dir/nested.txt" "remove" $writeOptions workspace_write_text value drop
 "generated/delete-dir" $recursiveOptions workspace_delete value deletedDir var
 $deletedDir "deleted" at
 "generated/delete-dir" fs_exists? false =
 missingOptions map
-$missingOptions "missing_ok" true put! drop
+$missingOptions "missing_ok" true put drop
 "generated/missing.txt" $missingOptions workspace_delete value missingDelete var
 $missingDelete "deleted" at false =
 "." $options workspace_delete error rootDenied var
@@ -11554,7 +11581,7 @@ fn run_workspace_words_respect_readonly_filesystem() {
         r#"
 options map
 writeOptions map
-$writeOptions "create_parent_dirs" true put! drop
+$writeOptions "create_parent_dirs" true put drop
 "blocked.txt" "blocked" $writeOptions workspace_write_text error writeDenied var
 $writeDenied "kind" at
 "blocked-dir" $options workspace_mkdir error mkdirDenied var
@@ -11683,7 +11710,7 @@ fn run_exposes_http_post_json_task_capability() {
     let output = run_source(&format!(
         r#"
 map payload var
-payload get "message" "hello" put! drop
+payload get "message" "hello" put drop
 "http://{address}/messages" payload get http_post_json_task task var
 task get await value response var
 response get "status" at
@@ -11711,24 +11738,24 @@ fn run_exposes_http_request_with_custom_headers() {
     let output = run_source(&format!(
         r#"
 headers map
-headers get "Authorization" "Bearer test-token" put! drop
-headers get "X-Provider" "solace" put! drop
+headers get "Authorization" "Bearer test-token" put drop
+headers get "X-Provider" "solace" put drop
 hosts array
-hosts get "127.0.0.1" push! drop
+hosts get "127.0.0.1" push drop
 schemes array
-schemes get "http" push! drop
+schemes get "http" push drop
 body map
-body get "probe" true put! drop
+body get "probe" true put drop
 request map
-request get "url" "http://{address}/v1/models" put! drop
-request get "method" "POST" put! drop
-request get "headers" headers get put! drop
-request get "json" body get put! drop
-request get "timeout_ms" 10000 put! drop
-request get "max_response_bytes" 1024 put! drop
-request get "allowed_hosts" hosts get put! drop
-request get "allowed_schemes" schemes get put! drop
-request get "follow_redirects" false put! drop
+request get "url" "http://{address}/v1/models" put drop
+request get "method" "POST" put drop
+request get "headers" headers get put drop
+request get "json" body get put drop
+request get "timeout_ms" 10000 put drop
+request get "max_response_bytes" 1024 put drop
+request get "allowed_hosts" hosts get put drop
+request get "allowed_schemes" schemes get put drop
+request get "follow_redirects" false put drop
 request get http_request value response var
 response get "status" at
 response get "body" at
@@ -11764,10 +11791,10 @@ fn run_exposes_http_request_task_with_custom_headers() {
     let output = run_source(&format!(
         r#"
 headers map
-headers get "Authorization" "Bearer async-token" put! drop
+headers get "Authorization" "Bearer async-token" put drop
 request map
-request get "url" "http://{address}/v1/models" put! drop
-request get "headers" headers get put! drop
+request get "url" "http://{address}/v1/models" put drop
+request get "headers" headers get put drop
 request get http_request_task task var
 task get await value response var
 response get "status" at
@@ -11802,9 +11829,9 @@ fn run_exposes_http_stream_reads_with_offsets() {
     let output = run_source(&format!(
         r#"
 request map
-request get "url" "http://{address}/stream" put! drop
-request get "timeout_ms" 10000 put! drop
-request get "max_response_bytes" 1024 put! drop
+request get "url" "http://{address}/stream" put drop
+request get "timeout_ms" 10000 put drop
+request get "max_response_bytes" 1024 put drop
 request get http_stream_start value stream var
 stream get "id" at id var
 options map
@@ -11822,7 +11849,7 @@ end
 first get "body" at
 first get "offset" at offset var
 nextOptions map
-nextOptions get "offset" offset get put! drop
+nextOptions get "offset" offset get put drop
 nil second var
 0 attempts set
 attempts get 50 < while
@@ -11869,9 +11896,9 @@ fn run_http_stream_read_supports_max_bytes_metadata_and_done() {
     let output = run_source(&format!(
         r#"
 request map
-request get "url" "http://{address}/stream" put! drop
-request get "timeout_ms" 10000 put! drop
-request get "max_response_bytes" 1024 put! drop
+request get "url" "http://{address}/stream" put drop
+request get "timeout_ms" 10000 put drop
+request get "max_response_bytes" 1024 put drop
 request get http_stream_start value stream var
 stream get "id" at id var
 nil detail var
@@ -11887,7 +11914,7 @@ end
 detail get "status" at "completed" = assert
 
 boundedOptions map
-boundedOptions get "max_bytes" 3 put! drop
+boundedOptions get "max_bytes" 3 put drop
 id get boundedOptions get http_stream_read value bounded var
 bounded get "body" at "abc" = assert
 bounded get "from_offset" at 0 = assert
@@ -11897,7 +11924,7 @@ bounded get "bytes_len" at 3 = assert
 bounded get "done" at false = assert
 
 finalOptions map
-finalOptions get "offset" bounded get "next_offset" at put! drop
+finalOptions get "offset" bounded get "next_offset" at put drop
 id get finalOptions get http_stream_read value final var
 final get "body" at "def" = assert
 final get "from_offset" at 3 = assert
@@ -11907,7 +11934,7 @@ final get "bytes_len" at 3 = assert
 final get "done" at true = assert
 
 nilOptions map
-nilOptions get "max_bytes" nil put! drop
+nilOptions get "max_bytes" nil put drop
 id get nilOptions get http_stream_read value nilRead var
 nilRead get "body" at "abcdef" = assert
 nilRead get "from_offset" at 0 = assert
@@ -11916,27 +11943,27 @@ nilRead get "bytes_len" at 6 = assert
 nilRead get "done" at true = assert
 
 zeroOptions map
-zeroOptions get "max_bytes" 0 put! drop
+zeroOptions get "max_bytes" 0 put drop
 id get zeroOptions get http_stream_read error zeroError var
 zeroError get "kind" at "HttpStreamRequestError" = assert
 
 negativeOptions map
-negativeOptions get "max_bytes" -1 put! drop
+negativeOptions get "max_bytes" -1 put drop
 id get negativeOptions get http_stream_read error negativeError var
 negativeError get "kind" at "HttpStreamRequestError" = assert
 
 hugeOptions map
-hugeOptions get "max_bytes" 16777217 put! drop
+hugeOptions get "max_bytes" 16777217 put drop
 id get hugeOptions get http_stream_read error hugeError var
 hugeError get "kind" at "HttpStreamRequestError" = assert
 
 textOptions map
-textOptions get "max_bytes" "many" put! drop
+textOptions get "max_bytes" "many" put drop
 id get textOptions get http_stream_read error textError var
 textError get "kind" at "HttpStreamRequestError" = assert
 
 unknownOptions map
-unknownOptions get "mystery" true put! drop
+unknownOptions get "mystery" true put drop
 id get unknownOptions get http_stream_read error unknownError var
 unknownError get "kind" at "HttpStreamRequestError" = assert
 
@@ -11960,9 +11987,9 @@ fn run_http_stream_release_drops_completed_stream() {
     let output = run_source(&format!(
         r#"
 request map
-request get "url" "http://{address}/stream" put! drop
-request get "timeout_ms" 10000 put! drop
-request get "max_response_bytes" 1024 put! drop
+request get "url" "http://{address}/stream" put drop
+request get "timeout_ms" 10000 put drop
+request get "max_response_bytes" 1024 put drop
 request get http_stream_start value stream var
 stream get "id" at id var
 nil detail var
@@ -12005,10 +12032,10 @@ fn run_http_request_rejects_request_policy_before_connecting() {
     let source_path = write_source(&format!(
         r#"
 schemes array
-schemes get "https" push! drop
+schemes get "https" push drop
 request map
-request get "url" "http://{address}/blocked" put! drop
-request get "allowed_schemes" schemes get put! drop
+request get "url" "http://{address}/blocked" put drop
+request get "allowed_schemes" schemes get put drop
 request get http_request error denied var
 denied get "kind" at
 denied get "message" at
@@ -12042,8 +12069,8 @@ fn run_http_request_respects_response_byte_cap() {
     let source_path = write_source(&format!(
         r#"
 request map
-request get "url" "http://{address}/large" put! drop
-request get "max_response_bytes" 3 put! drop
+request get "url" "http://{address}/large" put drop
+request get "max_response_bytes" 3 put drop
 request get http_request error denied var
 denied get "kind" at
 denied get "message" at
@@ -12078,10 +12105,10 @@ fn run_http_request_rejects_invalid_header_names_before_connecting() {
     let source_path = write_source(&format!(
         r#"
 headers map
-headers get "Bad Header" "secret" put! drop
+headers get "Bad Header" "secret" put drop
 request map
-request get "url" "http://{address}/blocked" put! drop
-request get "headers" headers get put! drop
+request get "url" "http://{address}/blocked" put drop
+request get "headers" headers get put drop
 request get http_request error denied var
 denied get "kind" at
 denied get "message" at
@@ -12191,14 +12218,14 @@ fn run_sandboxed_profile_allows_bounded_tcp_socket_echo() {
     let source_path = write_source(&format!(
         r#"
 options map
-$options "timeout_ms" 5000 put! drop
+$options "timeout_ms" 5000 put drop
 "127.0.0.1" {port} $options tcp_connect value connection var
 $connection "status" at
 $connection "id" at id var
 $id "ping" tcp_write value "bytes_written" at
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
-$readOptions "max_bytes" 64 put! drop
+$readOptions "timeout_ms" 5000 put drop
+$readOptions "max_bytes" 64 put drop
 $id $readOptions tcp_read value read var
 $read "data" at
 $id tcp_close value "closed" at
@@ -12241,13 +12268,13 @@ fn run_sandboxed_profile_allows_bounded_websocket_echo() {
     let source_path = write_source(&format!(
         r#"
 options map
-$options "timeout_ms" 5000 put! drop
+$options "timeout_ms" 5000 put drop
 "ws://127.0.0.1:{port}/echo" $options ws_connect value socket var
 $socket "status" at
 $socket "id" at id var
 $id "hello" ws_send value "messages_sent" at
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
+$readOptions "timeout_ms" 5000 put drop
 $id $readOptions ws_read value message var
 $message "message_type" at
 $message "message" at
@@ -12292,13 +12319,13 @@ fn run_websocket_read_rejects_messages_above_max_bytes() {
     let source_path = write_source(&format!(
         r#"
 options map
-$options "timeout_ms" 5000 put! drop
+$options "timeout_ms" 5000 put drop
 "ws://127.0.0.1:{port}/echo" $options ws_connect value socket var
 $socket "id" at id var
 $id "hello" ws_send value drop
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
-$readOptions "max_bytes" 2 put! drop
+$readOptions "timeout_ms" 5000 put drop
+$readOptions "max_bytes" 2 put drop
 $id $readOptions ws_read error denied var
 $id ws_close value drop
 $id ws_release value drop
@@ -12336,25 +12363,25 @@ $listener "status" at
 $listener "port" at port var
 [
   options map
-  $options "timeout_ms" 5000 put! drop
+  $options "timeout_ms" 5000 put drop
   "127.0.0.1" $port $options tcp_connect value client var
   $client "id" at clientId var
   $clientId "from-client" tcp_write value drop
   readOptions map
-  $readOptions "timeout_ms" 5000 put! drop
-  $readOptions "max_bytes" 64 put! drop
+  $readOptions "timeout_ms" 5000 put drop
+  $readOptions "max_bytes" 64 put drop
   $clientId $readOptions tcp_read value clientRead var
   $clientId tcp_close value drop
   $clientId tcp_release value drop
   $clientRead "data" at
 ] spawn clientTask var
 acceptOptions map
-$acceptOptions "timeout_ms" 5000 put! drop
+$acceptOptions "timeout_ms" 5000 put drop
 $listener "id" at $acceptOptions tcp_accept value accepted var
 $accepted "id" at serverId var
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
-$readOptions "max_bytes" 64 put! drop
+$readOptions "timeout_ms" 5000 put drop
+$readOptions "max_bytes" 64 put drop
 $serverId $readOptions tcp_read value serverRead var
 $serverRead "data" at
 $serverId "from-server" tcp_write value "bytes_written" at
@@ -12405,23 +12432,23 @@ $listener "status" at
 "ws://127.0.0.1:" $listener "port" at to_string concat "/echo" concat url var
 [
   options map
-  $options "timeout_ms" 5000 put! drop
+  $options "timeout_ms" 5000 put drop
   $url $options ws_connect value client var
   $client "id" at clientId var
   $clientId "from-client" ws_send value drop
   readOptions map
-  $readOptions "timeout_ms" 5000 put! drop
+  $readOptions "timeout_ms" 5000 put drop
   $clientId $readOptions ws_read value clientRead var
   $clientId ws_close value drop
   $clientId ws_release value drop
   $clientRead "message" at
 ] spawn clientTask var
 acceptOptions map
-$acceptOptions "timeout_ms" 5000 put! drop
+$acceptOptions "timeout_ms" 5000 put drop
 $listener "id" at $acceptOptions ws_accept value accepted var
 $accepted "id" at serverId var
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
+$readOptions "timeout_ms" 5000 put drop
 $serverId $readOptions ws_read value serverRead var
 $serverRead "message_type" at
 $serverRead "message" at
@@ -12501,7 +12528,7 @@ fn run_http_post_json_does_not_follow_redirects_past_allowlist() {
     let source_path = write_source(&format!(
         r#"
 payload map
-payload get "message" "hello" put! drop
+payload get "message" "hello" put drop
 "http://{address}/redirect" payload get http_post_json value response var
 response get "status" at
 "#
@@ -12562,7 +12589,7 @@ fn run_http_post_json_task_does_not_follow_redirects_past_allowlist() {
     let source_path = write_source(&format!(
         r#"
 payload map
-payload get "message" "hello" put! drop
+payload get "message" "hello" put drop
 "http://{address}/redirect" payload get http_post_json_task task var
 task get await value response var
 response get "status" at
@@ -13820,7 +13847,7 @@ fn native_counter_app_source() -> &'static str {
     r#"
 ( -> Map ) app_init function
   state map
-  $state "count" 0 put! drop
+  $state "count" 0 put drop
   $state
 end
 
@@ -13828,18 +13855,18 @@ end
   text var
   id var
   props map
-  $props "text" $text put! drop
+  $props "text" $text put drop
   children array
   events array
   native map
   node map
-  $node "schema_version" 1 put! drop
-  $node "id" $id put! drop
-  $node "type" "text" put! drop
-  $node "props" $props put! drop
-  $node "children" $children put! drop
-  $node "events" $events put! drop
-  $node "native_options" $native put! drop
+  $node "schema_version" 1 put drop
+  $node "id" $id put drop
+  $node "type" "text" put drop
+  $node "props" $props put drop
+  $node "children" $children put drop
+  $node "events" $events put drop
+  $node "native_options" $native put drop
   $node
 end
 
@@ -13847,40 +13874,40 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
+  $props "label" $label put drop
   children array
   events array
-  $events "click" push! drop
+  $events "click" push drop
   native map
   node map
-  $node "schema_version" 1 put! drop
-  $node "id" $id put! drop
-  $node "type" "button" put! drop
-  $node "props" $props put! drop
-  $node "children" $children put! drop
-  $node "events" $events put! drop
-  $node "native_options" $native put! drop
+  $node "schema_version" 1 put drop
+  $node "id" $id put drop
+  $node "type" "button" put drop
+  $node "props" $props put drop
+  $node "children" $children put drop
+  $node "events" $events put drop
+  $node "native_options" $native put drop
   $node
 end
 
 ( state -> Map ) app_view function
   state var
   props map
-  $props "title" "Counter" put! drop
+  $props "title" "Counter" put drop
   children array
-  $children "count_label" "Count: " $state "count" at to_string concat app_text push! drop
-  $children "increment_button" "Increment" app_button push! drop
+  $children "count_label" "Count: " $state "count" at to_string concat app_text push drop
+  $children "increment_button" "Increment" app_button push drop
   events array
-  $events "close" push! drop
+  $events "close" push drop
   native map
   window map
-  $window "schema_version" 1 put! drop
-  $window "id" "main" put! drop
-  $window "type" "window" put! drop
-  $window "props" $props put! drop
-  $window "children" $children put! drop
-  $window "events" $events put! drop
-  $window "native_options" $native put! drop
+  $window "schema_version" 1 put drop
+  $window "id" "main" put drop
+  $window "type" "window" put drop
+  $window "props" $props put drop
+  $window "children" $children put drop
+  $window "events" $events put drop
+  $window "native_options" $native put drop
   $window
 end
 
@@ -13890,18 +13917,18 @@ end
   $event "type" at "click" = if
     $event "id" at "increment_button" = if
       $state "count" at 1 + nextCount var
-      $state "count" $nextCount put! drop
+      $state "count" $nextCount put drop
     end
   end
   $state app_view document var
   commands array
   diagnostics array
   response map
-  $response "schema_version" 1 put! drop
-  $response "state" $state put! drop
-  $response "document" $document put! drop
-  $response "commands" $commands put! drop
-  $response "diagnostics" $diagnostics put! drop
+  $response "schema_version" 1 put drop
+  $response "state" $state put drop
+  $response "document" $document put drop
+  $response "commands" $commands put drop
+  $response "diagnostics" $diagnostics put drop
   $response
 end
 "#

@@ -4,18 +4,18 @@
 ( state event -> Map ) save_note function
   event var
   state var
-  $state "saved" true put! drop
+  $state "saved" true put drop
 
   actions array
-  $actions "Save <Now>" "save-note" "save_note" webview_action push! drop
+  $actions "Save <Now>" "save-note" "save_note" webview_action push drop
 
   "Saved: " $state "note" at concat webview_text saved var
   "Ricochet Notes" $saved $state $actions webview_window_state value
 end
 
 state map
-$state "note" "Draft <idea>" put! drop
-$state "saved" false put! drop
+$state "note" "Draft <idea>" put drop
+$state "saved" false put drop
 
 "Notes" 1 webview_heading heading var
 "Preview: " $state "note" at concat webview_text preview var
@@ -30,7 +30,7 @@ $docsLink concat
 webview_container body var
 
 actions array
-$actions "Save <Now>" "save-note" "save_note" webview_action push! drop
+$actions "Save <Now>" "save-note" "save_note" webview_action push drop
 
 "Plain Notes" $body webview_window value plainDocument var
 "Ricochet Notes" $body $state $actions webview_window_state value document var

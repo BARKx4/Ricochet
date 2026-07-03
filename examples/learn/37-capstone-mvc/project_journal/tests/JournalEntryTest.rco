@@ -12,7 +12,7 @@ JournalEntryTest TestCase Subclass
     JournalEntry new
     "TUI smoke test" swap title.set
     "draft" swap status.set
-    $entries swap push! drop
+    $entries swap push drop
 
     $entries count
     1 assert_equals

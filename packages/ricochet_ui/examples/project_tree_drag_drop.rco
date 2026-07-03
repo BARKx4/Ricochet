@@ -5,22 +5,22 @@
   "file-readme" "README.md" $emptyChildren ui_tree_node fileNode var
   "tree_nodes" "file-readme" ui_drag_payload payload var
   ops array
-  $ops "move" push! drop
+  $ops "move" push drop
   $fileNode $payload $ops ui_drag_source draggableFile var
 
   children array
-  $children $draggableFile push! drop
+  $children $draggableFile push drop
   "folder-docs" "docs" $children ui_tree_node folderNode var
   accepts array
-  $accepts "tree_nodes" push! drop
+  $accepts "tree_nodes" push drop
   $folderNode $accepts $ops ui_drop_target dropFolder var
 
   nodes array
-  $nodes $dropFolder push! drop
+  $nodes $dropFolder push drop
   expanded array
-  $expanded "folder-docs" push! drop
+  $expanded "folder-docs" push drop
   selected array
-  $selected "file-readme" push! drop
+  $selected "file-readme" push drop
   "project_tree" $nodes $expanded $selected ui_tree
 end
 

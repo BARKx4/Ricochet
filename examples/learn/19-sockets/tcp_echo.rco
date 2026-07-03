@@ -14,14 +14,14 @@ $listener "port" at port var
 
 [
   options map
-  $options "timeout_ms" 5000 put! drop
+  $options "timeout_ms" 5000 put drop
   "127.0.0.1" $port $options tcp_connect value client var
   $client "id" at clientId var
   $clientId "from-client" tcp_write value drop
 
   readOptions map
-  $readOptions "timeout_ms" 5000 put! drop
-  $readOptions "max_bytes" 64 put! drop
+  $readOptions "timeout_ms" 5000 put drop
+  $readOptions "max_bytes" 64 put drop
   $clientId $readOptions tcp_read value clientRead var
 
   $clientId tcp_close value drop
@@ -30,7 +30,7 @@ $listener "port" at port var
 ] spawn clientTask var
 
 acceptOptions map
-$acceptOptions "timeout_ms" 5000 put! drop
+$acceptOptions "timeout_ms" 5000 put drop
 $listener "id" at $acceptOptions tcp_accept value accepted var
 $accepted "id" at serverId var
 
@@ -38,8 +38,8 @@ $accepted "id" at serverId var
 $serverId tcp_connection value "status" at println
 
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
-$readOptions "max_bytes" 64 put! drop
+$readOptions "timeout_ms" 5000 put drop
+$readOptions "max_bytes" 64 put drop
 
 "server read:" print
 $serverId $readOptions tcp_read value serverRead var

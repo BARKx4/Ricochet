@@ -119,10 +119,10 @@ variable named <code>document</code>, which is what <code>rco gui</code> expects
 <pre><code>( state event -&gt; Map ) save_note function
   event var
   state var
-  $state &quot;saved&quot; true put! drop
+  $state &quot;saved&quot; true put drop
 
   actions array
-  $actions &quot;Save &lt;Now&gt;&quot; &quot;save-note&quot; &quot;save_note&quot; webview_action push! drop
+  $actions &quot;Save &lt;Now&gt;&quot; &quot;save-note&quot; &quot;save_note&quot; webview_action push drop
 
   &quot;Saved: &quot; $state &quot;note&quot; at concat webview_text saved var
   &quot;Ricochet Notes&quot; $saved $state $actions webview_window_state value
@@ -143,7 +143,7 @@ $docsLink concat
 webview_container body var
 
 actions array
-$actions &quot;Save &lt;Now&gt;&quot; &quot;save-note&quot; &quot;save_note&quot; webview_action push! drop
+$actions &quot;Save &lt;Now&gt;&quot; &quot;save-note&quot; &quot;save_note&quot; webview_action push drop
 
 &quot;Ricochet Notes&quot; $body $state $actions webview_window_state value document var
 </code></pre>

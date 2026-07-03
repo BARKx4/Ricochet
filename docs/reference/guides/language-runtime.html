@@ -50,7 +50,7 @@
           <p>Read an existing binding with <code>$name</code>. Declaration words still keep the name-first shape, and <code>$</code> is useful when a declaration name is itself stored in another variable:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;users&quot; name var
 $name array
-$users &quot;Ada&quot; push! drop
+$users &quot;Ada&quot; push drop
 $users count println</code></pre>
           <p>Top-level declarations are shared across the VM. Function and method calls get fresh local declaration scopes, so helper locals declared with <code>var</code>, <code>array</code>, <code>map</code>, <code>list</code>, or <code>Set</code> refresh within the active call and do not leak into later calls.</p>
           <h2 id="persistent-images-and-source-emission">Persistent Images And Source Emission</h2>
@@ -72,8 +72,8 @@ $answer await
 $answer release_task
 $answer task_status
 handles array
-$handles [ 20 2 + ] spawn push! drop
-$handles [ 30 4 + ] spawn push! drop
+$handles [ 20 2 + ] spawn push drop
+$handles [ 30 4 + ] spawn push drop
 $handles await_all</code></pre>
           <p>HTTP capability calls can also be launched as tasks:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;https://example.com&quot; http_get_task request var
@@ -85,12 +85,12 @@ $request 60000 http_timeout value request set
 $request http_stream_start value stream var
 
 options map
-$options &quot;max_bytes&quot; 4096 put! drop
+$options &quot;max_bytes&quot; 4096 put drop
 false done var
 $done false = while
   $stream &quot;id&quot; at $options http_stream_read value chunk var
   $chunk &quot;body&quot; at println
-  $options &quot;offset&quot; $chunk &quot;next_offset&quot; at put! drop
+  $options &quot;offset&quot; $chunk &quot;next_offset&quot; at put drop
   $chunk &quot;done&quot; at done set
 end</code></pre>
           <h2 id="date-time-and-duration">Date, Time, And Duration</h2>
@@ -112,16 +112,16 @@ $date $nextDate date_diff_days value println</code></pre>
           <p>For authenticated provider calls, keep settings as ordinary maps and store secret references instead of secret values. <code>secret_env</code> creates an env-backed reference, <code>config_get</code> reads required nested settings, and <code>secret_resolve</code> reads the value only at the point of use under the environment capability. <code>http_request_new</code>, <code>http_bearer_auth</code>, <code>http_json_body</code>, and <code>http_timeout</code> cover the common request-map plumbing while preserving the same runtime host allowlist and no-follow redirect policy as the simpler HTTP words:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>settings map
 provider map
-$provider &quot;api_key&quot; &quot;PROVIDER_API_KEY&quot; secret_env put! drop
-$settings &quot;provider&quot; $provider put! drop
+$provider &quot;api_key&quot; &quot;PROVIDER_API_KEY&quot; secret_env put drop
+$settings &quot;provider&quot; $provider put drop
 
 path array
-$path &quot;provider&quot; push! drop
-$path &quot;api_key&quot; push! drop
+$path &quot;provider&quot; push drop
+$path &quot;api_key&quot; push drop
 $settings $path config_get value secret_resolve value token var
 
 payload map
-$payload &quot;probe&quot; true put! drop
+$payload &quot;probe&quot; true put drop
 &quot;POST&quot; &quot;https://api.example/v1/models&quot; http_request_new value request var
 $request $token http_bearer_auth value request set
 $request $payload http_json_body value request set
@@ -134,8 +134,8 @@ $response &quot;status&quot; at println</code></pre>
 
 &quot;openai&quot; &quot;https://api.openai.com/v1&quot; &quot;gpt-4.1-mini&quot; ai_provider provider var
 messages array
-$messages &quot;Use one paragraph.&quot; ai_system_message push! drop
-$messages &quot;Explain Ricochet packages.&quot; ai_user_message push! drop
+$messages &quot;Use one paragraph.&quot; ai_system_message push drop
+$messages &quot;Explain Ricochet packages.&quot; ai_user_message push drop
 options map
 tools array
 3 100 1000 ai_retry_policy retry var
@@ -173,11 +173,11 @@ end</code></pre>
           <h2 id="webview-documents">Webview Documents</h2>
           <p>Build a webview document for desktop UI hosts:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>state map
-$state &quot;count&quot; 1 put! drop
+$state &quot;count&quot; 1 put drop
 &quot;Count: &quot; $state &quot;count&quot; at to_string concat webview_text countText var
 &quot;Increment&quot; &quot;increment&quot; webview_button button var
 actions array
-$actions &quot;Increment&quot; &quot;increment&quot; &quot;increment_counter&quot; webview_action push! drop
+$actions &quot;Increment&quot; &quot;increment&quot; &quot;increment_counter&quot; webview_action push drop
 &quot;&lt;main&gt;&quot; $countText concat
 $countText concat
 $button concat

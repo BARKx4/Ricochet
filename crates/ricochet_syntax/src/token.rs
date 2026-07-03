@@ -13,7 +13,6 @@ pub struct Span {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     Symbol(String),
-    BangWord(String),
     DotWord(String),
     Reference(String),
     String(String),

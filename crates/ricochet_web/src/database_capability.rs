@@ -1949,7 +1949,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "map \"email\" \"ada@example.com\" put! User insert",
+            "map \"email\" \"ada@example.com\" put User insert",
         )
         .expect("source compiles");
 
@@ -1972,7 +1972,7 @@ mod tests {
         let mut vm = vm_with_active_record();
         let chunk = ricochet_compiler::compile_source(
             "test.rco",
-            "42 map \"email\" \"grace@example.com\" put! User update",
+            "42 map \"email\" \"grace@example.com\" put User update",
         )
         .expect("source compiles");
 

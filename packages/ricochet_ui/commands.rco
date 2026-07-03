@@ -5,11 +5,11 @@
   target var
   type var
   command map
-  $command "schema_version" 1 put! drop
-  $command "type" $type put! drop
-  $command "target" $target put! drop
-  $command "payload" $payload put! drop
-  $command "required" $required put! drop
+  $command "schema_version" 1 put drop
+  $command "type" $type put drop
+  $command "target" $target put drop
+  $command "payload" $payload put drop
+  $command "required" $required put drop
   $command
 end
 
@@ -35,8 +35,8 @@ end
   message var
   title var
   payload map
-  $payload "title" $title put! drop
-  $payload "message" $message put! drop
+  $payload "title" $title put drop
+  $payload "message" $message put drop
   "show_message" "window" $payload true ui_command
 end
 
@@ -44,7 +44,7 @@ end
   title var
   id var
   payload map
-  $payload "title" $title put! drop
+  $payload "title" $title put drop
   "open_file_picker" $id $payload true ui_command
 end
 
@@ -52,7 +52,7 @@ end
   title var
   id var
   payload map
-  $payload "title" $title put! drop
+  $payload "title" $title put drop
   "save_file_picker" $id $payload true ui_command
 end
 
@@ -60,14 +60,14 @@ end
   title var
   id var
   payload map
-  $payload "title" $title put! drop
+  $payload "title" $title put drop
   "open_folder_picker" $id $payload true ui_command
 end
 
 ( text -> Map ) ui_clipboard_write function
   text var
   payload map
-  $payload "text" $text put! drop
+  $payload "text" $text put drop
   "clipboard_write" "clipboard" $payload true ui_command
 end
 
@@ -80,7 +80,7 @@ end
 ( state -> Map ) ui_set_window_state function
   state var
   payload map
-  $payload "state" $state put! drop
+  $payload "state" $state put drop
   "set_window_state" "window" $payload true ui_command
 end
 

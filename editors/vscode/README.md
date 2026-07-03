@@ -12,7 +12,7 @@ The grammar registers the `source.ricochet` scope and highlights:
 - positive and negative integer numbers
 - `$name` binding reads
 - postfix selectors such as `email.get`, `displayName`, and `status`
-- mutator words such as `push!`, `put!`, `insert!`, and `remove!`
+- mutator words such as `push`, `put`, `insert_at`, and `remove`
 - declaration, control-flow, async, route, webview, stack, and core built-in words
 - Args arrows and block/argument delimiters
 

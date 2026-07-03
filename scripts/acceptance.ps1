@@ -213,7 +213,7 @@ $sqliteSeeds = Join-Path $sqliteProject "db\seeds"
 New-Item -ItemType Directory -Path $sqliteSeeds -Force | Out-Null
 Write-Utf8File -Path (Join-Path $sqliteSeeds "001_acceptance_notes.sql") -Content "insert into acceptance_notes (body) values ('from sql seed');`n"
 Write-Utf8File -Path (Join-Path $sqliteSeeds "002_acceptance_notes.rco") -Content @"
-map "body" "from rco seed" put! AcceptanceNote insert value drop
+map "body" "from rco seed" put AcceptanceNote insert value drop
 AcceptanceNote count_records value
 2 assert_equals
 "@

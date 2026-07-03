@@ -24,14 +24,14 @@ Native app entrypoints use ordinary Ricochet functions:
 ```ricochet
 ( -> Map ) app_init function
   state map
-  $state "count" 0 put! drop
+  $state "count" 0 put drop
   $state
 end
 
 ( state -> Map ) app_view function
   state var
   children array
-  $children "count_label" "Count: " $state "count" at to_string concat ui_text push! drop
+  $children "count_label" "Count: " $state "count" at to_string concat ui_text push drop
   "main" "Counter" $children ui_window value
 end
 

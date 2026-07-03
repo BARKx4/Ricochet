@@ -61,8 +61,8 @@ JournalController Controller Subclass
     $id JournalEntry find_record dup ok? if
       value record var
       response map
-      $response "exists" $exists put! drop
-      $response "entry" $record put! drop
+      $response "exists" $exists put drop
+      $response "entry" $record put drop
       $response json
     else
       error "message" at text 404 status
@@ -77,11 +77,11 @@ JournalController Controller Subclass
     title var
 
     entry map
-    $entry "title" $title put! drop
-    $entry "body" $body put! drop
-    $entry "status" $status put! drop
-    $entry "mood" $mood put! drop
-    $entry "created_on" "2026-06-22" put! drop
+    $entry "title" $title put drop
+    $entry "body" $body put drop
+    $entry "status" $status put drop
+    $entry "mood" $mood put drop
+    $entry "created_on" "2026-06-22" put drop
 
     $entry JournalEntry insert dup ok? if
       value json
@@ -100,10 +100,10 @@ JournalController Controller Subclass
     id var
 
     changes map
-    $changes "title" $title put! drop
-    $changes "body" $body put! drop
-    $changes "status" $status put! drop
-    $changes "mood" $mood put! drop
+    $changes "title" $title put drop
+    $changes "body" $body put drop
+    $changes "status" $status put drop
+    $changes "mood" $mood put drop
 
     $id $changes JournalEntry update dup ok? if
       value json

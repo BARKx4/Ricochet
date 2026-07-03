@@ -130,9 +130,9 @@ POST &quot;/uploads/:id&quot; UploadsController &quot;create&quot; route
 <pre><code>PagesController Controller Subclass
   [
     items array
-    $items &quot;Template expressions escape HTML&quot; push! drop
-    $items &quot;Static assets live under /assets&quot; push! drop
-    $items &quot;Upload streams must be released&quot; push! drop
+    $items &quot;Template expressions escape HTML&quot; push drop
+    $items &quot;Static assets live under /assets&quot; push drop
+    $items &quot;Upload streams must be released&quot; push drop
     true showUploads var
     &quot;Templates, Assets, Uploads&quot; title var
     $ctx
@@ -171,20 +171,20 @@ multipart fields, upload fields, query params, and context values:</p>
     id var
 
     readOptions map
-    $readOptions &quot;max_bytes&quot; 64 put! drop
+    $readOptions &quot;max_bytes&quot; 64 put drop
     $file &quot;stream_id&quot; at $readOptions upload_read value chunk var
     $file &quot;stream_id&quot; at upload_stream value detail var
 
     summary map
-    $summary &quot;id&quot; $id put! drop
-    $summary &quot;title&quot; $title put! drop
-    $summary &quot;filename&quot; $file &quot;filename&quot; at put! drop
-    $summary &quot;preview&quot; $chunk &quot;text&quot; at put! drop
-    $summary &quot;stream_size&quot; $detail &quot;size&quot; at put! drop
-    $summary &quot;retained_before_release&quot; upload_streams count put! drop
+    $summary &quot;id&quot; $id put drop
+    $summary &quot;title&quot; $title put drop
+    $summary &quot;filename&quot; $file &quot;filename&quot; at put drop
+    $summary &quot;preview&quot; $chunk &quot;text&quot; at put drop
+    $summary &quot;stream_size&quot; $detail &quot;size&quot; at put drop
+    $summary &quot;retained_before_release&quot; upload_streams count put drop
     $file &quot;stream_id&quot; at upload_release value released var
-    $summary &quot;released&quot; $released put! drop
-    $summary &quot;retained_after_release&quot; upload_streams count put! drop
+    $summary &quot;released&quot; $released put drop
+    $summary &quot;retained_after_release&quot; upload_streams count put drop
     $summary json
   ] &quot;create&quot; Method
 end

@@ -112,14 +112,14 @@ $role println
 </code></pre>
 <p>Build a map when you need named fields:</p>
 <pre><code class="language-rco">profile map
-$profile &quot;name&quot; $name put! drop
-$profile &quot;role&quot; $role put! drop
+$profile &quot;name&quot; $name put drop
+$profile &quot;role&quot; $role put drop
 </code></pre>
 <h2>How to read the code</h2>
 <p>This map update has a consistent order:</p>
-<pre><code class="language-rco">$profile &quot;name&quot; $name put! drop
+<pre><code class="language-rco">$profile &quot;name&quot; $name put drop
 </code></pre>
-<p>Read it as: put the container on the stack, put the key on the stack, put the value on the stack, then call <code>put!</code>. The mutation word returns the collection, so <code>drop</code> removes that returned collection when you do not need it.</p>
+<p>Read it as: put the container on the stack, put the key on the stack, put the value on the stack, then call <code>put</code>. The mutation word returns the collection, so <code>drop</code> removes that returned collection when you do not need it.</p>
 <p>Use static binding reads for ordinary code:</p>
 <pre><code class="language-rco">$name
 </code></pre>
@@ -128,20 +128,20 @@ $profile &quot;role&quot; $role put! drop
 </code></pre>
 <h2>Try it</h2>
 <p>Add another field:</p>
-<pre><code class="language-rco">$profile &quot;city&quot; &quot;Chicago&quot; put! drop
+<pre><code class="language-rco">$profile &quot;city&quot; &quot;Chicago&quot; put drop
 $profile &quot;city&quot; at println
 </code></pre>
 <p>Then add an array:</p>
 <pre><code class="language-rco">tags array
-$tags &quot;beginner&quot; push! drop
-$tags &quot;manual&quot; push! drop
+$tags &quot;beginner&quot; push drop
+$tags &quot;manual&quot; push drop
 $tags &quot;, &quot; join println
 </code></pre>
 <h2>Check your understanding</h2>
 <ul>
 <li><code>$name</code> reads a binding called <code>name</code>.</li>
 <li><code>&quot;name&quot; get</code> looks up a binding by a string at runtime.</li>
-<li><code>put!</code> mutates a map and returns the map.</li>
+<li><code>put</code> mutates a map and returns the map.</li>
 <li><code>drop</code> is common after mutators when the returned collection is not needed.</li>
 </ul>
 <h2>Common mistakes</h2>

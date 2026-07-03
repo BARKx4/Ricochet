@@ -215,7 +215,7 @@ counts, filtering, due-soon logic, and summary map fields.</p>
 1 assert_equals
 </code></pre>
 <p>Add a new report field to <code>worklog_summary</code>:</p>
-<pre><code>$summary &quot;blocked&quot; $entries &quot;blocked&quot; worklog_count_status put! drop
+<pre><code>$summary &quot;blocked&quot; $entries &quot;blocked&quot; worklog_count_status put drop
 </code></pre>
 <p>Then print it from <code>main.rco</code>:</p>
 <pre><code>&quot;blocked:&quot; print

@@ -3,13 +3,13 @@
 AuthPackageTest TestCase Subclass
   [
     session map
-    $session "user_id" "ada" put! drop
+    $session "user_id" "ada" put drop
     $session auth_user_present
     true assert_equals
   ] "testUserPresent" Method
   [
     session map
-    $session "user_id" "ada" put! drop
+    $session "user_id" "ada" put drop
     $session "/login" auth_route_guard guard var
     $guard "ok" at
     true assert_equals
@@ -28,7 +28,7 @@ AuthPackageTest TestCase Subclass
   ] "testRouteGuardRejectsMissingSession" Method
   [
     session map
-    $session "csrf_token" "abc" put! drop
+    $session "csrf_token" "abc" put drop
     $session "abc" auth_csrf_valid
     true assert_equals
   ] "testCsrfValid" Method
@@ -39,13 +39,13 @@ AuthPackageTest TestCase Subclass
   ] "testCsrfRejectsMissingStoredToken" Method
   [
     session map
-    $session "csrf_token" "" put! drop
+    $session "csrf_token" "" put drop
     $session "" auth_csrf_valid
     false assert_equals
   ] "testCsrfRejectsBlankTokens" Method
   [
     session map
-    $session "csrf_token" "abc" put! drop
+    $session "csrf_token" "abc" put drop
     $session "wrong" auth_csrf_check "reason" at
     "invalid_csrf_token" assert_equals
   ] "testCsrfCheckReason" Method

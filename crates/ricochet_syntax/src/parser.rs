@@ -271,7 +271,6 @@ impl Parser {
                 return Err(ParseError::MissingWhileCondition { span: token.span });
             }
             TokenKind::Symbol(s) => Expr::Symbol(s),
-            TokenKind::BangWord(s) => Expr::BangWord(s),
             TokenKind::DotWord(s) => Expr::DotWord(s),
             TokenKind::Reference(s) => Expr::Reference(s),
             TokenKind::String(s) => Expr::String(s),

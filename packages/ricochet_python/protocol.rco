@@ -4,9 +4,9 @@
   op var
   id var
   request map
-  $request "id" $id put! drop
-  $request "op" $op put! drop
-  $request "payload" $payload put! drop
+  $request "id" $id put drop
+  $request "op" $op put drop
+  $request "payload" $payload put drop
   $request
 end
 
@@ -20,9 +20,9 @@ end
   type var
   id var
   ref map
-  $ref "__ricochet_py_ref" $id put! drop
-  $ref "type" $type put! drop
-  $ref "repr" $repr put! drop
+  $ref "__ricochet_py_ref" $id put drop
+  $ref "type" $type put drop
+  $ref "repr" $repr put drop
   $ref
 end
 
@@ -67,7 +67,7 @@ end
         "Python bridge request failed" message set
       end
       $kind $message fail result var
-      $result error "details" $errorMap put! drop
+      $result error "details" $errorMap put drop
       $result
     end
   end

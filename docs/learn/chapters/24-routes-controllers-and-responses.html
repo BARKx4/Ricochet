@@ -154,9 +154,9 @@ DELETE /messages/:id ResponsesController#destroy
 <p><code>json</code> wraps any Ricochet value that can be serialized:</p>
 <pre><code>[
   statusBody map
-  $statusBody &quot;ok&quot; true put! drop
-  $statusBody &quot;service&quot; &quot;learn&quot; put! drop
-  $statusBody &quot;routes&quot; 8 put! drop
+  $statusBody &quot;ok&quot; true put drop
+  $statusBody &quot;service&quot; &quot;learn&quot; put drop
+  $statusBody &quot;routes&quot; 8 put drop
   $statusBody json
 ] &quot;status_json&quot; Method
 </code></pre>
@@ -173,9 +173,9 @@ Ricochet is stack-based, bind them from the top of the stack:</p>
   id var
 
   updated map
-  $updated &quot;id&quot; $id put! drop
-  $updated &quot;title&quot; $title put! drop
-  $updated &quot;body&quot; $body put! drop
+  $updated &quot;id&quot; $id put drop
+  $updated &quot;title&quot; $title put drop
+  $updated &quot;body&quot; $body put drop
   $updated json
 ] &quot;update&quot; Method
 </code></pre>
@@ -191,7 +191,7 @@ Ricochet is stack-based, bind them from the top of the stack:</p>
 <p>Then add an action:</p>
 <pre><code>[
   health map
-  $health &quot;ok&quot; true put! drop
+  $health &quot;ok&quot; true put drop
   $health json
 ] &quot;health&quot; Method
 </code></pre>

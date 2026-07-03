@@ -13,7 +13,7 @@ UiDocumentPackageTest TestCase Subclass
   ] "testNodeShape" Method
   [
     children array
-    $children "title" "Hello" ui_text push! drop
+    $children "title" "Hello" ui_text push drop
     "main" "Demo" $children ui_window result var
     $result ok? true assert_equals
     $result value "type" at "window" assert_equals

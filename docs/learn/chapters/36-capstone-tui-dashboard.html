@@ -144,12 +144,12 @@ end
   services var
   summary map
 
-  $summary &quot;count&quot; $services count put! drop
-  $summary &quot;ok&quot; $services &quot;ok&quot; service_count_status put! drop
-  $summary &quot;degraded&quot; $services &quot;degraded&quot; service_count_status put! drop
-  $summary &quot;down&quot; $services &quot;down&quot; service_count_status put! drop
-  $summary &quot;average_latency_ms&quot; $services service_average_latency put! drop
-  $summary &quot;health_score&quot; $services service_health_score put! drop
+  $summary &quot;count&quot; $services count put drop
+  $summary &quot;ok&quot; $services &quot;ok&quot; service_count_status put drop
+  $summary &quot;degraded&quot; $services &quot;degraded&quot; service_count_status put drop
+  $summary &quot;down&quot; $services &quot;down&quot; service_count_status put drop
+  $summary &quot;average_latency_ms&quot; $services service_average_latency put drop
+  $summary &quot;health_score&quot; $services service_health_score put drop
 
   $summary
 end
@@ -202,7 +202,7 @@ path; the file-specific command keeps the TUI renderer out of the test run.</p>
 <h2>Try it</h2>
 <p>Add a <code>&quot;maintenance&quot;</code> service to <code>data/services.json</code>, then add a
 <code>&quot;maintenance&quot;</code> count to <code>service_summary</code>:</p>
-<pre><code>$summary &quot;maintenance&quot; $services &quot;maintenance&quot; service_count_status put! drop
+<pre><code>$summary &quot;maintenance&quot; $services &quot;maintenance&quot; service_count_status put drop
 </code></pre>
 <p>Render it under the existing status row:</p>
 <pre><code>&quot;  maintenance: &quot; tui_write value drop

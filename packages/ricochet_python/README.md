@@ -28,8 +28,8 @@ env map
 "python" "packages/ricochet_python/worker" "packages/ricochet_python/worker" $env py_worker_start value worker var
 
 args array
-$args 20 push! drop
-$args 22 push! drop
+$args 20 push drop
+$args 22 push drop
 kwargs map
 $worker "fake_sdk.add" $args $kwargs py_call value println
 

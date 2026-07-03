@@ -14,7 +14,7 @@ form_schema
 schema var
 
 data map
-$data "email" "ada@example.com" put! drop
-$data "age" 37 put! drop
+$data "email" "ada@example.com" put drop
+$data "age" 37 put drop
 
 $data $schema form_schema_validate json_encode println

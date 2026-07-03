@@ -11,6 +11,8 @@ pub enum LexError {
     InvalidStringEscape { escape: char, position: usize },
     #[error("empty reference at byte {0}")]
     EmptyReference(usize),
+    #[error("leading ! words are not supported at byte {position}: {word:?}")]
+    LeadingExclamationWord { word: String, position: usize },
     #[error("invalid word {word:?} at byte {position}")]
     InvalidWord { word: String, position: usize },
 }
@@ -140,7 +142,10 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     });
                 }
                 let kind = if word.starts_with('!') {
-                    TokenKind::BangWord(word)
+                    return Err(LexError::LeadingExclamationWord {
+                        word,
+                        position: start,
+                    });
                 } else if word.starts_with('.') {
                     TokenKind::DotWord(word)
                 } else if let Some(name) = word.strip_prefix('$') {
@@ -318,6 +323,16 @@ mod tests {
     #[test]
     fn rejects_dash_prefixed_words() {
         assert!(lex("-name").is_err());
+    }
+
+    #[test]
+    fn rejects_leading_exclamation_words() {
+        let word = format!("{}{}", "!", "push");
+
+        assert_eq!(
+            lex(&word),
+            Err(LexError::LeadingExclamationWord { word, position: 0 })
+        );
     }
 
     #[test]

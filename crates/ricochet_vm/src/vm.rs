@@ -1806,30 +1806,28 @@ impl Vm {
             "at" => self.call_receiver_argument_method(word, "at"),
             "has?" | "contains?" => self.call_receiver_argument_method(word, word),
             "take" | "skip" | "repeat" | "split" | "join" | "concat" | "index_of"
-            | "last_index_of" | "starts_with?" | "ends_with?" | "remove!" | "remove_at!" => {
+            | "last_index_of" | "starts_with?" | "ends_with?" | "remove" | "remove_at" => {
                 self.call_receiver_argument_method(word, word)
             }
-            "slice" | "replace" | "regex_replace" | "insert!" => {
+            "slice" | "replace" | "regex_replace" | "insert_at" => {
                 self.call_receiver_two_argument_method(word, word)
             }
-            "push!" => self.call_push(word),
-            "put!" => self.call_put(word),
+            "push" => self.call_push(word),
+            "put" => self.call_put(word),
             "fs_read_text" => {
                 self.call_capability_method_word(word, Capability::FileSystem, "read_text")
             }
             "fs_write_text" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "write_text!")
+                self.call_capability_method_word(word, Capability::FileSystem, "write_text")
             }
             "fs_exists?" => {
                 self.call_capability_method_word(word, Capability::FileSystem, "exists?")
             }
             "fs_list" => self.call_capability_method_word(word, Capability::FileSystem, "list"),
             "fs_create_dir" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "create_dir!")
+                self.call_capability_method_word(word, Capability::FileSystem, "create_dir")
             }
-            "fs_delete" => {
-                self.call_capability_method_word(word, Capability::FileSystem, "delete!")
-            }
+            "fs_delete" => self.call_capability_method_word(word, Capability::FileSystem, "delete"),
             "workspace_resolve" => self.call_workspace_resolve(word),
             "workspace_contains?" => self.call_workspace_contains(word),
             "workspace_metadata" => self.call_workspace_metadata(word),
@@ -1923,14 +1921,14 @@ impl Vm {
             "approval_reject" => self.call_approval_reject(word),
             "approval_detail" => self.call_approval_detail(word),
             "approval_release" => self.call_approval_release(word),
-            "tui_enter" => self.call_capability_method_word(word, Capability::Terminal, "enter!"),
-            "tui_leave" => self.call_capability_method_word(word, Capability::Terminal, "leave!"),
-            "tui_clear" => self.call_capability_method_word(word, Capability::Terminal, "clear!"),
+            "tui_enter" => self.call_capability_method_word(word, Capability::Terminal, "enter"),
+            "tui_leave" => self.call_capability_method_word(word, Capability::Terminal, "leave"),
+            "tui_clear" => self.call_capability_method_word(word, Capability::Terminal, "clear"),
             "tui_move_to" => {
-                self.call_capability_method_word(word, Capability::Terminal, "move_to!")
+                self.call_capability_method_word(word, Capability::Terminal, "move_to")
             }
-            "tui_write" => self.call_capability_method_word(word, Capability::Terminal, "write!"),
-            "tui_flush" => self.call_capability_method_word(word, Capability::Terminal, "flush!"),
+            "tui_write" => self.call_capability_method_word(word, Capability::Terminal, "write"),
+            "tui_flush" => self.call_capability_method_word(word, Capability::Terminal, "flush"),
             "tui_size" => self.call_capability_method_word(word, Capability::Terminal, "size"),
             "tui_poll_key" => {
                 self.call_capability_method_word(word, Capability::Terminal, "poll_key")
@@ -5652,7 +5650,7 @@ mod tests {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::CallWord("array".to_string()), span());
         chunk.push(Op::PushNumber(42), span());
-        chunk.push(Op::CallWord("push!".to_string()), span());
+        chunk.push(Op::CallWord("push".to_string()), span());
 
         let mut vm = Vm::default();
         vm.run_chunk(&chunk).expect("array push succeeds");
@@ -5666,7 +5664,7 @@ mod tests {
         chunk.push(Op::CallWord("map".to_string()), span());
         chunk.push(Op::PushString("name".to_string()), span());
         chunk.push(Op::PushString("Ada".to_string()), span());
-        chunk.push(Op::CallWord("put!".to_string()), span());
+        chunk.push(Op::CallWord("put".to_string()), span());
         chunk.push(Op::PushString("name".to_string()), span());
         chunk.push(Op::CallWord("at".to_string()), span());
 
@@ -5684,9 +5682,9 @@ mod tests {
         vm.stack.push(Value::String("Ada".to_string()));
 
         assert_eq!(
-            vm.call_word("put!"),
+            vm.call_word("put"),
             Err(VmError::TypeError {
-                word: "put!".to_string(),
+                word: "put".to_string(),
                 expected: "map".to_string(),
                 actual: "array".to_string(),
             })

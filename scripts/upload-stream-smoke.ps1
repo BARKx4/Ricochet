@@ -74,21 +74,21 @@ UploadController Controller Subclass
     file var
 
     map options var
-    options get "max_bytes" 32 put! drop
+    options get "max_bytes" 32 put drop
     file get "stream_id" at options get upload_read value read var
 
     map response var
-    response get "stream_count_before_release" upload_streams count put! drop
-    response get "stream_id" file get "stream_id" at put! drop
-    response get "filename" file get "filename" at put! drop
-    response get "size" file get "size" at put! drop
-    response get "text_is_nil" file get "text" at nil? put! drop
-    response get "data_base64_is_nil" file get "data_base64" at nil? put! drop
-    response get "read_len" read get "bytes_len" at put! drop
-    response get "read_text" read get "text" at put! drop
+    response get "stream_count_before_release" upload_streams count put drop
+    response get "stream_id" file get "stream_id" at put drop
+    response get "filename" file get "filename" at put drop
+    response get "size" file get "size" at put drop
+    response get "text_is_nil" file get "text" at nil? put drop
+    response get "data_base64_is_nil" file get "data_base64" at nil? put drop
+    response get "read_len" read get "bytes_len" at put drop
+    response get "read_text" read get "text" at put drop
     file get "stream_id" at upload_release value released var
-    response get "released" released get put! drop
-    response get "stream_count_after_release" upload_streams count put! drop
+    response get "released" released get put drop
+    response get "stream_count_after_release" upload_streams count put drop
     response get json
   ] "create" Method
 end

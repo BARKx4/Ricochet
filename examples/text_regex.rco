@@ -12,14 +12,14 @@ $digits "abc123def456" "#" regex_replace println
 
 "collections:" println
 names array
-$names "Ada" push! drop
-$names "Grace" push! drop
-$names "Lin" push! drop
+$names "Ada" push drop
+$names "Grace" push drop
+$names "Lin" push drop
 $names 2 take "," join println
 $names 1 skip "," join println
 
 "inspect:" println
 bag map
-$bag "name" "Ada" put! drop
+$bag "name" "Ada" put drop
 $bag inspect println
 $bag count println

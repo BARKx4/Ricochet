@@ -56,12 +56,12 @@ end
   services var
   summary map
 
-  $summary "count" $services count put! drop
-  $summary "ok" $services "ok" service_count_status put! drop
-  $summary "degraded" $services "degraded" service_count_status put! drop
-  $summary "down" $services "down" service_count_status put! drop
-  $summary "average_latency_ms" $services service_average_latency put! drop
-  $summary "health_score" $services service_health_score put! drop
+  $summary "count" $services count put drop
+  $summary "ok" $services "ok" service_count_status put drop
+  $summary "degraded" $services "degraded" service_count_status put drop
+  $summary "down" $services "down" service_count_status put drop
+  $summary "average_latency_ms" $services service_average_latency put drop
+  $summary "health_score" $services service_health_score put drop
 
   $summary
 end

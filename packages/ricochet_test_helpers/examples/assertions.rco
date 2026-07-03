@@ -4,6 +4,6 @@
 
 response map
 
-$response "status" 200 put! drop
+$response "status" 200 put drop
 
 $response test_http_ok println

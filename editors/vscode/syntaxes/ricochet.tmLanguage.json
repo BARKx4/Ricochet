@@ -140,7 +140,7 @@
       "patterns": [
         {
           "name": "support.function.mutator.ricochet",
-          "match": "(?<!\\S)(?:push!|put!|insert!|remove!|remove_at!|clear!)(?!\\S)"
+          "match": "(?<!\\S)(?:push|put|insert_at|remove|remove_at|clear_items)(?!\\S)"
         }
       ]
     },

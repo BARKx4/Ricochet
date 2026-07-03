@@ -128,14 +128,14 @@ task. The client connects, writes text, waits for the echo, then closes and
 releases its retained socket:</p>
 <pre><code>[
   options map
-  $options &quot;timeout_ms&quot; 5000 put! drop
+  $options &quot;timeout_ms&quot; 5000 put drop
   &quot;127.0.0.1&quot; $port $options tcp_connect value client var
   $client &quot;id&quot; at clientId var
   $clientId &quot;from-client&quot; tcp_write value drop
 
   readOptions map
-  $readOptions &quot;timeout_ms&quot; 5000 put! drop
-  $readOptions &quot;max_bytes&quot; 64 put! drop
+  $readOptions &quot;timeout_ms&quot; 5000 put drop
+  $readOptions &quot;max_bytes&quot; 64 put drop
   $clientId $readOptions tcp_read value clientRead var
 
   $clientId tcp_close value drop
@@ -146,13 +146,13 @@ releases its retained socket:</p>
 <p>The server side accepts, reads, writes, closes, and releases the accepted
 connection:</p>
 <pre><code>acceptOptions map
-$acceptOptions &quot;timeout_ms&quot; 5000 put! drop
+$acceptOptions &quot;timeout_ms&quot; 5000 put drop
 $listener &quot;id&quot; at $acceptOptions tcp_accept value accepted var
 $accepted &quot;id&quot; at serverId var
 
 readOptions map
-$readOptions &quot;timeout_ms&quot; 5000 put! drop
-$readOptions &quot;max_bytes&quot; 64 put! drop
+$readOptions &quot;timeout_ms&quot; 5000 put drop
+$readOptions &quot;max_bytes&quot; 64 put drop
 $serverId $readOptions tcp_read value serverRead var
 $serverId &quot;from-server&quot; tcp_write value drop
 $serverId tcp_close value drop

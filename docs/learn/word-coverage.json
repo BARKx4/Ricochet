@@ -606,37 +606,37 @@
     "status": "drafted"
   },
   {
-    "word": "push!",
+    "word": "push",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"
   },
   {
-    "word": "put!",
+    "word": "put",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"
   },
   {
-    "word": "insert!",
+    "word": "insert_at",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"
   },
   {
-    "word": "remove!",
+    "word": "remove",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"
   },
   {
-    "word": "remove_at!",
+    "word": "remove_at",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"
   },
   {
-    "word": "clear!",
+    "word": "clear_items",
     "detail": "collection",
     "primary_chapter": "08-collections",
     "status": "drafted"

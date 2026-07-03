@@ -28,7 +28,7 @@ $missing error "kind" at println
 [ uppercase ok ] "ada" ok and_then value println
 
 meta map
-$meta "source" "learn" put! drop
+$meta "source" "learn" put drop
 $missing $meta result_envelope envelope var
 
 "envelope ok:" print

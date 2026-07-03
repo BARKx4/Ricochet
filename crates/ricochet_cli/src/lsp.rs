@@ -114,14 +114,14 @@ const CURATED_WORD_DOCS: &[WordDoc] = &[
         "Read a collection key/index: `request \"method\" at`.",
     ),
     WordDoc::new(
-        "put!",
+        "put",
         "collection",
-        "Mutate a map with container/key/value order: `settings \"theme\" \"dark\" put!`.",
+        "Mutate a map with container/key/value order: `settings \"theme\" \"dark\" put`.",
     ),
     WordDoc::new(
-        "push!",
+        "push",
         "collection",
-        "Mutate a collection with container/value order: `items value push!`.",
+        "Mutate a collection with container/value order: `items value push`.",
     ),
     WordDoc::new(
         "map",
@@ -1460,12 +1460,10 @@ fn token_hit(source: &str, token: Token) -> Option<TokenHit> {
                 end: token.span.end,
             },
         }),
-        TokenKind::Symbol(label) | TokenKind::BangWord(label) | TokenKind::DotWord(label) => {
-            Some(TokenHit {
-                label,
-                span: token.span,
-            })
-        }
+        TokenKind::Symbol(label) | TokenKind::DotWord(label) => Some(TokenHit {
+            label,
+            span: token.span,
+        }),
         TokenKind::String(_) => Some(TokenHit {
             label: source[token.span.start..token.span.end].to_string(),
             span: token.span,
@@ -1511,7 +1509,7 @@ fn semantic_token_type(kind: &TokenKind) -> Option<usize> {
         TokenKind::Symbol(word) if is_capitalized(word) => Some(2),
         TokenKind::Symbol(word) if is_keyword(word) => Some(7),
         TokenKind::Symbol(word) if word.contains('.') => Some(4),
-        TokenKind::Symbol(_) | TokenKind::BangWord(_) | TokenKind::Reference(_) => Some(6),
+        TokenKind::Symbol(_) | TokenKind::Reference(_) => Some(6),
         TokenKind::DotWord(_) => Some(11),
         TokenKind::String(_) => Some(8),
         TokenKind::Number(_) => Some(9),
@@ -1559,7 +1557,7 @@ fn rename_edits(source: &str, old_name: &str, new_name: &str) -> Vec<Value> {
                     start: token.span.start.saturating_add(1),
                     end: token.span.end,
                 },
-                TokenKind::Symbol(name) | TokenKind::BangWord(name) | TokenKind::DotWord(name) => {
+                TokenKind::Symbol(name) | TokenKind::DotWord(name) => {
                     if name == old_name {
                         token.span
                     } else if let Some(selector_suffix) = name.strip_prefix(old_name) {

@@ -21,15 +21,15 @@ $resolved "exists" at println
 "docs/learn/index.md" workspace_metadata value "kind" at println
 
 listOptions map
-$listOptions "max_entries" 64 put! drop
-$listOptions "include_dirs" true put! drop
-$listOptions "include_files" true put! drop
+$listOptions "max_entries" 64 put drop
+$listOptions "include_dirs" true put drop
+$listOptions "include_files" true put drop
 
 "workspace entries:" print
 "docs/learn" $listOptions workspace_list value count println
 
 readOptions map
-$readOptions "max_bytes" 512 put! drop
+$readOptions "max_bytes" 512 put drop
 
 "manual snippet length:" print
 "examples/learn/01-hello-world/main.rco" $readOptions workspace_read_text value length println
@@ -41,12 +41,12 @@ $readOptions "max_bytes" 512 put! drop
 
 settings map
 provider map
-$provider "token" "dry-run-token" secret_literal put! drop
-$settings "provider" $provider put! drop
+$provider "token" "dry-run-token" secret_literal put drop
+$settings "provider" $provider put drop
 
 path array
-$path "provider" push! drop
-$path "token" push! drop
+$path "provider" push drop
+$path "token" push drop
 
 "secret length:" print
 $settings $path config_get value secret_resolve value length println

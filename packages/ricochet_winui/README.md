@@ -20,7 +20,7 @@ and commands should stay in the portable `@ricochet/ui` document contract.
 "@ricochet/winui/backend" import
 
 options map
-$options "style" "AccentButtonStyle" put! drop
+$options "style" "AccentButtonStyle" put drop
 $options winui_required_options
 ```
 

@@ -16,8 +16,8 @@ FormsPackageTest TestCase Subclass
   [
     form_schema "email" "string" form_required_field "age" "number" form_optional_field schema var
     data map
-    $data "email" "ada@example.com" put! drop
-    $data "age" 37 put! drop
+    $data "email" "ada@example.com" put drop
+    $data "age" 37 put drop
     $data $schema form_schema_validate "ok" at
     true assert_equals
   ] "testSchemaValidationAcceptsValidData" Method
@@ -31,7 +31,7 @@ FormsPackageTest TestCase Subclass
   [
     form_schema "age" "number" form_required_field schema var
     data map
-    $data "age" "old" put! drop
+    $data "age" "old" put drop
     $data $schema form_schema_validate result var
     $result "ok" at false assert_equals
     $result "errors" at first "message" at "must be number" assert_equals

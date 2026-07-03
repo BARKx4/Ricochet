@@ -15,9 +15,9 @@ ResponsesController Controller Subclass
 
   [
     statusBody map
-    $statusBody "ok" true put! drop
-    $statusBody "service" "learn" put! drop
-    $statusBody "routes" 8 put! drop
+    $statusBody "ok" true put drop
+    $statusBody "service" "learn" put drop
+    $statusBody "routes" 8 put drop
     $statusBody json
   ] "status_json" Method
 
@@ -30,9 +30,9 @@ ResponsesController Controller Subclass
     title var
 
     created map
-    $created "title" $title put! drop
-    $created "body" $body put! drop
-    $created "created" true put! drop
+    $created "title" $title put drop
+    $created "body" $body put drop
+    $created "created" true put drop
     $created json
     201 status
   ] "create" Method
@@ -43,9 +43,9 @@ ResponsesController Controller Subclass
     id var
 
     updated map
-    $updated "id" $id put! drop
-    $updated "title" $title put! drop
-    $updated "body" $body put! drop
+    $updated "id" $id put drop
+    $updated "title" $title put drop
+    $updated "body" $body put drop
     $updated json
   ] "update" Method
 
@@ -54,8 +54,8 @@ ResponsesController Controller Subclass
     id var
 
     patched map
-    $patched "id" $id put! drop
-    $patched "state" $state put! drop
+    $patched "id" $id put drop
+    $patched "state" $state put drop
     $patched json
   ] "patch" Method
 

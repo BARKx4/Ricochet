@@ -6,25 +6,25 @@ UploadsController Controller Subclass
     id var
 
     readOptions map
-    $readOptions "max_bytes" 64 put! drop
+    $readOptions "max_bytes" 64 put drop
     $file "stream_id" at $readOptions upload_read value chunk var
     $file "stream_id" at upload_stream value detail var
 
     summary map
-    $summary "id" $id put! drop
-    $summary "title" $title put! drop
-    $summary "form_title" $ctx "request" at "form" at "title" at put! drop
-    $summary "filename" $file "filename" at put! drop
-    $summary "content_type" $file "content_type" at put! drop
-    $summary "size" $file "size" at put! drop
-    $summary "stream_id" $file "stream_id" at put! drop
-    $summary "preview" $chunk "text" at put! drop
-    $summary "preview_bytes" $chunk "bytes_len" at put! drop
-    $summary "stream_size" $detail "size" at put! drop
-    $summary "retained_before_release" upload_streams count put! drop
+    $summary "id" $id put drop
+    $summary "title" $title put drop
+    $summary "form_title" $ctx "request" at "form" at "title" at put drop
+    $summary "filename" $file "filename" at put drop
+    $summary "content_type" $file "content_type" at put drop
+    $summary "size" $file "size" at put drop
+    $summary "stream_id" $file "stream_id" at put drop
+    $summary "preview" $chunk "text" at put drop
+    $summary "preview_bytes" $chunk "bytes_len" at put drop
+    $summary "stream_size" $detail "size" at put drop
+    $summary "retained_before_release" upload_streams count put drop
     $file "stream_id" at upload_release value released var
-    $summary "released" $released put! drop
-    $summary "retained_after_release" upload_streams count put! drop
+    $summary "released" $released put drop
+    $summary "retained_after_release" upload_streams count put drop
     $summary json
   ] "create" Method
 end

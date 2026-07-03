@@ -216,7 +216,7 @@ UiDocumentPackageTest TestCase Subclass
   ] "testNodeShape" Method
   [
     children array
-    $children "title" "Hello" ui_text push! drop
+    $children "title" "Hello" ui_text push drop
     "main" "Demo" $children ui_window result var
     $result ok? true assert_equals
     $result value "type" at "window" assert_equals
@@ -259,13 +259,13 @@ Create `packages/ricochet_ui/document.rco` with:
   type var
   id var
   node map
-  $node "schema_version" 1 put! drop
-  $node "id" $id put! drop
-  $node "type" $type put! drop
-  $node "props" $props put! drop
-  $node "children" $children put! drop
-  $node "events" $events put! drop
-  $node "native_options" $nativeOptions put! drop
+  $node "schema_version" 1 put drop
+  $node "id" $id put drop
+  $node "type" $type put drop
+  $node "props" $props put drop
+  $node "children" $children put drop
+  $node "events" $events put drop
+  $node "native_options" $nativeOptions put drop
   $node
 end
 
@@ -273,7 +273,7 @@ end
   text var
   id var
   props map
-  $props "text" $text put! drop
+  $props "text" $text put drop
   children array
   events array
   native map
@@ -285,8 +285,8 @@ end
   text var
   id var
   props map
-  $props "text" $text put! drop
-  $props "level" $level put! drop
+  $props "text" $text put drop
+  $props "level" $level put drop
   children array
   events array
   native map
@@ -297,10 +297,10 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
+  $props "label" $label put drop
   children array
   events array
-  $events "click" push! drop
+  $events "click" push drop
   native map
   $id "button" $props $children $events $native ui_node
 end
@@ -310,12 +310,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
   children array
   events array
-  $events "change" push! drop
-  $events "submit" push! drop
+  $events "change" push drop
+  $events "submit" push drop
   native map
   $id "text_input" $props $children $events $native ui_node
 end
@@ -325,12 +325,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
   children array
   events array
-  $events "change" push! drop
-  $events "submit" push! drop
+  $events "change" push drop
+  $events "submit" push drop
   native map
   $id "multiline_text_input" $props $children $events $native ui_node
 end
@@ -340,11 +340,11 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "checked" $checked put! drop
+  $props "label" $label put drop
+  $props "checked" $checked put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "checkbox" $props $children $events $native ui_node
 end
@@ -354,11 +354,11 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "checked" $checked put! drop
+  $props "label" $label put drop
+  $props "checked" $checked put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "toggle" $props $children $events $native ui_node
 end
@@ -369,12 +369,12 @@ end
   label var
   id var
   props map
-  $props "label" $label put! drop
-  $props "value" $value put! drop
-  $props "options" $options put! drop
+  $props "label" $label put drop
+  $props "value" $value put drop
+  $props "options" $options put drop
   children array
   events array
-  $events "change" push! drop
+  $events "change" push drop
   native map
   $id "select" $props $children $events $native ui_node
 end
@@ -384,7 +384,7 @@ end
   orientation var
   id var
   props map
-  $props "orientation" $orientation put! drop
+  $props "orientation" $orientation put drop
   events array
   native map
   $id "stack" $props $children $events $native ui_node
@@ -396,8 +396,8 @@ end
   columns var
   id var
   props map
-  $props "columns" $columns put! drop
-  $props "rows" $rows put! drop
+  $props "columns" $columns put drop
+  $props "rows" $rows put drop
   events array
   native map
   $id "grid" $props $children $events $native ui_node
@@ -408,9 +408,9 @@ end
   title var
   id var
   props map
-  $props "title" $title put! drop
+  $props "title" $title put drop
   events array
-  $events "close" push! drop
+  $events "close" push drop
   native map
   $id "window" $props $children $events $native ui_node ok
 end
@@ -420,12 +420,12 @@ end
   document var
   state var
   response map
-  $response "schema_version" 1 put! drop
-  $response "state" $state put! drop
-  $response "document" $document put! drop
-  $response "commands" $commands put! drop
+  $response "schema_version" 1 put drop
+  $response "state" $state put drop
+  $response "document" $document put drop
+  $response "commands" $commands put drop
   diagnostics array
-  $response "diagnostics" $diagnostics put! drop
+  $response "diagnostics" $diagnostics put drop
   $response ok
 end
 
@@ -436,10 +436,10 @@ end
   node var
   nativeOptions $node "native_options" at var
   backendOptions map
-  $backendOptions "required" $required put! drop
-  $backendOptions "options" $options put! drop
-  $nativeOptions $backend $backendOptions put! drop
-  $node "native_options" $nativeOptions put! drop
+  $backendOptions "required" $required put drop
+  $backendOptions "options" $options put drop
+  $nativeOptions $backend $backendOptions put drop
+  $node "native_options" $nativeOptions put drop
   $node
 end
 ```
@@ -499,14 +499,14 @@ Create tests that import all new modules and verify these exact facts:
 UiValidationPackageTest TestCase Subclass
   [
     children array
-    $children "name" "Name" "" ui_text_input push! drop
+    $children "name" "Name" "" ui_text_input push drop
     "main" "Demo" $children ui_window value document var
     $document ui_validate_document result var
     $result "ok" at true assert_equals
   ] "testValidWindowDocument" Method
   [
     node map
-    $node "type" "button" put! drop
+    $node "type" "button" put drop
     $node ui_validate_node result var
     $result "ok" at false assert_equals
     $result "errors" at first "message" at "node id is required" assert_equals
@@ -515,12 +515,12 @@ UiValidationPackageTest TestCase Subclass
     "name" "Name" "string" "2*" ui_grid_column column var
     $column "kind" at "string" assert_equals
     cells map
-    $cells "name" "Ada" put! drop
+    $cells "name" "Ada" put drop
     "row-1" $cells ui_grid_row row var
     rows array
-    $rows $row push! drop
+    $rows $row push drop
     columns array
-    $columns $column push! drop
+    $columns $column push drop
     selected array
     "users" $columns $rows $selected ui_data_grid grid var
     $grid "type" at "data_grid" assert_equals
@@ -530,12 +530,12 @@ end
 UiInteractionPackageTest TestCase Subclass
   [
     spans array
-    $spans "Hello " array nil ui_rich_span push! drop
+    $spans "Hello " array nil ui_rich_span push drop
     marks array
-    $marks "bold" push! drop
-    $spans "native UI" $marks nil ui_rich_span push! drop
+    $marks "bold" push drop
+    $spans "native UI" $marks nil ui_rich_span push drop
     blocks array
-    $blocks $spans ui_rich_paragraph push! drop
+    $blocks $spans ui_rich_paragraph push drop
     $blocks ui_rich_document doc var
     $doc "blocks" at count 1 assert_equals
     "note" $doc ui_rich_text "type" at "rich_text" assert_equals
@@ -544,7 +544,7 @@ UiInteractionPackageTest TestCase Subclass
     payload "tree_nodes" "node-1" ui_drag_payload var
     node "file-1" "File" array ui_tree_node var
     ops array
-    $ops "move" push! drop
+    $ops "move" push drop
     $node $payload $ops ui_drag_source source var
     $source "props" at "drag" at "payload" at "kind" at "tree_nodes" assert_equals
   ] "testDragSourceShape" Method
@@ -564,8 +564,8 @@ Create `validation.rco` with these functions:
 ( -> Map ) ui_validation function
   result map
   errors array
-  $result "ok" true put! drop
-  $result "errors" $errors put! drop
+  $result "ok" true put drop
+  $result "errors" $errors put drop
   $result
 end
 
@@ -574,10 +574,10 @@ end
   id var
   validation var
   error map
-  $error "id" $id put! drop
-  $error "message" $message put! drop
-  $validation "errors" at $error push! drop
-  $validation "ok" false put! drop
+  $error "id" $id put drop
+  $error "message" $message put drop
+  $validation "errors" at $error push drop
+  $validation "ok" false put drop
   $validation
 end
 
@@ -694,7 +694,7 @@ WinuiBackendPackageTest TestCase Subclass
   ] "testBackendDescriptor" Method
   [
     options map
-    $options "style" "AccentButtonStyle" put! drop
+    $options "style" "AccentButtonStyle" put drop
     $options winui_required_options wrapped var
     $wrapped "backend" at "winui" assert_equals
     $wrapped "required" at true assert_equals
@@ -711,10 +711,10 @@ Create `backend.rco`:
 (( WinUI backend descriptor and native option helpers. ))
 ( -> Map ) winui_backend function
   backend map
-  $backend "id" "winui" put! drop
-  $backend "name" "WinUI" put! drop
-  $backend "platform" "windows" put! drop
-  $backend "native" true put! drop
+  $backend "id" "winui" put drop
+  $backend "name" "WinUI" put drop
+  $backend "platform" "windows" put drop
+  $backend "native" true put drop
   $backend
 end
 
@@ -722,25 +722,25 @@ end
   value var
   key var
   option map
-  $option $key $value put! drop
+  $option $key $value put drop
   $option
 end
 
 ( options -> Map ) winui_required_options function
   options var
   wrapped map
-  $wrapped "backend" "winui" put! drop
-  $wrapped "required" true put! drop
-  $wrapped "options" $options put! drop
+  $wrapped "backend" "winui" put drop
+  $wrapped "required" true put drop
+  $wrapped "options" $options put drop
   $wrapped
 end
 
 ( options -> Map ) winui_advisory_options function
   options var
   wrapped map
-  $wrapped "backend" "winui" put! drop
-  $wrapped "required" false put! drop
-  $wrapped "options" $options put! drop
+  $wrapped "backend" "winui" put drop
+  $wrapped "required" false put drop
+  $wrapped "options" $options put drop
   $wrapped
 end
 ```

@@ -20,8 +20,8 @@ $answer completed? println
 $answer release_task println
 
 handles array
-$handles [ 20 2 + ] spawn push! drop
-$handles [ 30 4 + ] spawn push! drop
+$handles [ 20 2 + ] spawn push drop
+$handles [ 30 4 + ] spawn push drop
 
 "await all:" println
 $handles await_all results var

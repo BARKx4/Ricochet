@@ -3,13 +3,13 @@
 "Task list" println
 
 tasks array
-$tasks "read the chapter" push! drop
-$tasks "run the example" push! drop
-$tasks "change one line" push! drop
+$tasks "read the chapter" push drop
+$tasks "run the example" push drop
+$tasks "change one line" push drop
 
 details map
-$details "owner" "Ada" put! drop
-$details "status" "open" put! drop
+$details "owner" "Ada" put drop
+$details "status" "open" put drop
 
 "count:" print
 $tasks count println

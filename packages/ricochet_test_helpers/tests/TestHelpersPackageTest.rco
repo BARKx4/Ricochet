@@ -7,7 +7,7 @@ TestHelpersPackageTest TestCase Subclass
   ] "testAssertEqualReturnsActual" Method
   [
     response map
-    $response "status" 200 put! drop
+    $response "status" 200 put drop
     $response test_http_ok
     true assert_equals
   ] "testHttpOk" Method

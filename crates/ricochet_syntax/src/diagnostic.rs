@@ -158,6 +158,12 @@ fn lex_error_diagnostic(file: String, error: &LexError) -> SourceDiagnostic {
         LexError::EmptyReference(position) => {
             SourceDiagnostic::new(file, point_span(*position), "empty reference")
         }
+        LexError::LeadingExclamationWord { word, position } => SourceDiagnostic::new(
+            file,
+            word_span(*position, word),
+            format!("leading ! word {word:?} is not supported"),
+        )
+        .with_help("use ordinary word names; collection mutators are push, put, insert_at, remove, remove_at, and clear_items"),
         LexError::InvalidWord { word, position } => SourceDiagnostic::new(
             file,
             word_span(*position, word),
@@ -192,7 +198,6 @@ fn caret_width(source: &str, line_starts: &[usize], span: Span) -> usize {
 fn token_label(token: &TokenKind) -> String {
     match token {
         TokenKind::Symbol(value) => format!("symbol {value:?}"),
-        TokenKind::BangWord(value) => format!("word {value:?}"),
         TokenKind::DotWord(value) => format!("leading-dot word {value:?}"),
         TokenKind::Reference(value) => format!("reference {value:?}"),
         TokenKind::String(value) => format!("string {value:?}"),

@@ -1,9 +1,9 @@
 (( Run from the repo root with: cargo run -q -p ricochet_cli --bin rco -- tui examples/learn/21-tui/task-dashboard.rco ))
 
 tasks array
-$tasks "read chapter" push! drop
-$tasks "run example" push! drop
-$tasks "release terminal state" push! drop
+$tasks "read chapter" push drop
+$tasks "run example" push drop
+$tasks "release terminal state" push drop
 
 tui_enter value drop
 tui_clear value drop

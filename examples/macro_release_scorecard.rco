@@ -30,12 +30,12 @@ end
 "build_release_scorecard" macro_call
 
 passed_checks list
-$passed_checks "fmt" push! drop
-$passed_checks "cli_smoke" push! drop
-$passed_checks "docs" push! drop
+$passed_checks "fmt" push drop
+$passed_checks "cli_smoke" push drop
+$passed_checks "docs" push drop
 
 failed_checks list
-$failed_checks "registry" push! drop
+$failed_checks "registry" push drop
 
 print_release_scorecard
 clear

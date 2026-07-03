@@ -129,13 +129,13 @@ the network:</p>
 &quot;openai&quot; &quot;https://api.example.test/v1&quot; &quot;gpt-fake&quot; ai_provider provider var
 
 messages array
-$messages &quot;Keep answers short and structured.&quot; ai_system_message push! drop
-$messages &quot;Return a fake provider response.&quot; ai_user_message push! drop
+$messages &quot;Keep answers short and structured.&quot; ai_system_message push drop
+$messages &quot;Return a fake provider response.&quot; ai_user_message push drop
 </code></pre>
 <p>The request keeps model choice, messages, options, tool declarations, and retry
 policy together:</p>
 <pre><code>options map
-$options &quot;temperature&quot; 0.2 put! drop
+$options &quot;temperature&quot; 0.2 put drop
 tools array
 3 0 0 ai_retry_policy retry var
 $provider &quot;gpt-fake&quot; $messages $options $tools $retry ai_chat_request request var
@@ -146,15 +146,15 @@ second returns an OpenAI-compatible success body with text and a tool call:</p>
 <pre><code>[
   attempt var
   providerRequest var
-  $attempts $attempt push! drop
+  $attempts $attempt push drop
 
   response map
   $attempt 1 = if
-    $response &quot;status&quot; 503 put! drop
-    $response &quot;body&quot; &quot;{\&quot;error\&quot;:{\&quot;message\&quot;:\&quot;busy\&quot;}}&quot; put! drop
+    $response &quot;status&quot; 503 put drop
+    $response &quot;body&quot; &quot;{\&quot;error\&quot;:{\&quot;message\&quot;:\&quot;busy\&quot;}}&quot; put drop
   else
-    $response &quot;status&quot; 200 put! drop
-    $response &quot;body&quot; &quot;{\&quot;model\&quot;:\&quot;gpt-fake\&quot;,\&quot;choices\&quot;:[{\&quot;message\&quot;:{\&quot;content\&quot;:\&quot;fake provider ready\&quot;,\&quot;tool_calls\&quot;:[{\&quot;id\&quot;:\&quot;call-1\&quot;,\&quot;type\&quot;:\&quot;function\&quot;,\&quot;function\&quot;:{\&quot;name\&quot;:\&quot;get_weather\&quot;,\&quot;arguments\&quot;:\&quot;{\\\&quot;city\\\&quot;:\\\&quot;Chicago\\\&quot;}\&quot;}}]}}]}&quot; put! drop
+    $response &quot;status&quot; 200 put drop
+    $response &quot;body&quot; &quot;{\&quot;model\&quot;:\&quot;gpt-fake\&quot;,\&quot;choices\&quot;:[{\&quot;message\&quot;:{\&quot;content\&quot;:\&quot;fake provider ready\&quot;,\&quot;tool_calls\&quot;:[{\&quot;id\&quot;:\&quot;call-1\&quot;,\&quot;type\&quot;:\&quot;function\&quot;,\&quot;function\&quot;:{\&quot;name\&quot;:\&quot;get_weather\&quot;,\&quot;arguments\&quot;:\&quot;{\\\&quot;city\\\&quot;:\\\&quot;Chicago\\\&quot;}\&quot;}}]}}]}&quot; put drop
   end
   $response ok
 ] executor var
@@ -176,9 +176,9 @@ $handlers &quot;get_weather&quot; [
   arguments var
   toolCall var
   content map
-  $content &quot;name&quot; $toolCall &quot;name&quot; at put! drop
-  $content &quot;city&quot; $arguments &quot;city&quot; at put! drop
-  $content &quot;forecast&quot; &quot;dry-run only&quot; put! drop
+  $content &quot;name&quot; $toolCall &quot;name&quot; at put drop
+  $content &quot;city&quot; $arguments &quot;city&quot; at put drop
+  $content &quot;forecast&quot; &quot;dry-run only&quot; put drop
   $content
 ] ai_tool_handler_put handlers set
 

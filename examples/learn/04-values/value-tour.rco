@@ -21,8 +21,8 @@ values array
 "empty before push:" print
 $values empty? println
 
-$values "Ada" push! drop
-$values "Grace" push! drop
+$values "Ada" push drop
+$values "Grace" push drop
 
 "empty after push:" print
 $values empty? println

@@ -150,7 +150,7 @@ tags Set</code></pre>
             <h3>Reference Prefix</h3>
             <pre><code>"users" name var
 $name array
-$users "Ada" push! drop
+$users "Ada" push drop
 $users count println</code></pre>
             <p>`$name` reads an existing binding for ordinary static variable access. Keep `get` for dynamic by-name reads such as `"name" get` or `fieldName get`. Declaration words still use bare names or strings, so `$name array` reads the variable `name` and declares an array using that runtime string. Function and method locals refresh within the active call frame, while top-level declarations stay shared.</p>
           </article>
@@ -217,11 +217,11 @@ end</code></pre>
           <article>
             <h3>Desktop Webview</h3>
             <pre><code>state map
-state get "count" 1 put! drop
+state get "count" 1 put drop
 "Count: " state get "count" at to_string concat webview_text countText var
 "Increment" "increment" webview_button button var
 actions array
-actions get "Increment" "increment" "increment_counter" webview_action push! drop
+actions get "Increment" "increment" "increment_counter" webview_action push drop
 "Counter" $countText $button concat state get actions get webview_window_state value document var</code></pre>
             <p>The webview globals build escaped HTML fragments and state/action document maps for desktop webview hosts.</p>
           </article>
@@ -418,7 +418,7 @@ UserController Controller Subclass
     User new
     "ada@example.com" swap email.set
     "Ada Lovelace" swap name.set
-    users get swap push! drop
+    users get swap push drop
     users get count userCount var
     "Users" title var
     ctx get
@@ -447,11 +447,11 @@ end</code></pre>
     cookies var
     request var
     map
-    "method" request get "method" at put!
-    "theme" cookies get "theme" at put!
-    "package" config get "package" at "name" at put!
-    "json_name" request get "json" at "name" at put!
-    "upload_text" file get "text" at put!
+    "method" request get "method" at put
+    "theme" cookies get "theme" at put
+    "package" config get "package" at "name" at put
+    "json_name" request get "json" at "name" at put
+    "upload_text" file get "text" at put
     json
   ] "show" Method
 end</code></pre>
@@ -464,7 +464,7 @@ end</code></pre>
   ( session ) [
     session var
     session get "user" at nil? if
-      session get "user" "Ada" put! drop
+      session get "user" "Ada" put drop
     end
     session get "user" at text
   ] "show" Method
@@ -557,12 +557,12 @@ User count_records
 User first_record
 1 User exists?
 attributes map
-attributes get "email" "ada@example.com" put! drop
-attributes get "name" "Ada" put! drop
+attributes get "email" "ada@example.com" put drop
+attributes get "name" "Ada" put drop
 attributes get User insert
 
 updates map
-updates get "email" "grace@example.com" put! drop
+updates get "email" "grace@example.com" put drop
 42 updates get User update</code></pre>
           </article>
 
@@ -585,7 +585,7 @@ end</code></pre>
           <article class="example-panel wide">
             <h3>Result Envelope For App Boundaries</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy result envelope example" title="Copy">copy</button><code>meta map
-meta get "capability" "workspace.read" put! drop
+meta get "capability" "workspace.read" put drop
 
 "payload" ok meta get result_envelope envelope var
 envelope get "ok" at println
@@ -809,8 +809,8 @@ rco audit --json
 
 "forms/validation" import_dynamic value forms var
 args array
-args get "email" push! drop
-args get "ada@example.com" push! drop
+args get "email" push drop
+args get "ada@example.com" push drop
 forms get "form_field" args get module_call value</code></pre>
           </article>
           <article class="example-panel">
@@ -825,8 +825,8 @@ task get await
 task get release_task
 task get task_status
 handles array
-handles get [ 20 2 + ] spawn push! drop
-handles get [ 30 4 + ] spawn push! drop
+handles get [ 20 2 + ] spawn push drop
+handles get [ 30 4 + ] spawn push drop
 handles get await_all</code></pre>
           </article>
           <article class="example-panel">
@@ -843,33 +843,33 @@ workspaceOptions map
 workspaceEntries get count println
 settings map
 provider map
-provider get "api_key" "PROVIDER_API_KEY" secret_env put! drop
-settings get "provider" provider get put! drop
+provider get "api_key" "PROVIDER_API_KEY" secret_env put drop
+settings get "provider" provider get put drop
 path array
-path get "provider" push! drop
-path get "api_key" push! drop
+path get "provider" push drop
+path get "api_key" push drop
 settings get path get config_get value secret_resolve value token var
 "Long unique passphrase 2026" password_hash value storedHash var
 "Long unique passphrase 2026" storedHash get password_verify value println
 payload map
-payload get "probe" true put! drop
+payload get "probe" true put drop
 providerHosts array
-providerHosts get "api.example" push! drop
+providerHosts get "api.example" push drop
 "POST" "https://api.example/v1/models" http_request_new value providerRequest var
 providerRequest get token get http_bearer_auth value providerRequest set
 providerRequest get payload get http_json_body value providerRequest set
-providerRequest get "allowed_hosts" providerHosts get put! drop
+providerRequest get "allowed_hosts" providerHosts get put drop
 providerRequest get 30000 http_timeout value providerRequest set
-providerRequest get "max_response_bytes" 1048576 put! drop
+providerRequest get "max_response_bytes" 1048576 put drop
 providerRequest get http_request_task await value providerResponse var
 providerResponse get "status" at println
 processArgs array
-processArgs get "status" push! drop
+processArgs get "status" push drop
 processOptions map
 processOptions get "GIT_TERMINAL_PROMPT" "0" process_env_put value processOptions set
 "git" processArgs get processOptions get process_spawn value processResult var
 processResult get "success" at println
-processOptions get "stdout_max_bytes" 1048576 put! drop
+processOptions get "stdout_max_bytes" 1048576 put drop
 "git" processArgs get processOptions get process_start value processJob var
 processReadOptions map
 processJob get "id" at processReadOptions get process_read value processOutput var
@@ -877,7 +877,7 @@ processOutput get "stdout" at println
 processJob get "id" at process_release value drop
 runtime_capabilities "process" at "enabled" at println
 approvalOperation map
-approvalOperation get "capability" "workspace.write" put! drop
+approvalOperation get "capability" "workspace.write" put drop
 approvalOptions map
 approvalOperation get approvalOptions get approval_create value approval var
 approval get "id" at approval get "token" at approval_claim value "claimed" at println

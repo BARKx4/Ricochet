@@ -27,10 +27,10 @@ Build provider and message maps without making a network call:
 
 "openai" "https://api.openai.com/v1" "gpt-4.1-mini" ai_provider provider var
 messages array
-$messages "Keep answers concise." ai_system_message push! drop
-$messages "Summarize the release notes." ai_user_message push! drop
+$messages "Keep answers concise." ai_system_message push drop
+$messages "Summarize the release notes." ai_user_message push drop
 options map
-$options "temperature" 0.2 put! drop
+$options "temperature" 0.2 put drop
 tools array
 3 100 1000 ai_retry_policy retry var
 
@@ -57,7 +57,7 @@ Tool contracts are plain maps too:
 
 ```ricochet
 arguments map
-$arguments "city" "Chicago" put! drop
+$arguments "city" "Chicago" put drop
 "call-1" "get_weather" $arguments ai_tool_call toolCall var
 "call-1" "{\"ok\":true}" ai_tool_result toolResult var
 ```
@@ -72,18 +72,18 @@ Ricochet `Result` values:
 
 request map
 3 0 0 ai_retry_policy retry var
-$request "retry" $retry put! drop
+$request "retry" $retry put drop
 
 [
   attempt var
   request var
   $attempt 3 < if
     "rate_limit" "retry later" fail result var
-    $result error "status" 429 put! drop
+    $result error "status" 429 put drop
     $result
   else
     response map
-    $response "attempt" $attempt put! drop
+    $response "attempt" $attempt put drop
     $response ok
   end
 ] executor var
@@ -106,12 +106,12 @@ $handlers "get_weather" [
   arguments var
   toolCall var
   content map
-  $content "city" $arguments "city" at put! drop
+  $content "city" $arguments "city" at put drop
   $content
 ] ai_tool_handler_put handlers set
 
 arguments map
-$arguments "city" "Chicago" put! drop
+$arguments "city" "Chicago" put drop
 "call-1" "get_weather" $arguments ai_tool_call toolCall var
 $toolCall $handlers ai_execute_tool_call value "content" at "city" at println
 ```
@@ -133,7 +133,7 @@ ai_schema
   "score" "number" false ai_schema_field schema var
 
 data map
-$data "summary" "Ready to ship." put! drop
+$data "summary" "Ready to ship." put drop
 $data $schema ai_validate_schema result var
 $result "ok" at println
 ```
@@ -148,7 +148,7 @@ values of the wrong type report `must be TYPE`.
 "ai/openai" import
 
 messages array
-$messages "Hello." ai_user_message push! drop
+$messages "Hello." ai_user_message push drop
 "OPENAI_API_KEY" ai_secret_ref secret_resolve value token var
 "https://api.openai.com/v1" $token "gpt-4.1-mini" $messages ai_openai_chat_request
 ```
@@ -210,8 +210,8 @@ assistant messages remain in the `messages` array:
 "ai/openai" import
 
 messages array
-$messages "Keep the answer brief." ai_system_message push! drop
-$messages "Return the word ricochet." ai_user_message push! drop
+$messages "Keep the answer brief." ai_system_message push drop
+$messages "Return the word ricochet." ai_user_message push drop
 
 "ANTHROPIC_API_KEY" ai_secret_ref secret_resolve value token var
 "https://api.anthropic.com/v1" $token "2023-06-01" "claude-sonnet-4-5" $messages 256 ai_anthropic_chat_request request var
@@ -255,7 +255,7 @@ and the same fake-executor pattern:
 
 "http://127.0.0.1:11434" "llama3.2" ai_ollama_provider provider var
 messages array
-$messages "Return the word ricochet." ai_user_message push! drop
+$messages "Return the word ricochet." ai_user_message push drop
 options map
 tools array
 3 0 0 ai_retry_policy retry var

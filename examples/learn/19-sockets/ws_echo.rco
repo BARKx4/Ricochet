@@ -15,13 +15,13 @@ $listener "id" at ws_listener value "port" at println
 
 [
   options map
-  $options "timeout_ms" 5000 put! drop
+  $options "timeout_ms" 5000 put drop
   $url $options ws_connect value client var
   $client "id" at clientId var
   $clientId "from-client" ws_send value drop
 
   readOptions map
-  $readOptions "timeout_ms" 5000 put! drop
+  $readOptions "timeout_ms" 5000 put drop
   $clientId $readOptions ws_read value clientRead var
 
   $clientId ws_close value drop
@@ -30,7 +30,7 @@ $listener "id" at ws_listener value "port" at println
 ] spawn clientTask var
 
 acceptOptions map
-$acceptOptions "timeout_ms" 5000 put! drop
+$acceptOptions "timeout_ms" 5000 put drop
 $listener "id" at $acceptOptions ws_accept value accepted var
 $accepted "id" at serverId var
 
@@ -38,7 +38,7 @@ $accepted "id" at serverId var
 $serverId ws_connection value "status" at println
 
 readOptions map
-$readOptions "timeout_ms" 5000 put! drop
+$readOptions "timeout_ms" 5000 put drop
 
 "server message type:" print
 $serverId $readOptions ws_read value serverRead var

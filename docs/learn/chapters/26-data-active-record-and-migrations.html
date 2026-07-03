@@ -180,16 +180,16 @@ Contact all
 </code></pre>
 <p>Writes use a map of attributes:</p>
 <pre><code>contact map
-$contact &quot;name&quot; $name put! drop
-$contact &quot;email&quot; $email put! drop
-$contact &quot;status&quot; &quot;active&quot; put! drop
+$contact &quot;name&quot; $name put drop
+$contact &quot;email&quot; $email put drop
+$contact &quot;status&quot; &quot;active&quot; put drop
 $contact Contact insert
 </code></pre>
 <p>Updates put the id before the attributes map and the model:</p>
 <pre><code>changes map
-$changes &quot;name&quot; $name put! drop
-$changes &quot;email&quot; $email put! drop
-$changes &quot;status&quot; $state put! drop
+$changes &quot;name&quot; $name put drop
+$changes &quot;email&quot; $email put drop
+$changes &quot;status&quot; $state put drop
 $id $changes Contact update
 </code></pre>
 <h2>How to read the example</h2>

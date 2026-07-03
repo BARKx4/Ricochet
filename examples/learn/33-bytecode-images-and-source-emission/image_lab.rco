@@ -6,9 +6,9 @@
 $user_name uppercase user_code var
 
 scores array
-$scores 10 push! drop
-$scores 20 push! drop
-$scores 12 push! drop
+$scores 10 push drop
+$scores 20 push drop
+$scores 12 push drop
 
 ( values -> Number ) lab_sum function
   values var

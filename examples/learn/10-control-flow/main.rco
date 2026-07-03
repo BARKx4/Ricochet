@@ -3,9 +3,9 @@
 "Gradebook" println
 
 scores array
-$scores 96 push! drop
-$scores 84 push! drop
-$scores 72 push! drop
+$scores 96 push drop
+$scores 84 push drop
+$scores 72 push drop
 
 0 index var
 0 passed var

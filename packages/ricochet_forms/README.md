@@ -27,7 +27,7 @@ form_schema
 schema var
 
 data map
-$data "email" "ada@example.com" put! drop
+$data "email" "ada@example.com" put drop
 
 $data $schema form_schema_validate result var
 $result "ok" at

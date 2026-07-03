@@ -2,22 +2,22 @@
 
 ( -> Map ) build_grid function
   columns array
-  $columns "name" "Name" "string" "2*" ui_grid_column push! drop
-  $columns "active" "Active" "boolean" "*" ui_grid_column push! drop
+  $columns "name" "Name" "string" "2*" ui_grid_column push drop
+  $columns "active" "Active" "boolean" "*" ui_grid_column push drop
 
   rows array
   adaCells map
-  $adaCells "name" "Ada" put! drop
-  $adaCells "active" true put! drop
-  $rows "user-1" $adaCells ui_grid_row push! drop
+  $adaCells "name" "Ada" put drop
+  $adaCells "active" true put drop
+  $rows "user-1" $adaCells ui_grid_row push drop
 
   graceCells map
-  $graceCells "name" "Grace" put! drop
-  $graceCells "active" false put! drop
-  $rows "user-2" $graceCells ui_grid_row push! drop
+  $graceCells "name" "Grace" put drop
+  $graceCells "active" false put drop
+  $rows "user-2" $graceCells ui_grid_row push drop
 
   selected array
-  $selected "user-1" push! drop
+  $selected "user-1" push drop
   "users" $columns $rows $selected ui_data_grid
 end
 

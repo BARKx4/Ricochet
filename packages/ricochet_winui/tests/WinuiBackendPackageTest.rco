@@ -9,7 +9,7 @@ WinuiBackendPackageTest TestCase Subclass
   ] "testBackendDescriptor" Method
   [
     options map
-    $options "style" "AccentButtonStyle" put! drop
+    $options "style" "AccentButtonStyle" put drop
     $options winui_required_options wrapped var
     $wrapped "backend" at "winui" assert_equals
     $wrapped "required" at true assert_equals

@@ -5,9 +5,9 @@
 "Local math package" println
 
 prices array
-$prices 12 push! drop
-$prices 18 push! drop
-$prices 30 push! drop
+$prices 12 push drop
+$prices 18 push drop
+$prices 30 push drop
 
 "static sum:" print
 $prices math_sum println
@@ -21,8 +21,8 @@ $prices math_average println
 "math_tools/stats" import_dynamic value stats var
 
 args array
-$args 120 push! drop
-$args 0.08 push! drop
+$args 120 push drop
+$args 0.08 push drop
 
 "dynamic taxed:" print
 $stats "math_add_tax" $args module_call value println

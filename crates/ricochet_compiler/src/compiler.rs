@@ -1416,7 +1416,6 @@ impl<'a> MacroEvaluator<'a> {
                 Ok(())
             }
             Expr::Symbol(word) => self.eval_symbol(word, expr.span),
-            Expr::BangWord(word) => self.fail_unallowlisted(word, expr.span),
             Expr::DotWord(word) => self.fail_unallowlisted(word, expr.span),
             Expr::Args(_) => Err(CompileError::Unsupported {
                 feature: "argument declarations are not supported inside compile-time macro bodies"
@@ -2059,7 +2058,6 @@ impl Compiler {
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), CompileError> {
         match expr {
             Expr::Symbol(word) => self.compile_symbol(word),
-            Expr::BangWord(word) => self.push(Op::CallWord(word.clone())),
             Expr::DotWord(word) => Err(CompileError::Unsupported {
                 feature: format!("leading-dot method syntax {word:?}"),
                 span: self.default_span,
@@ -2684,7 +2682,7 @@ mod tests {
                 Op::CallWord("map".to_string()),
                 Op::PushString("name".to_string()),
                 Op::PushString("Ada <Lovelace>".to_string()),
-                Op::CallWord("put!".to_string()),
+                Op::CallWord("put".to_string()),
                 Op::PushString("user".to_string()),
                 Op::CallWord("set".to_string()),
                 Op::PushString("ctx".to_string()),
@@ -2760,7 +2758,7 @@ mod tests {
               Probe Object Subclass
                 [
                   map bag var
-                  bag get "id" "bag" put! drop
+                  bag get "id" "bag" put drop
                   array events var
                 ] "go" Method
               end
@@ -2778,7 +2776,7 @@ mod tests {
                 Op::CallWord("get".to_string()),
                 Op::PushString("id".to_string()),
                 Op::PushString("bag".to_string()),
-                Op::CallWord("put!".to_string()),
+                Op::CallWord("put".to_string()),
                 Op::CallWord("drop".to_string()),
                 Op::CallWord("array".to_string()),
                 Op::PushString("events".to_string()),
@@ -3700,7 +3698,7 @@ mod tests {
                     spanned(Expr::String("done".to_string())),
                     spanned(Expr::Symbol("finish".to_string())),
                 ])),
-                spanned(Expr::BangWord("!push".to_string())),
+                spanned(Expr::Symbol("finish_again".to_string())),
             ]))
             .expect("compile succeeds");
 
@@ -3711,7 +3709,7 @@ mod tests {
                 Op::PushNumber(2),
                 Op::PushString("done".to_string()),
                 Op::CallWord("finish".to_string()),
-                Op::CallWord("!push".to_string()),
+                Op::CallWord("finish_again".to_string()),
             ]
         );
     }

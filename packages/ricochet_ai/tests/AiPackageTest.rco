@@ -21,9 +21,9 @@ AiPackageTest TestCase Subclass
   [
     "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
     messages array
-    $messages "hello" ai_user_message push! drop
+    $messages "hello" ai_user_message push drop
     options map
-    $options "temperature" 0.2 put! drop
+    $options "temperature" 0.2 put drop
     tools array
     3 100 1000 ai_retry_policy retry var
 
@@ -52,7 +52,7 @@ AiPackageTest TestCase Subclass
     "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
     toolCalls array
     raw map
-    $raw "id" "chatcmpl-test" put! drop
+    $raw "id" "chatcmpl-test" put drop
     $provider "gpt-test" "hello" $toolCalls $raw ai_chat_response response var
     $response "provider" at "provider" at "openai" assert_equals
     $response "model" at "gpt-test" assert_equals
@@ -100,20 +100,20 @@ AiPackageTest TestCase Subclass
   [
     request map
     3 0 0 ai_retry_policy retry var
-    $request "retry" $retry put! drop
+    $request "retry" $retry put drop
     attempts array
 
     [
       attempt var
       request var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       $attempt 3 < if
         "rate_limit" "retry later" fail result var
-        $result error "status" 429 put! drop
+        $result error "status" 429 put drop
         $result
       else
         response map
-        $response "attempt" $attempt put! drop
+        $response "attempt" $attempt put drop
         $response ok
       end
     ] executor var
@@ -126,13 +126,13 @@ AiPackageTest TestCase Subclass
   [
     request map
     5 0 0 ai_retry_policy retry var
-    $request "retry" $retry put! drop
+    $request "retry" $retry put drop
     attempts array
 
     [
       attempt var
       request var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       "validation" "bad input" fail
     ] executor var
 
@@ -150,7 +150,7 @@ AiPackageTest TestCase Subclass
   ] "testExecuteWithRetrySupportsNoLocalExecutorBlocks" Method
   [
     args map
-    $args "city" "Chicago" put! drop
+    $args "city" "Chicago" put drop
     "call-1" "get_weather" $args ai_tool_call toolCall var
     $toolCall "id" at "call-1" assert_equals
     $toolCall "name" at "get_weather" assert_equals
@@ -167,13 +167,13 @@ AiPackageTest TestCase Subclass
       arguments var
       toolCall var
       content map
-      $content "name" $toolCall "name" at put! drop
-      $content "city" $arguments "city" at put! drop
+      $content "name" $toolCall "name" at put drop
+      $content "city" $arguments "city" at put drop
       $content
     ] ai_tool_handler_put handlers set
 
     args map
-    $args "city" "Chicago" put! drop
+    $args "city" "Chicago" put drop
     "call-1" "get_weather" $args ai_tool_call toolCall var
 
     $toolCall $handlers ai_execute_tool_call result var
@@ -206,18 +206,18 @@ AiPackageTest TestCase Subclass
       arguments var
       toolCall var
       content map
-      $content "tool" $toolCall "name" at put! drop
-      $content "value" $arguments "value" at put! drop
+      $content "tool" $toolCall "name" at put drop
+      $content "value" $arguments "value" at put drop
       $content
     ] ai_tool_handler_put handlers set
 
     toolCalls array
     argsOne map
-    $argsOne "value" "first" put! drop
+    $argsOne "value" "first" put drop
     argsTwo map
-    $argsTwo "value" "second" put! drop
-    $toolCalls "call-1" "echo" $argsOne ai_tool_call push! drop
-    $toolCalls "call-2" "echo" $argsTwo ai_tool_call push! drop
+    $argsTwo "value" "second" put drop
+    $toolCalls "call-1" "echo" $argsOne ai_tool_call push drop
+    $toolCalls "call-2" "echo" $argsTwo ai_tool_call push drop
 
     $toolCalls $handlers ai_execute_tool_calls result var
     $result ok? true assert_equals
@@ -231,8 +231,8 @@ AiPackageTest TestCase Subclass
   [
     ai_schema "text" "string" true ai_schema_field "score" "number" false ai_schema_field schema var
     data map
-    $data "text" "hello" put! drop
-    $data "score" 42 put! drop
+    $data "text" "hello" put drop
+    $data "score" 42 put drop
     $data $schema ai_validate_schema "ok" at
     true assert_equals
   ] "testSchemaValidationAcceptsValidData" Method
@@ -246,17 +246,17 @@ AiPackageTest TestCase Subclass
       "tags" "set" true ai_schema_field
       "anything" "any" true ai_schema_field schema var
     data map
-    $data "enabled" true put! drop
-    $data "ratio" 0.75 put! drop
+    $data "enabled" true put drop
+    $data "ratio" 0.75 put drop
     itemArray array
-    $data "items" $itemArray put! drop
+    $data "items" $itemArray put drop
     itemList list
-    $data "queue" $itemList put! drop
+    $data "queue" $itemList put drop
     meta map
-    $data "meta" $meta put! drop
+    $data "meta" $meta put drop
     tags Set
-    $data "tags" $tags put! drop
-    $data "anything" "freeform" put! drop
+    $data "tags" $tags put drop
+    $data "anything" "freeform" put drop
     $data $schema ai_validate_schema "ok" at
     true assert_equals
   ] "testSchemaValidationAcceptsSupportedTypes" Method
@@ -271,7 +271,7 @@ AiPackageTest TestCase Subclass
   [
     ai_schema "score" "number" true ai_schema_field schema var
     data map
-    $data "score" "high" put! drop
+    $data "score" "high" put drop
     $data $schema ai_validate_schema result var
     $result "ok" at false assert_equals
     $result "errors" at first "field" at "score" assert_equals
@@ -323,7 +323,7 @@ AiPackageTest TestCase Subclass
   [
     "openai" "https://api.example.test/v1" "gpt-test" ai_provider provider var
     messages array
-    $messages "hello" ai_user_message push! drop
+    $messages "hello" ai_user_message push drop
     options map
     tools array
     3 0 0 ai_retry_policy retry var
@@ -333,14 +333,14 @@ AiPackageTest TestCase Subclass
     [
       attempt var
       providerRequest var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       response map
       $attempt 1 = if
-        $response "status" 503 put! drop
-        $response "body" "{\"error\":{\"message\":\"busy\"}}" put! drop
+        $response "status" 503 put drop
+        $response "body" "{\"error\":{\"message\":\"busy\"}}" put drop
       else
-        $response "status" 200 put! drop
-        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"hello from fake\"}}]}" put! drop
+        $response "status" 200 put drop
+        $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"hello from fake\"}}]}" put drop
       end
       $response ok
     ] executor var
@@ -362,8 +362,8 @@ AiPackageTest TestCase Subclass
       drop
       drop
       response map
-      $response "status" 200 put! drop
-      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Chicago\\\"}\"}}]}}]}" put! drop
+      $response "status" 200 put drop
+      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Chicago\\\"}\"}}]}}]}" put drop
       $response ok
     ] executor var
 
@@ -394,7 +394,7 @@ AiPackageTest TestCase Subclass
   ] "testOpenAiStreamEventsReportMalformedEvents" Method
   [
     ai_openai_stream_state state var
-    $state "offset" 17 put! drop
+    $state "offset" 17 put drop
     $state 4096 ai_stream_read_options options var
     $options "offset" at 17 assert_equals
     $options "max_bytes" at 4096 assert_equals
@@ -406,9 +406,9 @@ AiPackageTest TestCase Subclass
     ai_openai_stream_state state var
 
     read1 map
-    $read1 "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put! drop
-    $read1 "next_offset" 10 put! drop
-    $read1 "done" false put! drop
+    $read1 "body" "data: {\"choices\":[{\"delta\":{\"content\":\"Hel" put drop
+    $read1 "next_offset" 10 put drop
+    $read1 "done" false put drop
     $state $read1 ai_openai_stream_read_events firstResult var
     $firstResult ok? true assert_equals
     $firstResult value "events" at count 0 assert_equals
@@ -417,9 +417,9 @@ AiPackageTest TestCase Subclass
     $state "buffer" at length 0 > true assert_equals
 
     read2 map
-    $read2 "body" "lo\"}}]}\n\n" put! drop
-    $read2 "next_offset" 20 put! drop
-    $read2 "done" false put! drop
+    $read2 "body" "lo\"}}]}\n\n" put drop
+    $read2 "next_offset" 20 put drop
+    $read2 "done" false put drop
     $state $read2 ai_openai_stream_read_events secondResult var
     $secondResult ok? true assert_equals
     $secondResult value "events" at events var
@@ -431,9 +431,9 @@ AiPackageTest TestCase Subclass
     $state "buffer" at "" assert_equals
 
     read3 map
-    $read3 "body" "data: [DONE]\n\n" put! drop
-    $read3 "next_offset" 35 put! drop
-    $read3 "done" true put! drop
+    $read3 "body" "data: [DONE]\n\n" put drop
+    $read3 "next_offset" 35 put drop
+    $read3 "done" true put drop
     $state $read3 ai_openai_stream_read_events thirdResult var
     $thirdResult ok? true assert_equals
     $thirdResult value "events" at doneEvents var
@@ -448,18 +448,18 @@ AiPackageTest TestCase Subclass
   [
     ai_openai_stream_state state var
     read1 map
-    $read1 "body" "data: {bad" put! drop
-    $read1 "next_offset" 10 put! drop
-    $read1 "done" false put! drop
+    $read1 "body" "data: {bad" put drop
+    $read1 "next_offset" 10 put drop
+    $read1 "done" false put drop
     $state $read1 ai_openai_stream_read_events firstResult var
     $firstResult ok? true assert_equals
     $firstResult value "events" at count 0 assert_equals
     $firstResult value "state" at state set
 
     read2 map
-    $read2 "body" "-json}\n\n" put! drop
-    $read2 "next_offset" 20 put! drop
-    $read2 "done" false put! drop
+    $read2 "body" "-json}\n\n" put drop
+    $read2 "next_offset" 20 put drop
+    $read2 "done" false put drop
     $state $read2 ai_openai_stream_read_events secondResult var
     $secondResult ok? false assert_equals
     $secondResult error "kind" at "AiProviderMalformedEvent" assert_equals
@@ -476,8 +476,8 @@ AiPackageTest TestCase Subclass
       drop
       drop
       response map
-      $response "status" 200 put! drop
-      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"high\"}}]}" put! drop
+      $response "status" 200 put drop
+      $response "body" "{\"model\":\"gpt-test\",\"choices\":[{\"message\":{\"content\":\"high\"}}]}" put drop
       $response ok
     ] executor var
 
@@ -495,7 +495,7 @@ AiPackageTest TestCase Subclass
     $provider "model" at "llama3.2" assert_equals
 
     messages array
-    $messages "hello local model" ai_user_message push! drop
+    $messages "hello local model" ai_user_message push drop
     "http://127.0.0.1:11434" "llama3.2" $messages ai_ollama_chat_request request var
     $request "method" at "POST" assert_equals
     $request "url" at "http://127.0.0.1:11434/api/chat" assert_equals
@@ -508,7 +508,7 @@ AiPackageTest TestCase Subclass
   [
     "http://127.0.0.1:11434" "llama3.2" ai_ollama_provider provider var
     messages array
-    $messages "hello" ai_user_message push! drop
+    $messages "hello" ai_user_message push drop
     options map
     tools array
     2 0 0 ai_retry_policy retry var
@@ -518,14 +518,14 @@ AiPackageTest TestCase Subclass
     [
       attempt var
       providerRequest var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       response map
       $attempt 1 = if
-        $response "status" 503 put! drop
-        $response "body" "{\"error\":\"busy\"}" put! drop
+        $response "status" 503 put drop
+        $response "body" "{\"error\":\"busy\"}" put drop
       else
-        $response "status" 200 put! drop
-        $response "body" "{\"model\":\"llama3.2\",\"message\":{\"role\":\"assistant\",\"content\":\"local model ready\"},\"done\":true}" put! drop
+        $response "status" 200 put drop
+        $response "body" "{\"model\":\"llama3.2\",\"message\":{\"role\":\"assistant\",\"content\":\"local model ready\"},\"done\":true}" put drop
       end
       $response ok
     ] executor var
@@ -556,18 +556,18 @@ AiPackageTest TestCase Subclass
   [
     ai_ollama_stream_state state var
     read1 map
-    $read1 "body" "{\"model\":\"llama3.2\",\"message\":{\"content\":\"Hel\"" put! drop
-    $read1 "next_offset" 12 put! drop
-    $read1 "done" false put! drop
+    $read1 "body" "{\"model\":\"llama3.2\",\"message\":{\"content\":\"Hel\"" put drop
+    $read1 "next_offset" 12 put drop
+    $read1 "done" false put drop
     $state $read1 ai_ollama_stream_read_events firstResult var
     $firstResult ok? true assert_equals
     $firstResult value "events" at count 0 assert_equals
     $firstResult value "state" at state set
 
     read2 map
-    $read2 "body" "},\"done\":false}\n{\"model\":\"llama3.2\",\"done\":true}" put! drop
-    $read2 "next_offset" 64 put! drop
-    $read2 "done" true put! drop
+    $read2 "body" "},\"done\":false}\n{\"model\":\"llama3.2\",\"done\":true}" put drop
+    $read2 "next_offset" 64 put drop
+    $read2 "done" true put drop
     $state $read2 ai_ollama_stream_read_events secondResult var
     $secondResult ok? true assert_equals
     $secondResult value "events" at events var
@@ -583,9 +583,9 @@ AiPackageTest TestCase Subclass
   [
     ai_ollama_stream_state state var
     read map
-    $read "body" "{bad-json}\n" put! drop
-    $read "next_offset" 11 put! drop
-    $read "done" false put! drop
+    $read "body" "{bad-json}\n" put drop
+    $read "next_offset" 11 put drop
+    $read "done" false put drop
     $state $read ai_ollama_stream_read_events result var
     $result ok? false assert_equals
     $result error "kind" at "AiProviderMalformedEvent" assert_equals
@@ -597,8 +597,8 @@ AiPackageTest TestCase Subclass
     $provider "model" at "claude-test" assert_equals
 
     messages array
-    $messages "Follow policy." ai_system_message push! drop
-    $messages "hello anthropic" ai_user_message push! drop
+    $messages "Follow policy." ai_system_message push drop
+    $messages "hello anthropic" ai_user_message push drop
     "https://api.anthropic.com/v1" "TOKEN" "2023-06-01" "claude-test" $messages 1024 ai_anthropic_chat_request request var
     $request "method" at "POST" assert_equals
     $request "url" at "https://api.anthropic.com/v1/messages" assert_equals
@@ -618,7 +618,7 @@ AiPackageTest TestCase Subclass
   [
     "https://api.anthropic.com/v1" "claude-test" ai_anthropic_provider provider var
     messages array
-    $messages "hello" ai_user_message push! drop
+    $messages "hello" ai_user_message push drop
     options map
     tools array
     2 0 0 ai_retry_policy retry var
@@ -628,14 +628,14 @@ AiPackageTest TestCase Subclass
     [
       attempt var
       providerRequest var
-      $attempts $attempt push! drop
+      $attempts $attempt push drop
       response map
       $attempt 1 = if
-        $response "status" 529 put! drop
-        $response "body" "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}" put! drop
+        $response "status" 529 put drop
+        $response "body" "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}" put drop
       else
-        $response "status" 200 put! drop
-        $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"anthropic ready\"}]}" put! drop
+        $response "status" 200 put drop
+        $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"anthropic ready\"}]}" put drop
       end
       $response ok
     ] executor var
@@ -658,8 +658,8 @@ AiPackageTest TestCase Subclass
       drop
       drop
       response map
-      $response "status" 200 put! drop
-      $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"checking tool\"},{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{\"city\":\"Chicago\"}}]}" put! drop
+      $response "status" 200 put drop
+      $response "body" "{\"model\":\"claude-test\",\"content\":[{\"type\":\"text\",\"text\":\"checking tool\"},{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{\"city\":\"Chicago\"}}]}" put drop
       $response ok
     ] executor var
 
@@ -700,18 +700,18 @@ AiPackageTest TestCase Subclass
   [
     ai_anthropic_stream_state state var
     read1 map
-    $read1 "body" "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel" put! drop
-    $read1 "next_offset" 30 put! drop
-    $read1 "done" false put! drop
+    $read1 "body" "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel" put drop
+    $read1 "next_offset" 30 put drop
+    $read1 "done" false put drop
     $state $read1 ai_anthropic_stream_read_events firstResult var
     $firstResult ok? true assert_equals
     $firstResult value "events" at count 0 assert_equals
     $firstResult value "state" at state set
 
     read2 map
-    $read2 "body" "lo\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n" put! drop
-    $read2 "next_offset" 90 put! drop
-    $read2 "done" false put! drop
+    $read2 "body" "lo\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n" put drop
+    $read2 "next_offset" 90 put drop
+    $read2 "done" false put drop
     $state $read2 ai_anthropic_stream_read_events secondResult var
     $secondResult ok? true assert_equals
     $secondResult value "events" at events var
@@ -727,9 +727,9 @@ AiPackageTest TestCase Subclass
   [
     ai_anthropic_stream_state state var
     read map
-    $read "body" "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n" put! drop
-    $read "next_offset" 80 put! drop
-    $read "done" false put! drop
+    $read "body" "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n" put drop
+    $read "next_offset" 80 put drop
+    $read "done" false put drop
     $state $read ai_anthropic_stream_read_events result var
     $result ok? false assert_equals
     $result error "kind" at "overloaded_error" assert_equals

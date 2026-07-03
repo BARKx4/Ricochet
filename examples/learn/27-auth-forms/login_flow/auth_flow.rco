@@ -34,8 +34,8 @@ form_schema
 schema var
 
 formData map
-$formData "email" " ada@example.com " auth_credential_normalize put! drop
-$formData "password" "Long unique passphrase 2026" put! drop
+$formData "email" " ada@example.com " auth_credential_normalize put drop
+$formData "password" "Long unique passphrase 2026" put drop
 $formData $schema form_schema_validate validForm var
 "Form valid:" print
 $validForm "ok" at println

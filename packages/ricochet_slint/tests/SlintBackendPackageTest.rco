@@ -9,7 +9,7 @@ SlintBackendPackageTest TestCase Subclass
   ] "testBackendDescriptor" Method
   [
     options map
-    $options "style" "fluent" put! drop
+    $options "style" "fluent" put drop
     $options slint_required_options wrapped var
     $wrapped "backend" at "slint" assert_equals
     $wrapped "required" at true assert_equals

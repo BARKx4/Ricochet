@@ -3,12 +3,12 @@
 "Process and PTY runner" println
 
 processArgs array
-$processArgs "/C" push! drop
-$processArgs "echo %RICOCHET_LEARN_CHILD%" push! drop
+$processArgs "/C" push drop
+$processArgs "echo %RICOCHET_LEARN_CHILD%" push drop
 
 processOptions map
-$processOptions "timeout_ms" 5000 put! drop
-$processOptions "stdout_max_bytes" 200 put! drop
+$processOptions "timeout_ms" 5000 put drop
+$processOptions "stdout_max_bytes" 200 put drop
 $processOptions "RICOCHET_LEARN_CHILD" "process-ok" process_env_put value processOptions set
 
 "process enabled:" print
@@ -28,11 +28,11 @@ $taskResult "stdout" at trim println
 $spawnTask release_task drop
 
 jobArgs array
-$jobArgs "/C" push! drop
-$jobArgs "echo process-job" push! drop
+$jobArgs "/C" push drop
+$jobArgs "echo process-job" push drop
 
 jobOptions map
-$jobOptions "timeout_ms" 5000 put! drop
+$jobOptions "timeout_ms" 5000 put drop
 "cmd" $jobArgs $jobOptions process_start value job var
 
 nil jobSnapshot var
@@ -62,11 +62,11 @@ $job "id" at process_release value println
 process_jobs count println
 
 cancelArgs array
-$cancelArgs "/C" push! drop
-$cancelArgs "ping 127.0.0.1 -n 6 > nul" push! drop
+$cancelArgs "/C" push drop
+$cancelArgs "ping 127.0.0.1 -n 6 > nul" push drop
 
 cancelOptions map
-$cancelOptions "timeout_ms" 30000 put! drop
+$cancelOptions "timeout_ms" 30000 put drop
 "cmd" $cancelArgs $cancelOptions process_start value cancelJob var
 
 "cancel requested:" print
@@ -90,13 +90,13 @@ $cancelJob "id" at process_release value println
 process_jobs count println
 
 ptyArgs array
-$ptyArgs "/C" push! drop
-$ptyArgs "echo ricochet-pty" push! drop
+$ptyArgs "/C" push drop
+$ptyArgs "echo ricochet-pty" push drop
 
 ptyOptions map
-$ptyOptions "rows" 12 put! drop
-$ptyOptions "cols" 80 put! drop
-$ptyOptions "output_max_bytes" 4096 put! drop
+$ptyOptions "rows" 12 put drop
+$ptyOptions "cols" 80 put drop
+$ptyOptions "output_max_bytes" 4096 put drop
 
 "pty enabled:" print
 runtime_capabilities "pty" at "enabled" at println

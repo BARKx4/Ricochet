@@ -28,9 +28,9 @@ NotesController Controller Subclass
         "Title is required" text 400 status
       else
         note map
-        $note "title" $title put! drop
-        $note "body" $body put! drop
-        $note "status" "open" put! drop
+        $note "title" $title put drop
+        $note "body" $body put drop
+        $note "status" "open" put drop
         $note Note insert
         dup ok? if
           drop

@@ -6,15 +6,15 @@
 
 ( -> Map ) app_init function
   state map
-  $state "count" 0 put! drop
+  $state "count" 0 put drop
   $state
 end
 
 ( state -> Map ) app_view function
   state var
   children array
-  $children "count_label" "Count: " $state "count" at to_string concat ui_text push! drop
-  $children "increment_button" "Increment" ui_button push! drop
+  $children "count_label" "Count: " $state "count" at to_string concat ui_text push drop
+  $children "increment_button" "Increment" ui_button push drop
   "main" "Counter" $children ui_window value
 end
 
@@ -24,7 +24,7 @@ end
   $event ui_click_event? if
     $event "id" at "increment_button" = if
       $state "count" at 1 + nextCount var
-      $state "count" $nextCount put! drop
+      $state "count" $nextCount put drop
     end
   end
   $state app_view document var

@@ -15,7 +15,7 @@ details belong in explicit native option maps.
 slint_backend
 
 options map
-$options "style" "fluent" put! drop
+$options "style" "fluent" put drop
 $options slint_required_options
 ```
 

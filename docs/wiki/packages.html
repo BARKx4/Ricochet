@@ -71,8 +71,8 @@ rco audit --json</code></pre>
 <p>Dynamic imports load a module from a runtime string while using the same resolver, path containment, and lock integrity checks:</p>
 <pre class="code-block"><code class="language-forth">"forms/validation" import_dynamic value forms var
 args array
-args get "email" push! drop
-args get "ada@example.com" push! drop
+args get "email" push drop
+args get "ada@example.com" push drop
 forms get "form_field" args get module_call value
 "value" at</code></pre>
 <p><code>import_dynamic</code> returns a <code>Result</code> containing a module map with <code>id</code>, <code>specifier</code>, <code>path</code>, <code>variables</code>, <code>functions</code>, and <code>classes</code>. Use <code>module_call</code> for functions and <code>module_get</code> for exported variables or classes. Import failures, missing functions, and lock/containment failures are returned as <code>Result</code> errors so request handlers and scripts can report them explicitly. Loaded modules are cached for the life of the VM; restart the VM or request snapshot to reload changed module code.</p>

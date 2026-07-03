@@ -125,7 +125,7 @@ explicit host allow-list:</p>
 $getResponse &quot;status&quot; at println
 
 payload map
-$payload &quot;message&quot; &quot;hello from Ricochet&quot; put! drop
+$payload &quot;message&quot; &quot;hello from Ricochet&quot; put drop
 $baseUrl &quot;/messages&quot; concat $payload http_post_json value postResponse var
 </code></pre>
 <p>Use a structured request map when the request has policy, headers, or a
@@ -150,16 +150,16 @@ with a structured request, keep the returned <code>id</code>, and read with an o
 map:</p>
 <pre><code>&quot;GET&quot; $baseUrl &quot;/stream&quot; concat http_request_new value streamRequest var
 $streamRequest 3000 http_timeout value streamRequest set
-$streamRequest &quot;max_response_bytes&quot; 128 put! drop
+$streamRequest &quot;max_response_bytes&quot; 128 put drop
 $streamRequest http_stream_start value stream var
 $stream &quot;id&quot; at streamId var
 
 readOptions map
-$readOptions &quot;max_bytes&quot; 6 put! drop
+$readOptions &quot;max_bytes&quot; 6 put drop
 $streamId $readOptions http_stream_read value firstChunk var
-$readOptions &quot;offset&quot; $firstChunk &quot;next_offset&quot; at put! drop
+$readOptions &quot;offset&quot; $firstChunk &quot;next_offset&quot; at put drop
 $streamId $readOptions http_stream_read value secondChunk var
-$readOptions &quot;offset&quot; $secondChunk &quot;next_offset&quot; at put! drop
+$readOptions &quot;offset&quot; $secondChunk &quot;next_offset&quot; at put drop
 </code></pre>
 <p><code>http_stream_read</code> reports <code>from_offset</code>, <code>next_offset</code>, <code>bytes_len</code>, and
 <code>done</code>. Store <code>next_offset</code> as the next read’s <code>offset</code> to avoid rereading

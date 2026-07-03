@@ -3,7 +3,7 @@
   headers var
   value var
   name var
-  $headers $name $value put! drop
+  $headers $name $value put drop
   $headers
 end
 
@@ -24,9 +24,9 @@ end
   baseUrl var
   providerName var
   provider map
-  $provider "provider" $providerName put! drop
-  $provider "base_url" $baseUrl put! drop
-  $provider "model" $model put! drop
+  $provider "provider" $providerName put drop
+  $provider "base_url" $baseUrl put drop
+  $provider "model" $model put drop
   $provider
 end
 
@@ -34,8 +34,8 @@ end
   content var
   role var
   message map
-  $message "role" $role put! drop
-  $message "content" $content put! drop
+  $message "role" $role put drop
+  $message "content" $content put drop
   $message
 end
 
@@ -62,13 +62,13 @@ end
   model var
   provider var
   request map
-  $request "provider" $provider put! drop
-  $request "model" $model put! drop
-  $request "messages" $messages put! drop
-  $request "stream" false put! drop
-  $request "options" $options put! drop
-  $request "tools" $tools put! drop
-  $request "retry" $retry put! drop
+  $request "provider" $provider put drop
+  $request "model" $model put drop
+  $request "messages" $messages put drop
+  $request "stream" false put drop
+  $request "options" $options put drop
+  $request "tools" $tools put drop
+  $request "retry" $retry put drop
   $request
 end
 
@@ -80,7 +80,7 @@ end
   model var
   provider var
   $provider $model $messages $options $tools $retry ai_chat_request request var
-  $request "stream" true put! drop
+  $request "stream" true put drop
   $request
 end
 
@@ -89,9 +89,9 @@ end
   initialDelayMs var
   maxAttempts var
   retry map
-  $retry "max_attempts" $maxAttempts put! drop
-  $retry "initial_delay_ms" $initialDelayMs put! drop
-  $retry "max_delay_ms" $maxDelayMs put! drop
+  $retry "max_attempts" $maxAttempts put drop
+  $retry "initial_delay_ms" $initialDelayMs put drop
+  $retry "max_delay_ms" $maxDelayMs put drop
   $retry
 end
 
@@ -261,11 +261,11 @@ end
   model var
   provider var
   response map
-  $response "provider" $provider put! drop
-  $response "model" $model put! drop
-  $response "text" $text put! drop
-  $response "tool_calls" $toolCalls put! drop
-  $response "raw" $raw put! drop
+  $response "provider" $provider put drop
+  $response "model" $model put drop
+  $response "text" $text put drop
+  $response "tool_calls" $toolCalls put drop
+  $response "raw" $raw put drop
   $response
 end
 
@@ -276,11 +276,11 @@ end
   kind var
   provider var
   error map
-  $error "provider" $provider put! drop
-  $error "kind" $kind put! drop
-  $error "message" $message put! drop
-  $error "status" $status put! drop
-  $error "raw" $raw put! drop
+  $error "provider" $provider put drop
+  $error "kind" $kind put drop
+  $error "message" $message put drop
+  $error "status" $status put drop
+  $error "raw" $raw put drop
   $error
 end
 
@@ -290,10 +290,10 @@ end
   data var
   kind var
   event map
-  $event "kind" $kind put! drop
-  $event "data" $data put! drop
-  $event "offset" $offset put! drop
-  $event "done" $done put! drop
+  $event "kind" $kind put drop
+  $event "data" $data put drop
+  $event "offset" $offset put drop
+  $event "done" $done put drop
   $event
 end
 
@@ -302,9 +302,9 @@ end
   name var
   id var
   toolCall map
-  $toolCall "id" $id put! drop
-  $toolCall "name" $name put! drop
-  $toolCall "arguments" $arguments put! drop
+  $toolCall "id" $id put drop
+  $toolCall "name" $name put drop
+  $toolCall "arguments" $arguments put drop
   $toolCall
 end
 
@@ -312,9 +312,9 @@ end
   content var
   toolCallId var
   result map
-  $result "role" "tool" put! drop
-  $result "tool_call_id" $toolCallId put! drop
-  $result "content" $content put! drop
+  $result "role" "tool" put drop
+  $result "tool_call_id" $toolCallId put drop
+  $result "content" $content put drop
   $result
 end
 
@@ -327,7 +327,7 @@ end
   block var
   name var
   handlers var
-  $handlers $name $block put! drop
+  $handlers $name $block put drop
   $handlers
 end
 
@@ -356,7 +356,7 @@ end
     $toolCalls $index at toolCall var
     $toolCall $handlers ai_execute_tool_call result var
     $result ok? if
-      $results $result value push! drop
+      $results $result value push drop
       $index 1 + index set
     else
       $result finalResult set
@@ -380,8 +380,8 @@ end
   required var
   typeName var
   rule map
-  $rule "type" $typeName put! drop
-  $rule "required" $required put! drop
+  $rule "type" $typeName put drop
+  $rule "required" $required put drop
   $rule
 end
 
@@ -391,7 +391,7 @@ end
   field var
   schema var
   $typeName $required ai_schema_rule rule var
-  $schema $field $rule put! drop
+  $schema $field $rule put drop
   $schema
 end
 
@@ -399,24 +399,24 @@ end
   message var
   field var
   error map
-  $error "field" $field put! drop
-  $error "message" $message put! drop
+  $error "field" $field put drop
+  $error "message" $message put drop
   $error
 end
 
 ( -> Map ) ai_validation_result function
   validation map
   errors array
-  $validation "ok" true put! drop
-  $validation "errors" $errors put! drop
+  $validation "ok" true put drop
+  $validation "errors" $errors put drop
   $validation
 end
 
 ( validation error -> Map ) ai_validation_add_error function
   error var
   validation var
-  $validation "errors" at $error push! drop
-  $validation "ok" false put! drop
+  $validation "errors" at $error push drop
+  $validation "ok" false put drop
   $validation
 end
 
@@ -461,8 +461,8 @@ end
   messages var
   model var
   body map
-  $body "model" $model put! drop
-  $body "messages" $messages put! drop
+  $body "model" $model put drop
+  $body "messages" $messages put drop
   $body
 end
 
@@ -470,7 +470,7 @@ end
   messages var
   model var
   $model $messages ai_openai_chat_body body var
-  $body "stream" true put! drop
+  $body "stream" true put drop
   $body
 end
 
@@ -517,7 +517,7 @@ end
   [
     ai_sse_data_line value var
     $value nil? false = if
-      $values $value push! drop
+      $values $value push drop
     end
   ] $body lines each drop
   $values
@@ -529,7 +529,7 @@ end
   [
     data var
     $data "[DONE]" = false = if
-      $data json_decode value $events swap push! drop
+      $data json_decode value $events swap push drop
     end
   ] $body ai_sse_data_lines each drop
   $events
@@ -539,16 +539,16 @@ end
   format var
   provider var
   state map
-  $state "provider" $provider put! drop
-  $state "format" $format put! drop
-  $state "buffer" "" put! drop
-  $state "offset" 0 put! drop
-  $state "event_offset" 0 put! drop
-  $state "done" false put! drop
-  $state "protocol_done" false put! drop
-  $state "http_done" false put! drop
+  $state "provider" $provider put drop
+  $state "format" $format put drop
+  $state "buffer" "" put drop
+  $state "offset" 0 put drop
+  $state "event_offset" 0 put drop
+  $state "done" false put drop
+  $state "protocol_done" false put drop
+  $state "http_done" false put drop
   events array
-  $state "events" $events put! drop
+  $state "events" $events put drop
   $state
 end
 
@@ -568,9 +568,9 @@ end
   maxBytes var
   state var
   options map
-  $options "offset" $state "offset" at put! drop
+  $options "offset" $state "offset" at put drop
   $maxBytes nil? false = if
-    $options "max_bytes" $maxBytes put! drop
+    $options "max_bytes" $maxBytes put drop
   end
   $options
 end
@@ -620,8 +620,8 @@ end
     end
     "" buffer set
   end
-  $output "body" $body put! drop
-  $output "buffer" $buffer put! drop
+  $output "body" $body put drop
+  $output "buffer" $buffer put drop
   $output
 end
 
@@ -636,20 +636,20 @@ end
       $currentLines count 0 > if
         [
           frameLine var
-          $completeLines $frameLine push! drop
+          $completeLines $frameLine push drop
         ] $currentLines each drop
-        $completeLines "" push! drop
+        $completeLines "" push drop
         nextLines array
         $nextLines currentLines set
       end
     else
-      $currentLines $line push! drop
+      $currentLines $line push drop
     end
   ] $text lines each drop
 
   output map
-  $output "body" $completeLines "\n" join put! drop
-  $output "buffer" $currentLines "\n" join put! drop
+  $output "body" $completeLines "\n" join put drop
+  $output "buffer" $currentLines "\n" join put drop
   $output
 end
 
@@ -667,7 +667,7 @@ end
     $bodyLines $index at line var
     $index $lastIndex = isLast var
     $ended $isLast false = or if
-      $completeLines $line push! drop
+      $completeLines $line push drop
     else
       $line pending set
     end
@@ -675,8 +675,8 @@ end
   end
 
   output map
-  $output "body" $completeLines "\n" join put! drop
-  $output "buffer" $pending put! drop
+  $output "body" $completeLines "\n" join put drop
+  $output "buffer" $pending put drop
   $output
 end
 
@@ -711,11 +711,11 @@ end
 
   $index $total < while
     $events $index at event var
-    $event "offset" $baseOffset $index + put! drop
+    $event "offset" $baseOffset $index + put drop
     $index 1 + index set
   end
 
-  $state "event_offset" $baseOffset $total + put! drop
+  $state "event_offset" $baseOffset $total + put drop
   $state
 end
 
@@ -726,12 +726,12 @@ end
   $allEvents nil? if
     emptyEvents array
     $emptyEvents allEvents set
-    $state "events" $allEvents put! drop
+    $state "events" $allEvents put drop
   end
 
   [
     event var
-    $allEvents $event push! drop
+    $allEvents $event push drop
   ] $events each drop
 
   $state
@@ -746,10 +746,10 @@ end
   $state $events ai_stream_events_include_done protocolDone var
   $protocolDone $httpDone or streamDone var
 
-  $state "offset" $nextOffset put! drop
-  $state "http_done" $httpDone put! drop
-  $state "protocol_done" $protocolDone put! drop
-  $state "done" $streamDone put! drop
+  $state "offset" $nextOffset put drop
+  $state "http_done" $httpDone put drop
+  $state "protocol_done" $protocolDone put drop
+  $state "done" $streamDone put drop
   $state $events ai_stream_rebase_events drop
   $state $events ai_stream_append_events drop
   $state
@@ -759,12 +759,12 @@ end
   events var
   state var
   output map
-  $output "state" $state put! drop
-  $output "events" $events put! drop
-  $output "offset" $state "offset" at put! drop
-  $output "done" $state "done" at put! drop
-  $output "protocol_done" $state "protocol_done" at put! drop
-  $output "http_done" $state "http_done" at put! drop
+  $output "state" $state put drop
+  $output "events" $events put drop
+  $output "offset" $state "offset" at put drop
+  $output "done" $state "done" at put drop
+  $output "protocol_done" $state "protocol_done" at put drop
+  $output "http_done" $state "http_done" at put drop
   $output
 end
 
@@ -806,9 +806,9 @@ end
   $errorMap "message" at message var
   $kind $message fail result var
   $result error richError var
-  $richError "provider" $errorMap "provider" at put! drop
-  $richError "status" $errorMap "status" at put! drop
-  $richError "raw" $errorMap "raw" at put! drop
+  $richError "provider" $errorMap "provider" at put drop
+  $richError "status" $errorMap "status" at put drop
+  $richError "raw" $errorMap "raw" at put drop
   $result
 end
 
@@ -915,7 +915,7 @@ end
       $functionMap "name" at name var
       $functionMap "arguments" at ai_openai_tool_arguments argumentsResult var
       $argumentsResult ok? if
-        $toolCalls $id $name $argumentsResult value ai_tool_call push! drop
+        $toolCalls $id $name $argumentsResult value ai_tool_call push drop
         $index 1 + index set
       else
         $argumentsResult finalResult set
@@ -1065,16 +1065,16 @@ end
         end
       end
     else
-      $providerMessages $message push! drop
+      $providerMessages $message push drop
     end
   ] $messages each drop
 
-  $body "model" $model put! drop
-  $body "max_tokens" $maxTokens put! drop
-  $body "messages" $providerMessages put! drop
-  $body "stream" $stream put! drop
+  $body "model" $model put drop
+  $body "max_tokens" $maxTokens put drop
+  $body "messages" $providerMessages put drop
+  $body "stream" $stream put drop
   $systemText length 0 > if
-    $body "system" $systemText put! drop
+    $body "system" $systemText put drop
   end
   $body
 end
@@ -1169,10 +1169,10 @@ end
 
         $input nil? if
           args map
-          $toolCalls $id $name $args ai_tool_call push! drop
+          $toolCalls $id $name $args ai_tool_call push drop
         else
           $input type "map" = if
-            $toolCalls $id $name $input ai_tool_call push! drop
+            $toolCalls $id $name $input ai_tool_call push drop
           else
             "AiProviderMalformedToolCall" "Anthropic tool use input must be a map" fail finalResult set
             break
@@ -1295,9 +1295,9 @@ end
   messages var
   model var
   body map
-  $body "model" $model put! drop
-  $body "messages" $messages put! drop
-  $body "stream" $stream put! drop
+  $body "model" $model put drop
+  $body "messages" $messages put drop
+  $body "stream" $stream put drop
   $body
 end
 
@@ -1446,10 +1446,10 @@ end
       $decoded value rawEvent var
       $rawEvent ai_ollama_stream_delta part var
       $part nil? false = if
-        $events "delta" $part $index false ai_stream_event push! drop
+        $events "delta" $part $index false ai_stream_event push drop
       end
       $rawEvent "done" at true = if
-        $events "done" nil $index true ai_stream_event push! drop
+        $events "done" nil $index true ai_stream_event push drop
       end
       $index 1 + index set
     else
@@ -1505,19 +1505,19 @@ end
           $deltaType "text_delta" = if
             $delta "text" at part var
             $part nil? false = if
-              $events "delta" $part $index false ai_stream_event push! drop
+              $events "delta" $part $index false ai_stream_event push drop
             end
           else
             $deltaType "input_json_delta" = if
               $delta "partial_json" at partial var
               $partial nil? false = if
-                $events "tool_delta" $partial $index false ai_stream_event push! drop
+                $events "tool_delta" $partial $index false ai_stream_event push drop
               end
             else
               $deltaType "thinking_delta" = if
                 $delta "thinking" at thought var
                 $thought nil? false = if
-                  $events "thinking_delta" $thought $index false ai_stream_event push! drop
+                  $events "thinking_delta" $thought $index false ai_stream_event push drop
                 end
               end
             end
@@ -1525,7 +1525,7 @@ end
         end
       else
         $eventType "message_stop" = if
-          $events "done" nil $index true ai_stream_event push! drop
+          $events "done" nil $index true ai_stream_event push drop
         else
           $eventType "error" = if
             $rawEvent "error" at errorMap var
@@ -1572,14 +1572,14 @@ end
   $index $total < while
     $dataLines $index at data var
     $data "[DONE]" = if
-      $events "done" nil $index true ai_stream_event push! drop
+      $events "done" nil $index true ai_stream_event push drop
       $index 1 + index set
     else
       $data json_decode decoded var
       $decoded ok? if
         $decoded value rawEvent var
         $rawEvent ai_openai_stream_delta part var
-        $events "delta" $part $index false ai_stream_event push! drop
+        $events "delta" $part $index false ai_stream_event push drop
         $index 1 + index set
       else
         "AiProviderMalformedEvent" "AI stream event is not valid JSON" fail finalResult set
@@ -1619,7 +1619,7 @@ end
 
   $parsed ok? if
     $parsed value events var
-    $state "buffer" $nextBuffer put! drop
+    $state "buffer" $nextBuffer put drop
     $state $read $events ai_stream_commit_read drop
     $state $events ai_stream_read_event_result ok
   else
@@ -1651,7 +1651,7 @@ end
 
   $parsed ok? if
     $parsed value events var
-    $state "buffer" $nextBuffer put! drop
+    $state "buffer" $nextBuffer put drop
     $state $read $events ai_stream_commit_read drop
     $state $events ai_stream_read_event_result ok
   else
@@ -1683,7 +1683,7 @@ end
 
   $parsed ok? if
     $parsed value events var
-    $state "buffer" $nextBuffer put! drop
+    $state "buffer" $nextBuffer put drop
     $state $read $events ai_stream_commit_read drop
     $state $events ai_stream_read_event_result ok
   else
@@ -1694,8 +1694,8 @@ end
 ( response -> Map ) ai_response_summary function
   response var
   summary map
-  $summary "status" $response "status" at put! drop
-  $summary "ok" $response "status" at 200 = put! drop
-  $summary "body" $response "body" at put! drop
+  $summary "status" $response "status" at put drop
+  $summary "ok" $response "status" at 200 = put drop
+  $summary "body" $response "body" at put drop
   $summary
 end

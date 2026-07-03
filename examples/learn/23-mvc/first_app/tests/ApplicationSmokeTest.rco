@@ -10,7 +10,7 @@ ApplicationSmokeTest TestCase Subclass
     users array
     User new
     "grace@example.com" swap email.set
-    $users swap push! drop
+    $users swap push drop
     $users count
     1 assert_equals
   ] "testCollectionsCanHoldModels" Method

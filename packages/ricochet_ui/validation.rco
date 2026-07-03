@@ -2,8 +2,8 @@
 ( -> Map ) ui_validation function
   result map
   errors array
-  $result "ok" true put! drop
-  $result "errors" $errors put! drop
+  $result "ok" true put drop
+  $result "errors" $errors put drop
   $result
 end
 
@@ -12,10 +12,10 @@ end
   id var
   validation var
   error map
-  $error "id" $id put! drop
-  $error "message" $message put! drop
-  $validation "errors" at $error push! drop
-  $validation "ok" false put! drop
+  $error "id" $id put drop
+  $error "message" $message put drop
+  $validation "errors" at $error push drop
+  $validation "ok" false put drop
   $validation
 end
 

@@ -27,7 +27,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Dependency workflow</p>
           <h1>Packages And Registries</h1>
-          <p class="lede">Local packages, registry publishing, lockfile integrity, static indexes, hosted registry protocol planning, audits, and import examples.</p>
+          <p class="lede">Local packages, registry publishing, lockfile integrity, static indexes, hosted registry protocol, audits, and import examples.</p>
           <div class="command-strip" aria-label="Guide links">
             <code>docs/reference/guides/packages.html</code>
             <code>docs/wiki/packages.html</code>
@@ -79,8 +79,8 @@ rco audit --json</code></pre>
           <p>Dynamic imports load a module from a runtime string while using the same resolver, path containment, and lock integrity checks:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>&quot;forms/validation&quot; import_dynamic value forms var
 args array
-args get &quot;email&quot; push! drop
-args get &quot;ada@example.com&quot; push! drop
+args get &quot;email&quot; push drop
+args get &quot;ada@example.com&quot; push drop
 forms get &quot;form_field&quot; args get module_call value
 &quot;value&quot; at</code></pre>
           <p><code>import_dynamic</code> returns a <code>Result</code> containing a module map with <code>id</code>, <code>specifier</code>, <code>path</code>, <code>variables</code>, <code>functions</code>, and <code>classes</code>. Use <code>module_call</code> for functions and <code>module_get</code> for exported variables or classes. Import failures, missing functions, and lock/containment failures are returned as <code>Result</code> errors so request handlers and scripts can report them explicitly. Loaded modules are cached for the life of the VM; restart the VM or request snapshot to reload changed module code.</p>

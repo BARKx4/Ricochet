@@ -123,8 +123,8 @@ $answer completed? println
 </code></pre>
 <p>For several tasks, store the handles in a collection and await them together:</p>
 <pre><code>handles array
-$handles [ 20 2 + ] spawn push! drop
-$handles [ 30 4 + ] spawn push! drop
+$handles [ 20 2 + ] spawn push drop
+$handles [ 30 4 + ] spawn push drop
 $handles await_all results var
 $results 0 at println
 $results 1 at println
@@ -133,7 +133,7 @@ $results 1 at println
 <p>Trace one representative line from left to right. Identify the values placed on the stack, the word that consumes them, and the result or binding that carries the work forward.</p>
 <h2>Try it</h2>
 <p>Add a task that returns a string:</p>
-<pre><code>$handles [ &quot;ready&quot; ] spawn push! drop
+<pre><code>$handles [ &quot;ready&quot; ] spawn push drop
 </code></pre>
 <p>Then inspect a handle before and after awaiting:</p>
 <pre><code>$answer info inspect println drop

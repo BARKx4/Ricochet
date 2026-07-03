@@ -6,9 +6,9 @@
 "language designer" role var
 profile map
 
-$profile "name" $name put! drop
-$profile "role" $role put! drop
-$profile "active" true put! drop
+$profile "name" $name put drop
+$profile "role" $role put drop
+$profile "active" true put drop
 
 "name:" print
 $profile "name" at println

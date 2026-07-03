@@ -6,9 +6,9 @@ env map
 
 args array
 
-$args 20 push! drop
+$args 20 push drop
 
-$args 22 push! drop
+$args 22 push drop
 
 kwargs map
 
@@ -16,7 +16,7 @@ $worker "fake_sdk.add" $args $kwargs py_call value println
 
 clientArgs array
 
-$clientArgs "Ricochet" push! drop
+$clientArgs "Ricochet" push drop
 
 clientKwargs map
 
@@ -24,7 +24,7 @@ $worker "fake_sdk.Client" $clientArgs $clientKwargs py_construct value client va
 
 methodArgs array
 
-$methodArgs "Python" push! drop
+$methodArgs "Python" push drop
 
 $worker $client "greeting" $methodArgs $kwargs py_call_method value println
 

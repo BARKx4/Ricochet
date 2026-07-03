@@ -120,12 +120,12 @@ it with flags.</p>
 <p>Blocking process calls are best for short commands whose output you want all at
 once:</p>
 <pre><code>processArgs array
-$processArgs &quot;/C&quot; push! drop
-$processArgs &quot;echo %RICOCHET_LEARN_CHILD%&quot; push! drop
+$processArgs &quot;/C&quot; push drop
+$processArgs &quot;echo %RICOCHET_LEARN_CHILD%&quot; push drop
 
 processOptions map
-$processOptions &quot;timeout_ms&quot; 5000 put! drop
-$processOptions &quot;stdout_max_bytes&quot; 200 put! drop
+$processOptions &quot;timeout_ms&quot; 5000 put drop
+$processOptions &quot;stdout_max_bytes&quot; 200 put drop
 $processOptions &quot;RICOCHET_LEARN_CHILD&quot; &quot;process-ok&quot; process_env_put value processOptions set
 
 &quot;cmd&quot; $processArgs $processOptions process_spawn value spawnResult var
@@ -178,13 +178,13 @@ $cancelJob &quot;id&quot; at process_release value println
 <p>PTYs are for programs that expect a terminal. A PTY session is retained like a
 process job, but reads come from terminal output:</p>
 <pre><code>ptyArgs array
-$ptyArgs &quot;/C&quot; push! drop
-$ptyArgs &quot;echo ricochet-pty&quot; push! drop
+$ptyArgs &quot;/C&quot; push drop
+$ptyArgs &quot;echo ricochet-pty&quot; push drop
 
 ptyOptions map
-$ptyOptions &quot;rows&quot; 12 put! drop
-$ptyOptions &quot;cols&quot; 80 put! drop
-$ptyOptions &quot;output_max_bytes&quot; 4096 put! drop
+$ptyOptions &quot;rows&quot; 12 put drop
+$ptyOptions &quot;cols&quot; 80 put drop
+$ptyOptions &quot;output_max_bytes&quot; 4096 put drop
 
 &quot;cmd&quot; $ptyArgs $ptyOptions pty_start value session var
 $session &quot;id&quot; at 100 24 pty_resize value drop

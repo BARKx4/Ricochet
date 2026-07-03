@@ -3,8 +3,8 @@
   value var
   name var
   field map
-  $field "name" $name put! drop
-  $field "value" $value put! drop
+  $field "name" $name put drop
+  $field "value" $value put drop
   $field
 end
 
@@ -21,24 +21,24 @@ end
   message var
   field var
   error map
-  $error "field" $field put! drop
-  $error "message" $message put! drop
+  $error "field" $field put drop
+  $error "message" $message put drop
   $error
 end
 
 ( -> Map ) form_validation function
   validation map
   errors array
-  $validation "ok" true put! drop
-  $validation "errors" $errors put! drop
+  $validation "ok" true put drop
+  $validation "errors" $errors put drop
   $validation
 end
 
 ( validation error -> Map ) form_add_error function
   error var
   validation var
-  $validation "errors" at $error push! drop
-  $validation "ok" false put! drop
+  $validation "errors" at $error push drop
+  $validation "ok" false put drop
   $validation
 end
 
@@ -51,8 +51,8 @@ end
   required var
   type var
   rule map
-  $rule "type" $type put! drop
-  $rule "required" $required put! drop
+  $rule "type" $type put drop
+  $rule "required" $required put drop
   $rule
 end
 
@@ -61,7 +61,7 @@ end
   name var
   schema var
   $type true form_schema_rule rule var
-  $schema $name $rule put! drop
+  $schema $name $rule put drop
   $schema
 end
 
@@ -70,7 +70,7 @@ end
   name var
   schema var
   $type false form_schema_rule rule var
-  $schema $name $rule put! drop
+  $schema $name $rule put drop
   $schema
 end
 
@@ -123,9 +123,9 @@ end
   filename var
   name var
   file map
-  $file "name" $name put! drop
-  $file "filename" $filename put! drop
-  $file "content_type" $contentType put! drop
-  $file "size" $size put! drop
+  $file "name" $name put drop
+  $file "filename" $filename put drop
+  $file "content_type" $contentType put drop
+  $file "size" $size put drop
   $file
 end

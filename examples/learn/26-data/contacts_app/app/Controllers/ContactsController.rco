@@ -60,8 +60,8 @@ ContactsController Controller Subclass
     $id Contact find_record dup ok? if
       value record var
       response map
-      $response "exists" $exists put! drop
-      $response "record" $record put! drop
+      $response "exists" $exists put drop
+      $response "record" $record put drop
       $response json
     else
       error "message" at text 404 status
@@ -74,9 +74,9 @@ ContactsController Controller Subclass
     name var
 
     contact map
-    $contact "name" $name put! drop
-    $contact "email" $email put! drop
-    $contact "status" "active" put! drop
+    $contact "name" $name put drop
+    $contact "email" $email put drop
+    $contact "status" "active" put drop
     $contact Contact insert dup ok? if
       value json
       201 status
@@ -93,9 +93,9 @@ ContactsController Controller Subclass
     id var
 
     changes map
-    $changes "name" $name put! drop
-    $changes "email" $email put! drop
-    $changes "status" $state put! drop
+    $changes "name" $name put drop
+    $changes "email" $email put drop
+    $changes "status" $state put drop
     $id $changes Contact update dup ok? if
       value json
     else

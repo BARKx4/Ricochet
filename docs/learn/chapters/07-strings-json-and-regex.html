@@ -105,8 +105,8 @@ $cleaned &quot;:&quot; split count println
 </code></pre>
 <p>The JSON section turns a Ricochet map into a JSON string and back:</p>
 <pre><code class="language-rco">payload map
-$payload &quot;ok&quot; true put! drop
-$payload &quot;name&quot; &quot;Ada&quot; put! drop
+$payload &quot;ok&quot; true put drop
+$payload &quot;name&quot; &quot;Ada&quot; put drop
 $payload json_encode json var
 $json json_decode value &quot;name&quot; at println
 </code></pre>

@@ -121,8 +121,8 @@ run:</p>
 <p>Approval records are local runtime objects for exactly-once authorization
 flows. Create an operation map, then create the approval:</p>
 <pre><code>operation map
-$operation &quot;capability&quot; &quot;workspace.write&quot; put! drop
-$operation &quot;summary&quot; &quot;Approve a generated workspace write&quot; put! drop
+$operation &quot;capability&quot; &quot;workspace.write&quot; put drop
+$operation &quot;summary&quot; &quot;Approve a generated workspace write&quot; put drop
 
 options map
 $operation $options approval_create value approval var
@@ -133,7 +133,7 @@ $claim &quot;claimed&quot; at println
 </code></pre>
 <p>Complete or reject the approval after the protected action:</p>
 <pre><code>result map
-$result &quot;path&quot; &quot;generated/example.txt&quot; put! drop
+$result &quot;path&quot; &quot;generated/example.txt&quot; put drop
 $approval &quot;id&quot; at $result approval_complete value completed var
 </code></pre>
 <p>Inspect the retained record when you need audit state, then release it when the

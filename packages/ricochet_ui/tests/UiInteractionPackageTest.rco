@@ -10,12 +10,12 @@ UiInteractionPackageTest TestCase Subclass
   [
     spans array
     marksPlain array
-    $spans "Hello " $marksPlain nil ui_rich_span push! drop
+    $spans "Hello " $marksPlain nil ui_rich_span push drop
     marksBold array
-    $marksBold "bold" push! drop
-    $spans "native UI" $marksBold nil ui_rich_span push! drop
+    $marksBold "bold" push drop
+    $spans "native UI" $marksBold nil ui_rich_span push drop
     blocks array
-    $blocks $spans ui_rich_paragraph push! drop
+    $blocks $spans ui_rich_paragraph push drop
     $blocks ui_rich_document doc var
     $doc "blocks" at count 1 assert_equals
     "note" $doc ui_rich_text "type" at "rich_text" assert_equals
@@ -25,7 +25,7 @@ UiInteractionPackageTest TestCase Subclass
     children array
     "file-1" "File" $children ui_tree_node node var
     ops array
-    $ops "move" push! drop
+    $ops "move" push drop
     $node $payload $ops ui_drag_source source var
     $source "props" at "drag" at "payload" at "kind" at "tree_nodes" assert_equals
   ] "testDragSourceShape" Method

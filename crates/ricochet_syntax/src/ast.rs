@@ -69,7 +69,6 @@ pub struct SpannedExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Symbol(String),
-    BangWord(String),
     DotWord(String),
     Reference(String),
     String(String),

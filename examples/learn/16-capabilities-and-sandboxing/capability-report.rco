@@ -6,8 +6,8 @@
 runtime_capabilities inspect println drop
 
 operation map
-$operation "capability" "workspace.write" put! drop
-$operation "summary" "Approve a generated workspace write" put! drop
+$operation "capability" "workspace.write" put drop
+$operation "summary" "Approve a generated workspace write" put drop
 
 options map
 $operation $options approval_create value approval var
@@ -21,7 +21,7 @@ $approval "id" at $approval "token" at approval_claim value claim var
 $claim "claimed" at println
 
 result map
-$result "path" "generated/example.txt" put! drop
+$result "path" "generated/example.txt" put drop
 $approval "id" at $result approval_complete value completed var
 
 "completed status:" print

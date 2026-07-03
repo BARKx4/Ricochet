@@ -45,13 +45,13 @@
 <p>Workspace helpers provide structured filesystem access for local apps while preserving the same <code>--fs-root</code> and <code>--fs-readonly</code> bounds as the lower-level <code>fs_*</code> words. <code>fs_delete</code> removes a file, symlink, or empty directory; <code>workspace_delete</code> adds explicit <code>recursive</code> and <code>missing_ok</code> options and refuses to delete the configured filesystem root:</p>
 <pre class="code-block"><code class="language-forth">options map
 writeOptions map
-$writeOptions "create_parent_dirs" true put! drop
+$writeOptions "create_parent_dirs" true put drop
 "README.md" $options workspace_read_text value readme var
 "." $options workspace_list value entries var
 "generated/out.txt" "hello" $writeOptions workspace_write_text value written var
 $written "relative_path" at println
 deleteOptions map
-$deleteOptions "recursive" true put! drop
+$deleteOptions "recursive" true put drop
 "generated" $deleteOptions workspace_delete value drop
 runtime_capabilities "workspace" at "root" at println</code></pre>
 <h2 id="process-environment">Process Environment</h2>
@@ -63,16 +63,16 @@ $options "GIT_TERMINAL_PROMPT" "0" process_env_put value options set
 <h2 id="process-execution">Process Execution</h2>
 <p>Process execution is stronger than the ordinary trusted local profile and stays disabled unless you pass <code>--allow-process</code>. Use <code>process_spawn</code> with a direct command string, an argument array, and an options map when you want to run a process to completion. <code>--process-root PATH</code> narrows process and PTY <code>cwd</code> values independently from <code>--fs-root</code>; when omitted, process cwd containment falls back to the filesystem root if one is configured:</p>
 <pre class="code-block"><code class="language-forth">args array
-$args "status" push! drop
+$args "status" push drop
 options map
-$options "timeout_ms" 10000 put! drop
+$options "timeout_ms" 10000 put drop
 "git" $args $options process_spawn value result var
 $result "success" at println</code></pre>
 <p>Use <code>process_start</code> for long-running jobs. The runtime keeps a retained job registry with bounded captured output, and it can be inspected across MVC requests with <code>process_jobs</code>, <code>process_job</code>, <code>process_read</code>, and <code>process_cancel</code>. Set <code>stdin_open</code> to true when the child needs incremental input through <code>process_write</code>. Release completed jobs with <code>process_release</code>:</p>
 <pre class="code-block"><code class="language-forth">args array
-$args "status" push! drop
+$args "status" push drop
 options map
-$options "stdout_max_bytes" 1048576 put! drop
+$options "stdout_max_bytes" 1048576 put drop
 "git" $args $options process_start value job var
 readOptions map
 $job "id" at $readOptions process_read value output var
@@ -81,7 +81,7 @@ $job "id" at process_release value drop</code></pre>
 <h2 id="pty-sessions">PTY Sessions</h2>
 <p>PTY sessions are separate and also opt in. Use <code>--allow-pty</code> for trusted scripts or MVC apps that need a real pseudo-terminal. Command names and shell newlines are host-specific:</p>
 <pre class="code-block"><code class="language-forth">args array
-$args "repl" push! drop
+$args "repl" push drop
 options map
 "rco" $args $options pty_start value session var
 $session "id" at "1 2 +\r\n" pty_write value drop
@@ -94,8 +94,8 @@ $session "id" at pty_release value drop</code></pre>
 <h2 id="approvals">Approvals</h2>
 <p>Approval records are runtime-local and shared across MVC requests. <code>approval_create</code> returns a generated token once; <code>approval_claim</code> consumes that token exactly once before the caller performs the mutating operation:</p>
 <pre class="code-block"><code class="language-forth">operation map
-$operation "capability" "workspace.write" put! drop
-$operation "summary" "Write generated file" put! drop
+$operation "capability" "workspace.write" put drop
+$operation "summary" "Write generated file" put drop
 options map
 $operation $options approval_create value approval var
 $approval "id" at $approval "token" at approval_claim value claim var

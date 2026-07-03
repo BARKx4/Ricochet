@@ -5,120 +5,120 @@
 
 ( -> Map ) app_init function
   state map
-  $state "ready_score" 82 put! drop
-  $state "reviewed_items" 3 put! drop
-  $state "selected_area" "winui_host" put! drop
+  $state "ready_score" 82 put drop
+  $state "reviewed_items" 3 put drop
+  $state "selected_area" "winui_host" put drop
   $state
 end
 
 ( -> Map ) build_command_bar function
   items array
-  $items "mark_docs_reviewed" "Mark reviewed" "Ctrl+R" ui_command_item push! drop
-  $items "focus_notes" "Focus notes" "Ctrl+N" ui_command_item push! drop
-  $items "copy_summary" "Copy summary" "Ctrl+Shift+C" ui_command_item push! drop
+  $items "mark_docs_reviewed" "Mark reviewed" "Ctrl+R" ui_command_item push drop
+  $items "focus_notes" "Focus notes" "Ctrl+N" ui_command_item push drop
+  $items "copy_summary" "Copy summary" "Ctrl+Shift+C" ui_command_item push drop
   "release_command_bar" $items ui_command_bar
 end
 
 ( -> Map ) build_release_tree function
   hostChildren array
   emptyA array
-  $hostChildren "node-host-project" "WinUI host project" $emptyA ui_tree_node push! drop
+  $hostChildren "node-host-project" "WinUI host project" $emptyA ui_tree_node push drop
   emptyB array
-  $hostChildren "node-host-protocol" "JSONL event protocol" $emptyB ui_tree_node push! drop
+  $hostChildren "node-host-protocol" "JSONL event protocol" $emptyB ui_tree_node push drop
   "node-winui-host" "WinUI host" $hostChildren ui_tree_node hostNode var
 
   docsChildren array
   emptyC array
-  $docsChildren "node-reference" "Reference catalog" $emptyC ui_tree_node push! drop
+  $docsChildren "node-reference" "Reference catalog" $emptyC ui_tree_node push drop
   emptyD array
-  $docsChildren "node-acceptance" "Acceptance checks" $emptyD ui_tree_node push! drop
+  $docsChildren "node-acceptance" "Acceptance checks" $emptyD ui_tree_node push drop
   "node-docs" "Docs and release notes" $docsChildren ui_tree_node docsNode var
 
   packageChildren array
   emptyE array
-  $packageChildren "node-rco-app" "rco-app launcher" $emptyE ui_tree_node push! drop
+  $packageChildren "node-rco-app" "rco-app launcher" $emptyE ui_tree_node push drop
   "node-packaging" "Packaging" $packageChildren ui_tree_node packageNode var
 
   "tree_nodes" "node-packaging" ui_drag_payload payload var
   operations array
-  $operations "move" push! drop
+  $operations "move" push drop
   $packageNode $payload $operations ui_drag_source draggablePackage var
 
   accepts array
-  $accepts "tree_nodes" push! drop
+  $accepts "tree_nodes" push drop
   $docsNode $accepts $operations ui_drop_target dropDocs var
 
   nodes array
-  $nodes $hostNode push! drop
-  $nodes $dropDocs push! drop
-  $nodes $draggablePackage push! drop
+  $nodes $hostNode push drop
+  $nodes $dropDocs push drop
+  $nodes $draggablePackage push drop
   expanded array
-  $expanded "node-winui-host" push! drop
-  $expanded "node-docs" push! drop
+  $expanded "node-winui-host" push drop
+  $expanded "node-docs" push drop
   selected array
-  $selected "node-winui-host" push! drop
+  $selected "node-winui-host" push drop
   "release_tree" $nodes $expanded $selected ui_tree
 end
 
 ( -> Map ) build_release_grid function
   columns array
-  $columns "area" "Area" "string" "2*" ui_grid_column push! drop
-  $columns "status" "Status" "string" "1*" ui_grid_column push! drop
-  $columns "next" "Next action" "string" "3*" ui_grid_column push! drop
+  $columns "area" "Area" "string" "2*" ui_grid_column push drop
+  $columns "status" "Status" "string" "1*" ui_grid_column push drop
+  $columns "next" "Next action" "string" "3*" ui_grid_column push drop
 
   hostCells map
-  $hostCells "area" "WinUI host" put! drop
-  $hostCells "status" "Green" put! drop
-  $hostCells "next" "Validate self-contained host on clean Windows" put! drop
+  $hostCells "area" "WinUI host" put drop
+  $hostCells "status" "Green" put drop
+  $hostCells "next" "Validate self-contained host on clean Windows" put drop
   "winui_host" $hostCells ui_grid_row hostRow var
 
   packageCells map
-  $packageCells "area" "Packaging" put! drop
-  $packageCells "status" "Watch" put! drop
-  $packageCells "next" "Bundle host output with release archives" put! drop
+  $packageCells "area" "Packaging" put drop
+  $packageCells "status" "Watch" put drop
+  $packageCells "next" "Bundle host output with release archives" put drop
   "packaging" $packageCells ui_grid_row packageRow var
 
   docsCells map
-  $docsCells "area" "Docs" put! drop
-  $docsCells "status" "Green" put! drop
-  $docsCells "next" "Keep native UI examples visible in reference docs" put! drop
+  $docsCells "area" "Docs" put drop
+  $docsCells "status" "Green" put drop
+  $docsCells "next" "Keep native UI examples visible in reference docs" put drop
   "docs" $docsCells ui_grid_row docsRow var
 
   showcaseCells map
-  $showcaseCells "area" "Showcase app" put! drop
-  $showcaseCells "status" "New" put! drop
-  $showcaseCells "next" "Use this app for release candidate demos" put! drop
+  $showcaseCells "area" "Showcase app" put drop
+  $showcaseCells "status" "New" put drop
+  $showcaseCells "next" "Use this app for release candidate demos" put drop
   "showcase" $showcaseCells ui_grid_row showcaseRow var
 
   rows array
-  $rows $hostRow push! drop
-  $rows $packageRow push! drop
-  $rows $docsRow push! drop
-  $rows $showcaseRow push! drop
+  $rows $hostRow push drop
+  $rows $packageRow push drop
+  $rows $docsRow push drop
+  $rows $showcaseRow push drop
   selected array
-  $selected "winui_host" push! drop
+  $selected "winui_host" push drop
   "release_grid" $columns $rows $selected ui_data_grid
 end
 
 ( -> Map ) build_release_notes function
   titleMarks array
-  $titleMarks "bold" push! drop
+  $titleMarks "bold" push drop
   titleSpans array
-  $titleSpans "Release candidate desk" $titleMarks nil ui_rich_span push! drop
+  $titleSpans "Release candidate desk" $titleMarks nil ui_rich_span push drop
 
   bodySpans array
   bodyMarks array
-  $bodySpans "Use this native app to review WinUI host readiness, package bundling, docs, and demo confidence before cutting a release candidate." $bodyMarks nil ui_rich_span push! drop
+  $bodySpans "Use this native app to review WinUI host readiness, package bundling, docs, and demo confidence before cutting a release candidate." $bodyMarks nil ui_rich_span push drop
 
   linkMarks array
-  $linkMarks "italic" push! drop
+  $linkMarks "italic" push drop
   linkSpans array
-  $linkSpans "Focus the notes, copy a summary, or mark a row reviewed from the command bar." $linkMarks nil ui_rich_span push! drop
+  $linkSpans "Focus the notes, copy a summary, or mark a row reviewed from the command bar." $linkMarks nil ui_rich_span push drop
 
   blocks array
-  $blocks $titleSpans ui_rich_paragraph push! drop
-  $blocks $bodySpans ui_rich_paragraph push! drop
-  $blocks $linkSpans ui_rich_paragraph push! drop
+  $blocks $titleSpans ui_rich_paragraph push drop
+  $blocks $bodySpans ui_rich_paragraph push drop
+  $blocks $linkSpans ui_rich_paragraph push drop
   $blocks ui_rich_document doc var
   "release_notes" "Release notes" $doc ui_rich_text_input
 end
@@ -126,26 +126,26 @@ end
 ( state -> Map ) build_summary_panel function
   state var
   children array
-  $children "ready_score" "Ship confidence: " $state "ready_score" at to_string concat "%" concat ui_text push! drop
-  $children "reviewed_items" "Reviewed items: " $state "reviewed_items" at to_string concat ui_text push! drop
-  $children "selected_area" "Selected area: " $state "selected_area" at concat ui_text push! drop
+  $children "ready_score" "Ship confidence: " $state "ready_score" at to_string concat "%" concat ui_text push drop
+  $children "reviewed_items" "Reviewed items: " $state "reviewed_items" at to_string concat ui_text push drop
+  $children "selected_area" "Selected area: " $state "selected_area" at concat ui_text push drop
   "summary_group" "Release summary" $children ui_group
 end
 
 ( state -> Map ) build_workspace function
   state var
   leftChildren array
-  $leftChildren build_release_tree push! drop
+  $leftChildren build_release_tree push drop
   "scope_group" "Release scope" $leftChildren ui_group leftPane var
 
   rightChildren array
   build_release_grid releaseGrid var
   build_release_notes notesEditor var
-  $rightChildren $releaseGrid push! drop
-  $rightChildren $notesEditor push! drop
+  $rightChildren $releaseGrid push drop
+  $rightChildren $notesEditor push drop
   "detail_stack" "vertical" $rightChildren ui_stack rightStack var
   rightGroupChildren array
-  $rightGroupChildren $rightStack push! drop
+  $rightGroupChildren $rightStack push drop
   "detail_group" "Readiness details" $rightGroupChildren ui_group rightPane var
 
   "workspace_split" "horizontal" $leftPane $rightPane ui_split_pane
@@ -154,9 +154,9 @@ end
 ( state -> Map ) app_view function
   state var
   children array
-  $children build_command_bar push! drop
-  $children $state build_summary_panel push! drop
-  $children $state build_workspace push! drop
+  $children build_command_bar push drop
+  $children $state build_summary_panel push drop
+  $children $state build_workspace push drop
   "main" "Native Release Desk" $children ui_window value
 end
 
@@ -169,14 +169,14 @@ end
     $event "id" at "mark_docs_reviewed" = if
       $state "reviewed_items" at 1 + reviewed var
       $state "ready_score" at 3 + score var
-      $state "reviewed_items" $reviewed put! drop
-      $state "ready_score" $score put! drop
+      $state "reviewed_items" $reviewed put drop
+      $state "ready_score" $score put drop
     end
     $event "id" at "focus_notes" = if
-      $commands "release_notes" ui_focus push! drop
+      $commands "release_notes" ui_focus push drop
     end
     $event "id" at "copy_summary" = if
-      $commands "Native Release Desk summary copied" ui_clipboard_write push! drop
+      $commands "Native Release Desk summary copied" ui_clipboard_write push drop
     end
   end
 

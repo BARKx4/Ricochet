@@ -3186,7 +3186,6 @@ fn collect_expr_lints(expr: &Expr, source: &str, lints: &mut Vec<SyntaxLint>) {
             collect_expr_list_lints(body, source, lints);
         }
         Expr::Symbol(_)
-        | Expr::BangWord(_)
         | Expr::DotWord(_)
         | Expr::Reference(_)
         | Expr::String(_)
@@ -4702,7 +4701,7 @@ end
     users array
     User new
     "grace@example.com" swap email.set
-    $users swap push! drop
+    $users swap push drop
     $users count
     1 assert_equals
   ] "testCollectionsCanHoldModels" Method
@@ -4791,7 +4790,7 @@ fn user_controller_source(options: NewProjectOptions) -> &'static str {
   ( session ctx ) [
     ctx var
     session var
-    $session "last_page" "users" put! drop
+    $session "last_page" "users" put drop
     User default_page
     dup ok? if
       value users var
@@ -4814,7 +4813,7 @@ end
     User new
     "ada@example.com" swap email.set
     "Ada Lovelace" swap name.set
-    $users swap push! drop
+    $users swap push drop
     $users count userCount var
     "Users" title var
     $ctx
@@ -4843,7 +4842,7 @@ fn auth_controller_source() -> &'static str {
       $email blank? if
         "Email is required" text 400 status
       else
-        $session "user_email" $email put! drop
+        $session "user_email" $email put drop
         "/me" redirect
       end
     end
@@ -4864,7 +4863,7 @@ fn auth_controller_source() -> &'static str {
 
   ( session ) [
     session var
-    $session "user_email" remove! drop
+    $session "user_email" remove drop
     "/login" redirect
   ] "destroy" Method
 end
@@ -10380,7 +10379,7 @@ async fn benchmark_report(options: BenchmarkOptions) -> Result<BenchmarkReport> 
     )?);
     measurements.push(measure_sync(
         "collection_mutation",
-        format!("{} array push! calls", workload.collection_ops),
+        format!("{} array push calls", workload.collection_ops),
         workload.collection_ops as u64,
         iterations,
         "array mutation through collection helpers",
@@ -10658,7 +10657,7 @@ Counter new counter var
 fn generated_collection_source(items: usize) -> String {
     let mut source = String::from("items array\n");
     for item in 0..items {
-        writeln!(&mut source, "$items {item} push! drop").expect("write to string succeeds");
+        writeln!(&mut source, "$items {item} push drop").expect("write to string succeeds");
     }
     source.push_str("$items count\n");
     source
@@ -10668,17 +10667,14 @@ fn generated_json_source(items: usize) -> String {
     let mut source = String::from("payload map\nitems array\n");
     for item in 0..items {
         writeln!(&mut source, "item{item} map").expect("write to string succeeds");
-        writeln!(&mut source, "$item{item} \"id\" {item} put! drop")
+        writeln!(&mut source, "$item{item} \"id\" {item} put drop")
             .expect("write to string succeeds");
-        writeln!(
-            &mut source,
-            "$item{item} \"name\" \"item-{item}\" put! drop"
-        )
-        .expect("write to string succeeds");
-        writeln!(&mut source, "$items $item{item} push! drop").expect("write to string succeeds");
+        writeln!(&mut source, "$item{item} \"name\" \"item-{item}\" put drop")
+            .expect("write to string succeeds");
+        writeln!(&mut source, "$items $item{item} push drop").expect("write to string succeeds");
     }
     source.push_str(
-        r#"$payload "items" $items put! drop
+        r#"$payload "items" $items put drop
 $payload json_encode encoded var
 $encoded json_decode value decoded var
 $decoded "items" at count
@@ -13348,7 +13344,6 @@ fn spanned_expr_ast_json(
 fn expr_ast_json(source: &str, source_line_starts: &[usize], expr: &Expr) -> serde_json::Value {
     match expr {
         Expr::Symbol(name) => json!({ "kind": "symbol", "name": name }),
-        Expr::BangWord(name) => json!({ "kind": "bang_word", "name": name }),
         Expr::DotWord(name) => json!({ "kind": "dot_word", "name": name }),
         Expr::Reference(name) => json!({ "kind": "reference", "name": name }),
         Expr::String(value) => json!({ "kind": "string", "value": value }),
