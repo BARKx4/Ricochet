@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.4 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.4 Release Candidate Notes</h1>
+          <p class="lede">Production-facing documentation for Ricochet developers.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+          <a href="#breaking-language-cleanup">Breaking Language Cleanup</a>
+          <a href="#runtime-compiler-and-tooling-updates">Runtime, Compiler, And Tooling Updates</a>
+          <a href="#docs-examples-and-editor-assets">Docs, Examples, And Editor Assets</a>
+          <a href="#changes-carried-forward-since-v0-1-19-rc-3">Changes Carried Forward Since v0.1.19-rc.3</a>
+          <a href="#current-boundaries">Current Boundaries</a>
+          <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+<p>Date: 2026-07-03</p>
+<p>Ricochet v0.1.19-rc.4 is a language-surface cleanup release candidate on the v0.1.19 train. It supersedes v0.1.19-rc.3 without replacing that immutable candidate tag, and carries forward the native app UI, packaging, and security hardening work from earlier v0.1.19 candidates.</p>
+<h2 id="breaking-language-cleanup">Breaking Language Cleanup</h2>
+<ul>
+<li>Collection mutators now use ordinary public word names: <code>push</code>, <code>put</code>, <code>insert_at</code>, <code>remove</code>, <code>remove_at</code>, and <code>clear_items</code>.</li>
+<li>The old public bang-suffixed mutators are intentionally removed. The previous spellings were the six collection names with a trailing exclamation mark, and they no longer exist as compatibility aliases.</li>
+<li>Leading-bang syntax, such as an exclamation mark before <code>push</code>, is rejected during lexing with an explicit diagnostic instead of being parsed as a special bang-word AST node.</li>
+<li><code>insert_at</code> avoids conflicting with Active Record <code>insert</code>, and <code>clear_items</code> avoids conflicting with the stack <code>clear</code> word.</li>
+<li>Existing non-collection words such as stack <code>clear</code>, Active Record <code>insert</code>, <code>fs_write_text</code>, <code>fs_delete</code>, and <code>tui_clear</code> keep their public names.</li>
+</ul>
+<h2 id="runtime-compiler-and-tooling-updates">Runtime, Compiler, And Tooling Updates</h2>
+<ul>
+<li>VM collection dispatch, built-in method existence checks, bytecode emission, formatter behavior, lint traversal, AST JSON output, LSP token handling, and compiler tests all use the new collection mutator names.</li>
+<li>The old dedicated bang-word syntax node was removed from the lexer token model, AST, parser, formatter, compiler handling, lint traversal, LSP token handling, and AST JSON output.</li>
+<li>Private capability method dispatch names were normalized where practical while preserving existing public global capability words.</li>
+<li>CLI smoke tests now prove the new mutator names work and the old public bang names fail rather than silently aliasing.</li>
+<li>The syntax test suite now covers rejection of leading-bang collection syntax.</li>
+</ul>
+<h2 id="docs-examples-and-editor-assets">Docs, Examples, And Editor Assets</h2>
+<ul>
+<li>Public reference docs, generated reference data, validation scripts, Learn manual chapters, wiki pages, examples, packages, scaffold templates, benchmark labels, and embedded Rust test strings were swept to the new names.</li>
+<li>VS Code TextMate grammar and LSP completions now surface the non-bang collection mutators.</li>
+<li>Word coverage data and <code>rco words --check</code> inventory expectations were updated so documentation, editor assets, and the embedded LSP inventory stay aligned.</li>
+<li>The public website copy at <code>try.ricochet.today</code> was updated separately and promoted to production so the live docs match this release candidate.</li>
+</ul>
+<h2 id="changes-carried-forward-since-v0-1-19-rc-3">Changes Carried Forward Since v0.1.19-rc.3</h2>
+<ul>
+<li><code>@ricochet/ui</code>, <code>@ricochet/winui</code>, and <code>@ricochet/slint</code> remain the backend-neutral native app surface introduced in rc.3.</li>
+<li><code>rco app</code> and <code>rco package --app</code> continue to support WinUI and Slint native app backends, JSON export/replay, and Slint validate-only smoke paths.</li>
+<li>Release packages continue to include <code>rco-app</code> alongside the CLI and GUI launchers.</li>
+<li>Post-rc.3 CI metadata now records newly observed transitive audit advisories explicitly so <code>cargo audit --deny warnings</code> can stay intentional rather than surprising.</li>
+<li>README/documentation navigation cleanups after rc.3 are included in this candidate.</li>
+</ul>
+<h2 id="current-boundaries">Current Boundaries</h2>
+<ul>
+<li>This is an intentional pre-public-language breaking cleanup. Code using the old collection bang names must be updated before running on rc.4.</li>
+<li>WinUI live rendering is Windows-only and depends on the WinUI host being built or supplied with <code>--winui-host</code> / <code>RICOCHET_WINUI_HOST</code>.</li>
+<li>The Slint renderer remains a v1 native projection. Richer retained-control parity can continue behind the existing backend contract.</li>
+<li>Data-grid and rich-text helpers remain useful v1 app contracts, not spreadsheet or full word-processor implementations.</li>
+</ul>
+<h2 id="verification-checklist">Verification Checklist</h2>
+<p>Before tagging this candidate, run:</p>
+<pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.4"
+$smoke = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version"
+New-Item -ItemType Directory -Path $smoke -Force | Out-Null
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-learn-manual.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+rg 'push[!]|put[!]|insert[!]|remove[!]|remove_at[!]|clear[!]|Bang.?Word|[!]push' . --hidden --no-ignore --glob '!**/target/**' --glob '!.git/**' --glob '!.superpowers/**' -S
+
+cargo build -p ricochet_cli --bins
+.\target\debug\rco.exe words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend winui --export-ui-json (Join-Path $smoke "native-showcase-winui.json")
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend slint --slint-validate-only
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend winui --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseWinui.exe")
+$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-winui.json"
+&amp; (Join-Path $smoke "NativeShowcaseWinui.exe")
+Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend slint --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseSlint.exe")
+$env:RICOCHET_SLINT_VALIDATE_ONLY = "1"
+&amp; (Join-Path $smoke "NativeShowcaseSlint.exe")
+Remove-Item Env:\RICOCHET_SLINT_VALIDATE_ONLY -ErrorAction SilentlyContinue
+
+$releaseOut = Join-Path $smoke "release-windows"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -SigningMode dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+<p>The stale-text <code>rg</code> command is expected to return no release-surface hits. If historical archived implementation plans mention old syntax, keep them separate from public examples and generated reference assets.</p>
+<p>After the GitHub release workflow publishes artifacts, verify that the release is marked as a prerelease, is not marked latest, includes <code>UPDATE-CHANNEL-candidate.json</code>, and includes the Windows, Linux, and macOS packages plus checksum, signing-status, artifact-manifest, notary, and update channel reports.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>
