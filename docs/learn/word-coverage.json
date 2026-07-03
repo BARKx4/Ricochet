@@ -1182,6 +1182,12 @@
     "status": "drafted"
   },
   {
+    "word": "process_write",
+    "detail": "system",
+    "primary_chapter": "20-processes-and-ptys",
+    "status": "drafted"
+  },
+  {
     "word": "process_read",
     "detail": "system",
     "primary_chapter": "20-processes-and-ptys",

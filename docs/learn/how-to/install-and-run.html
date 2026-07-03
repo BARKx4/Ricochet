@@ -86,6 +86,14 @@
     <main>
       <h1>How to Install and Run Ricochet</h1>
 <p>The guide assumes you can run <code>rco</code> from a terminal.</p>
+<h2>Install Ricochet</h2>
+<p>Download published builds from the <a href="https://github.com/BARKx4/Ricochet/releases">GitHub Releases</a> page.</p>
+<p>On Windows, run <code>ricochet-vX.Y.Z-windows-x64-setup.exe</code>. The installer adds Start Menu entries, including a Ricochet Shell that opens a command prompt with <code>rco</code> available. Portable release ZIPs are also available from the same release page. Extract the ZIP and run <code>Ricochet Shell.cmd</code>, or add the extracted folder to your <code>PATH</code>.</p>
+<p>On Linux, install the Debian package with:</p>
+<pre><code class="language-bash">sudo apt install ./ricochet_X.Y.Z_amd64.deb
+</code></pre>
+<p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
+<p>On macOS, choose the unsigned tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. These beta tarballs are not notarized by Apple.</p>
 <h2>Check your install</h2>
 <pre><code class="language-bash">rco --help
 rco repl
@@ -103,6 +111,24 @@ rco repl
 </code></pre>
 <h2>When you are working from the language source tree</h2>
 <p>The main guide keeps source-checkout commands out of the beginner path. If you are changing the Ricochet implementation itself, install the CLI once from the repository and then continue using ordinary <code>rco</code> commands.</p>
+<pre><code class="language-powershell">cargo install --path crates/ricochet_cli --bin rco --locked
+</code></pre>
+<p>Try a script or scaffold an app from the source checkout:</p>
+<pre><code class="language-powershell">rco run examples/basic-oop.rco
+rco new my_app
+rco routes my_app
+cd my_app
+rco serve
+</code></pre>
+<h2 id="native-desktop-ui">Native desktop UI</h2>
+<p>Native desktop UI work starts with the backend-neutral <code>@ricochet/ui</code> package, the live WinUI backend, and the live Slint renderer for cross-platform native availability:</p>
+<pre><code class="language-powershell">rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
+rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
+</code></pre>
+<p>Omit <code>--export-ui-json</code> to launch the WinUI host after building <code>hosts/winui/Ricochet.WinUI.Host</code>, or to launch the Slint renderer directly. The native showcase app is a small release desk that combines commands, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one window.</p>
 
       <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
     </main>

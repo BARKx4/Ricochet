@@ -56,41 +56,28 @@ cd my_app
 rco serve
 ```
 
-Native desktop UI work starts with the backend-neutral `@ricochet/ui` package,
-the live WinUI backend, and the live Slint renderer for cross-platform native
-availability:
-
-```powershell
-rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
-rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
-```
-
-Omit `--export-ui-json` to launch the WinUI host after building
-`hosts/winui/Ricochet.WinUI.Host`, or to launch the Slint renderer directly.
-The native showcase app is a small release desk that combines commands, a tree
-view with drag/drop metadata, a data grid, rich text, and stateful update
-handling in one window.
+For native desktop UI previews and packaging, see
+[How to Install and Run Ricochet](https://barkx4.github.io/Ricochet/learn/how-to/install-and-run.html#native-desktop-ui).
 
 ## Documentation
 
-Start with the production HTML docs:
+Start with the published HTML docs:
 
-- [Docs Index](docs/wiki/README.html)
-- [HTML Reference Guides](docs/reference/guides/index.html)
-- [Feature Overview](docs/reference/guides/features.html)
-- [Getting Started](docs/reference/guides/getting-started.html)
-- [Language And Runtime](docs/reference/guides/language-runtime.html)
-- [Web And Data](docs/reference/guides/web-and-data.html)
-- [Host Capabilities And Safety](docs/reference/guides/host-capabilities.html)
-- [Packages And Registries](docs/reference/guides/packages.html)
-- [Editor And Debugging](docs/reference/guides/editor-debugging.html)
-- [Development And Release](docs/reference/guides/development-release.html)
+- [Reference Home](https://barkx4.github.io/Ricochet/reference/)
+- [Learn Ricochet](https://barkx4.github.io/Ricochet/learn/)
+- [Install And Run](https://barkx4.github.io/Ricochet/learn/how-to/install-and-run.html)
+- [Reference Guides](https://barkx4.github.io/Ricochet/reference/guides/)
+- [Feature Overview](https://barkx4.github.io/Ricochet/reference/guides/features.html)
+- [Getting Started](https://barkx4.github.io/Ricochet/reference/guides/getting-started.html)
+- [Language And Runtime](https://barkx4.github.io/Ricochet/reference/guides/language-runtime.html)
+- [Web And Data](https://barkx4.github.io/Ricochet/reference/guides/web-and-data.html)
+- [Host Capabilities And Safety](https://barkx4.github.io/Ricochet/reference/guides/host-capabilities.html)
+- [Packages And Registries](https://barkx4.github.io/Ricochet/reference/guides/packages.html)
+- [Editor And Debugging](https://barkx4.github.io/Ricochet/reference/guides/editor-debugging.html)
+- [Development And Release](https://barkx4.github.io/Ricochet/reference/guides/development-release.html)
 
-The static reference site lives at `docs/reference/index.html` and can be opened
-directly in a browser.
+For a source checkout, the same static docs live under `docs/`; open
+`docs/index.html` locally to start at the reference site.
 
 ## Contributing
 
