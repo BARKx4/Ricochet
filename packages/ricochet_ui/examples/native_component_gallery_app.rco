@@ -1,0 +1,283 @@
+"../document" import
+"../events" import
+"../commands" import
+"../rich_text" import
+
+( id label -> Map ) gallery_item function
+  label var
+  id var
+  item map
+  $item "id" $id put drop
+  $item "label" $label put drop
+  $item
+end
+
+( -> Array ) renderer_options function
+  options array
+  $options "WinUI3" push drop
+  $options "Avalonia" push drop
+  $options "Slint experimental" push drop
+  $options
+end
+
+( -> Map ) app_init function
+  state map
+  $state "clicks" 0 put drop
+  $state "name" "Ada Lovelace" put drop
+  $state "notes" "Try changing fields, selecting rows, and clicking command items." put drop
+  $state "ready" true put drop
+  $state "dense" false put drop
+  $state "renderer" "Avalonia" put drop
+  $state "selected_component" "inputs" put drop
+  $state "last_event" "No event yet" put drop
+  $state
+end
+
+( state -> Map ) build_menu_bar function
+  state var
+  items array
+  $items "menu_file" "File" "" ui_command_item push drop
+  $items "menu_view" "View" "" ui_command_item push drop
+  $items "menu_help" "Help" "" ui_command_item push drop
+  "gallery_menu" $items ui_menu_bar
+end
+
+( state -> Map ) build_command_bar function
+  state var
+  items array
+  $items "primary_action" "Primary action" "Enter" ui_command_item push drop
+  $items "refresh_gallery" "Refresh" "Ctrl+R" ui_command_item push drop
+  $items "copy_gallery" "Copy summary" "Ctrl+C" ui_command_item push drop
+  "gallery_commands" $items ui_command_bar
+end
+
+( state -> Map ) build_intro_group function
+  state var
+  children array
+  $children "title" "Native Component Gallery" 1 ui_heading push drop
+  $children "intro" "Same Ricochet @ricochet/ui document rendered through WinUI3 and Avalonia. Use the two windows to compare control fidelity, spacing, text behavior, and event round trips." ui_text push drop
+  $children "click_count" "Button clicks: " $state "clicks" at to_string concat ui_text push drop
+  $children "last_event" "Last event: " $state "last_event" at concat ui_text push drop
+  "intro_group" "Overview" $children ui_group
+end
+
+( state -> Map ) build_basic_controls function
+  state var
+  gridChildren array
+  $gridChildren "primary_action" "Button" ui_button push drop
+  $gridChildren "secondary_action" "Secondary" ui_button push drop
+  $gridChildren "plain_text" "Text wraps inside native text blocks." ui_text push drop
+  $gridChildren "section_heading" "Heading level 3" 3 ui_heading push drop
+  "basic_grid" 2 2 $gridChildren ui_grid basicGrid var
+  children array
+  $children $basicGrid push drop
+  "basic_group" "Text, Heading, Buttons, Grid" $children ui_group
+end
+
+( state -> Map ) build_input_controls function
+  state var
+  children array
+  $children "name_input" "Name" $state "name" at ui_text_input push drop
+  $children "notes_input" "Notes" $state "notes" at ui_multiline_text_input push drop
+  $children "ready_checkbox" "Ready checkbox" $state "ready" at ui_checkbox push drop
+  $children "dense_toggle" "Dense toggle" $state "dense" at ui_toggle push drop
+  $children "renderer_select" "Renderer preference" $state "renderer" at renderer_options ui_select push drop
+  "input_stack" "vertical" $children ui_stack inputStack var
+  groupChildren array
+  $groupChildren $inputStack push drop
+  "input_group" "Inputs, Checkbox, Toggle, Select" $groupChildren ui_group
+end
+
+( state -> Map ) build_list_tree function
+  state var
+  listItems array
+  $listItems "inputs" "Inputs" gallery_item push drop
+  $listItems "collections" "Collections" gallery_item push drop
+  $listItems "tables" "Data grid" gallery_item push drop
+  $listItems "rich_text" "Rich text" gallery_item push drop
+  selected array
+  $selected $state "selected_component" at push drop
+  "component_list" $listItems $selected ui_list componentList var
+
+  inputChildren array
+  emptyA array
+  $inputChildren "tree-text-input" "Text input" $emptyA ui_tree_node push drop
+  emptyB array
+  $inputChildren "tree-select" "Select" $emptyB ui_tree_node push drop
+  "tree-inputs" "Inputs" $inputChildren ui_tree_node inputsNode var
+
+  dataChildren array
+  emptyC array
+  $dataChildren "tree-list" "List" $emptyC ui_tree_node push drop
+  emptyD array
+  $dataChildren "tree-grid" "Data grid" $emptyD ui_tree_node push drop
+  "tree-data" "Collections" $dataChildren ui_tree_node dataNode var
+
+  nodes array
+  $nodes $inputsNode push drop
+  $nodes $dataNode push drop
+  expanded array
+  $expanded "tree-inputs" push drop
+  $expanded "tree-data" push drop
+  treeSelected array
+  $treeSelected "tree-inputs" push drop
+  "component_tree" $nodes $expanded $treeSelected ui_tree componentTree var
+
+  children array
+  $children $componentList push drop
+  $children $componentTree push drop
+  "selection_group" "List And Tree" $children ui_group
+end
+
+( state -> Map ) build_data_grid function
+  state var
+  columns array
+  $columns "component" "Component" "string" "2*" ui_grid_column push drop
+  $columns "event" "Event" "string" "1*" ui_grid_column push drop
+  $columns "status" "Status" "string" "1*" ui_grid_column push drop
+
+  buttonCells map
+  $buttonCells "component" "Button / command item" put drop
+  $buttonCells "event" "click" put drop
+  $buttonCells "status" "live" put drop
+  "row-button" $buttonCells ui_grid_row buttonRow var
+
+  inputCells map
+  $inputCells "component" "Text input / select" put drop
+  $inputCells "event" "change" put drop
+  $inputCells "status" "live" put drop
+  "row-input" $inputCells ui_grid_row inputRow var
+
+  treeCells map
+  $treeCells "component" "List / tree / grid" put drop
+  $treeCells "event" "select" put drop
+  $treeCells "status" "backend parity check" put drop
+  "row-tree" $treeCells ui_grid_row treeRow var
+
+  rows array
+  $rows $buttonRow push drop
+  $rows $inputRow push drop
+  $rows $treeRow push drop
+  selected array
+  $selected "row-button" push drop
+  "component_data_grid" $columns $rows $selected ui_data_grid
+end
+
+( -> Map ) build_rich_document function
+  titleMarks array
+  $titleMarks "bold" push drop
+  titleSpans array
+  $titleSpans "Rich text display" $titleMarks nil ui_rich_span push drop
+
+  bodyMarks array
+  bodySpans array
+  $bodySpans "This block tests rich text projection, wrapping, and editable rich text below." $bodyMarks nil ui_rich_span push drop
+
+  blocks array
+  $blocks $titleSpans ui_rich_paragraph push drop
+  $blocks $bodySpans ui_rich_paragraph push drop
+  $blocks ui_rich_document
+end
+
+( state -> Map ) build_rich_text_group function
+  state var
+  children array
+  build_rich_document richDoc var
+  $children "rich_display" $richDoc ui_rich_text push drop
+  $children "rich_editor" "Editable rich text" $richDoc ui_rich_text_input push drop
+  "rich_group" "Rich Text" $children ui_group
+end
+
+( state -> Map ) build_context_group function
+  state var
+  items array
+  $items "context_open" "Open" "" ui_command_item push drop
+  $items "context_pin" "Pin" "" ui_command_item push drop
+  $items "context_archive" "Archive" "" ui_command_item push drop
+  children array
+  $children "context_hint" "Context menu items are rendered as native command affordances in this v1 host contract." ui_text push drop
+  $children "gallery_context" $items ui_context_menu push drop
+  "context_group" "Context Menu" $children ui_group
+end
+
+( state -> Map ) build_gallery_body function
+  state var
+  leftChildren array
+  $leftChildren $state build_basic_controls push drop
+  $leftChildren $state build_input_controls push drop
+  $leftChildren "left_spacer" ui_spacer push drop
+  "left_stack" "vertical" $leftChildren ui_stack leftStack var
+
+  rightChildren array
+  $rightChildren $state build_list_tree push drop
+  $rightChildren $state build_data_grid push drop
+  $rightChildren $state build_rich_text_group push drop
+  $rightChildren $state build_context_group push drop
+  "right_stack" "vertical" $rightChildren ui_stack rightStack var
+  "gallery_split" "horizontal" $leftStack $rightStack ui_split_pane split var
+  "gallery_scroll" $split ui_scroll_view
+end
+
+( state -> Map ) app_view function
+  state var
+  children array
+  $children $state build_menu_bar push drop
+  $children $state build_command_bar push drop
+  $children $state build_intro_group push drop
+  $children $state build_gallery_body push drop
+  "main" "Native Component Gallery" $children ui_window value
+end
+
+( state event -> Map ) app_update function
+  event var
+  state var
+  commands array
+
+  $event ui_click_event? if
+    $state "last_event" "click: " $event "id" at concat put drop
+    $event "id" at "primary_action" = if
+      $state "clicks" at 1 + clicks var
+      $state "clicks" $clicks put drop
+    end
+    $event "id" at "copy_gallery" = if
+      $commands "Native Component Gallery summary copied" ui_clipboard_write push drop
+    end
+  end
+
+  $event ui_change_event? if
+    $state "last_event" "change: " $event "id" at concat put drop
+    $event "id" at "name_input" = if
+      $state "name" $event "value" at put drop
+    end
+    $event "id" at "notes_input" = if
+      $state "notes" $event "value" at put drop
+    end
+    $event "id" at "ready_checkbox" = if
+      $state "ready" $event "value" at put drop
+    end
+    $event "id" at "dense_toggle" = if
+      $state "dense" $event "value" at put drop
+    end
+    $event "id" at "renderer_select" = if
+      $state "renderer" $event "value" at put drop
+    end
+  end
+
+  $event "type" at "select" = if
+    $state "last_event" "select: " $event "id" at concat put drop
+    $state "selected_component" $event "value" at put drop
+  end
+
+  $state app_view document var
+  $state $document $commands ui_response value
+end
+
+app_init state var
+$state app_view document var
+$document "type" at "window" assert_equals
+$document "props" at "title" at "Native Component Gallery" assert_equals
+$document "children" at count 4 assert_equals
+
+"click" "primary_action" nil ui_event clickEvent var
+$state $clickEvent app_update clickResponse var
+$clickResponse "state" at "clicks" at 1 assert_equals
