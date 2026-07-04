@@ -6580,6 +6580,37 @@ fn app_exports_native_ui_json_for_slint_backend() {
 }
 
 #[test]
+fn app_exports_native_ui_json_for_avalonia_backend() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let export_path = root.join("avalonia-ui.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("avalonia")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app avalonia export should launch");
+    assert_run_success_for("rco app", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("Avalonia UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("Avalonia UI JSON export should parse");
+    assert_eq!(exported["backend"], "avalonia");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(exported["state"]["count"], 0);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
+#[test]
 fn native_showcase_example_exports_useful_desktop_ui_json() {
     let root = repo_root_for_test();
     let export_path = temp_source_path()
@@ -6708,6 +6739,43 @@ fn app_replays_events_before_exporting_slint_ui_json() {
 }
 
 #[test]
+fn app_replays_events_before_exporting_avalonia_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    write_source_at(
+        root,
+        "events.json",
+        r#"[{"type":"click","id":"increment_button","value":null}]"#,
+    );
+    let export_path = root.join("after-avalonia.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("avalonia")
+        .arg("--replay-events")
+        .arg("events.json")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app avalonia replay should launch");
+    assert_run_success_for("rco app replay", "app.rco", &output);
+
+    let exported = fs::read_to_string(&export_path).expect("Avalonia UI JSON export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("Avalonia UI JSON export should parse");
+    assert_eq!(exported["backend"], "avalonia");
+    assert_eq!(exported["state"]["count"], 1);
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 1"
+    );
+}
+
+#[test]
 fn app_slint_validate_only_compiles_live_renderer_document() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -6812,6 +6880,54 @@ fn package_app_can_embed_slint_backend_for_exportable_native_ui_json() {
 }
 
 #[test]
+fn package_app_can_embed_avalonia_backend_for_exportable_native_ui_json() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let output_path = root.join(format!(
+        "avalonia-native-app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let export_path = root.join("packaged-avalonia-ui.json");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("app.rco")
+        .arg("--app")
+        .arg("--backend")
+        .arg("avalonia")
+        .arg("--app-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-app"))
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(root)
+        .output()
+        .expect("rco package --app --backend avalonia should launch");
+    assert_run_success_for("rco package --app", "app.rco", &package_output);
+
+    let output = Command::new(&output_path)
+        .env("RICOCHET_APP_EXPORT_UI_JSON", &export_path)
+        .output()
+        .expect("packaged Avalonia native app should launch");
+    assert_run_success_for(
+        "packaged Avalonia native app",
+        "avalonia-native-app",
+        &output,
+    );
+
+    let exported =
+        fs::read_to_string(&export_path).expect("packaged Avalonia UI export should exist");
+    let exported: serde_json::Value =
+        serde_json::from_str(&exported).expect("packaged Avalonia UI export should parse");
+    assert_eq!(exported["backend"], "avalonia");
+    assert_eq!(exported["document"]["type"], "window");
+    assert_eq!(
+        exported["document"]["children"][0]["props"]["text"],
+        "Count: 0"
+    );
+}
+
+#[test]
 fn packaged_slint_app_validate_only_compiles_live_renderer_document() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -6886,6 +7002,39 @@ fn winui_host_validate_only_accepts_exported_native_ui_json() {
     assert_run_success_for("WinUI host validate-only", "ui.json", &output);
 }
 
+#[test]
+fn avalonia_host_validate_only_accepts_exported_native_ui_json() {
+    let Some(host_path) = built_avalonia_host_path() else {
+        eprintln!("skipping Avalonia host validation smoke: host executable is not built");
+        return;
+    };
+
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(root, "app.rco", native_counter_app_source());
+    let export_path = root.join("avalonia-ui.json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("app")
+        .arg("app.rco")
+        .arg("--backend")
+        .arg("avalonia")
+        .arg("--export-ui-json")
+        .arg(&export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco app should launch");
+    assert_run_success_for("rco app", "app.rco", &output);
+
+    let output = Command::new(host_path)
+        .arg("--document")
+        .arg(&export_path)
+        .arg("--validate-only")
+        .output()
+        .expect("Avalonia host validate-only should launch");
+    assert_run_success_for("Avalonia host validate-only", "avalonia-ui.json", &output);
+}
+
 fn built_winui_host_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("RICOCHET_WINUI_HOST").map(PathBuf::from) {
         if path.is_file() {
@@ -6930,6 +7079,61 @@ fn built_winui_host_path() -> Option<PathBuf> {
     }
 
     None
+}
+
+fn built_avalonia_host_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("RICOCHET_AVALONIA_HOST").map(PathBuf::from) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let host_name = format!("Ricochet.Avalonia.Host{}", std::env::consts::EXE_SUFFIX);
+    for configuration in ["Release", "Debug"] {
+        let candidate = repo_root
+            .join("hosts")
+            .join("avalonia")
+            .join("Ricochet.Avalonia.Host")
+            .join("bin")
+            .join(configuration)
+            .join("net10.0")
+            .join(&host_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+
+        if let Some(runtime_id) = current_runtime_id() {
+            let candidate = repo_root
+                .join("hosts")
+                .join("avalonia")
+                .join("Ricochet.Avalonia.Host")
+                .join("bin")
+                .join(configuration)
+                .join("net10.0")
+                .join(runtime_id)
+                .join(&host_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn current_runtime_id() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => Some("win-x64"),
+        ("windows", "aarch64") => Some("win-arm64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("macos", "x86_64") => Some("osx-x64"),
+        ("macos", "aarch64") => Some("osx-arm64"),
+        _ => None,
+    }
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

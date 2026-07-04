@@ -72,6 +72,7 @@ foreach ($example in $examples) {
 Invoke-Rco "check example tui_counter.rco" @("check", (Join-Path $examplesRoot "tui_counter.rco"))
 Invoke-Rco "native UI package tests" @("test", (Join-Path $Root "packages\ricochet_ui"))
 Invoke-Rco "WinUI package tests" @("test", (Join-Path $Root "packages\ricochet_winui"))
+Invoke-Rco "Avalonia package tests" @("test", (Join-Path $Root "packages\ricochet_avalonia"))
 Invoke-Rco "Slint package tests" @("test", (Join-Path $Root "packages\ricochet_slint"))
 
 if ([string]::IsNullOrWhiteSpace($TempRoot)) {
@@ -120,6 +121,20 @@ foreach ($pattern in $nativeShowcasePatterns) {
     if ($nativeShowcaseRaw -notmatch $pattern) {
         throw "Native UI showcase export did not include pattern: $pattern"
     }
+}
+
+$nativeAvaloniaShowcaseJson = Join-Path $TempRoot "native-ui-showcase-avalonia.json"
+Invoke-Rco "native UI showcase Avalonia JSON export" @(
+    "app",
+    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
+    "--backend",
+    "avalonia",
+    "--export-ui-json",
+    $nativeAvaloniaShowcaseJson
+)
+$nativeAvaloniaShowcaseExport = Get-Content -LiteralPath $nativeAvaloniaShowcaseJson -Raw | ConvertFrom-Json
+if ($nativeAvaloniaShowcaseExport.backend -ne "avalonia" -or $nativeAvaloniaShowcaseExport.document.props.title -ne "Native Release Desk") {
+    throw "Native UI Avalonia showcase export did not produce the expected release desk"
 }
 
 $nativeSlintShowcaseJson = Join-Path $TempRoot "native-ui-showcase-slint.json"

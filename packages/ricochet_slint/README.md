@@ -1,7 +1,7 @@
 # @ricochet/slint
 
-`@ricochet/slint` is the cross-platform native backend package for Ricochet's
-backend-neutral `@ricochet/ui` app model.
+`@ricochet/slint` is the lightweight experimental native backend package for
+Ricochet's backend-neutral `@ricochet/ui` app model.
 
 The package provides backend metadata and scoped option helpers. Ricochet app
 code should continue to build portable `@ricochet/ui` document maps; Slint
@@ -19,8 +19,8 @@ $options "style" "fluent" put drop
 $options slint_required_options
 ```
 
-Use the CLI backend name `slint` for native app rendering, deterministic
-renderer validation, payload exports, and app packaging:
+Use the CLI backend name `slint` for lightweight renderer validation, payload
+exports, and app packaging:
 
 ```powershell
 rco app app.rco --backend slint
@@ -31,3 +31,6 @@ rco package app.rco --app --backend slint --output MyApp.exe
 
 Set `RICOCHET_SLINT_VALIDATE_ONLY=1` when launching packaged Slint apps to
 compile the generated Slint renderer document without opening a window.
+
+For the primary cross-platform desktop host, prefer `@ricochet/avalonia` and
+the CLI backend name `avalonia`.

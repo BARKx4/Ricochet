@@ -121,14 +121,15 @@ cd my_app
 rco serve
 </code></pre>
 <h2 id="native-desktop-ui">Native desktop UI</h2>
-<p>Native desktop UI work starts with the backend-neutral <code>@ricochet/ui</code> package, the live WinUI backend, and the live Slint renderer for cross-platform native availability:</p>
+<p>Native desktop UI work starts with the backend-neutral <code>@ricochet/ui</code> package, the live WinUI backend for Windows, and the live Avalonia backend for cross-platform desktop availability:</p>
 <pre><code class="language-powershell">rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend avalonia --export-ui-json native-showcase-avalonia-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
 rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
 </code></pre>
-<p>Omit <code>--export-ui-json</code> to launch the WinUI host after building <code>hosts/winui/Ricochet.WinUI.Host</code>, or to launch the Slint renderer directly. The native showcase app is a small release desk that combines commands, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one window.</p>
+<p>Omit <code>--export-ui-json</code> to launch the WinUI host after building <code>hosts/winui/Ricochet.WinUI.Host</code>, or the Avalonia host after building <code>hosts/avalonia/Ricochet.Avalonia.Host</code>. Slint remains available as a lightweight experimental renderer path. The native showcase app is a small release desk that combines commands, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one window.</p>
 
       <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
     </main>

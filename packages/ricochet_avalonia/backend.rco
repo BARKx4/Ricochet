@@ -1,0 +1,35 @@
+(( Avalonia backend descriptor and scoped native option helpers. ))
+( -> Map ) avalonia_backend function
+  backend map
+  $backend "id" "avalonia" put drop
+  $backend "name" "Avalonia" put drop
+  $backend "platform" "cross-platform" put drop
+  $backend "native" true put drop
+  $backend
+end
+
+( key value -> Map ) avalonia_option function
+  value var
+  key var
+  option map
+  $option $key $value put drop
+  $option
+end
+
+( options -> Map ) avalonia_required_options function
+  options var
+  wrapped map
+  $wrapped "backend" "avalonia" put drop
+  $wrapped "required" true put drop
+  $wrapped "options" $options put drop
+  $wrapped
+end
+
+( options -> Map ) avalonia_advisory_options function
+  options var
+  wrapped map
+  $wrapped "backend" "avalonia" put drop
+  $wrapped "required" false put drop
+  $wrapped "options" $options put drop
+  $wrapped
+end

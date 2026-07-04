@@ -3171,6 +3171,38 @@ const PACKAGE_WORDS = [
     "example": "options winui_advisory_options"
   },
   {
+    "word": "avalonia_backend",
+    "aliases": ["@ricochet/avalonia"],
+    "group": "avalonia",
+    "stack": "-> map",
+    "body": "Returns the Avalonia backend descriptor for cross-platform desktop app rendering.",
+    "example": "avalonia_backend"
+  },
+  {
+    "word": "avalonia_option",
+    "aliases": ["@ricochet/avalonia"],
+    "group": "avalonia",
+    "stack": "key value -> map",
+    "body": "Builds a one-entry Avalonia option map.",
+    "example": "\"density\" \"compact\" avalonia_option"
+  },
+  {
+    "word": "avalonia_required_options",
+    "aliases": ["@ricochet/avalonia"],
+    "group": "avalonia",
+    "stack": "options -> map",
+    "body": "Marks Avalonia options as required so an unsupported backend detail fails loudly.",
+    "example": "options avalonia_required_options"
+  },
+  {
+    "word": "avalonia_advisory_options",
+    "aliases": ["@ricochet/avalonia"],
+    "group": "avalonia",
+    "stack": "options -> map",
+    "body": "Marks Avalonia options as advisory so a backend may ignore them with diagnostics.",
+    "example": "options avalonia_advisory_options"
+  },
+  {
     "word": "slint_backend",
     "aliases": ["@ricochet/slint"],
     "group": "slint",
@@ -3220,6 +3252,7 @@ const groupLabels = {
   "inspect": "Introspection",
   "ui": "@ricochet/ui",
   "winui": "@ricochet/winui",
+  "avalonia": "@ricochet/avalonia",
   "slint": "@ricochet/slint"
 };
 

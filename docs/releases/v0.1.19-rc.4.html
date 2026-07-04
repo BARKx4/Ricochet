@@ -67,8 +67,10 @@
 </ul>
 <h2 id="changes-carried-forward-since-v0-1-19-rc-3">Changes Carried Forward Since v0.1.19-rc.3</h2>
 <ul>
-<li><code>@ricochet/ui</code>, <code>@ricochet/winui</code>, and <code>@ricochet/slint</code> remain the backend-neutral native app surface introduced in rc.3.</li>
-<li><code>rco app</code> and <code>rco package --app</code> continue to support WinUI and Slint native app backends, JSON export/replay, and Slint validate-only smoke paths.</li>
+<li><code>@ricochet/ui</code> remains the backend-neutral native app contract introduced in rc.3.</li>
+<li><code>@ricochet/winui</code> remains the primary Windows-native host, and <code>@ricochet/avalonia</code> is now the preferred cross-platform desktop host for Windows/Linux parity work.</li>
+<li><code>@ricochet/slint</code> remains available as a lightweight experimental renderer and package descriptor, but it is no longer positioned as the main Linux native UI path for this release candidate.</li>
+<li><code>rco app</code> and <code>rco package --app</code> continue to support WinUI, Avalonia, and Slint native app backends, JSON export/replay, WinUI/Avalonia host launches, and Slint validate-only smoke paths.</li>
 <li>Release packages continue to include <code>rco-app</code> alongside the CLI and GUI launchers.</li>
 <li>Post-rc.3 CI metadata now records newly observed transitive audit advisories explicitly so <code>cargo audit --deny warnings</code> can stay intentional rather than surprising.</li>
 <li>README/documentation navigation cleanups after rc.3 are included in this candidate.</li>
@@ -77,7 +79,8 @@
 <ul>
 <li>This is an intentional pre-public-language breaking cleanup. Code using the old collection bang names must be updated before running on rc.4.</li>
 <li>WinUI live rendering is Windows-only and depends on the WinUI host being built or supplied with <code>--winui-host</code> / <code>RICOCHET_WINUI_HOST</code>.</li>
-<li>The Slint renderer remains a v1 native projection. Richer retained-control parity can continue behind the existing backend contract.</li>
+<li>Avalonia live rendering depends on the Avalonia host being built or supplied with <code>--avalonia-host</code> / <code>RICOCHET_AVALONIA_HOST</code>. The first host maps the shared native UI contract onto real Avalonia desktop controls; deeper visual parity with WinUI remains iterative.</li>
+<li>The Slint renderer remains a lightweight experimental projection path. It is useful for payload and renderer validation, not the primary release-candidate answer for Linux desktop UI.</li>
 <li>Data-grid and rich-text helpers remain useful v1 app contracts, not spreadsheet or full word-processor implementations.</li>
 </ul>
 <h2 id="verification-checklist">Verification Checklist</h2>
@@ -97,12 +100,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 rg 'push[!]|put[!]|insert[!]|remove[!]|remove_at[!]|clear[!]|Bang.?Word|[!]push' . --hidden --no-ignore --glob '!**/target/**' --glob '!.git/**' --glob '!.superpowers/**' -S
 
 cargo build -p ricochet_cli --bins
+dotnet build hosts/avalonia/Ricochet.Avalonia.Host/Ricochet.Avalonia.Host.csproj -c Release
 .\target\debug\rco.exe words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
 .\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend winui --export-ui-json (Join-Path $smoke "native-showcase-winui.json")
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend avalonia --export-ui-json (Join-Path $smoke "native-showcase-avalonia.json")
+&amp; .\hosts\avalonia\Ricochet.Avalonia.Host\bin\Release\net10.0\Ricochet.Avalonia.Host.exe --document (Join-Path $smoke "native-showcase-avalonia.json") --validate-only
 .\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend slint --slint-validate-only
 .\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend winui --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseWinui.exe")
 $env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-winui.json"
 &amp; (Join-Path $smoke "NativeShowcaseWinui.exe")
+Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend avalonia --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseAvalonia.exe")
+$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-avalonia.json"
+&amp; (Join-Path $smoke "NativeShowcaseAvalonia.exe")
 Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
 .\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend slint --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseSlint.exe")
 $env:RICOCHET_SLINT_VALIDATE_ONLY = "1"

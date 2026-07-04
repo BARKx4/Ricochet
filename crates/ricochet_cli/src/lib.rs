@@ -75,6 +75,7 @@ const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
 const EMBEDDED_NATIVE_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_APP_V1\0";
 const EMBEDDED_NATIVE_SLINT_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_SLINT_APP_V1\0";
+const EMBEDDED_NATIVE_AVALONIA_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_AVALONIA_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
@@ -82,6 +83,7 @@ const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
 const APP_EXPORT_UI_JSON_ENV: &str = "RICOCHET_APP_EXPORT_UI_JSON";
 const APP_REPLAY_EVENTS_JSON_ENV: &str = "RICOCHET_APP_REPLAY_EVENTS_JSON";
 const APP_WINUI_HOST_ENV: &str = "RICOCHET_WINUI_HOST";
+const APP_AVALONIA_HOST_ENV: &str = "RICOCHET_AVALONIA_HOST";
 const APP_SLINT_VALIDATE_ONLY_ENV: &str = "RICOCHET_SLINT_VALIDATE_ONLY";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
@@ -245,7 +247,7 @@ enum Command {
             long,
             default_value = "winui",
             value_name = "BACKEND",
-            help = "Native backend to use: winui or slint"
+            help = "Native backend to use: winui, avalonia, or slint"
         )]
         backend: String,
         #[arg(long = "export-ui-json")]
@@ -258,6 +260,12 @@ enum Command {
             help = "Use a specific Ricochet.WinUI.Host executable for live WinUI rendering"
         )]
         winui_host: Option<PathBuf>,
+        #[arg(
+            long = "avalonia-host",
+            value_name = "PATH",
+            help = "Use a specific Ricochet.Avalonia.Host executable for live Avalonia rendering"
+        )]
+        avalonia_host: Option<PathBuf>,
         #[arg(
             long = "slint-validate-only",
             help = "Compile the generated Slint renderer document without opening a window"
@@ -301,7 +309,7 @@ enum Command {
             long,
             default_value = "winui",
             value_name = "BACKEND",
-            help = "Native app backend to embed: winui or slint"
+            help = "Native app backend to embed: winui, avalonia, or slint"
         )]
         backend: String,
         #[arg(
@@ -665,6 +673,7 @@ enum EmbeddedAppKind {
     MvcGui,
     NativeApp,
     NativeSlintApp,
+    NativeAvaloniaApp,
 }
 
 impl EmbeddedAppKind {
@@ -676,6 +685,7 @@ impl EmbeddedAppKind {
             EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
             EmbeddedAppKind::NativeApp => EMBEDDED_NATIVE_APP_MARKER,
             EmbeddedAppKind::NativeSlintApp => EMBEDDED_NATIVE_SLINT_APP_MARKER,
+            EmbeddedAppKind::NativeAvaloniaApp => EMBEDDED_NATIVE_AVALONIA_APP_MARKER,
         }
     }
 }
@@ -684,6 +694,7 @@ impl EmbeddedAppKind {
 enum NativeAppBackend {
     Winui,
     Slint,
+    Avalonia,
 }
 
 impl NativeAppBackend {
@@ -691,6 +702,7 @@ impl NativeAppBackend {
         match value {
             "winui" => Ok(Self::Winui),
             "slint" => Ok(Self::Slint),
+            "avalonia" => Ok(Self::Avalonia),
             other => bail!(
                 "unsupported native app backend {other:?}; supported backends: {}",
                 Self::supported_list()
@@ -702,6 +714,7 @@ impl NativeAppBackend {
         match self {
             Self::Winui => "winui",
             Self::Slint => "slint",
+            Self::Avalonia => "avalonia",
         }
     }
 
@@ -709,6 +722,7 @@ impl NativeAppBackend {
         match self {
             Self::Winui => EmbeddedAppKind::NativeApp,
             Self::Slint => EmbeddedAppKind::NativeSlintApp,
+            Self::Avalonia => EmbeddedAppKind::NativeAvaloniaApp,
         }
     }
 
@@ -716,12 +730,13 @@ impl NativeAppBackend {
         match kind {
             EmbeddedAppKind::NativeApp => Some(Self::Winui),
             EmbeddedAppKind::NativeSlintApp => Some(Self::Slint),
+            EmbeddedAppKind::NativeAvaloniaApp => Some(Self::Avalonia),
             _ => None,
         }
     }
 
     fn supported_list() -> &'static str {
-        "winui, slint"
+        "winui, avalonia, slint"
     }
 }
 
@@ -1145,6 +1160,7 @@ pub async fn run_cli() -> Result<()> {
             export_ui_json,
             replay_events,
             winui_host,
+            avalonia_host,
             slint_validate_only,
             args,
         } => run_app_file(
@@ -1156,6 +1172,7 @@ pub async fn run_cli() -> Result<()> {
                 export_ui_json: export_ui_json.as_deref(),
                 replay_events: replay_events.as_deref(),
                 winui_host: winui_host.as_deref(),
+                avalonia_host: avalonia_host.as_deref(),
                 slint_validate_only,
             },
         )?,
@@ -7478,6 +7495,7 @@ struct AppRunOptions<'a> {
     export_ui_json: Option<&'a Path>,
     replay_events: Option<&'a Path>,
     winui_host: Option<&'a Path>,
+    avalonia_host: Option<&'a Path>,
     slint_validate_only: bool,
 }
 
@@ -7513,6 +7531,9 @@ fn run_app_file(
     match backend {
         NativeAppBackend::Winui => {
             run_live_winui_backend(&mut session, backend.id(), options.winui_host)
+        }
+        NativeAppBackend::Avalonia => {
+            run_live_avalonia_backend(&mut session, backend.id(), options.avalonia_host)
         }
         NativeAppBackend::Slint => run_live_slint_backend(session, options.slint_validate_only),
     }
@@ -7571,6 +7592,7 @@ fn run_embedded_native_app(
 
     match backend {
         NativeAppBackend::Winui => run_live_winui_backend(&mut session, backend.id(), None),
+        NativeAppBackend::Avalonia => run_live_avalonia_backend(&mut session, backend.id(), None),
         NativeAppBackend::Slint => run_live_slint_backend(session, slint_validate_only_from_env()),
     }
 }
@@ -8388,6 +8410,64 @@ fn run_live_winui_backend(
     }
 }
 
+fn run_live_avalonia_backend(
+    session: &mut NativeAppSession,
+    backend: &str,
+    avalonia_host: Option<&Path>,
+) -> Result<()> {
+    let host = resolve_avalonia_host(avalonia_host)?;
+    let protocol_dir = create_avalonia_protocol_dir()?;
+    let document_path = protocol_dir.join("initial-ui.json");
+    let events_path = protocol_dir.join("events.jsonl");
+    let responses_path = protocol_dir.join("responses.jsonl");
+
+    write_app_export_json(&document_path, backend, &session.render())?;
+    fs::write(&events_path, "")
+        .with_context(|| format!("failed to initialize {}", events_path.display()))?;
+    fs::write(&responses_path, "")
+        .with_context(|| format!("failed to initialize {}", responses_path.display()))?;
+
+    let mut child = std::process::Command::new(&host)
+        .arg("--document")
+        .arg(&document_path)
+        .arg("--events")
+        .arg(&events_path)
+        .arg("--responses")
+        .arg(&responses_path)
+        .spawn()
+        .with_context(|| format!("failed to launch Avalonia backend host {}", host.display()))?;
+
+    let mut events_offset = 0_usize;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to poll Avalonia backend host")?
+        {
+            if status.success() {
+                return Ok(());
+            }
+            bail!("Avalonia backend host exited with status {status}");
+        }
+
+        for line in read_new_json_lines(&events_path, &mut events_offset)? {
+            let event: serde_json::Value = serde_json::from_str(&line)
+                .with_context(|| format!("Avalonia backend wrote invalid event JSON: {line}"))?;
+            let rendered = session.apply_event(json_to_ricochet_value(event))?;
+            let response = app_export_json(backend, &rendered.state, &rendered.document)?;
+            let response = serde_json::to_string(&response)?;
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&responses_path)
+                .with_context(|| format!("failed to open {}", responses_path.display()))?
+                .write_all(format!("{response}\n").as_bytes())
+                .with_context(|| format!("failed to write {}", responses_path.display()))?;
+        }
+
+        std::thread::sleep(Duration::from_millis(30));
+    }
+}
+
 fn resolve_winui_host(winui_host: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = winui_host {
         return ensure_winui_host_path(path);
@@ -8444,9 +8524,86 @@ fn resolve_winui_host(winui_host: Option<&Path>) -> Result<PathBuf> {
     )
 }
 
+fn resolve_avalonia_host(avalonia_host: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = avalonia_host {
+        return ensure_avalonia_host_path(path);
+    }
+
+    if let Some(path) = std::env::var_os(APP_AVALONIA_HOST_ENV) {
+        return ensure_avalonia_host_path(Path::new(&path));
+    }
+
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
+    let host_name = format!("Ricochet.Avalonia.Host{exe_suffix}");
+    let mut candidates = Vec::new();
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidates.push(parent.join(&host_name));
+        }
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        for configuration in ["Release", "Debug"] {
+            candidates.push(
+                current_dir
+                    .join("hosts")
+                    .join("avalonia")
+                    .join("Ricochet.Avalonia.Host")
+                    .join("bin")
+                    .join(configuration)
+                    .join("net10.0")
+                    .join(&host_name),
+            );
+            if let Some(runtime_id) = native_host_runtime_id() {
+                candidates.push(
+                    current_dir
+                        .join("hosts")
+                        .join("avalonia")
+                        .join("Ricochet.Avalonia.Host")
+                        .join("bin")
+                        .join(configuration)
+                        .join("net10.0")
+                        .join(runtime_id)
+                        .join(&host_name),
+                );
+            }
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    bail!(
+        "Avalonia backend host not found; build it with dotnet build hosts/avalonia/Ricochet.Avalonia.Host/Ricochet.Avalonia.Host.csproj -c Release or pass --avalonia-host PATH"
+    )
+}
+
+fn native_host_runtime_id() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => Some("win-x64"),
+        ("windows", "aarch64") => Some("win-arm64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("macos", "x86_64") => Some("osx-x64"),
+        ("macos", "aarch64") => Some("osx-arm64"),
+        _ => None,
+    }
+}
+
 fn ensure_winui_host_path(path: &Path) -> Result<PathBuf> {
     if !path.is_file() {
         bail!("WinUI backend host does not exist: {}", path.display());
+    }
+    Ok(path.to_path_buf())
+}
+
+fn ensure_avalonia_host_path(path: &Path) -> Result<PathBuf> {
+    if !path.is_file() {
+        bail!("Avalonia backend host does not exist: {}", path.display());
     }
     Ok(path.to_path_buf())
 }
@@ -8466,13 +8623,28 @@ fn create_winui_protocol_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+fn create_avalonia_protocol_dir() -> Result<PathBuf> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("ricochet-avalonia-{}-{now}", std::process::id()));
+    fs::create_dir_all(&dir).with_context(|| {
+        format!(
+            "failed to create Avalonia protocol directory {}",
+            dir.display()
+        )
+    })?;
+    Ok(dir)
+}
+
 fn read_new_json_lines(path: &Path, offset: &mut usize) -> Result<Vec<String>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
 
     let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read WinUI event stream {}", path.display()))?;
+        .with_context(|| format!("failed to read native app event stream {}", path.display()))?;
     if *offset > source.len() {
         *offset = 0;
     }
@@ -12800,6 +12972,7 @@ fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
 fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
     for kind in [
         EmbeddedAppKind::MvcGui,
+        EmbeddedAppKind::NativeAvaloniaApp,
         EmbeddedAppKind::NativeSlintApp,
         EmbeddedAppKind::NativeApp,
         EmbeddedAppKind::Gui,
@@ -12842,7 +13015,8 @@ fn embedded_app_from_bytes_with_marker(
         | EmbeddedAppKind::Tui
         | EmbeddedAppKind::Gui
         | EmbeddedAppKind::NativeApp
-        | EmbeddedAppKind::NativeSlintApp => {
+        | EmbeddedAppKind::NativeSlintApp
+        | EmbeddedAppKind::NativeAvaloniaApp => {
             EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
         }
         EmbeddedAppKind::MvcGui => {

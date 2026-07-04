@@ -5,8 +5,9 @@ plain-data document, event, response, command, rich-text, grid, tree, and
 drag/drop helpers for desktop app executables that are not WebView documents.
 
 The package is the public app model. Renderer packages such as
-`@ricochet/winui` and `@ricochet/slint` consume these document maps and
-translate them into native controls.
+`@ricochet/winui` and `@ricochet/avalonia` consume these document maps and
+translate them into native controls. `@ricochet/slint` remains available for
+lightweight and experimental renderer work.
 
 ## Modules
 
@@ -63,6 +64,7 @@ Export the native showcase app as a deterministic WinUI payload with:
 
 ```powershell
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
+rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend avalonia --export-ui-json native-showcase-avalonia-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
 rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
 ```

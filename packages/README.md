@@ -16,8 +16,10 @@ language core.
   validation helpers for Ricochet app executables.
 - `@ricochet/winui`: WinUI backend descriptor and scoped native option helpers
   for `@ricochet/ui` apps.
+- `@ricochet/avalonia`: Avalonia backend descriptor and scoped native option
+  helpers for cross-platform desktop `@ricochet/ui` apps.
 - `@ricochet/slint`: Slint backend descriptor and scoped native option helpers
-  for cross-platform `@ricochet/ui` app payloads.
+  for lightweight and experimental `@ricochet/ui` app payloads.
 - `@ricochet/python`: process-backed JSON-lines worker helpers for importing
   Python modules, calling SDK functions/classes/methods, retaining Python object
   references, inspecting module exports, and generating static Ricochet wrapper
@@ -34,6 +36,7 @@ rco publish packages/ricochet_auth --registry .registry
 rco publish packages/ricochet_ai --registry .registry
 rco publish packages/ricochet_ui --registry .registry
 rco publish packages/ricochet_winui --registry .registry
+rco publish packages/ricochet_avalonia --registry .registry
 rco publish packages/ricochet_slint --registry .registry
 rco publish packages/ricochet_python --registry .registry
 rco publish packages/ricochet_forms --registry .registry
