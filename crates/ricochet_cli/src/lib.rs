@@ -11720,7 +11720,7 @@ fn linux_package_staging_root(name: &str, version: &str) -> Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .context("system clock is before Unix epoch")?
         .as_nanos();
-    let root = Path::new("target")
+    let root = std::env::temp_dir()
         .join("ricochet-package")
         .join(format!("{name}-{version}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&root).with_context(|| format!("failed to create {}", root.display()))?;
