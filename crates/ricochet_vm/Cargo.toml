@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 argon2.workspace = true
+arboard.workspace = true
 base64.workspace = true
 chrono.workspace = true
 crossterm.workspace = true
@@ -15,6 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 regex.workspace = true
+rfd.workspace = true
 thiserror.workspace = true
 tungstenite.workspace = true
 wait-timeout.workspace = true

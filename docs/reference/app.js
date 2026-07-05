@@ -2512,6 +2512,22 @@ const WORDS = [
     "example": "\"Increment\" \"increment\" webview_button"
   },
   {
+    "word": "web_command",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "action:string label:string shortcut:string -> map",
+    "body": "Builds a native menu command descriptor. Command action IDs dispatch through matching `webview_action` callbacks.",
+    "example": "\"save\" \"Save\" \"Ctrl+S\" web_command"
+  },
+  {
+    "word": "web_command_button",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "label:string action:string -> html:string",
+    "body": "Builds a styled app-kit button with a `data-rco-action` attribute.",
+    "example": "\"Save\" \"save\" web_command_button"
+  },
+  {
     "word": "webview_action",
     "aliases": ["webview"],
     "group": "system",
@@ -2544,6 +2560,78 @@ const WORDS = [
     "example": "$body webview_container"
   },
   {
+    "word": "web_toolbar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "bodyHtml:string -> html:string",
+    "body": "Wraps controls in a desktop app toolbar fragment.",
+    "example": "$buttons web_toolbar"
+  },
+  {
+    "word": "web_sidebar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "bodyHtml:string -> html:string",
+    "body": "Wraps navigation or supporting content in a sidebar fragment.",
+    "example": "$nav web_sidebar"
+  },
+  {
+    "word": "web_tabs",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "tabs:array -> html:string",
+    "body": "Builds a tabbed fragment from tab maps with `label`, `body`, and optional `active` fields.",
+    "example": "$tabs web_tabs"
+  },
+  {
+    "word": "web_split_pane",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "leftHtml:string rightHtml:string -> html:string",
+    "body": "Builds a two-pane desktop layout fragment.",
+    "example": "$sidebar $content web_split_pane"
+  },
+  {
+    "word": "web_table",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "rows:array -> html:string",
+    "body": "Builds a simple table from an array or list of row maps.",
+    "example": "$rows web_table"
+  },
+  {
+    "word": "web_form_row",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "label:string controlHtml:string -> html:string",
+    "body": "Builds a labeled form row around an existing control fragment.",
+    "example": "\"Name\" $input web_form_row"
+  },
+  {
+    "word": "web_status_bar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "text:string -> html:string",
+    "body": "Builds a compact status bar fragment.",
+    "example": "\"Ready\" web_status_bar"
+  },
+  {
+    "word": "web_menu",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "label:string items:array -> map",
+    "body": "Builds a native menu descriptor from command or separator item maps.",
+    "example": "\"File\" $commands web_menu"
+  },
+  {
+    "word": "web_menu_bar",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "menus:array -> map",
+    "body": "Builds a native menu bar descriptor for `webview_window_app`.",
+    "example": "$menus web_menu_bar"
+  },
+  {
     "word": "webview_window",
     "aliases": ["webview_document"],
     "group": "system",
@@ -2558,6 +2646,62 @@ const WORDS = [
     "stack": "title:string bodyHtml:string state:map actions:array -> result(map)",
     "body": "Builds a webview document map with explicit `state` and `actions`; action callbacks receive `(state event -> document)`.",
     "example": "\"Counter\" $body $state $actions webview_window_state value"
+  },
+  {
+    "word": "webview_window_app",
+    "aliases": ["webview_document"],
+    "group": "system",
+    "stack": "title:string bodyHtml:string state:map actions:array menuBar:map -> result(map)",
+    "body": "Builds a stateful webview app document with native OS menu metadata.",
+    "example": "\"Counter\" $body $state $actions $menuBar webview_window_app value"
+  },
+  {
+    "word": "webview_open_file",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native file picker and returns the selected path, or nil when canceled.",
+    "example": "webview_open_file"
+  },
+  {
+    "word": "webview_save_file",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native save-file picker and returns the selected path, or nil when canceled.",
+    "example": "webview_save_file"
+  },
+  {
+    "word": "webview_choose_folder",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native folder picker and returns the selected path, or nil when canceled.",
+    "example": "webview_choose_folder"
+  },
+  {
+    "word": "webview_clipboard_read",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string)",
+    "body": "Reads text from the OS clipboard.",
+    "example": "webview_clipboard_read"
+  },
+  {
+    "word": "webview_clipboard_write",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "text:string -> result(bool)",
+    "body": "Writes text to the OS clipboard.",
+    "example": "\"Copied from Ricochet\" webview_clipboard_write"
+  },
+  {
+    "word": "webview_open_url",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "url:string -> result(bool)",
+    "body": "Opens a URL in the operating system's external URL handler.",
+    "example": "\"https://try.ricochet.today\" webview_open_url"
   },
   {
     "word": "inspect",

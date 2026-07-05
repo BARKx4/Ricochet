@@ -17,6 +17,7 @@ version = "0.1.19-rc.4"
 [workspace.dependencies]
 anyhow = "1"
 argon2 = "0.5"
+arboard = { version = "3.6.1", default-features = false }
 axum = "0.7"
 base64 = "0.22"
 bytes = "1"
@@ -33,6 +34,7 @@ semver = "1"
 tar = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 regex = "1"
+rfd = "0.17.2"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
 multer = "3.1.0"

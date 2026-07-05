@@ -270,10 +270,11 @@ Implemented:
   list, and detail.
 - TUI words cover alternate screen, cursor movement, writes, flush, size, and key
   polling/reading.
-- Webview words build escaped GUI document fragments and state/action documents
-  for `rco gui` and `rco package --gui`; Windows/macOS hosts use native Wry
-  WebView windows, while Linux hosts open through the system browser with
-  `xdg-open` to avoid the vulnerable GTK/WebKitGTK Rust binding stack.
+- Webview words build escaped GUI document fragments, app-kit layouts, native
+  menu metadata, and state/action documents for `rco gui` and
+  `rco package --gui`; Windows, macOS, and Linux hosts use embedded Wry WebView
+  windows, with Tao providing the desktop event loop and Muda providing native
+  menu bars. The Linux external-browser path is diagnostic fallback only.
 - Approval words provide runtime-local records with exactly-once token claiming.
 - Environment/config/secret words cover env get/set, secret references,
   secret resolution, and nested config lookup.
@@ -314,9 +315,10 @@ Status: implemented beta, 1.0 focus.
 
 Implemented:
 
-- WebView words build escaped GUI document fragments and state/action documents
-  for desktop app hosts.
-- `rco gui PATH` opens a `webview_window` or `webview_window_state` document.
+- WebView words build escaped GUI document fragments, app-kit layouts, native
+  menu metadata, and state/action documents for desktop app hosts.
+- `rco gui PATH` opens a `webview_window`, `webview_window_state`, or
+  `webview_window_app` document.
 - `rco package PATH --gui --output APP` embeds WebView bytecode into the
   `rco-gui` launcher.
 - `rco package PATH --gui --mvc --output APP` embeds an MVC project directory as
@@ -324,8 +326,12 @@ Implemented:
 - `RICOCHET_GUI_EXPORT_HTML` exports deterministic HTML for WebView smoke tests.
 - `RICOCHET_GUI_EVENT` replays a single WebView action event for state/action
   regression tests.
-- Windows and macOS use native Wry WebView windows. Linux opens through the
-  system browser today to avoid the vulnerable GTK/WebKitGTK Rust binding stack.
+- Windows, macOS, and Linux use embedded Wry WebView windows.
+- Native menu metadata dispatches through the same WebView action callback path.
+- First-party app-kit words cover command buttons, toolbars, sidebars, tabs,
+  split panes, tables, form rows, status bars, and menu descriptors.
+- Host-backed shell words cover file/folder dialogs, clipboard access, and
+  external URL launch.
 
 Evidence:
 
@@ -342,8 +348,8 @@ Current boundaries:
 - Desktop UI for 1.0 is native shell plus WebView body plus Ricochet state.
 - The withdrawn native-control renderer experiment is not part of the current
   release surface.
-- The WebView path still needs a first-party app-kit package for richer menus,
-  split panes, tables, command palettes, dialogs, and shell services.
+- The first-party app-kit is deliberately small for 1.0; command-palette and
+  richer data-grid workflows are future polish, not current release blockers.
 - Ordinary Ricochet app code should not need raw platform control handles.
 ## Web, MVC, Templates, And Static Assets
 
@@ -665,8 +671,8 @@ Implemented:
 - `rco run-bytecode` executes `.rcob`.
 - `rco package` creates standalone launcher executables by embedding bytecode
   or MVC bundles.
-- `rco package --tui`, `--gui`, and `--gui --mvc` cover console, native
-  WebView or Linux system-browser GUI launchers, and local-server desktop apps.
+- `rco package --tui`, `--gui`, and `--gui --mvc` cover console, embedded
+  WebView GUI launchers, and local-server desktop apps.
 - Linux `rco package` can also emit tarballs and Debian packages.
 - Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and macOS
   tarballs with explicit signing or detached-signature

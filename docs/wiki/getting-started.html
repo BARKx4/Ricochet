@@ -71,7 +71,7 @@ rco package examples/tui_counter.rco --tui --output tui-counter.exe</code></pre>
 <p>Package an MVC app directory as a desktop beta build:</p>
 <pre class="code-block"><code class="language-powershell">rco new my_desktop_app
 rco package my_desktop_app --gui --mvc --output my-desktop-app.exe</code></pre>
-<p>Use <code>--output webview-ui</code> on Linux and macOS. Windows/macOS GUI launchers open native WebView windows. Linux GUI launchers open through the system browser, and Debian packages generated for GUI apps declare an <code>xdg-utils</code> runtime dependency.</p>
+<p>Use <code>--output webview-ui</code> on Linux and macOS. GUI launchers open native embedded WebView windows on Windows, macOS, and Linux. Linux systems need GTK 3 and WebKitGTK 4.1 runtime libraries; Debian packages generated for GUI apps declare those dependencies.</p>
 <p>On Linux, the same <code>package</code> command can also create portable tarballs or Debian packages for a <code>.rco</code> file:</p>
 <pre class="code-block"><code class="language-bash">rco package examples/basic-oop.rco \
   --output basic-oop \

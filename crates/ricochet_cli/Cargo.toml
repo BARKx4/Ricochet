@@ -47,6 +47,10 @@ tower.workspace = true
 [dev-dependencies]
 tungstenite.workspace = true
 
-[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-winit = "0.30"
-wry = { version = "0.55", default-features = false }
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+muda = "0.19.3"
+tao = "0.35.3"
+wry = "0.55.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging"] }

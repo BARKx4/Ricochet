@@ -1943,6 +1943,10 @@ impl Vm {
             "webview_button" => {
                 self.call_capability_method_word(word, Capability::Webview, "button")
             }
+            "web_command" => self.call_capability_method_word(word, Capability::Webview, "command"),
+            "web_command_button" => {
+                self.call_capability_method_word(word, Capability::Webview, "command_button")
+            }
             "webview_action" => {
                 self.call_capability_method_word(word, Capability::Webview, "action")
             }
@@ -1951,8 +1955,46 @@ impl Vm {
             "webview_container" => {
                 self.call_capability_method_word(word, Capability::Webview, "container")
             }
+            "web_toolbar" => self.call_capability_method_word(word, Capability::Webview, "toolbar"),
+            "web_sidebar" => self.call_capability_method_word(word, Capability::Webview, "sidebar"),
+            "web_tabs" => self.call_capability_method_word(word, Capability::Webview, "tabs"),
+            "web_split_pane" => {
+                self.call_capability_method_word(word, Capability::Webview, "split_pane")
+            }
+            "web_table" => self.call_capability_method_word(word, Capability::Webview, "table"),
+            "web_form_row" => {
+                self.call_capability_method_word(word, Capability::Webview, "form_row")
+            }
+            "web_status_bar" => {
+                self.call_capability_method_word(word, Capability::Webview, "status_bar")
+            }
+            "web_menu" => self.call_capability_method_word(word, Capability::Webview, "menu"),
+            "web_menu_bar" => {
+                self.call_capability_method_word(word, Capability::Webview, "menu_bar")
+            }
+            "webview_open_file" => {
+                self.call_capability_method_word(word, Capability::Webview, "open_file")
+            }
+            "webview_save_file" => {
+                self.call_capability_method_word(word, Capability::Webview, "save_file")
+            }
+            "webview_choose_folder" => {
+                self.call_capability_method_word(word, Capability::Webview, "choose_folder")
+            }
+            "webview_clipboard_read" => {
+                self.call_capability_method_word(word, Capability::Webview, "clipboard_read")
+            }
+            "webview_clipboard_write" => {
+                self.call_capability_method_word(word, Capability::Webview, "clipboard_write")
+            }
+            "webview_open_url" => {
+                self.call_capability_method_word(word, Capability::Webview, "open_url")
+            }
             "webview_window_state" => {
                 self.call_capability_method_word(word, Capability::Webview, "window_state")
+            }
+            "webview_window_app" => {
+                self.call_capability_method_word(word, Capability::Webview, "window_app")
             }
             "webview_window" | "webview_document" => {
                 self.call_capability_method_word(word, Capability::Webview, "window")

@@ -77,6 +77,11 @@ const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
+#[cfg(target_os = "linux")]
+const GUI_EXTERNAL_BROWSER_ENV: &str = "RICOCHET_GUI_EXTERNAL_BROWSER";
+const RICOCHET_QUIT_ACTION: &str = "__ricochet_quit";
+const RICOCHET_COPY_ACTION: &str = "__ricochet_copy";
+const RICOCHET_PASTE_ACTION: &str = "__ricochet_paste";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -652,17 +657,72 @@ struct MvcBundleFile {
 #[derive(Debug, Clone, PartialEq)]
 struct WebviewDocument {
     title: String,
+    body: String,
     html: String,
     width: u32,
     height: u32,
     state: Value,
     actions: Vec<WebviewAction>,
+    menus: WebviewMenuBar,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WebviewAction {
     action: String,
     callback: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebviewMenuBar {
+    menus: Vec<WebviewMenu>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebviewMenu {
+    label: String,
+    items: Vec<WebviewMenuItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WebviewMenuItem {
+    Command {
+        label: String,
+        action: String,
+        shortcut: Option<String>,
+    },
+    Separator,
+}
+
+impl Default for WebviewMenuBar {
+    fn default() -> Self {
+        Self {
+            menus: vec![
+                WebviewMenu {
+                    label: "File".to_string(),
+                    items: vec![WebviewMenuItem::Command {
+                        label: "Quit".to_string(),
+                        action: RICOCHET_QUIT_ACTION.to_string(),
+                        shortcut: Some("Ctrl+Q".to_string()),
+                    }],
+                },
+                WebviewMenu {
+                    label: "Edit".to_string(),
+                    items: vec![
+                        WebviewMenuItem::Command {
+                            label: "Copy".to_string(),
+                            action: RICOCHET_COPY_ACTION.to_string(),
+                            shortcut: Some("Ctrl+C".to_string()),
+                        },
+                        WebviewMenuItem::Command {
+                            label: "Paste".to_string(),
+                            action: RICOCHET_PASTE_ACTION.to_string(),
+                            shortcut: Some("Ctrl+V".to_string()),
+                        },
+                    ],
+                },
+            ],
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Args)]
@@ -7506,35 +7566,85 @@ fn run_gui_chunk(
     capabilities: CapabilityOptions,
     dynamic_import_parent: PathBuf,
 ) -> Result<()> {
-    let document = render_webview_document(chunk, args, capabilities, dynamic_import_parent)?;
+    let mut session = WebviewSession::new(chunk, args, capabilities, dynamic_import_parent)?;
+    session.dispatch_env_event_if_requested()?;
     if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
-        fs::write(&path, &document.html).with_context(|| {
+        fs::write(&path, &session.document.html).with_context(|| {
             format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
         })?;
         return Ok(());
     }
-    open_native_webview(document)
+    open_native_webview(session)
 }
 
-fn render_webview_document(
-    chunk: &Chunk,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    dynamic_import_parent: PathBuf,
-) -> Result<WebviewDocument> {
-    let mut vm = cli_vm(args, &capabilities)?;
-    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
-    let result = vm.run_chunk(chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
-        std::process::exit(code);
+struct WebviewSession {
+    vm: Vm,
+    document: WebviewDocument,
+}
+
+impl WebviewSession {
+    fn new(
+        chunk: &Chunk,
+        args: Vec<String>,
+        capabilities: CapabilityOptions,
+        dynamic_import_parent: PathBuf,
+    ) -> Result<Self> {
+        let mut vm = cli_vm(args, &capabilities)?;
+        install_dynamic_module_loader(&mut vm, dynamic_import_parent);
+        let result = vm.run_chunk(chunk);
+        print!("{}", vm.stdout());
+        eprint!("{}", vm.stderr());
+        if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
+            std::process::exit(code);
+        }
+        if let Err(error) = result {
+            bail!("{}", runtime_error_message(&vm, &error));
+        }
+        let document = webview_document_from_vm(&vm)?;
+        Ok(Self { vm, document })
     }
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(&vm, &error));
+
+    fn dispatch_env_event_if_requested(&mut self) -> Result<()> {
+        let Ok(event_source) = std::env::var(GUI_EVENT_ENV) else {
+            return Ok(());
+        };
+        let event_json: serde_json::Value = serde_json::from_str(&event_source)
+            .with_context(|| format!("{GUI_EVENT_ENV} must be a JSON object"))?;
+        self.dispatch_event_json(event_json)?;
+        Ok(())
     }
-    let document = webview_document_from_vm(&vm)?;
-    dispatch_webview_event_if_requested(&mut vm, document)
+
+    fn dispatch_event_json(&mut self, event_json: serde_json::Value) -> Result<&WebviewDocument> {
+        let action_name = event_json
+            .get("action")
+            .and_then(|value| value.as_str())
+            .context("GUI action event is missing string field `action`")?;
+        let action = self
+            .document
+            .actions
+            .iter()
+            .find(|action| action.action == action_name)
+            .with_context(|| format!("GUI document has no action named {action_name:?}"))?;
+        let callback = action.callback.clone();
+
+        self.vm.push_value(self.document.state.clone());
+        self.vm.push_value(json_to_ricochet_value(event_json));
+        let mut chunk = Chunk::new("<gui-event>");
+        chunk.push(Op::CallWord(callback.clone()), gui_event_span());
+        let result = self.vm.run_chunk(&chunk);
+        print!("{}", self.vm.stdout());
+        eprint!("{}", self.vm.stderr());
+        if let Err(error) = result {
+            bail!("{}", runtime_error_message(&self.vm, &error));
+        }
+        self.document = webview_document_from_vm(&self.vm).with_context(|| {
+            format!(
+                "GUI action callback {:?} must return a webview document",
+                callback
+            )
+        })?;
+        Ok(&self.document)
+    }
 }
 
 fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
@@ -7577,6 +7687,7 @@ fn webview_document_from_map(map: &MapValue) -> Result<Option<WebviewDocument>> 
 
     Ok(Some(WebviewDocument {
         title: required_document_string(map, "title")?,
+        body: required_document_string(map, "body")?,
         html: required_document_string(map, "html")?,
         width: required_document_dimension(map, "width")?,
         height: required_document_dimension(map, "height")?,
@@ -7586,44 +7697,11 @@ fn webview_document_from_map(map: &MapValue) -> Result<Option<WebviewDocument>> 
             .map(|value| webview_actions_from_value(&value))
             .transpose()?
             .unwrap_or_default(),
+        menus: optional_document_value(map, "menus")
+            .map(|value| webview_menu_bar_from_value(&value))
+            .transpose()?
+            .unwrap_or_default(),
     }))
-}
-
-fn dispatch_webview_event_if_requested(
-    vm: &mut Vm,
-    document: WebviewDocument,
-) -> Result<WebviewDocument> {
-    let Ok(event_source) = std::env::var(GUI_EVENT_ENV) else {
-        return Ok(document);
-    };
-    let event_json: serde_json::Value = serde_json::from_str(&event_source)
-        .with_context(|| format!("{GUI_EVENT_ENV} must be a JSON object"))?;
-    let action_name = event_json
-        .get("action")
-        .and_then(|value| value.as_str())
-        .context("GUI action event is missing string field `action`")?;
-    let action = document
-        .actions
-        .iter()
-        .find(|action| action.action == action_name)
-        .with_context(|| format!("GUI document has no action named {action_name:?}"))?;
-
-    vm.push_value(document.state.clone());
-    vm.push_value(json_to_ricochet_value(event_json));
-    let mut chunk = Chunk::new("<gui-event>");
-    chunk.push(Op::CallWord(action.callback.clone()), gui_event_span());
-    let result = vm.run_chunk(&chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(vm, &error));
-    }
-    webview_document_from_vm(vm).with_context(|| {
-        format!(
-            "GUI action callback {:?} must return a webview document",
-            action.callback
-        )
-    })
 }
 
 fn webview_actions_from_value(value: &Value) -> Result<Vec<WebviewAction>> {
@@ -7652,6 +7730,95 @@ fn webview_action_from_value(value: &Value) -> Result<WebviewAction> {
         action: required_document_string(map, "action")?,
         callback: required_document_string(map, "callback")?,
     })
+}
+
+fn webview_menu_bar_from_value(value: &Value) -> Result<WebviewMenuBar> {
+    let Value::Map(map) = value else {
+        bail!("webview document `menus` must be a menu bar map, got {value:?}");
+    };
+    match map.get("type") {
+        Some(Value::String(kind)) if kind == "menu_bar" => {}
+        Some(Value::String(kind)) => {
+            bail!("webview menu bar `type` must be \"menu_bar\", got {kind:?}")
+        }
+        Some(value) => bail!("webview menu bar `type` must be a string, got {value:?}"),
+        None => bail!("webview menu bar is missing `type`"),
+    }
+    let menus = map
+        .get("menus")
+        .context("webview menu bar is missing `menus`")?;
+    Ok(WebviewMenuBar {
+        menus: webview_menu_list_from_value(&menus)?,
+    })
+}
+
+fn webview_menu_list_from_value(value: &Value) -> Result<Vec<WebviewMenu>> {
+    webview_value_list(value, "webview menu bar `menus`")?
+        .iter()
+        .map(webview_menu_from_value)
+        .collect()
+}
+
+fn webview_menu_from_value(value: &Value) -> Result<WebviewMenu> {
+    let Value::Map(map) = value else {
+        bail!("webview menu entries must be maps, got {value:?}");
+    };
+    match map.get("type") {
+        Some(Value::String(kind)) if kind == "menu" => {}
+        Some(Value::String(kind)) => bail!("webview menu `type` must be \"menu\", got {kind:?}"),
+        Some(value) => bail!("webview menu `type` must be a string, got {value:?}"),
+        None => bail!("webview menu is missing `type`"),
+    }
+    let items = map
+        .get("items")
+        .context("webview menu is missing `items`")?;
+    Ok(WebviewMenu {
+        label: required_document_string(map, "label")?,
+        items: webview_menu_items_from_value(&items)?,
+    })
+}
+
+fn webview_menu_items_from_value(value: &Value) -> Result<Vec<WebviewMenuItem>> {
+    webview_value_list(value, "webview menu `items`")?
+        .iter()
+        .map(webview_menu_item_from_value)
+        .collect()
+}
+
+fn webview_menu_item_from_value(value: &Value) -> Result<WebviewMenuItem> {
+    let Value::Map(map) = value else {
+        bail!("webview menu item entries must be maps, got {value:?}");
+    };
+    let kind = match map.get("type") {
+        Some(Value::String(kind)) => kind,
+        Some(value) => bail!("webview menu item `type` must be a string, got {value:?}"),
+        None => bail!("webview menu item is missing `type`"),
+    };
+    match kind.as_str() {
+        "command" => {
+            let shortcut = match map.get("shortcut") {
+                Some(Value::String(value)) if value.trim().is_empty() => None,
+                Some(Value::String(value)) => Some(value),
+                Some(Value::Nil) | None => None,
+                Some(value) => bail!("webview command `shortcut` must be a string, got {value:?}"),
+            };
+            Ok(WebviewMenuItem::Command {
+                label: required_document_string(map, "label")?,
+                action: required_document_string(map, "action")?,
+                shortcut,
+            })
+        }
+        "separator" => Ok(WebviewMenuItem::Separator),
+        other => bail!("unsupported webview menu item type {other:?}"),
+    }
+}
+
+fn webview_value_list(value: &Value, label: &str) -> Result<Vec<Value>> {
+    match value {
+        Value::Array(values) => Ok(values.snapshot()),
+        Value::List(values) => Ok(values.snapshot()),
+        value => bail!("{label} must be an array or list, got {value:?}"),
+    }
 }
 
 fn optional_document_value(map: &MapValue, key: &str) -> Option<Value> {
@@ -7721,146 +7888,381 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
     }
 }
 
-#[cfg(any(windows, target_os = "macos"))]
-fn open_native_webview(document: WebviewDocument) -> Result<()> {
+fn webview_document_update_script(document: &WebviewDocument) -> Result<String> {
+    let payload = json!({
+        "title": document.title,
+        "body": document.body,
+        "state": ricochet_value_to_json(&document.state)?,
+        "actions": document
+            .actions
+            .iter()
+            .map(|action| {
+                json!({
+                    "type": "action",
+                    "action": action.action,
+                    "callback": action.callback,
+                })
+            })
+            .collect::<Vec<_>>(),
+    });
+    let json = serde_json::to_string(&payload).context("failed to encode GUI document update")?;
+    Ok(format!(
+        "window.__ricochetApplyDocument({});",
+        js_json_literal(&json)
+    ))
+}
+
+fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
+    Ok(match value {
+        Value::Nil => serde_json::Value::Null,
+        Value::Bool(value) => serde_json::Value::Bool(*value),
+        Value::Number(value) => serde_json::Value::Number((*value).into()),
+        Value::Float(value) => serde_json::Number::from_f64(*value)
+            .map(serde_json::Value::Number)
+            .context("webview state cannot encode non-finite floats")?,
+        Value::String(value) => serde_json::Value::String(value.clone()),
+        Value::Array(values) => serde_json::Value::Array(
+            values
+                .snapshot()
+                .iter()
+                .map(ricochet_value_to_json)
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        Value::List(values) => serde_json::Value::Array(
+            values
+                .snapshot()
+                .iter()
+                .map(ricochet_value_to_json)
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        Value::Set(values) => serde_json::Value::Array(
+            values
+                .snapshot()
+                .iter()
+                .map(ricochet_value_to_json)
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        Value::Map(values) => {
+            let mut object = serde_json::Map::new();
+            for (key, value) in values.entries() {
+                object.insert(key, ricochet_value_to_json(&value)?);
+            }
+            serde_json::Value::Object(object)
+        }
+        value => bail!("webview state cannot encode {value:?} as JSON"),
+    })
+}
+
+fn js_json_literal(json: &str) -> String {
+    let mut escaped = String::with_capacity(json.len());
+    for character in json.chars() {
+        match character {
+            '<' => escaped.push_str("\\u003c"),
+            '>' => escaped.push_str("\\u003e"),
+            '&' => escaped.push_str("\\u0026"),
+            '\u{2028}' => escaped.push_str("\\u2028"),
+            '\u{2029}' => escaped.push_str("\\u2029"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn open_native_webview(session: WebviewSession) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if linux_external_browser_requested() {
+        let path = write_linux_webview_document(&session.document)?;
+        open_linux_gui_target(path.as_os_str())?;
+        eprintln!(
+            "Ricochet opened file {} through the Linux external-browser diagnostic fallback because {GUI_EXTERNAL_BROWSER_ENV} is set.",
+            path.display()
+        );
+        return Ok(());
+    }
+
+    let document = session.document.clone();
     open_platform_webview(
         document.title,
         document.width,
         document.height,
         NativeWebviewSource::Html(document.html),
+        Some(session),
+        document.menus,
     )
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if linux_external_browser_requested() {
+        open_linux_gui_target(OsStr::new(url))?;
+        return wait_for_linux_browser_session(url);
+    }
+
     open_platform_webview(
         title.to_string(),
         width,
         height,
         NativeWebviewSource::Url(url.to_string()),
+        None,
+        WebviewMenuBar::default(),
     )
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 enum NativeWebviewSource {
     Html(String),
     Url(String),
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[derive(Debug, Clone)]
+enum NativeGuiEvent {
+    Ipc(String),
+    Menu(String),
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn open_platform_webview(
     title: String,
     width: u32,
     height: u32,
     source: NativeWebviewSource,
+    session: Option<WebviewSession>,
+    menus: WebviewMenuBar,
 ) -> Result<()> {
-    use winit::{
-        application::ApplicationHandler,
+    use tao::{
         dpi::LogicalSize,
-        event::WindowEvent,
-        event_loop::{ActiveEventLoop, EventLoop},
-        window::{Window, WindowId},
+        event::{Event, WindowEvent},
+        event_loop::{ControlFlow, EventLoopBuilder},
+        window::WindowBuilder,
     };
     use wry::WebViewBuilder;
 
-    struct NativeWebviewState {
-        title: String,
-        width: u32,
-        height: u32,
-        source: Option<NativeWebviewSource>,
-        window: Option<Window>,
-        webview: Option<wry::WebView>,
-        error: Option<String>,
-    }
+    let native_menu = build_native_menu(&menus)?;
+    let mut event_loop_builder = EventLoopBuilder::<NativeGuiEvent>::with_user_event();
+    #[cfg(windows)]
+    {
+        use tao::platform::windows::EventLoopBuilderExtWindows;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{TranslateAcceleratorW, MSG};
 
-    impl ApplicationHandler for NativeWebviewState {
-        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-            if self.window.is_some() || self.error.is_some() {
-                return;
+        let haccel = native_menu.haccel();
+        event_loop_builder.with_msg_hook(move |message| {
+            if haccel == 0 {
+                return false;
             }
+            let message = message as *const MSG;
+            unsafe { TranslateAcceleratorW((*message).hwnd, haccel as _, message) == 1 }
+        });
+    }
+    let event_loop = event_loop_builder.build();
+    let proxy = event_loop.create_proxy();
+    muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+        let _ = proxy.send_event(NativeGuiEvent::Menu(event.id().as_ref().to_string()));
+    }));
 
-            let mut attributes = Window::default_attributes();
-            attributes.title = self.title.clone();
-            attributes.inner_size =
-                Some(LogicalSize::new(f64::from(self.width), f64::from(self.height)).into());
+    let window = WindowBuilder::new()
+        .with_title(title.clone())
+        .with_inner_size(LogicalSize::new(f64::from(width), f64::from(height)))
+        .build(&event_loop)
+        .context("failed to create native GUI window")?;
+    attach_native_menu(&native_menu, &window)?;
 
-            let window = match event_loop.create_window(attributes) {
-                Ok(window) => window,
-                Err(error) => {
-                    self.error = Some(format!("failed to create native GUI window: {error}"));
-                    event_loop.exit();
-                    return;
+    let ipc_proxy = event_loop.create_proxy();
+    let builder = match source {
+        NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
+        NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
+    }
+    .with_ipc_handler(move |request| {
+        let _ = ipc_proxy.send_event(NativeGuiEvent::Ipc(request.body().to_string()));
+    });
+
+    let webview = build_platform_webview(builder, &window)?;
+    let mut session = session;
+    let _native_menu = native_menu;
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            Event::UserEvent(NativeGuiEvent::Ipc(message)) => {
+                if let Err(error) =
+                    dispatch_native_gui_ipc(&mut session, &webview, &window, &message)
+                {
+                    eprintln!("Ricochet GUI event failed: {error:#}");
                 }
-            };
-
-            let Some(source) = self.source.take() else {
-                self.error = Some("native GUI source was already consumed".to_string());
-                event_loop.exit();
-                return;
-            };
-            let builder = match source {
-                NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
-                NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
-            };
-            let webview = match builder.build(&window) {
-                Ok(webview) => webview,
-                Err(error) => {
-                    self.error = Some(format!("failed to create native WebView: {error}"));
-                    event_loop.exit();
-                    return;
+            }
+            Event::UserEvent(NativeGuiEvent::Menu(action)) => {
+                if action == RICOCHET_QUIT_ACTION {
+                    *control_flow = ControlFlow::Exit;
+                } else if action != RICOCHET_COPY_ACTION && action != RICOCHET_PASTE_ACTION {
+                    if let Err(error) =
+                        dispatch_native_gui_menu(&mut session, &webview, &window, &action)
+                    {
+                        eprintln!("Ricochet GUI menu action failed: {error:#}");
+                    }
                 }
-            };
-
-            self.webview = Some(webview);
-            self.window = Some(window);
+            }
+            _ => {}
         }
+    });
+}
 
-        fn window_event(
-            &mut self,
-            event_loop: &ActiveEventLoop,
-            _window_id: WindowId,
-            event: WindowEvent,
-        ) {
-            if let WindowEvent::CloseRequested = event {
-                event_loop.exit();
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn dispatch_native_gui_ipc(
+    session: &mut Option<WebviewSession>,
+    webview: &wry::WebView,
+    window: &tao::window::Window,
+    message: &str,
+) -> Result<()> {
+    let event_json: serde_json::Value =
+        serde_json::from_str(message).context("GUI IPC message must be JSON")?;
+    dispatch_native_gui_event(session, webview, window, event_json)
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn dispatch_native_gui_menu(
+    session: &mut Option<WebviewSession>,
+    webview: &wry::WebView,
+    window: &tao::window::Window,
+    action: &str,
+) -> Result<()> {
+    dispatch_native_gui_event(
+        session,
+        webview,
+        window,
+        json!({
+            "type": "menu",
+            "action": action,
+        }),
+    )
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn dispatch_native_gui_event(
+    session: &mut Option<WebviewSession>,
+    webview: &wry::WebView,
+    window: &tao::window::Window,
+    event_json: serde_json::Value,
+) -> Result<()> {
+    let session = session
+        .as_mut()
+        .context("this GUI host does not accept Ricochet callback events")?;
+    let document = session.dispatch_event_json(event_json)?;
+    window.set_title(&document.title);
+    let script = webview_document_update_script(document)?;
+    webview
+        .evaluate_script(&script)
+        .context("failed to update native WebView document")?;
+    Ok(())
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn build_native_menu(menu_bar: &WebviewMenuBar) -> Result<muda::Menu> {
+    use muda::{accelerator::Accelerator, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let menu = Menu::new();
+    for menu_def in &menu_bar.menus {
+        let submenu = Submenu::new(&menu_def.label, true);
+        for item in &menu_def.items {
+            match item {
+                WebviewMenuItem::Command {
+                    label,
+                    action,
+                    shortcut,
+                } if action == RICOCHET_COPY_ACTION => {
+                    submenu.append(&PredefinedMenuItem::copy(Some(label)))?;
+                }
+                WebviewMenuItem::Command {
+                    label,
+                    action,
+                    shortcut: _,
+                } if action == RICOCHET_PASTE_ACTION => {
+                    submenu.append(&PredefinedMenuItem::paste(Some(label)))?;
+                }
+                WebviewMenuItem::Command {
+                    label,
+                    action,
+                    shortcut,
+                } => {
+                    let accelerator = shortcut
+                        .as_deref()
+                        .map(str::parse::<Accelerator>)
+                        .transpose()
+                        .with_context(|| {
+                            format!("failed to parse menu shortcut for action {action:?}")
+                        })?;
+                    let item = MenuItem::with_id(action, label, true, accelerator);
+                    submenu.append(&item)?;
+                }
+                WebviewMenuItem::Separator => {
+                    submenu.append(&PredefinedMenuItem::separator())?;
+                }
             }
         }
+        menu.append(&submenu)?;
     }
+    Ok(menu)
+}
 
-    let event_loop = EventLoop::new().context("failed to create native GUI event loop")?;
-    let mut state = NativeWebviewState {
-        title,
-        width,
-        height,
-        source: Some(source),
-        window: None,
-        webview: None,
-        error: None,
-    };
-    event_loop
-        .run_app(&mut state)
-        .context("native GUI event loop failed")?;
-    if let Some(error) = state.error {
-        bail!("{error}");
-    }
+#[cfg(windows)]
+fn attach_native_menu(menu: &muda::Menu, window: &tao::window::Window) -> Result<()> {
+    use tao::platform::windows::WindowExtWindows;
+    unsafe { menu.init_for_hwnd(window.hwnd()) }.context("failed to attach native Windows menu")?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn attach_native_menu(menu: &muda::Menu, _window: &tao::window::Window) -> Result<()> {
+    menu.init_for_nsapp();
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    let path = write_linux_webview_document(&document)?;
-    open_linux_gui_target(path.as_os_str())?;
-    eprintln!(
-        "Ricochet opened file {} with your system browser.",
-        path.display()
-    );
+fn attach_native_menu(menu: &muda::Menu, window: &tao::window::Window) -> Result<()> {
+    use tao::platform::unix::WindowExtUnix;
+    let vbox = window
+        .default_vbox()
+        .context("native Linux GUI window did not expose a GTK content box")?;
+    menu.init_for_gtk_window(window.gtk_window(), Some(vbox))
+        .context("failed to attach native Linux menu")?;
     Ok(())
 }
 
+#[cfg(any(windows, target_os = "macos"))]
+fn build_platform_webview(
+    builder: wry::WebViewBuilder,
+    window: &tao::window::Window,
+) -> Result<wry::WebView> {
+    builder
+        .build(window)
+        .context("failed to create native WebView")
+}
+
 #[cfg(target_os = "linux")]
-fn open_native_webview_url(_title: &str, url: &str, _width: u32, _height: u32) -> Result<()> {
-    open_linux_gui_target(OsStr::new(url))?;
-    wait_for_linux_browser_session(url)
+fn build_platform_webview(
+    builder: wry::WebViewBuilder,
+    window: &tao::window::Window,
+) -> Result<wry::WebView> {
+    use tao::platform::unix::WindowExtUnix;
+    use wry::WebViewBuilderExtUnix;
+
+    let vbox = window
+        .default_vbox()
+        .context("native Linux GUI window did not expose a GTK content box")?;
+    builder
+        .build_gtk(vbox)
+        .context("failed to create embedded Linux WebView")
+}
+
+#[cfg(target_os = "linux")]
+fn linux_external_browser_requested() -> bool {
+    std::env::var(GUI_EXTERNAL_BROWSER_ENV)
+        .ok()
+        .is_some_and(|value| !matches!(value.as_str(), "" | "0" | "false" | "False" | "FALSE"))
 }
 
 #[cfg(target_os = "linux")]
@@ -7892,7 +8294,7 @@ fn open_linux_gui_target(target: &OsStr) -> Result<()> {
         .arg(target)
         .status()
         .context(
-            "failed to launch `xdg-open`; install `xdg-utils` to open Ricochet GUI apps on Linux",
+            "failed to launch `xdg-open`; install `xdg-utils` to use the Linux external-browser diagnostic fallback",
         )?;
     if !status.success() {
         bail!("`xdg-open` failed with status {status}");
@@ -7903,7 +8305,7 @@ fn open_linux_gui_target(target: &OsStr) -> Result<()> {
 #[cfg(target_os = "linux")]
 fn wait_for_linux_browser_session(target_label: &str) -> Result<()> {
     eprintln!(
-        "Ricochet opened {target_label} with your system browser. Press Ctrl+C in this terminal to stop the GUI host when finished."
+        "Ricochet opened {target_label} through the Linux external-browser diagnostic fallback. Press Ctrl+C in this terminal to stop the GUI host when finished."
     );
     loop {
         std::thread::park_timeout(Duration::from_secs(3600));
@@ -7911,7 +8313,7 @@ fn wait_for_linux_browser_session(target_label: &str) -> Result<()> {
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn open_native_webview(_document: WebviewDocument) -> Result<()> {
+fn open_native_webview(_session: WebviewSession) -> Result<()> {
     bail!("GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
@@ -11347,7 +11749,7 @@ fn create_linux_tarball(
         format!(
             "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n{}",
             if gui {
-                "\nLinux GUI apps open through the system browser and require `xdg-open`, usually provided by the `xdg-utils` package.\n"
+                "\nLinux GUI apps open embedded WebView windows and require GTK 3 plus WebKitGTK 4.1 runtime libraries.\n"
             } else {
                 ""
             }
@@ -11427,7 +11829,7 @@ fn create_linux_deb(
         format!(
             "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
             if gui {
-                "Depends: xdg-utils\n"
+                "Depends: libgtk-3-0, libwebkit2gtk-4.1-0\n"
             } else {
                 ""
             }

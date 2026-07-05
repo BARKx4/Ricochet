@@ -6517,6 +6517,93 @@ state get render_counter document var
     assert!(event_html.contains("\"count\":2"));
 }
 
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn gui_exports_app_kit_menu_document_and_dispatches_menu_actions() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+( state -> Map ) render_app function
+  state var
+  actions array
+  actions get "Save" "save-profile" "save_profile" webview_action push drop
+
+  commands array
+  commands get "save-profile" "Save Profile" "Ctrl+S" web_command push drop
+  menus array
+  menus get "File" commands get web_menu push drop
+  menus get web_menu_bar menuBar var
+
+  rows array
+  row map
+  row get "Name" state get "name" at put drop
+  row get "Saved" state get "saved" at to_string put drop
+  rows get row get push drop
+  rows get web_table table var
+
+  "name" state get "name" at webview_input nameInput var
+  "Name" nameInput get web_form_row nameRow var
+  "Save" "save-profile" web_command_button saveButton var
+  nameRow get saveButton get concat web_toolbar toolbar var
+  "Profile" webview_text web_sidebar sidebar var
+  toolbar get table get concat content var
+  sidebar get content get web_split_pane split var
+  "Ready" web_status_bar status var
+  split get status get concat body var
+
+  "Ricochet Profile" body get state get actions get menuBar get webview_window_app value
+end
+
+( state event -> Map ) save_profile function
+  event var
+  state var
+  state get "saved" true put drop
+  state get render_app
+end
+
+state map
+state get "name" "Ada" put drop
+state get "saved" false put drop
+state get render_app document var
+"#,
+    );
+    let initial_export_path = root.join("gui-app-kit-initial.html");
+    let event_export_path = root.join("gui-app-kit-event.html");
+
+    let preview_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &initial_export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch");
+    assert_run_success_for("rco gui", "GUI app-kit initial document", &preview_output);
+    let initial_html =
+        fs::read_to_string(&initial_export_path).expect("initial GUI HTML should exist");
+    assert!(initial_html.contains("class=\"rco-toolbar\""));
+    assert!(initial_html.contains("class=\"rco-split-pane\""));
+    assert!(initial_html.contains("window.__ricochetApplyDocument"));
+    assert!(initial_html.contains("\"saved\":false"));
+
+    let event_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &event_export_path)
+        .env(
+            "RICOCHET_GUI_EVENT",
+            r#"{"type":"menu","action":"save-profile"}"#,
+        )
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch with menu event");
+    assert_run_success_for("rco gui", "GUI app-kit menu dispatch", &event_output);
+    let event_html = fs::read_to_string(&event_export_path).expect("event GUI HTML should exist");
+    assert!(event_html.contains("\"saved\":true"));
+}
+
 #[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
     let main_path = temp_source_path();
