@@ -1115,7 +1115,7 @@ Run:
 $env:RICOCHET_GUI_EXPORT_HTML='target\webview-ui-smoke.html'
 rtk cargo run -p ricochet_cli --bin rco -- gui examples/webview_ui.rco
 Remove-Item Env:\RICOCHET_GUI_EXPORT_HTML
-Select-String -LiteralPath target\webview-ui-smoke.html -Pattern 'Ricochet Desktop UI','data-ricochet-action','window.__ricochetApplyDocument'
+Select-String -LiteralPath target\webview-ui-smoke.html -Pattern 'Ricochet Desktop UI','data-rco-action','window.__ricochetApplyDocument'
 ```
 
 Expected: all patterns found. Do not delete the generated target artifact unless the user approves cleanup.
