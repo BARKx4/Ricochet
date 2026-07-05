@@ -26,6 +26,7 @@ use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
+use crate::runtime_state::{HostRuntimeState, SharedRuntimeState};
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
@@ -338,30 +339,8 @@ struct Task {
     dynamic_module_aliases: BTreeMap<String, String>,
     dynamic_modules_loading: BTreeSet<String>,
     program_args: Vec<String>,
-    filesystem_enabled: bool,
-    filesystem_root: Option<PathBuf>,
-    filesystem_writes_enabled: bool,
-    http_enabled: bool,
-    http_allowed_hosts: Option<BTreeSet<String>>,
-    http_stream_registry: HttpStreamRegistry,
-    upload_stream_registry: UploadStreamRegistry,
-    socket_enabled: bool,
-    socket_allowed_hosts: Option<BTreeSet<String>>,
-    tcp_socket_registry: TcpSocketRegistry,
-    tcp_listener_registry: TcpListenerRegistry,
-    websocket_registry: WebSocketRegistry,
-    websocket_listener_registry: WebSocketListenerRegistry,
-    process_enabled: bool,
-    process_root: Option<PathBuf>,
-    process_registry: ProcessRegistry,
-    pty_enabled: bool,
-    pty_registry: PtyRegistry,
-    approval_registry: ApprovalRegistry,
-    terminal_enabled: bool,
-    webview_enabled: bool,
-    environment_enabled: bool,
-    environment_allowed_names: Option<BTreeSet<String>>,
-    sleep_enabled: bool,
+    host_runtime: HostRuntimeState,
+    shared_runtime: SharedRuntimeState,
     instruction_limit: Option<u64>,
 }
 
@@ -579,6 +558,8 @@ fn run_task_to_completion(
     task: Task,
     task_debug_snapshot: Option<Arc<Mutex<TaskDebugSnapshot>>>,
 ) -> TaskCompletion {
+    let host_runtime = task.host_runtime;
+    let shared_runtime = task.shared_runtime;
     let mut task_vm = Vm {
         variables: task.variables,
         local_variables: task.local_variables,
@@ -592,30 +573,30 @@ fn run_task_to_completion(
         dynamic_module_aliases: task.dynamic_module_aliases,
         dynamic_modules_loading: task.dynamic_modules_loading,
         program_args: task.program_args,
-        filesystem_enabled: task.filesystem_enabled,
-        filesystem_root: task.filesystem_root,
-        filesystem_writes_enabled: task.filesystem_writes_enabled,
-        http_enabled: task.http_enabled,
-        http_allowed_hosts: task.http_allowed_hosts,
-        http_stream_registry: task.http_stream_registry,
-        upload_stream_registry: task.upload_stream_registry,
-        socket_enabled: task.socket_enabled,
-        socket_allowed_hosts: task.socket_allowed_hosts,
-        tcp_socket_registry: task.tcp_socket_registry,
-        tcp_listener_registry: task.tcp_listener_registry,
-        websocket_registry: task.websocket_registry,
-        websocket_listener_registry: task.websocket_listener_registry,
-        process_enabled: task.process_enabled,
-        process_root: task.process_root,
-        process_registry: task.process_registry,
-        pty_enabled: task.pty_enabled,
-        pty_registry: task.pty_registry,
-        approval_registry: task.approval_registry,
-        terminal_enabled: task.terminal_enabled,
-        webview_enabled: task.webview_enabled,
-        environment_enabled: task.environment_enabled,
-        environment_allowed_names: task.environment_allowed_names,
-        sleep_enabled: task.sleep_enabled,
+        filesystem_enabled: host_runtime.filesystem_enabled,
+        filesystem_root: host_runtime.filesystem_root,
+        filesystem_writes_enabled: host_runtime.filesystem_writes_enabled,
+        http_enabled: host_runtime.http_enabled,
+        http_allowed_hosts: host_runtime.http_allowed_hosts,
+        http_stream_registry: shared_runtime.http_stream_registry,
+        upload_stream_registry: shared_runtime.upload_stream_registry,
+        socket_enabled: host_runtime.socket_enabled,
+        socket_allowed_hosts: host_runtime.socket_allowed_hosts,
+        tcp_socket_registry: shared_runtime.tcp_socket_registry,
+        tcp_listener_registry: shared_runtime.tcp_listener_registry,
+        websocket_registry: shared_runtime.websocket_registry,
+        websocket_listener_registry: shared_runtime.websocket_listener_registry,
+        process_enabled: host_runtime.process_enabled,
+        process_root: host_runtime.process_root,
+        process_registry: shared_runtime.process_registry,
+        pty_enabled: host_runtime.pty_enabled,
+        pty_registry: shared_runtime.pty_registry,
+        approval_registry: shared_runtime.approval_registry,
+        terminal_enabled: host_runtime.terminal_enabled,
+        webview_enabled: host_runtime.webview_enabled,
+        environment_enabled: host_runtime.environment_enabled,
+        environment_allowed_names: host_runtime.environment_allowed_names,
+        sleep_enabled: host_runtime.sleep_enabled,
         instruction_limit: task.instruction_limit,
         task_debug_snapshot,
         ..Vm::default()
@@ -2547,30 +2528,8 @@ impl Vm {
             dynamic_module_aliases: self.dynamic_module_aliases.clone(),
             dynamic_modules_loading: self.dynamic_modules_loading.clone(),
             program_args: self.program_args.clone(),
-            filesystem_enabled: self.filesystem_enabled,
-            filesystem_root: self.filesystem_root.clone(),
-            filesystem_writes_enabled: self.filesystem_writes_enabled,
-            http_enabled: self.http_enabled,
-            http_allowed_hosts: self.http_allowed_hosts.clone(),
-            http_stream_registry: self.http_stream_registry.clone(),
-            upload_stream_registry: self.upload_stream_registry.clone(),
-            socket_enabled: self.socket_enabled,
-            socket_allowed_hosts: self.socket_allowed_hosts.clone(),
-            tcp_socket_registry: self.tcp_socket_registry.clone(),
-            tcp_listener_registry: self.tcp_listener_registry.clone(),
-            websocket_registry: self.websocket_registry.clone(),
-            websocket_listener_registry: self.websocket_listener_registry.clone(),
-            process_enabled: self.process_enabled,
-            process_root: self.process_root.clone(),
-            process_registry: self.process_registry.clone(),
-            pty_enabled: self.pty_enabled,
-            pty_registry: self.pty_registry.clone(),
-            approval_registry: self.approval_registry.clone(),
-            terminal_enabled: self.terminal_enabled,
-            webview_enabled: self.webview_enabled,
-            environment_enabled: self.environment_enabled,
-            environment_allowed_names: self.environment_allowed_names.clone(),
-            sleep_enabled: self.sleep_enabled,
+            host_runtime: self.host_runtime_state(),
+            shared_runtime: self.shared_runtime_state(),
             instruction_limit: self.instruction_limit,
         };
         self.tasks.insert(
@@ -3622,6 +3581,40 @@ impl Vm {
         self.classes = state.classes;
         self.current_class = state.current_class;
         self.self_stack = state.self_stack;
+    }
+
+    fn host_runtime_state(&self) -> HostRuntimeState {
+        HostRuntimeState {
+            filesystem_enabled: self.filesystem_enabled,
+            filesystem_root: self.filesystem_root.clone(),
+            filesystem_writes_enabled: self.filesystem_writes_enabled,
+            http_enabled: self.http_enabled,
+            http_allowed_hosts: self.http_allowed_hosts.clone(),
+            socket_enabled: self.socket_enabled,
+            socket_allowed_hosts: self.socket_allowed_hosts.clone(),
+            process_enabled: self.process_enabled,
+            process_root: self.process_root.clone(),
+            pty_enabled: self.pty_enabled,
+            terminal_enabled: self.terminal_enabled,
+            webview_enabled: self.webview_enabled,
+            environment_enabled: self.environment_enabled,
+            environment_allowed_names: self.environment_allowed_names.clone(),
+            sleep_enabled: self.sleep_enabled,
+        }
+    }
+
+    fn shared_runtime_state(&self) -> SharedRuntimeState {
+        SharedRuntimeState {
+            http_stream_registry: self.http_stream_registry.clone(),
+            upload_stream_registry: self.upload_stream_registry.clone(),
+            tcp_socket_registry: self.tcp_socket_registry.clone(),
+            tcp_listener_registry: self.tcp_listener_registry.clone(),
+            websocket_registry: self.websocket_registry.clone(),
+            websocket_listener_registry: self.websocket_listener_registry.clone(),
+            process_registry: self.process_registry.clone(),
+            pty_registry: self.pty_registry.clone(),
+            approval_registry: self.approval_registry.clone(),
+        }
     }
 
     fn dynamic_module_descriptor(&self, module: &DynamicModuleState) -> Value {
@@ -4861,10 +4854,13 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
+    use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
     use super::*;
-    use crate::{debug::DebugEvent, value::Value};
+    use crate::{
+        approval_runtime::ApprovalCreateRequest, debug::DebugEvent, result::RicochetResult,
+        value::Value,
+    };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 
     fn span() -> SourceSpan {
@@ -6949,6 +6945,80 @@ mod tests {
         assert_eq!(
             vm.run_chunk(&chunk),
             Err(VmError::InstructionLimitExceeded { limit: 16 })
+        );
+    }
+
+    #[test]
+    fn spawned_task_inherits_runtime_capability_state() {
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("runtime_capabilities".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_environment_enabled(true);
+        vm.set_environment_allowed_names(["RICOCHET_TASK_TEST".to_string()]);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Map(capabilities)] = vm.stack() else {
+            panic!("expected runtime capabilities map, got {:?}", vm.stack());
+        };
+        let Some(Value::Map(filesystem)) = capabilities.get("filesystem") else {
+            panic!("expected filesystem capability map, got {capabilities:?}");
+        };
+        assert_eq!(filesystem.get("enabled"), Some(Value::Bool(true)));
+        assert_eq!(filesystem.get("writes_enabled"), Some(Value::Bool(true)));
+
+        let Some(Value::Map(environment)) = capabilities.get("environment") else {
+            panic!("expected environment capability map, got {capabilities:?}");
+        };
+        assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn spawned_task_shares_approval_registry_with_parent() {
+        let registry = ApprovalRegistry::default();
+        let approval = registry
+            .create(ApprovalCreateRequest {
+                id: Some("task-approval".to_string()),
+                token: Some("task-token".to_string()),
+                operation: Value::Map(BTreeMap::new().into()),
+                metadata: Value::Nil,
+                ttl_ms: None,
+                expires_at_ms: None,
+            })
+            .expect("approval should be created");
+        let token = approval.token.expect("new approval should expose token");
+
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::PushString(approval.id), span());
+        task.push(Op::PushString(token), span());
+        task.push(Op::CallWord("approval_claim".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_approval_registry(registry);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Result(RicochetResult::Ok(snapshot))] = vm.stack() else {
+            panic!("expected ok approval result, got {:?}", vm.stack());
+        };
+        let Value::Map(snapshot) = snapshot.as_ref() else {
+            panic!("expected approval snapshot map, got {snapshot:?}");
+        };
+        assert_eq!(
+            snapshot.get("status"),
+            Some(Value::String("claimed".to_string()))
         );
     }
 
