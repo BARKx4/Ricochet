@@ -1,5 +1,0 @@
-[package]
-name = "@ricochet/winui"
-version = "0.1.0"
-description = "WinUI backend metadata and scoped native options for Ricochet UI apps."
-license = "GPL-3.0"

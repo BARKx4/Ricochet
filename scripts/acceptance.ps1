@@ -70,94 +70,12 @@ foreach ($example in $examples) {
 }
 
 Invoke-Rco "check example tui_counter.rco" @("check", (Join-Path $examplesRoot "tui_counter.rco"))
-Invoke-Rco "native UI package tests" @("test", (Join-Path $Root "packages\ricochet_ui"))
-Invoke-Rco "WinUI package tests" @("test", (Join-Path $Root "packages\ricochet_winui"))
-Invoke-Rco "Avalonia package tests" @("test", (Join-Path $Root "packages\ricochet_avalonia"))
-Invoke-Rco "Slint package tests" @("test", (Join-Path $Root "packages\ricochet_slint"))
 
 if ([string]::IsNullOrWhiteSpace($TempRoot)) {
     $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ricochet-acceptance-" + [System.Guid]::NewGuid().ToString("N"))
 }
 
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
-$nativeUiJson = Join-Path $TempRoot "native-ui-counter.json"
-Invoke-Rco "native UI counter JSON export" @(
-    "app",
-    (Join-Path $Root "packages\ricochet_ui\examples\counter_app.rco"),
-    "--backend",
-    "winui",
-    "--export-ui-json",
-    $nativeUiJson
-)
-$nativeUiExport = Get-Content -LiteralPath $nativeUiJson -Raw | ConvertFrom-Json
-if ($nativeUiExport.backend -ne "winui" -or $nativeUiExport.document.type -ne "window") {
-    throw "Native UI counter export did not produce a WinUI window document"
-}
-
-$nativeShowcaseJson = Join-Path $TempRoot "native-ui-showcase.json"
-Invoke-Rco "native UI showcase JSON export" @(
-    "app",
-    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
-    "--backend",
-    "winui",
-    "--export-ui-json",
-    $nativeShowcaseJson
-)
-$nativeShowcaseRaw = Get-Content -LiteralPath $nativeShowcaseJson -Raw
-$nativeShowcaseExport = $nativeShowcaseRaw | ConvertFrom-Json
-if ($nativeShowcaseExport.backend -ne "winui" -or $nativeShowcaseExport.document.props.title -ne "Native Release Desk") {
-    throw "Native UI showcase export did not produce the expected WinUI release desk"
-}
-$nativeShowcasePatterns = @(
-    '"id"\s*:\s*"release_tree"',
-    '"id"\s*:\s*"release_grid"',
-    '"id"\s*:\s*"release_notes"',
-    '"type"\s*:\s*"tree"',
-    '"type"\s*:\s*"data_grid"',
-    '"type"\s*:\s*"rich_text_input"',
-    '"text"\s*:\s*"Ship confidence: 82%"'
-)
-foreach ($pattern in $nativeShowcasePatterns) {
-    if ($nativeShowcaseRaw -notmatch $pattern) {
-        throw "Native UI showcase export did not include pattern: $pattern"
-    }
-}
-
-$nativeAvaloniaShowcaseJson = Join-Path $TempRoot "native-ui-showcase-avalonia.json"
-Invoke-Rco "native UI showcase Avalonia JSON export" @(
-    "app",
-    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
-    "--backend",
-    "avalonia",
-    "--export-ui-json",
-    $nativeAvaloniaShowcaseJson
-)
-$nativeAvaloniaShowcaseExport = Get-Content -LiteralPath $nativeAvaloniaShowcaseJson -Raw | ConvertFrom-Json
-if ($nativeAvaloniaShowcaseExport.backend -ne "avalonia" -or $nativeAvaloniaShowcaseExport.document.props.title -ne "Native Release Desk") {
-    throw "Native UI Avalonia showcase export did not produce the expected release desk"
-}
-
-$nativeSlintShowcaseJson = Join-Path $TempRoot "native-ui-showcase-slint.json"
-Invoke-Rco "native UI showcase Slint JSON export" @(
-    "app",
-    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
-    "--backend",
-    "slint",
-    "--export-ui-json",
-    $nativeSlintShowcaseJson
-)
-$nativeSlintShowcaseExport = Get-Content -LiteralPath $nativeSlintShowcaseJson -Raw | ConvertFrom-Json
-if ($nativeSlintShowcaseExport.backend -ne "slint" -or $nativeSlintShowcaseExport.document.props.title -ne "Native Release Desk") {
-    throw "Native UI Slint showcase export did not produce the expected release desk"
-}
-Invoke-Rco "native UI showcase Slint renderer validation" @(
-    "app",
-    (Join-Path $Root "packages\ricochet_ui\examples\native_showcase_app.rco"),
-    "--backend",
-    "slint",
-    "--slint-validate-only"
-)
-
 $env:RICOCHET_EXAMPLE_TEST = "present"
 Invoke-Rco "example cli_system.rco" @(
     "run",

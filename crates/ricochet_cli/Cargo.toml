@@ -17,10 +17,6 @@ path = "src/bin/ricochet.rs"
 name = "rco-gui"
 path = "src/bin/rco_gui.rs"
 
-[[bin]]
-name = "rco-app"
-path = "src/bin/rco_app.rs"
-
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }
@@ -40,8 +36,6 @@ serde.workspace = true
 serde_json.workspace = true
 semver.workspace = true
 sha2.workspace = true
-slint-interpreter.workspace = true
-spin_on.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

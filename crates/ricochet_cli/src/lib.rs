@@ -73,18 +73,10 @@ const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
-const EMBEDDED_NATIVE_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_APP_V1\0";
-const EMBEDDED_NATIVE_SLINT_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_SLINT_APP_V1\0";
-const EMBEDDED_NATIVE_AVALONIA_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_AVALONIA_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
-const APP_EXPORT_UI_JSON_ENV: &str = "RICOCHET_APP_EXPORT_UI_JSON";
-const APP_REPLAY_EVENTS_JSON_ENV: &str = "RICOCHET_APP_REPLAY_EVENTS_JSON";
-const APP_WINUI_HOST_ENV: &str = "RICOCHET_WINUI_HOST";
-const APP_AVALONIA_HOST_ENV: &str = "RICOCHET_AVALONIA_HOST";
-const APP_SLINT_VALIDATE_ONLY_ENV: &str = "RICOCHET_SLINT_VALIDATE_ONLY";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -239,41 +231,6 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    App {
-        #[command(flatten)]
-        capabilities: CapabilityOptions,
-        path: String,
-        #[arg(
-            long,
-            default_value = "winui",
-            value_name = "BACKEND",
-            help = "Native backend to use: winui, avalonia, or slint"
-        )]
-        backend: String,
-        #[arg(long = "export-ui-json")]
-        export_ui_json: Option<PathBuf>,
-        #[arg(long = "replay-events")]
-        replay_events: Option<PathBuf>,
-        #[arg(
-            long = "winui-host",
-            value_name = "PATH",
-            help = "Use a specific Ricochet.WinUI.Host executable for live WinUI rendering"
-        )]
-        winui_host: Option<PathBuf>,
-        #[arg(
-            long = "avalonia-host",
-            value_name = "PATH",
-            help = "Use a specific Ricochet.Avalonia.Host executable for live Avalonia rendering"
-        )]
-        avalonia_host: Option<PathBuf>,
-        #[arg(
-            long = "slint-validate-only",
-            help = "Compile the generated Slint renderer document without opening a window"
-        )]
-        slint_validate_only: bool,
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     Tui {
         #[command(flatten)]
         capabilities: CapabilityOptions,
@@ -303,21 +260,6 @@ enum Command {
             help = "Use a specific rco-gui launcher executable for --gui packages"
         )]
         gui_launcher: Option<PathBuf>,
-        #[arg(long, help = "Package as a native app using --backend")]
-        app: bool,
-        #[arg(
-            long,
-            default_value = "winui",
-            value_name = "BACKEND",
-            help = "Native app backend to embed: winui, avalonia, or slint"
-        )]
-        backend: String,
-        #[arg(
-            long = "app-launcher",
-            value_name = "PATH",
-            help = "Use a specific rco-app launcher executable for --app packages"
-        )]
-        app_launcher: Option<PathBuf>,
         #[arg(
             long = "linux-package",
             value_enum,
@@ -671,9 +613,6 @@ enum EmbeddedAppKind {
     Tui,
     Gui,
     MvcGui,
-    NativeApp,
-    NativeSlintApp,
-    NativeAvaloniaApp,
 }
 
 impl EmbeddedAppKind {
@@ -683,60 +622,7 @@ impl EmbeddedAppKind {
             EmbeddedAppKind::Tui => EMBEDDED_TUI_APP_MARKER,
             EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
             EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
-            EmbeddedAppKind::NativeApp => EMBEDDED_NATIVE_APP_MARKER,
-            EmbeddedAppKind::NativeSlintApp => EMBEDDED_NATIVE_SLINT_APP_MARKER,
-            EmbeddedAppKind::NativeAvaloniaApp => EMBEDDED_NATIVE_AVALONIA_APP_MARKER,
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativeAppBackend {
-    Winui,
-    Slint,
-    Avalonia,
-}
-
-impl NativeAppBackend {
-    fn parse(value: &str) -> Result<Self> {
-        match value {
-            "winui" => Ok(Self::Winui),
-            "slint" => Ok(Self::Slint),
-            "avalonia" => Ok(Self::Avalonia),
-            other => bail!(
-                "unsupported native app backend {other:?}; supported backends: {}",
-                Self::supported_list()
-            ),
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Winui => "winui",
-            Self::Slint => "slint",
-            Self::Avalonia => "avalonia",
-        }
-    }
-
-    fn embedded_kind(self) -> EmbeddedAppKind {
-        match self {
-            Self::Winui => EmbeddedAppKind::NativeApp,
-            Self::Slint => EmbeddedAppKind::NativeSlintApp,
-            Self::Avalonia => EmbeddedAppKind::NativeAvaloniaApp,
-        }
-    }
-
-    fn from_embedded_kind(kind: EmbeddedAppKind) -> Option<Self> {
-        match kind {
-            EmbeddedAppKind::NativeApp => Some(Self::Winui),
-            EmbeddedAppKind::NativeSlintApp => Some(Self::Slint),
-            EmbeddedAppKind::NativeAvaloniaApp => Some(Self::Avalonia),
-            _ => None,
-        }
-    }
-
-    fn supported_list() -> &'static str {
-        "winui, avalonia, slint"
     }
 }
 
@@ -1006,13 +892,6 @@ pub async fn run_cli() -> Result<()> {
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
                 run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
             }
-            EmbeddedAppPayload::Chunk(chunk)
-                if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
-            {
-                let backend = NativeAppBackend::from_embedded_kind(app.kind)
-                    .expect("native app backend should be available for native app marker");
-                run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)?
-            }
             EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
                 run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await?
             }
@@ -1153,29 +1032,6 @@ pub async fn run_cli() -> Result<()> {
             path,
             args,
         } => run_gui_file(&path, args, capabilities)?,
-        Command::App {
-            capabilities,
-            path,
-            backend,
-            export_ui_json,
-            replay_events,
-            winui_host,
-            avalonia_host,
-            slint_validate_only,
-            args,
-        } => run_app_file(
-            &path,
-            args,
-            capabilities,
-            AppRunOptions {
-                backend: &backend,
-                export_ui_json: export_ui_json.as_deref(),
-                replay_events: replay_events.as_deref(),
-                winui_host: winui_host.as_deref(),
-                avalonia_host: avalonia_host.as_deref(),
-                slint_validate_only,
-            },
-        )?,
         Command::Tui {
             capabilities,
             path,
@@ -1188,9 +1044,6 @@ pub async fn run_cli() -> Result<()> {
             gui,
             mvc,
             gui_launcher,
-            app,
-            backend,
-            app_launcher,
             linux_packages,
             package_name,
             package_version,
@@ -1203,9 +1056,6 @@ pub async fn run_cli() -> Result<()> {
                 gui,
                 mvc,
                 gui_launcher: gui_launcher.as_deref(),
-                app,
-                backend: &backend,
-                app_launcher: app_launcher.as_deref(),
                 linux_packages: &linux_packages,
                 package_name: package_name.as_deref(),
                 package_version: &package_version,
@@ -1380,25 +1230,6 @@ pub async fn run_gui_launcher() -> Result<()> {
         _ => {
             bail!("rco-gui can only launch apps packaged with `rco package --gui`");
         }
-    }
-}
-
-pub fn run_app_launcher() -> Result<()> {
-    let Some(app) = embedded_app_from_current_exe()? else {
-        bail!(
-            "rco-app can only launch apps packaged with `rco package --app`; no embedded native app payload was found"
-        );
-    };
-
-    match app.payload {
-        EmbeddedAppPayload::Chunk(chunk)
-            if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
-        {
-            let backend = NativeAppBackend::from_embedded_kind(app.kind)
-                .expect("native app backend should be available for native app marker");
-            run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)
-        }
-        _ => bail!("rco-app can only launch native app payloads packaged with `rco package --app`"),
     }
 }
 
@@ -7490,55 +7321,6 @@ fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
     )
 }
 
-struct AppRunOptions<'a> {
-    backend: &'a str,
-    export_ui_json: Option<&'a Path>,
-    replay_events: Option<&'a Path>,
-    winui_host: Option<&'a Path>,
-    avalonia_host: Option<&'a Path>,
-    slint_validate_only: bool,
-}
-
-fn run_app_file(
-    path: &str,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    options: AppRunOptions<'_>,
-) -> Result<()> {
-    let backend = NativeAppBackend::parse(options.backend)?;
-
-    let source_path = Path::new(path);
-    let chunk = compile_source_file(source_path)?;
-    let dynamic_import_parent = dynamic_import_parent_for_source(source_path)?;
-    let export_path = options
-        .export_ui_json
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from));
-    let replay_path = options
-        .replay_events
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from));
-    let mut session = NativeAppSession::start(&chunk, args, capabilities, dynamic_import_parent)?;
-    if let Some(path) = replay_path.as_deref() {
-        session.replay_events(path)?;
-    }
-
-    if let Some(path) = export_path {
-        write_app_export_json(&path, backend.id(), &session.render())?;
-        return Ok(());
-    }
-
-    match backend {
-        NativeAppBackend::Winui => {
-            run_live_winui_backend(&mut session, backend.id(), options.winui_host)
-        }
-        NativeAppBackend::Avalonia => {
-            run_live_avalonia_backend(&mut session, backend.id(), options.avalonia_host)
-        }
-        NativeAppBackend::Slint => run_live_slint_backend(session, options.slint_validate_only),
-    }
-}
-
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
     let source_path = Path::new(path);
     let chunk = compile_source_file(source_path)?;
@@ -7566,35 +7348,6 @@ fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
         CapabilityOptions::default(),
         current_dir_for_dynamic_imports()?,
     )
-}
-
-fn run_embedded_native_app(
-    chunk: &Chunk,
-    args: Vec<String>,
-    backend: NativeAppBackend,
-) -> Result<()> {
-    let export_path = std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from);
-    let replay_path = std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from);
-    let mut session = NativeAppSession::start(
-        chunk,
-        args,
-        CapabilityOptions::default(),
-        current_dir_for_dynamic_imports()?,
-    )?;
-    if let Some(path) = replay_path.as_deref() {
-        session.replay_events(path)?;
-    }
-
-    if let Some(path) = export_path {
-        write_app_export_json(&path, backend.id(), &session.render())?;
-        return Ok(());
-    }
-
-    match backend {
-        NativeAppBackend::Winui => run_live_winui_backend(&mut session, backend.id(), None),
-        NativeAppBackend::Avalonia => run_live_avalonia_backend(&mut session, backend.id(), None),
-        NativeAppBackend::Slint => run_live_slint_backend(session, slint_validate_only_from_env()),
-    }
 }
 
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
@@ -7761,901 +7514,6 @@ fn run_gui_chunk(
         return Ok(());
     }
     open_native_webview(document)
-}
-
-#[derive(Clone)]
-struct NativeAppRender {
-    state: Value,
-    document: Value,
-}
-
-struct NativeAppSession {
-    vm: Vm,
-    state: Value,
-    document: Value,
-}
-
-impl NativeAppSession {
-    fn start(
-        chunk: &Chunk,
-        args: Vec<String>,
-        capabilities: CapabilityOptions,
-        dynamic_import_parent: PathBuf,
-    ) -> Result<Self> {
-        let mut vm = cli_vm(args, &capabilities)?;
-        install_dynamic_module_loader(&mut vm, dynamic_import_parent);
-        run_app_chunk(&mut vm, chunk, "app source")?;
-
-        let state = call_app_function(&mut vm, "app_init", Vec::new())?;
-        let document = call_app_function(&mut vm, "app_view", vec![state.clone()])?;
-        ensure_native_app_document(&document)?;
-
-        Ok(Self {
-            vm,
-            state,
-            document,
-        })
-    }
-
-    fn replay_events(&mut self, path: &Path) -> Result<()> {
-        for event in read_app_replay_events(path)? {
-            self.apply_event(event)?;
-        }
-        Ok(())
-    }
-
-    fn apply_event(&mut self, event: Value) -> Result<NativeAppRender> {
-        let response =
-            call_app_function(&mut self.vm, "app_update", vec![self.state.clone(), event])?;
-        let parts = native_app_response_parts(response)?;
-        ensure_native_app_document(&parts.document)?;
-        self.state = parts.state;
-        self.document = parts.document;
-        Ok(self.render())
-    }
-
-    fn render(&self) -> NativeAppRender {
-        NativeAppRender {
-            state: self.state.clone(),
-            document: self.document.clone(),
-        }
-    }
-}
-
-fn run_app_chunk(vm: &mut Vm, chunk: &Chunk, label: &str) -> Result<()> {
-    let result = vm.run_chunk(chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
-        std::process::exit(code);
-    }
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(vm, &error));
-    }
-    if vm.stack().last().is_none() && label.is_empty() {
-        bail!("native app host received an empty chunk label");
-    }
-    Ok(())
-}
-
-fn call_app_function(vm: &mut Vm, name: &str, arguments: Vec<Value>) -> Result<Value> {
-    let before = vm.stack().len();
-    for argument in arguments {
-        vm.push_value(argument);
-    }
-    let mut chunk = Chunk::new(format!("<app:{name}>"));
-    chunk.push(Op::CallWord(name.to_string()), app_host_span(name));
-    run_app_chunk(vm, &chunk, name)?;
-    vm.stack()
-        .last()
-        .cloned()
-        .filter(|_| vm.stack().len() > before)
-        .with_context(|| format!("native app function {name:?} must return one value"))
-        .and_then(unwrap_native_app_value)
-}
-
-fn unwrap_native_app_value(value: Value) -> Result<Value> {
-    match value {
-        Value::Result(RicochetResult::Ok(inner)) => unwrap_native_app_value(*inner),
-        Value::Result(RicochetResult::Err(error)) => {
-            bail!(
-                "native app returned an error result: {}: {}",
-                error.kind,
-                error.message
-            )
-        }
-        value => Ok(value),
-    }
-}
-
-fn ensure_native_app_document(value: &Value) -> Result<()> {
-    let Value::Map(map) = value else {
-        bail!("native app document must be a map, got {value:?}");
-    };
-    match map.get("type") {
-        Some(Value::String(kind)) if kind == "window" => Ok(()),
-        Some(value) => bail!("native app document root type must be \"window\", got {value:?}"),
-        None => bail!("native app document is missing root `type`"),
-    }
-}
-
-fn native_app_response_parts(response: Value) -> Result<NativeAppRender> {
-    let Value::Map(map) = response else {
-        bail!("native app update response must be a map");
-    };
-    let state = map
-        .get("state")
-        .context("native app update response is missing `state`")?;
-    let document = map
-        .get("document")
-        .context("native app update response is missing `document`")?;
-    Ok(NativeAppRender { state, document })
-}
-
-fn read_app_replay_events(path: &Path) -> Result<Vec<Value>> {
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read native app replay events {}", path.display()))?;
-    let json: serde_json::Value = serde_json::from_str(&source)
-        .with_context(|| format!("native app replay events must be JSON: {}", path.display()))?;
-    let serde_json::Value::Array(events) = json else {
-        bail!("native app replay events must be a JSON array");
-    };
-    Ok(events.into_iter().map(json_to_ricochet_value).collect())
-}
-
-fn app_export_json(backend: &str, state: &Value, document: &Value) -> Result<serde_json::Value> {
-    Ok(json!({
-        "schema_version": 1,
-        "backend": backend,
-        "state": ricochet_value_to_json(state)?,
-        "document": ricochet_value_to_json(document)?,
-    }))
-}
-
-fn write_app_export_json(path: &Path, backend: &str, rendered: &NativeAppRender) -> Result<()> {
-    let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
-    let json = serde_json::to_string_pretty(&payload)?;
-    fs::write(path, json).with_context(|| {
-        format!(
-            "failed to write native app UI JSON export requested at {}",
-            path.display()
-        )
-    })
-}
-
-struct SlintRenderPlan {
-    title: String,
-    source: String,
-    projection: String,
-}
-
-#[derive(Clone)]
-struct SlintButtonBinding {
-    id: String,
-    label: String,
-}
-
-fn run_live_slint_backend(session: NativeAppSession, validate_only: bool) -> Result<()> {
-    use slint_interpreter::ComponentHandle as _;
-
-    let rendered = session.render();
-    let plan = slint_render_plan(&rendered.document)?;
-    let definition = compile_slint_render_plan(&plan)?;
-
-    if validate_only || slint_validate_only_from_env() {
-        println!("Slint renderer validated {}", plan.title);
-        return Ok(());
-    }
-
-    let instance = definition
-        .create()
-        .context("failed to create Slint renderer instance")?;
-    instance
-        .set_property("projection", slint_string_value(&plan.projection))
-        .context("failed to initialize Slint projection property")?;
-
-    let session = Rc::new(RefCell::new(session));
-    let instance_weak = instance.as_weak();
-    instance
-        .set_callback("dispatch", move |args| {
-            let Some(slint_interpreter::Value::String(id)) = args.first() else {
-                return slint_interpreter::Value::Void;
-            };
-            let event = json!({
-                "schema_version": 1,
-                "type": "click",
-                "id": id.to_string(),
-                "value": null,
-                "backend": "slint",
-                "native": {}
-            });
-
-            match session
-                .borrow_mut()
-                .apply_event(json_to_ricochet_value(event))
-                .and_then(|rendered| slint_projection_from_document(&rendered.document))
-            {
-                Ok(projection) => {
-                    if let Some(instance) = instance_weak.upgrade() {
-                        if let Err(error) =
-                            instance.set_property("projection", slint_string_value(&projection))
-                        {
-                            eprintln!("failed to update Slint projection: {error}");
-                        }
-                    }
-                }
-                Err(error) => eprintln!("failed to handle Slint UI event: {error:?}"),
-            }
-
-            slint_interpreter::Value::Void
-        })
-        .context("failed to install Slint dispatch callback")?;
-
-    instance.run().context("Slint renderer failed")
-}
-
-fn slint_validate_only_from_env() -> bool {
-    std::env::var_os(APP_SLINT_VALIDATE_ONLY_ENV)
-        .and_then(|value| value.into_string().ok())
-        .is_some_and(|value| {
-            matches!(
-                value.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-}
-
-fn slint_render_plan(document: &Value) -> Result<SlintRenderPlan> {
-    let document = ricochet_value_to_json(document)?;
-    let title = json_node_prop_string(&document, "title")
-        .unwrap_or_else(|| "Ricochet Slint App".to_string());
-    let mut lines = Vec::new();
-    let mut buttons = Vec::new();
-    append_slint_projection_for_node(&document, 0, &mut lines, &mut buttons);
-    let projection = lines
-        .into_iter()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let projection = if projection.is_empty() {
-        title.clone()
-    } else {
-        projection
-    };
-
-    Ok(SlintRenderPlan {
-        source: slint_source_for_projection(&title, &buttons),
-        title,
-        projection,
-    })
-}
-
-fn compile_slint_render_plan(
-    plan: &SlintRenderPlan,
-) -> Result<slint_interpreter::ComponentDefinition> {
-    let compiler = slint_interpreter::Compiler::default();
-    let result =
-        spin_on::spin_on(compiler.build_from_source(plan.source.clone(), Default::default()));
-    let diagnostics = result.diagnostics().collect::<Vec<_>>();
-    if !diagnostics.is_empty() {
-        bail!("generated Slint renderer document did not compile: {diagnostics:?}");
-    }
-    result
-        .component("RicochetApp")
-        .context("generated Slint renderer did not export RicochetApp")
-}
-
-fn slint_projection_from_document(document: &Value) -> Result<String> {
-    let plan = slint_render_plan(document)?;
-    Ok(plan.projection)
-}
-
-fn slint_source_for_projection(title: &str, buttons: &[SlintButtonBinding]) -> String {
-    let mut source = String::new();
-    source.push_str("import { Button } from \"std-widgets.slint\";\n\n");
-    source.push_str("export component RicochetApp inherits Window {\n");
-    source.push_str("  title: ");
-    source.push_str(&slint_string_literal(title));
-    source.push_str(";\n");
-    source.push_str("  preferred-width: 960px;\n");
-    source.push_str("  preferred-height: 720px;\n");
-    source.push_str("  callback dispatch(string);\n");
-    source.push_str("  in-out property <string> projection;\n\n");
-    source.push_str("  VerticalLayout {\n");
-    source.push_str("    padding: 16px;\n");
-    source.push_str("    spacing: 8px;\n");
-    source.push_str("    Text { text: root.projection; }\n");
-    for button in buttons {
-        source.push_str("    Button { text: ");
-        source.push_str(&slint_string_literal(&button.label));
-        source.push_str("; clicked => { root.dispatch(");
-        source.push_str(&slint_string_literal(&button.id));
-        source.push_str("); } }\n");
-    }
-    source.push_str("  }\n");
-    source.push_str("}\n");
-    source
-}
-
-fn slint_string_literal(value: &str) -> String {
-    serde_json::to_string(value).expect("string literal should serialize")
-}
-
-fn slint_string_value(value: &str) -> slint_interpreter::Value {
-    slint_interpreter::Value::from(slint_interpreter::SharedString::from(value))
-}
-
-fn append_slint_projection_for_node(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    let node_type = json_property_string(node, "type").unwrap_or_default();
-    let node_id = json_property_string(node, "id").unwrap_or_default();
-    match node_type.as_str() {
-        "window" => {
-            if let Some(title) = json_node_prop_string(node, "title") {
-                lines.push(title);
-            }
-            append_slint_child_nodes(node, indent, lines, buttons);
-        }
-        "text" | "heading" => {
-            if let Some(text) = json_node_prop_string(node, "text") {
-                lines.push(format!("{}{}", slint_indent(indent), text));
-            }
-        }
-        "button" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            lines.push(format!("{}[Button] {}", slint_indent(indent), label));
-            buttons.push(SlintButtonBinding { id: node_id, label });
-        }
-        "text_input" | "multiline_text_input" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let value = json_node_prop_string(node, "value").unwrap_or_default();
-            lines.push(format!("{}{}: {}", slint_indent(indent), label, value));
-        }
-        "checkbox" | "toggle" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let checked = json_node_prop_bool(node, "checked").unwrap_or(false);
-            lines.push(format!(
-                "{}{}: {}",
-                slint_indent(indent),
-                label,
-                if checked { "checked" } else { "unchecked" }
-            ));
-        }
-        "select" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let value = json_node_prop_string(node, "value").unwrap_or_default();
-            lines.push(format!("{}{}: {}", slint_indent(indent), label, value));
-        }
-        "stack" | "grid" | "split_pane" | "scroll_view" => {
-            append_slint_child_nodes(node, indent, lines, buttons);
-        }
-        "group" => {
-            let title = json_node_prop_string(node, "title").unwrap_or_else(|| node_id.clone());
-            lines.push(format!("{}{}", slint_indent(indent), title));
-            append_slint_child_nodes(node, indent + 1, lines, buttons);
-        }
-        "spacer" => lines.push(String::new()),
-        "list" => append_slint_list_projection(node, indent, lines),
-        "tree" => append_slint_tree_projection(node, indent, lines),
-        "data_grid" => append_slint_data_grid_projection(node, indent, lines, buttons),
-        "rich_text" | "rich_text_input" => append_slint_rich_text_projection(node, indent, lines),
-        "menu_bar" | "command_bar" | "context_menu" => {
-            append_slint_command_items_projection(node, indent, lines, buttons);
-        }
-        _ => {
-            lines.push(format!(
-                "{}Unsupported node {} ({})",
-                slint_indent(indent),
-                node_id,
-                node_type
-            ));
-            append_slint_child_nodes(node, indent + 1, lines, buttons);
-        }
-    }
-}
-
-fn append_slint_child_nodes(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    if let Some(children) = node.get("children").and_then(serde_json::Value::as_array) {
-        for child in children {
-            append_slint_projection_for_node(child, indent, lines, buttons);
-        }
-    }
-}
-
-fn append_slint_command_items_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    for item in json_node_prop_array(node, "items") {
-        let id = json_property_string(item, "id").unwrap_or_default();
-        let label = json_property_string(item, "label").unwrap_or_else(|| id.clone());
-        let shortcut = json_property_string(item, "shortcut").unwrap_or_default();
-        let suffix = if shortcut.is_empty() {
-            String::new()
-        } else {
-            format!(" ({shortcut})")
-        };
-        lines.push(format!(
-            "{}[Command] {}{}",
-            slint_indent(indent),
-            label,
-            suffix
-        ));
-        buttons.push(SlintButtonBinding { id, label });
-    }
-}
-
-fn append_slint_list_projection(node: &serde_json::Value, indent: usize, lines: &mut Vec<String>) {
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        json_property_string(node, "id").unwrap_or_else(|| "list".to_string())
-    ));
-    for item in json_node_prop_array(node, "items") {
-        lines.push(format!(
-            "{}- {}",
-            slint_indent(indent + 1),
-            json_label(item)
-        ));
-    }
-}
-
-fn append_slint_tree_projection(node: &serde_json::Value, indent: usize, lines: &mut Vec<String>) {
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        json_property_string(node, "id").unwrap_or_else(|| "tree".to_string())
-    ));
-    for tree_node in json_node_prop_array(node, "nodes") {
-        append_slint_tree_node_projection(tree_node, indent + 1, lines);
-    }
-}
-
-fn append_slint_tree_node_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-) {
-    let label = json_property_string(node, "label")
-        .or_else(|| json_property_string(node, "id"))
-        .unwrap_or_default();
-    lines.push(format!("{}- {}", slint_indent(indent), label));
-    if let Some(children) = node.get("children").and_then(serde_json::Value::as_array) {
-        for child in children {
-            append_slint_tree_node_projection(child, indent + 1, lines);
-        }
-    }
-}
-
-fn append_slint_data_grid_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    let columns = json_node_prop_array(node, "columns");
-    let column_titles = columns
-        .iter()
-        .map(|column| {
-            json_property_string(column, "title")
-                .or_else(|| json_property_string(column, "id"))
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>();
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        column_titles.join(" | ")
-    ));
-
-    for row in json_node_prop_array(node, "rows") {
-        let row_id = json_property_string(row, "id").unwrap_or_default();
-        let mut cells = Vec::new();
-        if let Some(cell_map) = row.get("cells").and_then(serde_json::Value::as_object) {
-            for column in &columns {
-                let column_id = json_property_string(column, "id").unwrap_or_default();
-                cells.push(cell_map.get(&column_id).map(json_label).unwrap_or_default());
-            }
-        }
-        lines.push(format!("{}{}", slint_indent(indent + 1), cells.join(" | ")));
-        if !row_id.is_empty() {
-            buttons.push(SlintButtonBinding {
-                id: json_property_string(node, "id").unwrap_or_default(),
-                label: format!("Open {row_id}"),
-            });
-        }
-    }
-}
-
-fn append_slint_rich_text_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-) {
-    if let Some(label) = json_node_prop_string(node, "label") {
-        lines.push(format!("{}{}", slint_indent(indent), label));
-    }
-    let Some(document) = json_node_prop(node, "document") else {
-        return;
-    };
-    let Some(blocks) = document.get("blocks").and_then(serde_json::Value::as_array) else {
-        return;
-    };
-    for block in blocks {
-        let mut text = String::new();
-        if let Some(spans) = block.get("spans").and_then(serde_json::Value::as_array) {
-            for span in spans {
-                text.push_str(&json_property_string(span, "text").unwrap_or_default());
-            }
-        }
-        if !text.is_empty() {
-            lines.push(format!("{}{}", slint_indent(indent + 1), text));
-        }
-    }
-}
-
-fn slint_indent(indent: usize) -> String {
-    "  ".repeat(indent)
-}
-
-fn json_node_prop<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
-    node.get("props")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|props| props.get(name))
-}
-
-fn json_node_prop_string(node: &serde_json::Value, name: &str) -> Option<String> {
-    json_node_prop(node, name).map(json_label)
-}
-
-fn json_node_prop_bool(node: &serde_json::Value, name: &str) -> Option<bool> {
-    json_node_prop(node, name).and_then(serde_json::Value::as_bool)
-}
-
-fn json_node_prop_array<'a>(node: &'a serde_json::Value, name: &str) -> Vec<&'a serde_json::Value> {
-    json_node_prop(node, name)
-        .and_then(serde_json::Value::as_array)
-        .map(|values| values.iter().collect())
-        .unwrap_or_default()
-}
-
-fn json_property_string(value: &serde_json::Value, name: &str) -> Option<String> {
-    value.get(name).map(json_label)
-}
-
-fn json_label(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => String::new(),
-        serde_json::Value::Bool(value) => value.to_string(),
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Array(values) => {
-            values.iter().map(json_label).collect::<Vec<_>>().join(", ")
-        }
-        serde_json::Value::Object(values) => values
-            .get("label")
-            .or_else(|| values.get("title"))
-            .or_else(|| values.get("id"))
-            .map(json_label)
-            .unwrap_or_else(|| serde_json::Value::Object(values.clone()).to_string()),
-    }
-}
-
-fn run_live_winui_backend(
-    session: &mut NativeAppSession,
-    backend: &str,
-    winui_host: Option<&Path>,
-) -> Result<()> {
-    let host = resolve_winui_host(winui_host)?;
-    let protocol_dir = create_winui_protocol_dir()?;
-    let document_path = protocol_dir.join("initial-ui.json");
-    let events_path = protocol_dir.join("events.jsonl");
-    let responses_path = protocol_dir.join("responses.jsonl");
-
-    write_app_export_json(&document_path, backend, &session.render())?;
-    fs::write(&events_path, "")
-        .with_context(|| format!("failed to initialize {}", events_path.display()))?;
-    fs::write(&responses_path, "")
-        .with_context(|| format!("failed to initialize {}", responses_path.display()))?;
-
-    let mut child = std::process::Command::new(&host)
-        .arg("--document")
-        .arg(&document_path)
-        .arg("--events")
-        .arg(&events_path)
-        .arg("--responses")
-        .arg(&responses_path)
-        .spawn()
-        .with_context(|| format!("failed to launch WinUI backend host {}", host.display()))?;
-
-    let mut events_offset = 0_usize;
-    loop {
-        if let Some(status) = child
-            .try_wait()
-            .context("failed to poll WinUI backend host")?
-        {
-            if status.success() {
-                return Ok(());
-            }
-            bail!("WinUI backend host exited with status {status}");
-        }
-
-        for line in read_new_json_lines(&events_path, &mut events_offset)? {
-            let event: serde_json::Value = serde_json::from_str(&line)
-                .with_context(|| format!("WinUI backend wrote invalid event JSON: {line}"))?;
-            let rendered = session.apply_event(json_to_ricochet_value(event))?;
-            let response = app_export_json(backend, &rendered.state, &rendered.document)?;
-            let response = serde_json::to_string(&response)?;
-            fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&responses_path)
-                .with_context(|| format!("failed to open {}", responses_path.display()))?
-                .write_all(format!("{response}\n").as_bytes())
-                .with_context(|| format!("failed to write {}", responses_path.display()))?;
-        }
-
-        std::thread::sleep(Duration::from_millis(30));
-    }
-}
-
-fn run_live_avalonia_backend(
-    session: &mut NativeAppSession,
-    backend: &str,
-    avalonia_host: Option<&Path>,
-) -> Result<()> {
-    let host = resolve_avalonia_host(avalonia_host)?;
-    let protocol_dir = create_avalonia_protocol_dir()?;
-    let document_path = protocol_dir.join("initial-ui.json");
-    let events_path = protocol_dir.join("events.jsonl");
-    let responses_path = protocol_dir.join("responses.jsonl");
-
-    write_app_export_json(&document_path, backend, &session.render())?;
-    fs::write(&events_path, "")
-        .with_context(|| format!("failed to initialize {}", events_path.display()))?;
-    fs::write(&responses_path, "")
-        .with_context(|| format!("failed to initialize {}", responses_path.display()))?;
-
-    let mut child = std::process::Command::new(&host)
-        .arg("--document")
-        .arg(&document_path)
-        .arg("--events")
-        .arg(&events_path)
-        .arg("--responses")
-        .arg(&responses_path)
-        .spawn()
-        .with_context(|| format!("failed to launch Avalonia backend host {}", host.display()))?;
-
-    let mut events_offset = 0_usize;
-    loop {
-        if let Some(status) = child
-            .try_wait()
-            .context("failed to poll Avalonia backend host")?
-        {
-            if status.success() {
-                return Ok(());
-            }
-            bail!("Avalonia backend host exited with status {status}");
-        }
-
-        for line in read_new_json_lines(&events_path, &mut events_offset)? {
-            let event: serde_json::Value = serde_json::from_str(&line)
-                .with_context(|| format!("Avalonia backend wrote invalid event JSON: {line}"))?;
-            let rendered = session.apply_event(json_to_ricochet_value(event))?;
-            let response = app_export_json(backend, &rendered.state, &rendered.document)?;
-            let response = serde_json::to_string(&response)?;
-            fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&responses_path)
-                .with_context(|| format!("failed to open {}", responses_path.display()))?
-                .write_all(format!("{response}\n").as_bytes())
-                .with_context(|| format!("failed to write {}", responses_path.display()))?;
-        }
-
-        std::thread::sleep(Duration::from_millis(30));
-    }
-}
-
-fn resolve_winui_host(winui_host: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = winui_host {
-        return ensure_winui_host_path(path);
-    }
-
-    if let Some(path) = std::env::var_os(APP_WINUI_HOST_ENV) {
-        return ensure_winui_host_path(Path::new(&path));
-    }
-
-    let exe_suffix = std::env::consts::EXE_SUFFIX;
-    let host_name = format!("Ricochet.WinUI.Host{exe_suffix}");
-    let mut candidates = Vec::new();
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            candidates.push(parent.join(&host_name));
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        for configuration in ["Release", "Debug"] {
-            candidates.push(
-                current_dir
-                    .join("hosts")
-                    .join("winui")
-                    .join("Ricochet.WinUI.Host")
-                    .join("bin")
-                    .join(configuration)
-                    .join("net10.0-windows10.0.19041.0")
-                    .join("win-x64")
-                    .join(&host_name),
-            );
-            candidates.push(
-                current_dir
-                    .join("hosts")
-                    .join("winui")
-                    .join("Ricochet.WinUI.Host")
-                    .join("bin")
-                    .join(configuration)
-                    .join("net10.0-windows10.0.19041.0")
-                    .join(&host_name),
-            );
-        }
-    }
-
-    for candidate in candidates {
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    bail!(
-        "WinUI backend host not found; build it with dotnet publish hosts/winui/Ricochet.WinUI.Host/Ricochet.WinUI.Host.csproj or pass --winui-host PATH"
-    )
-}
-
-fn resolve_avalonia_host(avalonia_host: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = avalonia_host {
-        return ensure_avalonia_host_path(path);
-    }
-
-    if let Some(path) = std::env::var_os(APP_AVALONIA_HOST_ENV) {
-        return ensure_avalonia_host_path(Path::new(&path));
-    }
-
-    let exe_suffix = std::env::consts::EXE_SUFFIX;
-    let host_name = format!("Ricochet.Avalonia.Host{exe_suffix}");
-    let mut candidates = Vec::new();
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            candidates.push(parent.join(&host_name));
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        for configuration in ["Release", "Debug"] {
-            candidates.push(
-                current_dir
-                    .join("hosts")
-                    .join("avalonia")
-                    .join("Ricochet.Avalonia.Host")
-                    .join("bin")
-                    .join(configuration)
-                    .join("net10.0")
-                    .join(&host_name),
-            );
-            if let Some(runtime_id) = native_host_runtime_id() {
-                candidates.push(
-                    current_dir
-                        .join("hosts")
-                        .join("avalonia")
-                        .join("Ricochet.Avalonia.Host")
-                        .join("bin")
-                        .join(configuration)
-                        .join("net10.0")
-                        .join(runtime_id)
-                        .join(&host_name),
-                );
-            }
-        }
-    }
-
-    for candidate in candidates {
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    bail!(
-        "Avalonia backend host not found; build it with dotnet build hosts/avalonia/Ricochet.Avalonia.Host/Ricochet.Avalonia.Host.csproj -c Release or pass --avalonia-host PATH"
-    )
-}
-
-fn native_host_runtime_id() -> Option<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("windows", "x86_64") => Some("win-x64"),
-        ("windows", "aarch64") => Some("win-arm64"),
-        ("linux", "x86_64") => Some("linux-x64"),
-        ("linux", "aarch64") => Some("linux-arm64"),
-        ("macos", "x86_64") => Some("osx-x64"),
-        ("macos", "aarch64") => Some("osx-arm64"),
-        _ => None,
-    }
-}
-
-fn ensure_winui_host_path(path: &Path) -> Result<PathBuf> {
-    if !path.is_file() {
-        bail!("WinUI backend host does not exist: {}", path.display());
-    }
-    Ok(path.to_path_buf())
-}
-
-fn ensure_avalonia_host_path(path: &Path) -> Result<PathBuf> {
-    if !path.is_file() {
-        bail!("Avalonia backend host does not exist: {}", path.display());
-    }
-    Ok(path.to_path_buf())
-}
-
-fn create_winui_protocol_dir() -> Result<PathBuf> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ricochet-winui-{}-{now}", std::process::id()));
-    fs::create_dir_all(&dir).with_context(|| {
-        format!(
-            "failed to create WinUI protocol directory {}",
-            dir.display()
-        )
-    })?;
-    Ok(dir)
-}
-
-fn create_avalonia_protocol_dir() -> Result<PathBuf> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ricochet-avalonia-{}-{now}", std::process::id()));
-    fs::create_dir_all(&dir).with_context(|| {
-        format!(
-            "failed to create Avalonia protocol directory {}",
-            dir.display()
-        )
-    })?;
-    Ok(dir)
-}
-
-fn read_new_json_lines(path: &Path, offset: &mut usize) -> Result<Vec<String>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read native app event stream {}", path.display()))?;
-    if *offset > source.len() {
-        *offset = 0;
-    }
-    let new_source = &source[*offset..];
-    *offset = source.len();
-    Ok(new_source
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect())
 }
 
 fn render_webview_document(
@@ -8830,16 +7688,6 @@ fn gui_event_span() -> SourceSpan {
     }
 }
 
-fn app_host_span(function: &str) -> SourceSpan {
-    SourceSpan {
-        file: format!("<app:{function}>"),
-        start: 0,
-        end: 0,
-        line: 1,
-        column: 1,
-    }
-}
-
 fn json_to_ricochet_value(value: serde_json::Value) -> Value {
     match value {
         serde_json::Value::Null => Value::Nil,
@@ -8870,51 +7718,6 @@ fn json_to_ricochet_value(value: serde_json::Value) -> Value {
                 .collect::<BTreeMap<_, _>>()
                 .into(),
         ),
-    }
-}
-
-fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
-    match value {
-        Value::Nil => Ok(serde_json::Value::Null),
-        Value::Bool(value) => Ok(serde_json::Value::Bool(*value)),
-        Value::Number(value) => Ok(json!(*value)),
-        Value::Float(value) => serde_json::Number::from_f64(*value)
-            .map(serde_json::Value::Number)
-            .with_context(|| format!("cannot encode non-finite float {value} as JSON")),
-        Value::String(value) => Ok(serde_json::Value::String(value.clone())),
-        Value::Array(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::List(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::Set(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::Map(values) => values
-            .snapshot()
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), ricochet_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()
-            .map(serde_json::Value::Object),
-        Value::Result(RicochetResult::Ok(value)) => ricochet_value_to_json(value),
-        Value::Result(RicochetResult::Err(error)) => {
-            bail!(
-                "cannot encode error result as native app JSON: {}: {}",
-                error.kind,
-                error.message
-            )
-        }
-        value => bail!("cannot encode {value:?} as native app JSON"),
     }
 }
 
@@ -11933,17 +10736,8 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if options.tui && options.gui {
         bail!("--tui cannot be used with --gui");
     }
-    if options.app && options.tui {
-        bail!("--app cannot be used with --tui");
-    }
-    if options.app && options.gui {
-        bail!("--app cannot be used with --gui");
-    }
     if options.tui && options.mvc {
         bail!("--mvc requires --gui and cannot be used with --tui");
-    }
-    if options.app && options.mvc {
-        bail!("--mvc requires --gui and cannot be used with --app");
     }
     if options.mvc && !options.gui {
         bail!("--mvc requires --gui");
@@ -11951,19 +10745,8 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     if options.gui_launcher.is_some() && !options.gui {
         bail!("--gui-launcher requires --gui");
     }
-    if options.app_launcher.is_some() && !options.app {
-        bail!("--app-launcher requires --app");
-    }
-    let native_app_backend = if options.app {
-        Some(NativeAppBackend::parse(options.backend)?)
-    } else {
-        None
-    };
     if options.gui && !native_gui_packaging_supported() {
         bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
-    }
-    if options.app && !options.linux_packages.is_empty() {
-        bail!("--linux-package is not supported with --app yet");
     }
     if !options.linux_packages.is_empty() {
         ensure_linux_package_host()?;
@@ -11971,10 +10754,6 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
 
     let package_kind = if options.mvc {
         EmbeddedAppKind::MvcGui
-    } else if options.app {
-        native_app_backend
-            .expect("native app backend should be parsed when --app is set")
-            .embedded_kind()
     } else if options.gui {
         EmbeddedAppKind::Gui
     } else if options.tui {
@@ -11987,11 +10766,7 @@ fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()>
     } else {
         compile_source_file(Path::new(path))?.to_bytes()?
     };
-    let launcher = if options.app {
-        package_app_launcher(options.app_launcher)?
-    } else {
-        package_launcher(options.gui, options.gui_launcher)?
-    };
+    let launcher = package_launcher(options.gui, options.gui_launcher)?;
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -12026,9 +10801,6 @@ struct PackageOptions<'a> {
     gui: bool,
     mvc: bool,
     gui_launcher: Option<&'a Path>,
-    app: bool,
-    backend: &'a str,
-    app_launcher: Option<&'a Path>,
     linux_packages: &'a [LinuxPackageFormat],
     package_name: Option<&'a str>,
     package_version: &'a str,
@@ -12373,35 +11145,6 @@ fn package_launcher(gui: bool, gui_launcher: Option<&Path>) -> Result<PathBuf> {
 
     bail!(
         "rco package --gui requires the rco-gui launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-gui` or pass --gui-launcher PATH"
-    )
-}
-
-fn package_app_launcher(app_launcher: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = app_launcher {
-        if !path.is_file() {
-            bail!("native app launcher does not exist: {}", path.display());
-        }
-        return Ok(path.to_path_buf());
-    }
-
-    let current_exe =
-        std::env::current_exe().context("failed to locate current Ricochet executable")?;
-    if current_exe
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .is_some_and(|stem| stem == "rco-app")
-    {
-        return Ok(current_exe);
-    }
-
-    let app_launcher =
-        current_exe.with_file_name(format!("rco-app{}", std::env::consts::EXE_SUFFIX));
-    if app_launcher.is_file() {
-        return Ok(app_launcher);
-    }
-
-    bail!(
-        "rco package --app requires the rco-app launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-app` or pass --app-launcher PATH"
     )
 }
 
@@ -12972,9 +11715,6 @@ fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
 fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
     for kind in [
         EmbeddedAppKind::MvcGui,
-        EmbeddedAppKind::NativeAvaloniaApp,
-        EmbeddedAppKind::NativeSlintApp,
-        EmbeddedAppKind::NativeApp,
         EmbeddedAppKind::Gui,
         EmbeddedAppKind::Tui,
         EmbeddedAppKind::Console,
@@ -13011,12 +11751,7 @@ fn embedded_app_from_bytes_with_marker(
     let payload_start = marker_start - chunk_len;
     let payload_bytes = &bytes[payload_start..marker_start];
     let payload = match kind {
-        EmbeddedAppKind::Console
-        | EmbeddedAppKind::Tui
-        | EmbeddedAppKind::Gui
-        | EmbeddedAppKind::NativeApp
-        | EmbeddedAppKind::NativeSlintApp
-        | EmbeddedAppKind::NativeAvaloniaApp => {
+        EmbeddedAppKind::Console | EmbeddedAppKind::Tui | EmbeddedAppKind::Gui => {
             EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
         }
         EmbeddedAppKind::MvcGui => {

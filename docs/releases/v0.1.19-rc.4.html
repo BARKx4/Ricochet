@@ -41,7 +41,7 @@
           </aside>
           <article class="guide-content">
 <p>Date: 2026-07-03</p>
-<p>Ricochet v0.1.19-rc.4 is a language-surface cleanup release candidate on the v0.1.19 train. It supersedes v0.1.19-rc.3 without replacing that immutable candidate tag, and carries forward the native app UI, packaging, and security hardening work from earlier v0.1.19 candidates.</p>
+<p>Ricochet v0.1.19-rc.4 is a language-surface cleanup release candidate on the v0.1.19 train. It supersedes v0.1.19-rc.3 without replacing that immutable candidate tag, keeps the WebView desktop UI path as the supported app surface, and carries forward the packaging and security hardening work from earlier v0.1.19 candidates.</p>
 <h2 id="breaking-language-cleanup">Breaking Language Cleanup</h2>
 <ul>
 <li>Collection mutators now use ordinary public word names: <code>push</code>, <code>put</code>, <code>insert_at</code>, <code>remove</code>, <code>remove_at</code>, and <code>clear_items</code>.</li>
@@ -67,21 +67,17 @@
 </ul>
 <h2 id="changes-carried-forward-since-v0-1-19-rc-3">Changes Carried Forward Since v0.1.19-rc.3</h2>
 <ul>
-<li><code>@ricochet/ui</code> remains the backend-neutral native app contract introduced in rc.3.</li>
-<li><code>@ricochet/winui</code> remains the primary Windows-native host, and <code>@ricochet/avalonia</code> is now the preferred cross-platform desktop host for Windows/Linux parity work.</li>
-<li><code>@ricochet/slint</code> remains available as a lightweight experimental renderer and package descriptor, but it is no longer positioned as the main Linux native UI path for this release candidate.</li>
-<li><code>rco app</code> and <code>rco package --app</code> continue to support WinUI, Avalonia, and Slint native app backends, JSON export/replay, WinUI/Avalonia host launches, and Slint validate-only smoke paths.</li>
-<li>Release packages continue to include <code>rco-app</code> alongside the CLI and GUI launchers.</li>
+<li>The native-control renderer experiment from rc.3 has been withdrawn from the current release surface before 1.0.</li>
+<li><code>rco gui</code>, <code>rco package --gui</code>, and the <code>rco-gui</code> launcher remain the supported desktop UI path.</li>
+<li>Release packages include <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>.</li>
 <li>Post-rc.3 CI metadata now records newly observed transitive audit advisories explicitly so <code>cargo audit --deny warnings</code> can stay intentional rather than surprising.</li>
 <li>README/documentation navigation cleanups after rc.3 are included in this candidate.</li>
 </ul>
 <h2 id="current-boundaries">Current Boundaries</h2>
 <ul>
 <li>This is an intentional pre-public-language breaking cleanup. Code using the old collection bang names must be updated before running on rc.4.</li>
-<li>WinUI live rendering is Windows-only and depends on the WinUI host being built or supplied with <code>--winui-host</code> / <code>RICOCHET_WINUI_HOST</code>.</li>
-<li>Avalonia live rendering depends on the Avalonia host being built or supplied with <code>--avalonia-host</code> / <code>RICOCHET_AVALONIA_HOST</code>. The first host maps the shared native UI contract onto real Avalonia desktop controls; deeper visual parity with WinUI remains iterative.</li>
-<li>The Slint renderer remains a lightweight experimental projection path. It is useful for payload and renderer validation, not the primary release-candidate answer for Linux desktop UI.</li>
-<li>Data-grid and rich-text helpers remain useful v1 app contracts, not spreadsheet or full word-processor implementations.</li>
+<li>Desktop UI for 1.0 is native shell plus WebView body plus Ricochet state.</li>
+<li>The WebView app path still needs a richer first-party app-kit package for menu, dialog, table, split-pane, and command-palette workflows.</li>
 </ul>
 <h2 id="verification-checklist">Verification Checklist</h2>
 <p>Before tagging this candidate, run:</p>
@@ -100,25 +96,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 rg 'push[!]|put[!]|insert[!]|remove[!]|remove_at[!]|clear[!]|Bang.?Word|[!]push' . --hidden --no-ignore --glob '!**/target/**' --glob '!.git/**' --glob '!.superpowers/**' -S
 
 cargo build -p ricochet_cli --bins
-dotnet build hosts/avalonia/Ricochet.Avalonia.Host/Ricochet.Avalonia.Host.csproj -c Release
-.\target\debug\rco.exe words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
-.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend winui --export-ui-json (Join-Path $smoke "native-showcase-winui.json")
-.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend avalonia --export-ui-json (Join-Path $smoke "native-showcase-avalonia.json")
-&amp; .\hosts\avalonia\Ricochet.Avalonia.Host\bin\Release\net10.0\Ricochet.Avalonia.Host.exe --document (Join-Path $smoke "native-showcase-avalonia.json") --validate-only
-.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend slint --slint-validate-only
-.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend winui --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseWinui.exe")
-$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-winui.json"
-&amp; (Join-Path $smoke "NativeShowcaseWinui.exe")
-Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
-.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend avalonia --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseAvalonia.exe")
-$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-avalonia.json"
-&amp; (Join-Path $smoke "NativeShowcaseAvalonia.exe")
-Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
-.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend slint --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseSlint.exe")
-$env:RICOCHET_SLINT_VALIDATE_ONLY = "1"
-&amp; (Join-Path $smoke "NativeShowcaseSlint.exe")
-Remove-Item Env:\RICOCHET_SLINT_VALIDATE_ONLY -ErrorAction SilentlyContinue
-
+.\target\release\rco.exe words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
+$guiHtml = Join-Path $smoke "webview-ui.html"
+$env:RICOCHET_GUI_EXPORT_HTML = $guiHtml
+.\target\release\rco.exe gui examples\webview_ui.rco
+Remove-Item Env:\RICOCHET_GUI_EXPORT_HTML -ErrorAction SilentlyContinue
+.\target\release\rco.exe package examples\webview_ui.rco --gui --output (Join-Path $smoke "WebviewUi.exe")
+$env:RICOCHET_GUI_EXPORT_HTML = Join-Path $smoke "packaged-webview-ui.html"
+&amp; (Join-Path $smoke "WebviewUi.exe")
+Remove-Item Env:\RICOCHET_GUI_EXPORT_HTML -ErrorAction SilentlyContinue
 $releaseOut = Join-Path $smoke "release-windows"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -SigningMode dry-run
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version

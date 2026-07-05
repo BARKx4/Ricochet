@@ -6,8 +6,8 @@
 
 Ricochet is a modern, pure-postfix programming language for building real
 software in a deliberately different way: stack-first code with a Rust bytecode
-VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, native app UI
-experiments, debugger support, and sandboxable host capabilities. It keeps the
+VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, desktop WebView
+apps, debugger support, and sandboxable host capabilities. It keeps the
 directness and composability that make Forth-like languages compelling, while
 adding the tools, safety boundaries, documentation, packaging, and editor
 support expected from a serious development platform.

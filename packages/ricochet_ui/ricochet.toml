@@ -1,5 +1,0 @@
-[package]
-name = "@ricochet/ui"
-version = "0.1.0"
-description = "Backend-neutral native app UI document, event, and command helpers for Ricochet."
-license = "GPL-3.0"

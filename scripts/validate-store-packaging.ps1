@@ -269,7 +269,6 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "rco.exe",
                     "rco-gui.exe",
-                    "rco-app.exe",
                     "ricochet.exe",
                     "README.md",
                     "LICENSE",
@@ -300,7 +299,6 @@ switch ($Target) {
                     Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                         "*/rco",
                         "*/rco-gui",
-                        "*/rco-app",
                         "*/ricochet",
                         "*/install.sh",
                         "*/share/applications/ricochet-repl.desktop",
@@ -319,7 +317,6 @@ switch ($Target) {
                     $contents = Get-DpkgOutput $debPath @("--contents")
                     Assert-DebContains $errors $contents "usr/bin/rco$"
                     Assert-DebContains $errors $contents "usr/bin/rco-gui$"
-                    Assert-DebContains $errors $contents "usr/bin/rco-app$"
                     Assert-DebContains $errors $contents "usr/bin/ricochet$"
                     Assert-DebContains $errors $contents "usr/share/applications/ricochet-repl\.desktop$"
                     Assert-DebContains $errors $contents "usr/share/icons/hicolor/scalable/apps/ricochet\.svg$"
@@ -374,7 +371,6 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "*/rco",
                     "*/rco-gui",
-                    "*/rco-app",
                     "*/ricochet",
                     "*/install.sh",
                     "*/README.md",

@@ -24,7 +24,7 @@ graph TD
   VM --> WebWords["MVC and Active Record words"]
   CLI["rco CLI"] --> VM
   CLI --> Web["MVC apps"]
-  CLI --> NativeApps["Native app UI"]
+  CLI --> DesktopUI["Desktop WebView UI"]
   CLI --> Packages["Packages and registries"]
   CLI --> Debugger["Debugger, traces, DAP"]
   CLI --> Packaging["Native packaging"]
@@ -51,8 +51,8 @@ graph TD
 | --- | --- | --- | --- |
 | Project and MVC | implemented beta | `rco new`, `routes`, `serve`, `migrate`, `doctor` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_web`, `README.md`, `docs/reference/index.html` |
 | Runtime | implemented beta | `repl`, `run`, `debug`, `run-bytecode`, `build`, `test`, `image`, `emit-source` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_vm/src/vm.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
-| Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--app --backend winui|avalonia|slint`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs`, `hosts/winui`, `hosts/avalonia`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
-| Native app UI | beta | `@ricochet/ui`, `@ricochet/winui`, `@ricochet/avalonia`, `@ricochet/slint`, `rco app --backend winui|avalonia|slint`, `rco package --app --backend winui|avalonia|slint` | `packages/ricochet_ui`, `packages/ricochet_winui`, `packages/ricochet_avalonia`, `packages/ricochet_slint`, `hosts/winui/Ricochet.WinUI.Host`, `hosts/avalonia/Ricochet.Avalonia.Host`, `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
+| Packaging | implemented beta | `package`, `gui`, `tui`, `--gui --mvc`, `--linux-package tar|deb` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs`, `scripts/package-release*.sh`, `scripts/package-release.ps1` |
+| Desktop WebView UI | implemented beta, 1.0 focus | `webview_*`, `rco gui`, `rco package --gui`, `rco package --gui --mvc`, `rco-gui` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs`, `examples/webview_ui.rco`, `examples/learn/22-gui`, `examples/learn/38-capstone-gui` |
 | Dependencies | implemented beta | `add`, `install`, `verify`, `audit` | `crates/ricochet_cli/src/lib.rs`, `crates/ricochet_cli/tests/cli_smoke.rs` |
 | Registries | implemented beta | `publish`, `registry rebuild`, `registry check`, `registry yank`, `search` | `crates/ricochet_cli/src/lib.rs`, `README.md`, `docs/reference/index.html` |
 | Editor and diagnostics | implemented beta | `lsp`, `lsp-diagnostics`, `lint`, `fmt`, `words` | `crates/ricochet_cli/src/lsp.rs`, `editors/vscode`, `scripts/validate-editor-assets.ps1` |
@@ -85,14 +85,6 @@ Current top-level groups are:
 - `web`: route verbs, controller response words, and Active Record words.
 - `system`: host effects, capabilities, date/time, environment/config/secrets,
   process/PTY, HTTP, TCP/WebSocket sockets, TUI, webview, approvals.
-- `ui` package: backend-neutral native app document, event, command, tree,
-  drag/drop, data-grid, and rich-text helper words from `@ricochet/ui`.
-- `winui` package: WinUI backend descriptor and scoped native option helpers
-  from `@ricochet/winui`.
-- `avalonia` package: Avalonia backend descriptor and scoped native option
-  helpers from `@ricochet/avalonia`.
-- `slint` package: Slint backend descriptor and scoped native option helpers
-  from `@ricochet/slint`.
 
 ## Language Core
 
@@ -316,88 +308,43 @@ Safety:
 - `docs/reference/app.js` alias metadata is not proof of VM dispatch. Verify
   aliases against `crates/ricochet_vm/src/vm.rs` before relying on them.
 
-## Native App UI
+## Desktop WebView UI
 
-Status: beta.
+Status: implemented beta, 1.0 focus.
 
 Implemented:
 
-- `@ricochet/ui` defines a backend-neutral native app document, response,
-  event, command, tree view, drag/drop, data-grid, and rich-text contract.
-- `@ricochet/winui` provides the Windows backend descriptor and scoped WinUI
-  required/advisory native option helpers.
-- `@ricochet/avalonia` provides the cross-platform desktop backend descriptor
-  and scoped Avalonia required/advisory native option helpers.
-- `@ricochet/slint` provides a lightweight experimental backend descriptor and
-  scoped Slint required/advisory native option helpers.
-- Native app source files expose `app_init`, `app_view`, and `app_update`.
-- `rco app PATH --backend winui --export-ui-json PATH` renders deterministic
-  portable UI JSON without opening a native window.
-- `rco app PATH --backend slint --export-ui-json PATH` renders the same
-  portable document/state payload tagged for the Slint backend.
-- `rco app PATH --backend avalonia --export-ui-json PATH` renders the same
-  portable document/state payload tagged for the Avalonia backend.
-- `rco app PATH --backend winui --replay-events PATH --export-ui-json PATH`
-  replays event fixtures through `app_update`.
-- `rco app PATH --backend slint --replay-events PATH --export-ui-json PATH`
-  replays event fixtures through the same backend-neutral app loop.
-- `rco app PATH --backend avalonia --replay-events PATH --export-ui-json PATH`
-  replays event fixtures through the same backend-neutral app loop.
-- `rco app PATH --backend winui` launches the WinUI host when built or provided
-  through `--winui-host PATH` / `RICOCHET_WINUI_HOST`.
-- `rco app PATH --backend avalonia` launches the Avalonia host when built or
-  provided through `--avalonia-host PATH` / `RICOCHET_AVALONIA_HOST`.
-- `rco app PATH --backend slint` launches the built-in Slint renderer.
-- `rco app PATH --backend slint --slint-validate-only` compiles the generated
-  Slint renderer document without opening a window.
-- `rco package PATH --app --backend winui --output APP.exe` embeds native app
-  bytecode into the `rco-app` launcher. Packaged apps support
-  `RICOCHET_APP_EXPORT_UI_JSON` and `RICOCHET_APP_REPLAY_EVENTS_JSON` for
-  non-window smoke validation.
-- `rco package PATH --app --backend slint --output APP.exe` embeds native app
-  bytecode with a Slint backend marker. Packaged Slint apps support
-  `RICOCHET_SLINT_VALIDATE_ONLY=1` for non-window renderer validation.
-- `rco package PATH --app --backend avalonia --output APP.exe` embeds native app
-  bytecode with an Avalonia backend marker and supports the same
-  `RICOCHET_APP_EXPORT_UI_JSON` and `RICOCHET_APP_REPLAY_EVENTS_JSON` smoke
-  validation.
-- The WinUI host is a self-contained Windows App SDK project under
-  `hosts/winui/Ricochet.WinUI.Host` with `--validate-only`, document parsing,
-  v1 control rendering, and JSONL event/response protocol hooks.
-- The Avalonia host is a cross-platform .NET desktop project under
-  `hosts/avalonia/Ricochet.Avalonia.Host` with `--validate-only`, document
-  parsing, v1 control rendering, and JSONL event/response protocol hooks.
-- The Slint renderer uses Slint's Rust interpreter to compile a lightweight
-  native window from the same `@ricochet/ui` document model.
+- WebView words build escaped GUI document fragments and state/action documents
+  for desktop app hosts.
+- `rco gui PATH` opens a `webview_window` or `webview_window_state` document.
+- `rco package PATH --gui --output APP` embeds WebView bytecode into the
+  `rco-gui` launcher.
+- `rco package PATH --gui --mvc --output APP` embeds an MVC project directory as
+  a local-server desktop GUI app.
+- `RICOCHET_GUI_EXPORT_HTML` exports deterministic HTML for WebView smoke tests.
+- `RICOCHET_GUI_EVENT` replays a single WebView action event for state/action
+  regression tests.
+- Windows and macOS use native Wry WebView windows. Linux opens through the
+  system browser today to avoid the vulnerable GTK/WebKitGTK Rust binding stack.
 
 Evidence:
 
-- `packages/ricochet_ui`
-- `packages/ricochet_winui`
-- `packages/ricochet_avalonia`
-- `packages/ricochet_slint`
-- `packages/ricochet_ui/examples`
-- `hosts/winui/Ricochet.WinUI.Host`
-- `hosts/avalonia/Ricochet.Avalonia.Host`
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
-- `scripts/acceptance.ps1`
+- `examples/webview_ui.rco`
+- `examples/showcase/gui_task_monitor.rco`
+- `examples/learn/22-gui/notes_gui.rco`
+- `examples/learn/38-capstone-gui`
 - `docs/reference/app.js`
 
 Current boundaries:
 
-- WinUI, Avalonia, and Slint are backends, not the public app model.
-- The live WinUI renderer is Windows-only and depends on the WinUI host being
-  built or provided. JSON export and replay remain the stable CI boundary.
-- The live Avalonia renderer is the preferred cross-platform desktop host path
-  and depends on the Avalonia host being built or provided.
-- The Slint renderer remains a lightweight experimental path; fuller
-  retained-control parity can iterate behind the same backend contract without
-  carrying the Linux flagship promise.
-- Data grid and rich text are basic v1 contracts, not spreadsheet or full word
-  processor implementations.
-- Ordinary Ricochet app code does not receive raw WinUI handles.
-
+- Desktop UI for 1.0 is native shell plus WebView body plus Ricochet state.
+- The withdrawn native-control renderer experiment is not part of the current
+  release surface.
+- The WebView path still needs a first-party app-kit package for richer menus,
+  split panes, tables, command palettes, dialogs, and shell services.
+- Ordinary Ricochet app code should not need raw platform control handles.
 ## Web, MVC, Templates, And Static Assets
 
 Status: implemented beta.
@@ -720,9 +667,6 @@ Implemented:
   or MVC bundles.
 - `rco package --tui`, `--gui`, and `--gui --mvc` cover console, native
   WebView or Linux system-browser GUI launchers, and local-server desktop apps.
-- `rco package --app --backend winui|avalonia|slint` covers backend-neutral
-  native app executables through the `rco-app` launcher and supports
-  environment-driven JSON export and event replay smoke validation.
 - Linux `rco package` can also emit tarballs and Debian packages.
 - Release scripts build Windows ZIP/NSIS installer, Linux tar/deb, and macOS
   tarballs with explicit signing or detached-signature
@@ -770,7 +714,6 @@ Evidence:
 
 - `crates/ricochet_cli/src/lib.rs`
 - `crates/ricochet_cli/tests/cli_smoke.rs`
-- `hosts/winui/Ricochet.WinUI.Host`
 - `scripts/package-release.ps1`
 - `scripts/package-release-linux.sh`
 - `scripts/package-release-macos.sh`
@@ -804,7 +747,8 @@ Implemented foundations that should not be listed as missing:
 
 - SQL and native DSL migrations (`rco migrate new/status/apply/rollback/dump`)
   plus ordered SQL/Ricochet seed files.
-- Native app packaging (`rco package`, release scripts, `.deb`, installers).
+- Desktop app packaging (`rco package --gui`, release scripts, `.deb`,
+  installers).
 - Debugger, DAP, and VS Code debug surfaces.
 - Static assets.
 - Signed and optionally encrypted sessions.
@@ -817,9 +761,8 @@ Implemented foundations that should not be listed as missing:
   path lookup and `rco expand` inspection.
 - Persistent REPL images, image inspection, and source-like bytecode emission.
 - Dynamic runtime imports with module metadata and lock/path enforcement.
-- Backend-neutral native app UI packages, WinUI/Avalonia/Slint backend
-  metadata, JSON export, event replay, native app packaging, and WinUI plus
-  Avalonia host hooks.
+- Desktop WebView words, `rco gui`, `rco package --gui`, and `rco-gui`
+  launcher packaging.
 
 Roadmap closure status:
 
