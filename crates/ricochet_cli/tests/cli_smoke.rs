@@ -1501,6 +1501,10 @@ fn words_check_validates_reference_docs_and_textmate_inventory() {
         "stdout should report a passing inventory check, got:\n{stdout}"
     );
     assert!(
+        stdout.contains("registered VM words"),
+        "stdout should report registered VM word coverage, got:\n{stdout}"
+    );
+    assert!(
         stdout.contains("0 duplicate reference entries"),
         "stdout should confirm the reference catalog has no duplicate primary words, got:\n{stdout}"
     );

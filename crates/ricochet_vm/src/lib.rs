@@ -16,6 +16,7 @@ pub mod socket_runtime;
 pub mod upload_runtime;
 pub mod value;
 pub mod vm;
+pub mod word_registry;
 
 pub use approval_runtime::ApprovalRegistry;
 pub use capability::Capability;
@@ -36,6 +37,9 @@ pub use upload_runtime::{UploadStreamMetadata, UploadStreamRegistry};
 pub use value::{TruthinessError, Value};
 pub use vm::DebugControl;
 pub use vm::{DynamicModuleSource, Vm, VmError};
+pub use word_registry::{
+    builtin_word, builtin_words, CapabilityRequirement, WordCategory, WordMetadata,
+};
 
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -2315,10 +2315,11 @@ fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Res
     if check {
         let summary = check_word_inventory(docs_app, grammar)?;
         let message = format!(
-            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries ({} documented token words missing from the embedded LSP inventory, {} duplicate reference entries)",
+            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries, {} registered VM words ({} documented token words missing from the embedded LSP inventory, {} duplicate reference entries)",
             summary.documented_words,
             summary.grammar_token_words,
             summary.lsp_words,
+            summary.registered_words,
             summary.documented_only_words,
             summary.duplicate_reference_entries
         );
@@ -2356,6 +2357,7 @@ struct WordInventoryCheckSummary {
     documented_words: usize,
     grammar_token_words: usize,
     lsp_words: usize,
+    registered_words: usize,
     documented_only_words: usize,
     duplicate_reference_entries: usize,
 }
@@ -2422,6 +2424,7 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         .iter()
         .map(|entry| entry.label.to_string())
         .collect::<BTreeSet<_>>();
+    let registered_words = registered_builtin_word_names();
     let stale_lsp_words = lsp_words
         .iter()
         .filter(|word| !documented_all_names.contains(*word))
@@ -2434,6 +2437,21 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
     let stale_grammar_builtin_words = grammar_builtin_words
         .iter()
         .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_docs = registered_words
+        .iter()
+        .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_lsp = registered_words
+        .iter()
+        .filter(|word| !lsp_words.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_grammar = registered_words
+        .iter()
+        .filter(|word| !grammar_builtin_words.contains(*word))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -2468,17 +2486,43 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
             stale_grammar_builtin_words.join(", ")
         ));
     }
+    if !registry_missing_from_docs.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from docs/reference/app.js: {}",
+            registry_missing_from_docs.join(", ")
+        ));
+    }
+    if !registry_missing_from_lsp.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from LSP inventory: {}",
+            registry_missing_from_lsp.join(", ")
+        ));
+    }
+    if !registry_missing_from_grammar.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from TextMate grammar: {}",
+            registry_missing_from_grammar.join(", ")
+        ));
+    }
     if failures.is_empty() {
         Ok(WordInventoryCheckSummary {
             documented_words: documented_primary.len(),
             grammar_token_words: token_words.len(),
             lsp_words: lsp_words.len(),
+            registered_words: registered_words.len(),
             documented_only_words,
             duplicate_reference_entries: duplicate_words.len(),
         })
     } else {
         bail!("word inventory check failed:\n{}", failures.join("\n"));
     }
+}
+
+fn registered_builtin_word_names() -> BTreeSet<String> {
+    ricochet_vm::builtin_words()
+        .iter()
+        .map(|word| word.name.to_string())
+        .collect()
 }
 
 fn validate_reference_word_entry(entry: &ReferenceWord, failures: &mut Vec<String>) {
