@@ -30,8 +30,11 @@ Evidence from the readiness branch:
 - Web serving construction has a `ServeBuilder` boundary.
 - Strictness diagnostics exist for dynamic convenience fallbacks.
 - Windows checks, Linux WSL build, Linux GUI package smoke, and deterministic WebView HTML export passed.
+- Human Windows/Linux embedded WebView pass on `examples/webview_ui.rco` matched across platforms: native menu/action dispatch worked, no visible full-window refresh flash was reported, and Linux opened as an embedded WSLg WebView window. The Linux sample used light mode while Windows used dark mode.
 
-Manual visible-desktop feel testing for flicker, scroll retention, and native menu polish should happen before public demo recording, but it does not block starting the MVP implementation.
+Known sample-app wart: pressing `Save Profile` resets the editable name field to `Ada` because the example action only persists `saved = true`; this is app state wiring, not renderer refresh. The MVP app should explicitly preserve input state.
+
+The MVP app itself still needs visible-desktop feel testing for flicker, scroll retention, native menu polish, and theme parity before public demo recording, but that does not block starting implementation.
 
 ## Existing Capabilities To Consume
 
