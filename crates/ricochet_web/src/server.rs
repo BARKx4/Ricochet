@@ -386,15 +386,16 @@ pub fn build_test_app() -> Result<Router> {
 }
 
 pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    build_app_from_dir_internal(project_root, None)
+    crate::ServeBuilder::new(project_root).build()
 }
 
 pub fn build_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    build_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .build()
 }
 
 pub fn build_app_from_dir_with_options_and_request_fault_sink(
@@ -402,35 +403,33 @@ pub fn build_app_from_dir_with_options_and_request_fault_sink(
     options: &ServeOptions,
     request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    let vm_setup = model_vm_setup(project_root)?;
-    let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
-    build_app_from_dir_internal_with_options_and_request_fault_sink(
-        project_root,
-        vm_setup,
-        Some(options),
-        request_fault_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .request_fault_sink_option(request_fault_sink)
+        .build()
 }
 
 pub fn build_app_from_dir_with_database(
     project_root: impl AsRef<Path>,
     backend: Arc<dyn DatabaseBackend>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    let vm_setup = database_vm_setup(project_root, backend)?;
-    build_app_from_dir_internal(project_root, Some(vm_setup))
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .build()
 }
 
 pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
-    build_watched_app_from_dir_with_options(project_root, &ServeOptions::default())
+    crate::ServeBuilder::new(project_root).watched(true).build()
 }
 
 pub fn build_watched_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_options_and_request_fault_sink(
@@ -438,42 +437,21 @@ pub fn build_watched_app_from_dir_with_options_and_request_fault_sink(
     options: &ServeOptions,
     request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = model_vm_setup(&builder_root)?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            vm_setup,
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        None,
-        request_fault_sink_for_options(Some(options), request_fault_sink),
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .request_fault_sink_option(request_fault_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_trace(
     project_root: impl AsRef<Path>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_options_and_trace(
-        project_root,
-        &ServeOptions::default(),
-        trace_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_options_and_trace(
@@ -481,42 +459,21 @@ pub fn build_watched_app_from_dir_with_options_and_trace(
     options: &ServeOptions,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = model_vm_setup(&builder_root)?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            vm_setup,
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        Some(trace_sink),
-        request_fault_sink_for_options(Some(options), None),
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database(
     project_root: impl AsRef<Path>,
     backend: Arc<dyn DatabaseBackend>,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_database_and_options(
-        project_root,
-        backend,
-        &ServeOptions::default(),
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_and_options(
@@ -524,31 +481,11 @@ pub fn build_watched_app_from_dir_with_database_and_options(
     backend: Arc<dyn DatabaseBackend>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            Some(vm_setup),
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        None,
-        request_fault_sink_for_options(Some(options), None),
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .options(options.clone())
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_and_trace(
@@ -556,12 +493,11 @@ pub fn build_watched_app_from_dir_with_database_and_trace(
     backend: Arc<dyn DatabaseBackend>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_database_options_and_trace(
-        project_root,
-        backend,
-        &ServeOptions::default(),
-        trace_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_options_and_trace(
@@ -570,30 +506,93 @@ pub fn build_watched_app_from_dir_with_database_options_and_trace(
     options: &ServeOptions,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .options(options.clone())
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
+}
+
+pub fn build_app_from_serve_builder(builder: crate::ServeBuilder) -> Result<Router> {
+    let parts = builder.into_parts();
+    if let Some(options) = &parts.options {
+        options.validate()?;
+    }
+
+    if parts.watched {
+        return build_watched_app_from_serve_builder_parts(parts);
+    }
+
+    let vm_setup = match parts.database_backend {
+        Some(backend) => Some(database_vm_setup(&parts.project_root, backend)?),
+        None => {
+            if parts.options.is_some() {
+                model_vm_setup(&parts.project_root)?
+            } else {
+                None
+            }
+        }
+    };
+    let vm_setup = match &parts.options {
+        Some(options) => compose_serve_capability_vm_setup(&parts.project_root, vm_setup, options)?,
+        None => vm_setup,
+    };
+    build_app_from_dir_internal_with_options_and_request_fault_sink(
+        &parts.project_root,
+        vm_setup,
+        parts.options.as_ref(),
+        parts.request_fault_sink,
+    )
+}
+
+fn build_watched_app_from_serve_builder_parts(
+    parts: crate::serve_builder::ServeBuilderParts,
+) -> Result<Router> {
+    let project_root = parts.project_root;
     let builder_root = project_root.clone();
-    let builder_options = options.clone();
+    let builder_options = parts.options.clone().unwrap_or_default();
+    builder_options.validate()?;
     let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            Some(vm_setup),
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
+    let request_fault_sink =
+        request_fault_sink_for_options(Some(&builder_options), parts.request_fault_sink);
+
+    let builder: RuntimeBuilder = match parts.database_backend {
+        Some(backend) => Arc::new(move || {
+            let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
+            let vm_setup = compose_serve_capability_vm_setup_with_state(
+                &builder_root,
+                Some(vm_setup),
+                &builder_options,
+                capability_state.clone(),
+            )?;
+            build_runtime_from_dir_internal_with_options(
+                &builder_root,
+                vm_setup,
+                Some(&builder_options),
+            )
+        }),
+        None => Arc::new(move || {
+            let vm_setup = model_vm_setup(&builder_root)?;
+            let vm_setup = compose_serve_capability_vm_setup_with_state(
+                &builder_root,
+                vm_setup,
+                &builder_options,
+                capability_state.clone(),
+            )?;
+            build_runtime_from_dir_internal_with_options(
+                &builder_root,
+                vm_setup,
+                Some(&builder_options),
+            )
+        }),
+    };
 
     build_watched_app_from_runtime_builder(
         project_root,
         builder,
-        Some(trace_sink),
-        request_fault_sink_for_options(Some(options), None),
+        parts.trace_sink,
+        request_fault_sink,
     )
 }
 
@@ -605,11 +604,6 @@ pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
         .with_context(|| format!("failed to read {}", routes_path.display()))?;
     parse_routes(&routes_source)
         .with_context(|| format!("failed to parse {}", routes_path.display()))
-}
-
-fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
-    let runtime = Arc::new(build_runtime_from_dir_internal(project_root, vm_setup)?);
-    build_static_router(runtime, None)
 }
 
 fn build_app_from_dir_internal_with_options_and_request_fault_sink(
@@ -627,13 +621,6 @@ fn build_app_from_dir_internal_with_options_and_request_fault_sink(
         runtime,
         request_fault_sink_for_options(options, request_fault_sink),
     )
-}
-
-fn build_runtime_from_dir_internal(
-    project_root: &Path,
-    vm_setup: Option<VmSetup>,
-) -> Result<AppRuntime> {
-    build_runtime_from_dir_internal_with_options(project_root, vm_setup, None)
 }
 
 fn build_runtime_from_dir_internal_with_options(
@@ -2733,66 +2720,19 @@ pub async fn build_served_app_from_dir(
     let effective_options = apply_manifest_capabilities(project_root, &manifest, options)?;
     effective_options.validate()?;
     let watch_trace_sink = (watch && debug).then(stdout_watch_trace_sink);
-    match (watch, manifest.database.default) {
-        (true, Some(database)) => {
-            let backend =
-                connect_served_database_backend(project_root, &database, &effective_options)
-                    .await?;
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_database_options_and_trace(
-                    project_root,
-                    backend,
-                    &effective_options,
-                    trace_sink,
-                )
-            } else {
-                build_watched_app_from_dir_with_database_and_options(
-                    project_root,
-                    backend,
-                    &effective_options,
-                )
-            }
-        }
-        (true, None) => {
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_options_and_trace(
-                    project_root,
-                    &effective_options,
-                    trace_sink,
-                )
-            } else {
-                build_watched_app_from_dir_with_options(project_root, &effective_options)
-            }
-        }
-        (false, Some(database)) => {
-            let backend =
-                connect_served_database_backend(project_root, &database, &effective_options)
-                    .await?;
-            let vm_setup = database_vm_setup(project_root, backend)?;
-            let vm_setup = compose_serve_capability_vm_setup(
-                project_root,
-                Some(vm_setup),
-                &effective_options,
-            )?;
-            build_app_from_dir_internal_with_options_and_request_fault_sink(
-                project_root,
-                vm_setup,
-                Some(&effective_options),
-                None,
-            )
-        }
-        (false, None) => {
-            let vm_setup = model_vm_setup(project_root)?;
-            let vm_setup =
-                compose_serve_capability_vm_setup(project_root, vm_setup, &effective_options)?;
-            build_app_from_dir_internal_with_options_and_request_fault_sink(
-                project_root,
-                vm_setup,
-                Some(&effective_options),
-                None,
-            )
-        }
+    let mut builder = crate::ServeBuilder::new(project_root)
+        .options(effective_options.clone())
+        .watched(watch);
+    if let Some(database) = manifest.database.default {
+        let backend =
+            connect_served_database_backend(project_root, &database, &effective_options).await?;
+        builder = builder.database_backend(backend);
     }
+    if let Some(trace_sink) = watch_trace_sink {
+        builder = builder.trace_sink(trace_sink);
+    }
+
+    builder.build()
 }
 
 fn apply_manifest_capabilities(
@@ -3241,6 +3181,32 @@ mod tests {
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
+    }
+
+    #[tokio::test]
+    async fn serve_builder_builds_static_router() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
+
+        let _ = crate::ServeBuilder::new(fixture_root)
+            .build()
+            .expect("ServeBuilder should build a static router");
+    }
+
+    #[tokio::test]
+    async fn serve_builder_builds_watched_router_with_options() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
+        let options = ServeOptions {
+            watch: true,
+            ..ServeOptions::default()
+        };
+
+        let _ = crate::ServeBuilder::new(fixture_root)
+            .options(options)
+            .watched(true)
+            .build()
+            .expect("ServeBuilder should build a watched router with serve options");
     }
 
     #[tokio::test]
