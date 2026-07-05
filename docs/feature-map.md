@@ -351,6 +351,18 @@ Current boundaries:
 - The first-party app-kit is deliberately small for 1.0; command-palette and
   richer data-grid workflows are future polish, not current release blockers.
 - Ordinary Ricochet app code should not need raw platform control handles.
+
+## Agent App MVP Readiness Boundary
+
+The first cross-platform agent-app MVP should primarily consume existing
+Ricochet capabilities: Desktop WebView UI, approvals, process/process-root,
+PTY, filesystem roots, environment allowlists, HTTP where explicitly enabled,
+and package GUI output.
+
+New words added for the MVP must be small, postfix-friendly, and registered in
+the built-in word registry in the same commit. The MVP should not add another
+native UI renderer, a broad plugin system, or a second desktop host stack.
+
 ## Web, MVC, Templates, And Static Assets
 
 Status: implemented beta.
