@@ -13,6 +13,7 @@ pub mod regex_value;
 pub mod result;
 mod runtime_state;
 pub mod socket_runtime;
+pub mod strictness;
 pub mod upload_runtime;
 pub mod value;
 pub mod vm;
@@ -33,6 +34,7 @@ pub use result::{RicochetError, RicochetResult};
 pub use socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
+pub use strictness::{StrictnessConfig, StrictnessDiagnostic, StrictnessDiagnosticKind};
 pub use upload_runtime::{UploadStreamMetadata, UploadStreamRegistry};
 pub use value::{TruthinessError, Value};
 pub use vm::DebugControl;

@@ -966,6 +966,38 @@ fn check_reports_invalid_source_file() {
 }
 
 #[test]
+fn check_strict_reports_dynamic_convenience_warnings() {
+    let source_path = write_source("array first\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg("--strict")
+        .arg(&source_path)
+        .output()
+        .expect("rco check --strict should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco check --strict should keep warning-only diagnostics non-fatal\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("checked"),
+        "stdout should keep normal check output, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("strict warning:"),
+        "stderr should include a strictness warning, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("returned nil"),
+        "stderr should describe the nil-producing lookup, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_reports_runtime_error_source_context() {
     let source_path = write_source("\"Ada\" 3 less_than?\n");
 

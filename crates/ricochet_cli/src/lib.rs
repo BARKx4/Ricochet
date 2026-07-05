@@ -38,7 +38,8 @@ use ricochet_syntax::{
 };
 use ricochet_vm::{
     DebugAction, DebugControl, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
-    DynamicModuleSource, MapValue, RicochetResult, Value, Vm, VmImage,
+    DynamicModuleSource, MapValue, RicochetResult, StrictnessConfig, StrictnessDiagnostic, Value,
+    Vm, VmImage,
 };
 use ricochet_web::{
     install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
@@ -107,6 +108,11 @@ enum Command {
         path: String,
     },
     Check {
+        #[arg(
+            long = "strict",
+            help = "Emit strictness warnings for dynamic convenience fallbacks"
+        )]
+        strict: bool,
         path: Option<String>,
     },
     Expand {
@@ -853,7 +859,7 @@ pub async fn run_cli() -> Result<()> {
         Command::New { path, with_sqlite } => {
             new_project(Path::new(&path), NewProjectOptions { with_sqlite })?
         }
-        Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
+        Command::Check { path, strict } => check(path.as_deref().unwrap_or("."), strict)?,
         Command::Expand { path, json } => expand_path(&path, json)?,
         Command::Repl {
             debug,
@@ -1919,10 +1925,12 @@ fn is_incomplete_compile_error(error: &CompileError) -> bool {
     )
 }
 
-fn check(path: &str) -> Result<()> {
+const STRICT_CHECK_INSTRUCTION_LIMIT: u64 = 100_000;
+
+fn check(path: &str, strict: bool) -> Result<()> {
     let path = Path::new(path);
     if path.is_file() {
-        check_source_file(path)?;
+        check_source_file(path, strict)?;
         println!("checked {}", path.display());
         return Ok(());
     }
@@ -1942,7 +1950,7 @@ fn check(path: &str) -> Result<()> {
     collect_rco_files(path, &mut files)?;
     files.sort();
     for file in &files {
-        check_source_file(file)?;
+        check_source_file(file, strict)?;
     }
 
     println!(
@@ -1953,9 +1961,31 @@ fn check(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_source_file(path: &Path) -> Result<()> {
-    compile_source_file(path).with_context(|| format!("failed to compile {}", path.display()))?;
+fn check_source_file(path: &Path, strict: bool) -> Result<()> {
+    let chunk = compile_source_file(path)
+        .with_context(|| format!("failed to compile {}", path.display()))?;
+    if strict {
+        emit_strictness_warnings(path, &chunk);
+    }
     Ok(())
+}
+
+fn emit_strictness_warnings(path: &Path, chunk: &Chunk) {
+    let mut vm = Vm::default();
+    vm.set_instruction_limit(STRICT_CHECK_INSTRUCTION_LIMIT);
+    vm.set_strictness(StrictnessConfig {
+        warn_unknown_question_word_fallback: true,
+        warn_nil_producing_lookup: true,
+    });
+
+    let _ = vm.run_chunk(chunk);
+    print_strictness_warnings(path, vm.strictness_diagnostics());
+}
+
+fn print_strictness_warnings(path: &Path, diagnostics: &[StrictnessDiagnostic]) {
+    for diagnostic in diagnostics {
+        eprintln!("strict warning: {}: {}", path.display(), diagnostic.message);
+    }
 }
 
 fn doctor(path: &str, show_capabilities: bool) -> Result<()> {
@@ -1977,7 +2007,7 @@ fn doctor(path: &str, show_capabilities: bool) -> Result<()> {
 
     if path.is_file() {
         doctor_step(&mut report, "source compile", || {
-            check_source_file(path)?;
+            check_source_file(path, false)?;
             Ok("single source file compiles".to_string())
         });
         report.finish()?;
@@ -2067,7 +2097,7 @@ fn doctor_mvc_project(
             Ok(format!("{} .rco file(s) discovered", files.len()))
         } else {
             for file in &files {
-                check_source_file(file)?;
+                check_source_file(file, false)?;
             }
             Ok(format!("{} .rco file(s) compile", files.len()))
         }
@@ -2088,7 +2118,7 @@ fn doctor_source_tree(path: &Path, report: &mut DoctorReport) -> Result<()> {
         collect_rco_files(path, &mut files)?;
         files.sort();
         for file in &files {
-            check_source_file(file)?;
+            check_source_file(file, false)?;
         }
         Ok(format!("{} .rco file(s) compile", files.len()))
     });

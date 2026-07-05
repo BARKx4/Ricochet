@@ -425,17 +425,51 @@ impl Vm {
         match receiver {
             Value::String(value) => {
                 let index = self.pop_index(method)?;
-                Ok(value
-                    .chars()
-                    .nth(index)
-                    .map(|value| Value::String(value.to_string()))
-                    .unwrap_or(Value::Nil))
+                match value.chars().nth(index) {
+                    Some(value) => Ok(Value::String(value.to_string())),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for string index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
             }
-            Value::Array(value) => Ok(value.get(self.pop_index(method)?).unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.get(self.pop_index(method)?).unwrap_or(Value::Nil)),
+            Value::Array(value) => {
+                let index = self.pop_index(method)?;
+                match value.get(index) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for array index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
+            }
+            Value::List(value) => {
+                let index = self.pop_index(method)?;
+                match value.get(index) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for list index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
+            }
             Value::Map(value) => {
                 let key = self.pop_string(method, "map key string")?;
-                Ok(value.get(&key).unwrap_or(Value::Nil))
+                match value.get(&key) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for missing map key {key:?}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
             }
             value => Err(method_type_error(
                 method,
@@ -445,16 +479,44 @@ impl Vm {
         }
     }
 
-    fn method_first(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+    fn method_first(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         match receiver {
-            Value::String(value) => Ok(value
-                .chars()
-                .next()
-                .map(|character| Value::String(character.to_string()))
-                .unwrap_or(Value::Nil)),
-            Value::Array(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
-            Value::Set(value) => Ok(value.snapshot().first().cloned().unwrap_or(Value::Nil)),
+            Value::String(value) => match value.chars().next() {
+                Some(character) => Ok(Value::String(character.to_string())),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty string"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Array(value) => match value.get(0) {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty array"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::List(value) => match value.get(0) {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty list"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Set(value) => match value.snapshot().first().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty set"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
             value => Err(method_type_error(
                 method,
                 "string, array, list, or set",
@@ -463,16 +525,44 @@ impl Vm {
         }
     }
 
-    fn method_last(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+    fn method_last(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         match receiver {
-            Value::String(value) => Ok(value
-                .chars()
-                .last()
-                .map(|character| Value::String(character.to_string()))
-                .unwrap_or(Value::Nil)),
-            Value::Array(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
-            Value::Set(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
+            Value::String(value) => match value.chars().last() {
+                Some(character) => Ok(Value::String(character.to_string())),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty string"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Array(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty array"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::List(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty list"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Set(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty set"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
             value => Err(method_type_error(
                 method,
                 "string, array, list, or set",

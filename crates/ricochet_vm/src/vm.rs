@@ -30,6 +30,7 @@ use crate::runtime_state::{HostRuntimeState, SharedRuntimeState};
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
+use crate::strictness::{StrictnessConfig, StrictnessDiagnostic, StrictnessDiagnosticKind};
 use crate::upload_runtime::UploadStreamRegistry;
 use crate::value::Value;
 
@@ -254,6 +255,8 @@ pub struct Vm {
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
     instructions_executed: u64,
+    strictness: StrictnessConfig,
+    strictness_diagnostics: Vec<StrictnessDiagnostic>,
     tasks: BTreeMap<u64, TaskState>,
     next_task_id: u64,
 }
@@ -319,6 +322,8 @@ impl Default for Vm {
             suppressed_breakpoint: None,
             instruction_limit: None,
             instructions_executed: 0,
+            strictness: StrictnessConfig::default(),
+            strictness_diagnostics: Vec::new(),
             tasks: BTreeMap::new(),
             next_task_id: 0,
         }
@@ -342,6 +347,7 @@ struct Task {
     host_runtime: HostRuntimeState,
     shared_runtime: SharedRuntimeState,
     instruction_limit: Option<u64>,
+    strictness: StrictnessConfig,
 }
 
 #[derive(Clone)]
@@ -598,6 +604,7 @@ fn run_task_to_completion(
         environment_allowed_names: host_runtime.environment_allowed_names,
         sleep_enabled: host_runtime.sleep_enabled,
         instruction_limit: task.instruction_limit,
+        strictness: task.strictness,
         task_debug_snapshot,
         ..Vm::default()
     };
@@ -646,6 +653,32 @@ impl Vm {
 
     pub fn variables(&self) -> &BTreeMap<String, Value> {
         &self.variables
+    }
+
+    pub fn set_strictness(&mut self, strictness: StrictnessConfig) {
+        self.strictness = strictness;
+    }
+
+    pub fn strictness_diagnostics(&self) -> &[StrictnessDiagnostic] {
+        &self.strictness_diagnostics
+    }
+
+    fn record_unknown_question_word_fallback(&mut self, word: &str) {
+        if self.strictness.warn_unknown_question_word_fallback {
+            self.strictness_diagnostics.push(StrictnessDiagnostic {
+                kind: StrictnessDiagnosticKind::UnknownQuestionWordFallback,
+                message: format!("{word} fell back to generic predicate dispatch"),
+            });
+        }
+    }
+
+    pub(crate) fn record_nil_producing_lookup(&mut self, message: impl Into<String>) {
+        if self.strictness.warn_nil_producing_lookup {
+            self.strictness_diagnostics.push(StrictnessDiagnostic {
+                kind: StrictnessDiagnosticKind::NilProducingLookup,
+                message: message.into(),
+            });
+        }
     }
 
     pub fn to_image(&self) -> Result<VmImage, ImageError> {
@@ -1253,6 +1286,22 @@ impl Vm {
                 actual: value_kind(value).to_string(),
             }),
         }
+    }
+
+    fn get_field_for_runtime(&mut self, instance: &Value, field: &str) -> Result<Value, VmError> {
+        match instance {
+            Value::Instance(instance) if !instance.fields.contains_key(field) => {
+                self.record_nil_producing_lookup(format!(
+                    "missing field {field:?} on {} returned nil",
+                    instance.class_name
+                ));
+            }
+            Value::Map(map) if !map.contains_key(field) => {
+                self.record_nil_producing_lookup(format!("missing map key {field:?} returned nil"));
+            }
+            _ => {}
+        }
+        self.get_field(instance, field)
     }
 
     pub fn call_method_value(
@@ -2163,7 +2212,10 @@ impl Vm {
         }
 
         match self.call_function(word) {
-            Err(VmError::UnknownWord(_)) => self.call_predicate(word),
+            Err(VmError::UnknownWord(_)) => {
+                self.record_unknown_question_word_fallback(word);
+                self.call_predicate(word)
+            }
             result => result,
         }
     }
@@ -2531,6 +2583,7 @@ impl Vm {
             host_runtime: self.host_runtime_state(),
             shared_runtime: self.shared_runtime_state(),
             instruction_limit: self.instruction_limit,
+            strictness: self.strictness.clone(),
         };
         self.tasks.insert(
             task_id,
@@ -3776,7 +3829,7 @@ impl Vm {
             }
         };
 
-        match self.get_field(&receiver, &field) {
+        match self.get_field_for_runtime(&receiver, &field) {
             Ok(value) => {
                 self.stack.push(value);
                 Ok(())
@@ -5764,6 +5817,58 @@ mod tests {
             .push(Value::result_ok(Value::String("saved".to_string())));
         ok_vm.run_chunk(&ok_chunk).expect("ok? succeeds");
         assert_eq!(ok_vm.stack(), &[Value::Bool(true)]);
+    }
+
+    #[test]
+    fn strictness_warns_on_unknown_question_word_fallback() {
+        let mut vm = Vm::default();
+        vm.set_strictness(StrictnessConfig {
+            warn_unknown_question_word_fallback: true,
+            ..StrictnessConfig::default()
+        });
+        vm.stack.push(Value::Number(1));
+
+        assert_eq!(
+            vm.call_word("typo?"),
+            Err(VmError::UnknownWord("typo?".to_string()))
+        );
+        assert!(vm.strictness_diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind == StrictnessDiagnosticKind::UnknownQuestionWordFallback
+                && diagnostic
+                    .message
+                    .contains("fell back to generic predicate dispatch")
+        }));
+    }
+
+    #[test]
+    fn strictness_warns_on_nil_producing_lookup() {
+        let mut vm = Vm::default();
+        vm.set_strictness(StrictnessConfig {
+            warn_nil_producing_lookup: true,
+            ..StrictnessConfig::default()
+        });
+        vm.stack.push(Value::Array(Vec::new().into()));
+
+        vm.call_word("first")
+            .expect("nil-producing lookup remains allowed");
+
+        assert_eq!(vm.stack(), &[Value::Nil]);
+        assert!(vm
+            .strictness_diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.kind == StrictnessDiagnosticKind::NilProducingLookup }));
+    }
+
+    #[test]
+    fn strictness_defaults_to_no_diagnostics() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Array(Vec::new().into()));
+
+        vm.call_word("first")
+            .expect("nil-producing lookup remains allowed by default");
+
+        assert_eq!(vm.stack(), &[Value::Nil]);
+        assert!(vm.strictness_diagnostics().is_empty());
     }
 
     #[test]
