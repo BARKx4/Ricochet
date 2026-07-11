@@ -41,6 +41,10 @@ $licenseGovernanceValidator = Join-Path $Root "scripts\validate-license-governan
 Write-Host "==> license and governance validation"
 & $licenseGovernanceValidator
 
+$thirdPartyNoticeValidator = Join-Path $Root "scripts\validate-third-party-notices.ps1"
+Write-Host "==> third-party license and notice validation"
+& $thirdPartyNoticeValidator
+
 $docsValidator = Join-Path $Root "docs\reference\validate.ps1"
 Write-Host "==> docs reference validation"
 & $docsValidator

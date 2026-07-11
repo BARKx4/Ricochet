@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ricochet third-party licenses</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { box-sizing: border-box; line-height: 1.5; margin: 0 auto; max-width: 78rem; padding: 2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid currentColor; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+    th { background: color-mix(in srgb, CanvasText 8%, Canvas); }
+    pre { border: 1px solid currentColor; overflow-wrap: anywhere; padding: 1rem; white-space: pre-wrap; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>RICOCHET THIRD-PARTY LICENSES</h1>
+    <p>This timestamp-free report is generated from the locked Cargo dependency union for Windows x64, Linux x64, macOS x64, and macOS arm64. Build and transitive dependencies are included; dev-only dependencies are excluded.</p>
+
+    <h2>Components</h2>
+    <table>
+      <thead>
+        <tr><th>Crate</th><th>Version</th><th>Declared license expression</th><th>Repository</th></tr>
+      </thead>
+      <tbody>
+      {{#each crates}}
+        {{#if package.source}}
+        <tr>
+          <td><code>{{package.name}}</code></td>
+          <td><code>{{package.version}}</code></td>
+          <td><code>{{license}}</code></td>
+          <td>{{#if package.repository}}<a href="{{package.repository}}">{{package.repository}}</a>{{else}}Not provided{{/if}}</td>
+        </tr>
+        {{/if}}
+      {{/each}}
+      </tbody>
+    </table>
+
+    <h2>Selected license texts</h2>
+    {{#each licenses}}
+    <section>
+      <h3>{{id}} — {{name}}</h3>
+      <p>Used by:</p>
+      <ul>
+      {{#each used_by}}
+        {{#if crate.source}}
+        <li><code>{{crate.name}} {{crate.version}}</code>{{#if crate.repository}} — <a href="{{crate.repository}}">{{crate.repository}}</a>{{/if}}</li>
+        {{/if}}
+      {{/each}}
+      </ul>
+      <pre>{{text}}</pre>
+    </section>
+    {{/each}}
+  </main>
+</body>
+</html>

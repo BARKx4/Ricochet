@@ -213,6 +213,12 @@ $gitignore = Read-RequiredFile ".gitignore"
 Require-Match ".gitignore" $gitignore '(?m)^!SECURITY\.md\s*$' 'allow the root security policy to be tracked'
 Require-Match ".gitignore" $gitignore '(?m)^!SUPPORT\.md\s*$' 'allow the root support policy to be tracked'
 
+$gitAttributesPath = ".gitattributes"
+$gitAttributes = Read-RequiredFile $gitAttributesPath
+Require-Match $gitAttributesPath $gitAttributes '(?m)^/licenses/third-party-licenses\.hbs\s+text\s+eol=lf\s*$' 'keep the cargo-about template byte-stable across checkouts'
+Require-Match $gitAttributesPath $gitAttributes '(?m)^/THIRD_PARTY_LICENSES\.html\s+text\s+eol=lf\s+-whitespace\s*$' 'keep the license snapshot byte-stable while preserving upstream license text'
+Require-Match $gitAttributesPath $gitAttributes '(?m)^/THIRD_PARTY_NOTICES\.txt\s+text\s+eol=lf\s+-whitespace\s*$' 'keep the notice snapshot byte-stable while preserving upstream notice text'
+
 $securityPath = "SECURITY.md"
 $security = Read-RequiredFile $securityPath
 Require-Match $securityPath $security 'https://github\.com/BARKx4/Ricochet/security/advisories/new' 'link the enabled private vulnerability-reporting form'
@@ -239,6 +245,74 @@ Require-Match "README.md" $readme '\[support guide\]\(https://github\.com/BARKx4
 $acceptancePath = "scripts/acceptance.ps1"
 $acceptance = Read-RequiredFile $acceptancePath
 Require-Match $acceptancePath $acceptance 'validate-license-governance\.ps1' 'run this validator in the acceptance suite'
+Require-Match $acceptancePath $acceptance 'validate-third-party-notices\.ps1' 'validate the deterministic third-party license and notice snapshots'
+
+$aboutConfigPath = "about.toml"
+$aboutConfig = Read-RequiredFile $aboutConfigPath
+foreach ($licenseId in @(
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "BSL-1.0",
+    "MPL-2.0"
+)) {
+    Require-Match $aboutConfigPath $aboutConfig ([regex]::Escape('"' + $licenseId + '"')) "allow approved dependency license $licenseId"
+}
+Require-Match $aboutConfigPath $aboutConfig '(?s)accepted\s*=\s*\[\s*"Apache-2\.0"\s*,' 'prefer Apache-2.0 when satisfying dual-license expressions'
+Require-Match $aboutConfigPath $aboutConfig '(?m)^ignore-build-dependencies\s*=\s*false\s*$' 'include build dependencies'
+Require-Match $aboutConfigPath $aboutConfig '(?m)^ignore-dev-dependencies\s*=\s*true\s*$' 'exclude dev-only dependencies'
+Require-Match $aboutConfigPath $aboutConfig '(?m)^ignore-transitive-dependencies\s*=\s*false\s*$' 'include transitive dependencies'
+Require-Match $aboutConfigPath $aboutConfig '(?s)workarounds\s*=\s*\[[^\]]*"ring"[^\]]*"unicode-ident"' 'retain the approved ring and unicode-ident clarifications'
+Require-Match $aboutConfigPath $aboutConfig '(?s)\[ring\][\s\S]*?accepted\s*=\s*\[\s*"OpenSSL"\s*\]' 'accept the ring OpenSSL clarification'
+Require-Match $aboutConfigPath $aboutConfig '(?s)\[unicode-ident\][\s\S]*?accepted\s*=\s*\[\s*"Unicode-DFS-2016"\s*\]' 'accept the unicode-ident Unicode-DFS-2016 clarification'
+
+$aboutTemplatePath = "licenses/third-party-licenses.hbs"
+$aboutTemplate = Read-RequiredFile $aboutTemplatePath
+Require-Match $aboutTemplatePath $aboutTemplate 'THIRD-PARTY LICENSES' 'identify the generated third-party license report'
+
+$noticeGeneratorPath = "scripts/generate-third-party-notices.ps1"
+$noticeGenerator = Read-RequiredFile $noticeGeneratorPath
+foreach ($target in @(
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin"
+)) {
+    Require-Match $aboutConfigPath $aboutConfig ([regex]::Escape($target)) "include target $target in cargo-about generation"
+    Require-Match $noticeGeneratorPath $noticeGenerator ([regex]::Escape($target)) "include target $target in the dependency union"
+}
+Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+about\s+generate[\s\S]+?--locked[\s\S]+?--workspace' 'generate the locked workspace license report with cargo-about'
+Require-Match $noticeGeneratorPath $noticeGenerator 'Normalize-Text\s+\(\[System\.IO\.File\]::ReadAllText\(\$licensesOutput\)\)' 'normalize generated cargo-about HTML to LF before snapshot comparison'
+Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+metadata[\s\S]+?--locked[\s\S]+?--filter-platform' 'derive the union from locked target-specific Cargo metadata'
+Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+tree[\s\S]+?--locked[\s\S]+?--workspace[\s\S]+?--target[\s\S]+?--edges\s+"normal,build"' 'select the feature-aware active non-dev graph for each target'
+Require-Match $noticeGeneratorPath $noticeGenerator 'NOTICE\*.*COPYRIGHT\*.*AUTHORS\*.*PATENTS\*' 'discover the approved supplemental notice file families'
+Require-Match $noticeGeneratorPath $noticeGenerator 'SHA-256 \(normalized UTF-8\)' 'record normalized supplemental notice content hashes'
+if ($null -ne $noticeGenerator -and $noticeGenerator -match '(?m)^\s*Remove-Item\b') {
+    Add-Failure "$noticeGeneratorPath must retain every fresh generation directory"
+}
+if ($null -ne $noticeGenerator -and $noticeGenerator -match '(?m)^\s*[^#\r\n]*--(?:offline|frozen)\b') {
+    Add-Failure "$noticeGeneratorPath authoritative generation must remain online-capable"
+}
+
+$noticeValidatorPath = "scripts/validate-third-party-notices.ps1"
+$noticeValidator = Read-RequiredFile $noticeValidatorPath
+Require-Match $noticeValidatorPath $noticeValidator '0\.9\.1' 'pin and require cargo-about 0.9.1'
+Require-Match $noticeValidatorPath $noticeValidator 'THIRD_PARTY_LICENSES\.html' 'compare the generated license report with its tracked snapshot'
+Require-Match $noticeValidatorPath $noticeValidator 'THIRD_PARTY_NOTICES\.txt' 'compare the generated supplemental notices with its tracked snapshot'
+Require-Match $noticeValidatorPath $noticeValidator 'target[\\/]third-party-notices' 'retain fresh validation output under target/third-party-notices'
+Require-Match $noticeValidatorPath $noticeValidator 'StructuralEqualityComparer' 'byte-compare regenerated files with tracked snapshots'
+Require-Match $noticeValidatorPath $noticeValidator 'SHA256' 'hash-compare regenerated files with tracked snapshots'
+foreach ($inactiveHttp3Crate in @("quinn", "quinn-proto", "quinn-udp", "lru-slab")) {
+    Require-Match $noticeValidatorPath $noticeValidator ([regex]::Escape('"' + $inactiveHttp3Crate + '"')) "reject inactive reqwest HTTP/3 dependency $inactiveHttp3Crate"
+}
+
+[void](Read-RequiredFile "THIRD_PARTY_LICENSES.html")
+[void](Read-RequiredFile "THIRD_PARTY_NOTICES.txt")
 
 $editorValidatorPath = "scripts/validate-editor-assets.ps1"
 $editorValidator = Read-RequiredFile $editorValidatorPath
