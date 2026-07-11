@@ -102,9 +102,34 @@ function Copy-ReleaseDirectory {
         [string] $Destination
     )
 
-    if (Test-Path -LiteralPath $Source) {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
-        Copy-Item -LiteralPath $Source -Destination $Destination -Recurse
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+        return
+    }
+
+    $repoRootPath = [System.IO.Path]::GetFullPath([string] $RepoRoot).TrimEnd("\", "/")
+    $sourcePath = [System.IO.Path]::GetFullPath($Source)
+    $repoPrefix = $repoRootPath + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $sourcePath.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release source directory must be inside the repository: $Source"
+    }
+
+    $relativeSource = [System.IO.Path]::GetRelativePath($repoRootPath, $sourcePath).Replace("\", "/")
+    $trackedFiles = @(& git -C $repoRootPath ls-files -- $relativeSource)
+    if ($LASTEXITCODE -ne 0) {
+        throw "git ls-files failed while enumerating release source directory $relativeSource"
+    }
+
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $relativePrefix = "$relativeSource/"
+    foreach ($trackedFile in $trackedFiles) {
+        if (-not $trackedFile.StartsWith($relativePrefix, [System.StringComparison]::Ordinal)) {
+            continue
+        }
+        $relativePath = $trackedFile.Substring($relativePrefix.Length)
+        $sourceFile = Join-Path $repoRootPath ($trackedFile.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
+        $destinationFile = Join-Path $Destination ($relativePath.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destinationFile) -Force | Out-Null
+        Copy-Item -LiteralPath $sourceFile -Destination $destinationFile
     }
 }
 

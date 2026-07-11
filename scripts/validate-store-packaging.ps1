@@ -181,6 +181,22 @@ function Assert-EntriesContain {
     }
 }
 
+function Assert-EntriesExclude {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Entries,
+        [string] $ArchiveName,
+        [string[]] $ForbiddenPatterns
+    )
+
+    foreach ($pattern in $ForbiddenPatterns) {
+        $matches = @($Entries | Where-Object { $_ -like $pattern })
+        if ($matches.Count -gt 0) {
+            Add-Error $Errors "$ArchiveName contains forbidden release entry pattern '$pattern': $($matches -join ', ')."
+        }
+    }
+}
+
 function Get-DpkgOutput {
     param(
         [string] $DebPath,
@@ -211,7 +227,41 @@ function Assert-DebContains {
     }
 }
 
+function Assert-DebExcludes {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Contents,
+        [string[]] $ForbiddenPatterns
+    )
+
+    foreach ($pattern in $ForbiddenPatterns) {
+        $matches = @($Contents | Where-Object { $_ -match $pattern })
+        if ($matches.Count -gt 0) {
+            Add-Error $Errors "Debian package contains forbidden release entry matching '$pattern'."
+        }
+    }
+}
+
 $errors = [System.Collections.Generic.List[string]]::new()
+$forbiddenArchivePatterns = @(
+    "*rco-app*",
+    "*rco_app*",
+    "*packages/ricochet_slint/*",
+    "*packages/ricochet_ui/*",
+    "*packages/ricochet_winui/*",
+    "*packages/ricochet_avalonia/*",
+    "*examples/*/build/*",
+    "*examples/*.rci",
+    "*examples/*.rcob",
+    "*examples/*.exe"
+)
+$forbiddenDebPatterns = @(
+    "usr/bin/rco-app$",
+    "usr/bin/rco_app$",
+    "usr/share/ricochet/packages/ricochet_(slint|ui|winui|avalonia)/",
+    "usr/share/ricochet/examples/.*/build/",
+    "usr/share/ricochet/examples/.*\.(rci|rcob|exe)$"
+)
 
 try {
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
@@ -278,6 +328,7 @@ switch ($Target) {
                     "examples/basic-oop.rco",
                     "editors/vscode/*"
                 )
+                Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
             } catch {
                 Add-Error $errors $_.Exception.Message
             }
@@ -308,6 +359,7 @@ switch ($Target) {
                         "*/docs/reference/index.html",
                         "*/examples/basic-oop.rco"
                     )
+                    Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
                 } catch {
                     Add-Error $errors $_.Exception.Message
                 }
@@ -324,6 +376,7 @@ switch ($Target) {
                     Assert-DebContains $errors $contents "usr/share/metainfo/today\.ricochet\.rco\.metainfo\.xml$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/changelog$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/LICENSE$"
+                    Assert-DebExcludes $errors $contents $forbiddenDebPatterns
 
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
                     foreach ($requiredField in @(
@@ -382,6 +435,7 @@ switch ($Target) {
                     "*/examples/basic-oop.rco",
                     "*/editors/vscode/*"
                 )
+                Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
             } catch {
                 Add-Error $errors $_.Exception.Message
             }

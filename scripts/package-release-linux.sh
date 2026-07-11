@@ -125,10 +125,23 @@ copy_release_directory() {
   local source="$1"
   local destination="$2"
 
-  if [[ -d "$source" ]]; then
-    mkdir -p "$(dirname -- "$destination")"
-    cp -R "$source" "$destination"
+  [[ -d "$source" ]] || return 0
+
+  local relative_source="${source#"$repo_root"/}"
+  if [[ "$relative_source" == "$source" ]]; then
+    echo "Release source directory must be inside the repository: $source" >&2
+    return 1
   fi
+
+  mkdir -p "$destination"
+  local tracked_file relative_path destination_file
+  while IFS= read -r -d '' tracked_file; do
+    relative_path="${tracked_file#"$relative_source"/}"
+    [[ "$relative_path" != "$tracked_file" ]] || continue
+    destination_file="$destination/$relative_path"
+    mkdir -p "$(dirname -- "$destination_file")"
+    cp -p "$repo_root/$tracked_file" "$destination_file"
+  done < <(git -C "$repo_root" ls-files -z -- "$relative_source")
 }
 
 json_escape() {
