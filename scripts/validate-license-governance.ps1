@@ -326,10 +326,21 @@ $storeValidator = Read-RequiredFile $storeValidatorPath
 Require-Match $storeValidatorPath $storeValidator '"\*/LICENSE"' 'require LICENSE in portable Unix archives'
 Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/LICENSE\$' 'require LICENSE in Debian packages'
 Require-Match $storeValidatorPath $storeValidator '(?s)"windows-x64".*?"THIRD_PARTY_LICENSES\.html".*?"THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in Windows ZIP roots'
-Require-Match $storeValidatorPath $storeValidator '(?s)"linux-x64".*?"\*/THIRD_PARTY_LICENSES\.html".*?"\*/THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in Linux tar roots'
+Require-Match $storeValidatorPath $storeValidator '\$entry\s+-clike\s+\$pattern' 'match exact and wildcard archive entries case-sensitively'
+Require-Match $storeValidatorPath $storeValidator '(?s)function Assert-EntriesContainRegex.*?\$entry\s+-cmatch\s+\$pattern' 'provide case-sensitive regex matching for exact Unix archive depth'
+Require-Match $storeValidatorPath $storeValidator '(?s)"linux-x64".*?\^\[\^/\]\+/THIRD_PARTY_LICENSES\\\.html\$.*?\^\[\^/\]\+/THIRD_PARTY_NOTICES\\\.txt\$' 'require exact case-sensitive one-root third-party snapshots in Linux tar roots'
 Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/THIRD_PARTY_LICENSES\\\.html\$' 'require the third-party license report in Debian packages'
 Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/THIRD_PARTY_NOTICES\\\.txt\$' 'require supplemental notices in Debian packages'
-Require-Match $storeValidatorPath $storeValidator '(?s)macos-arm64.*?macos-x64.*?"\*/THIRD_PARTY_LICENSES\.html".*?"\*/THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in macOS tar roots'
+Require-Match $storeValidatorPath $storeValidator '(?s)function Assert-DebContains.*?\$_\s+-cmatch\s+\$Pattern' 'match Debian package paths case-sensitively'
+Require-Match $storeValidatorPath $storeValidator '(?s)macos-arm64.*?macos-x64.*?\^\[\^/\]\+/THIRD_PARTY_LICENSES\\\.html\$.*?\^\[\^/\]\+/THIRD_PARTY_NOTICES\\\.txt\$' 'require exact case-sensitive one-root third-party snapshots in macOS tar roots'
+
+$storeEntryContractPath = "scripts/test-store-packaging-entry-contract.ps1"
+[void](Read-RequiredFile $storeEntryContractPath)
+try {
+    & (Join-Path $Root $storeEntryContractPath)
+} catch {
+    $Failures.Add("${storeEntryContractPath}: $($_.Exception.Message)") | Out-Null
+}
 
 $releaseWorkflowPath = ".github/workflows/release.yml"
 $releaseWorkflow = Read-RequiredFile $releaseWorkflowPath

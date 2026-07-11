@@ -170,7 +170,7 @@ function Assert-EntriesContain {
     foreach ($pattern in $RequiredPatterns) {
         $found = $false
         foreach ($entry in $Entries) {
-            if ($entry -like $pattern) {
+            if ($entry -clike $pattern) {
                 $found = $true
                 break
             }
@@ -193,6 +193,28 @@ function Assert-EntriesExclude {
         $matches = @($Entries | Where-Object { $_ -like $pattern })
         if ($matches.Count -gt 0) {
             Add-Error $Errors "$ArchiveName contains forbidden release entry pattern '$pattern': $($matches -join ', ')."
+        }
+    }
+}
+
+function Assert-EntriesContainRegex {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Entries,
+        [string] $ArchiveName,
+        [string[]] $RequiredPatterns
+    )
+
+    foreach ($pattern in $RequiredPatterns) {
+        $found = $false
+        foreach ($entry in $Entries) {
+            if ($entry -cmatch $pattern) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            Add-Error $Errors "$ArchiveName is missing store packaging entry matching '$pattern'."
         }
     }
 }
@@ -222,7 +244,7 @@ function Assert-DebContains {
         [string] $Pattern
     )
 
-    if (-not ($Contents | Where-Object { $_ -match $Pattern })) {
+    if (-not ($Contents | Where-Object { $_ -cmatch $Pattern })) {
         Add-Error $Errors "Debian package is missing required entry matching '$Pattern'."
     }
 }
@@ -355,13 +377,15 @@ switch ($Target) {
                         "*/ricochet",
                         "*/install.sh",
                         "*/LICENSE",
-                        "*/THIRD_PARTY_LICENSES.html",
-                        "*/THIRD_PARTY_NOTICES.txt",
                         "*/share/applications/ricochet-repl.desktop",
                         "*/share/icons/hicolor/scalable/apps/ricochet.svg",
                         "*/share/metainfo/today.ricochet.rco.metainfo.xml",
                         "*/docs/reference/index.html",
                         "*/examples/basic-oop.rco"
+                    )
+                    Assert-EntriesContainRegex $errors $entries (Split-Path -Leaf $archivePath) @(
+                        '^[^/]+/THIRD_PARTY_LICENSES\.html$',
+                        '^[^/]+/THIRD_PARTY_NOTICES\.txt$'
                     )
                     Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
                 } catch {
@@ -436,12 +460,14 @@ switch ($Target) {
                     "*/install.sh",
                     "*/README.md",
                     "*/LICENSE",
-                    "*/THIRD_PARTY_LICENSES.html",
-                    "*/THIRD_PARTY_NOTICES.txt",
                     "*/RELEASE.txt",
                     "*/docs/reference/index.html",
                     "*/examples/basic-oop.rco",
                     "*/editors/vscode/*"
+                )
+                Assert-EntriesContainRegex $errors $entries (Split-Path -Leaf $archivePath) @(
+                    '^[^/]+/THIRD_PARTY_LICENSES\.html$',
+                    '^[^/]+/THIRD_PARTY_NOTICES\.txt$'
                 )
                 Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
             } catch {
