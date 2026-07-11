@@ -5,8 +5,10 @@ pub mod database_capability;
 pub mod manifest;
 pub mod revision;
 pub mod router;
+pub mod serve_builder;
 pub mod server;
 pub mod template;
+mod value_json;
 
 pub use active_record::{
     ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,
@@ -19,6 +21,7 @@ pub use manifest::{
 };
 pub use revision::{AppRevision, RevisionManager};
 pub use router::{parse_routes, Route};
+pub use serve_builder::ServeBuilder;
 pub use server::{
     build_app_from_dir_with_database, build_app_from_dir_with_options_and_request_fault_sink,
     build_served_app_from_dir, build_test_app, build_watched_app_from_dir,

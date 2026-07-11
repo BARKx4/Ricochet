@@ -81,18 +81,99 @@ function Resolve-TopLevelPath {
     return (Resolve-Path -LiteralPath $path).Path
 }
 
-function ConvertTo-VersionCore {
+function ConvertTo-SemVer {
     param([string] $Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $null
     }
-    $core = $Value.Trim().TrimStart("v").Split("-", 2)[0]
-    try {
-        [version]$core
-    } catch {
+
+    $normalized = $Value.Trim().TrimStart("v")
+    $match = [regex]::Match(
+        $normalized,
+        '^(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:-(?<prerelease>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+    )
+    if (-not $match.Success) {
         return $null
     }
+
+    $prerelease = if ($match.Groups["prerelease"].Success) {
+        @($match.Groups["prerelease"].Value.Split("."))
+    } else {
+        @()
+    }
+    foreach ($identifier in $prerelease) {
+        if ($identifier -match '^[0-9]+$' -and $identifier.Length -gt 1 -and $identifier.StartsWith("0")) {
+            return $null
+        }
+    }
+
+    [pscustomobject]@{
+        Major = [System.Numerics.BigInteger]::Parse($match.Groups["major"].Value)
+        Minor = [System.Numerics.BigInteger]::Parse($match.Groups["minor"].Value)
+        Patch = [System.Numerics.BigInteger]::Parse($match.Groups["patch"].Value)
+        Prerelease = $prerelease
+    }
+}
+
+function Compare-SemVer {
+    param(
+        [object] $Left,
+        [object] $Right
+    )
+
+    foreach ($field in @("Major", "Minor", "Patch")) {
+        $comparison = $Left.$field.CompareTo($Right.$field)
+        if ($comparison -ne 0) {
+            return $comparison
+        }
+    }
+
+    $leftPrerelease = @($Left.Prerelease)
+    $rightPrerelease = @($Right.Prerelease)
+    if ($leftPrerelease.Count -eq 0 -and $rightPrerelease.Count -eq 0) {
+        return 0
+    }
+    if ($leftPrerelease.Count -eq 0) {
+        return 1
+    }
+    if ($rightPrerelease.Count -eq 0) {
+        return -1
+    }
+
+    $sharedCount = [Math]::Min($leftPrerelease.Count, $rightPrerelease.Count)
+    for ($index = 0; $index -lt $sharedCount; $index++) {
+        $leftIdentifier = [string] $leftPrerelease[$index]
+        $rightIdentifier = [string] $rightPrerelease[$index]
+        if ($leftIdentifier -ceq $rightIdentifier) {
+            continue
+        }
+
+        $leftNumeric = $leftIdentifier -match '^[0-9]+$'
+        $rightNumeric = $rightIdentifier -match '^[0-9]+$'
+        if ($leftNumeric -and $rightNumeric) {
+            $comparison = [System.Numerics.BigInteger]::Parse($leftIdentifier).CompareTo(
+                [System.Numerics.BigInteger]::Parse($rightIdentifier)
+            )
+            if ($comparison -ne 0) {
+                return $comparison
+            }
+            continue
+        }
+        if ($leftNumeric) {
+            return -1
+        }
+        if ($rightNumeric) {
+            return 1
+        }
+
+        $comparison = [string]::CompareOrdinal($leftIdentifier, $rightIdentifier)
+        if ($comparison -ne 0) {
+            return $comparison
+        }
+    }
+
+    return $leftPrerelease.Count.CompareTo($rightPrerelease.Count)
 }
 
 function Test-VersionGreaterThan {
@@ -101,12 +182,12 @@ function Test-VersionGreaterThan {
         [string] $Baseline
     )
 
-    $candidateVersion = ConvertTo-VersionCore $Candidate
-    $baselineVersion = ConvertTo-VersionCore $Baseline
+    $candidateVersion = ConvertTo-SemVer $Candidate
+    $baselineVersion = ConvertTo-SemVer $Baseline
     if ($null -eq $candidateVersion -or $null -eq $baselineVersion) {
         return $false
     }
-    return $candidateVersion -gt $baselineVersion
+    return (Compare-SemVer $candidateVersion $baselineVersion) -gt 0
 }
 
 function Assert-ArtifactFile {

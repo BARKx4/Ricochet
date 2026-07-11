@@ -132,6 +132,14 @@ pub enum ImageResult {
     Err { kind: String, message: String },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ImageVisit {
+    Array(usize),
+    List(usize),
+    Map(usize),
+    Set(usize),
+}
+
 pub fn class_to_image(class: &Class) -> Result<ImageClass, ImageError> {
     let accessors = class_accessors(class);
     let mut allowed_native_methods = BTreeSet::new();
@@ -163,21 +171,47 @@ pub fn class_to_image(class: &Class) -> Result<ImageClass, ImageError> {
 }
 
 pub fn value_to_image(value: &Value, path: &str) -> Result<ImageValue, ImageError> {
+    value_to_image_inner(value, path, &mut Vec::new())
+}
+
+fn value_to_image_inner(
+    value: &Value,
+    path: &str,
+    visits: &mut Vec<ImageVisit>,
+) -> Result<ImageValue, ImageError> {
     match value {
         Value::Nil => Ok(ImageValue::Nil),
         Value::Bool(value) => Ok(ImageValue::Bool(*value)),
         Value::Number(value) => Ok(ImageValue::Number(*value)),
         Value::Float(value) => Ok(ImageValue::Float(encode_float(*value))),
         Value::String(value) => Ok(ImageValue::String(value.clone())),
-        Value::Array(values) => sequence_to_image(values.snapshot(), path, ImageValue::Array),
-        Value::List(values) => sequence_to_image(values.snapshot(), path, ImageValue::List),
-        Value::Map(values) => map_to_image(values.snapshot(), path),
-        Value::Set(values) => sequence_to_image(values.snapshot(), path, ImageValue::Set),
+        Value::Array(values) => with_image_collection(
+            visits,
+            ImageVisit::Array(values.identity()),
+            path,
+            |visits| sequence_to_image(values.snapshot(), path, visits, ImageValue::Array),
+        ),
+        Value::List(values) => with_image_collection(
+            visits,
+            ImageVisit::List(values.identity()),
+            path,
+            |visits| sequence_to_image(values.snapshot(), path, visits, ImageValue::List),
+        ),
+        Value::Map(values) => {
+            with_image_collection(visits, ImageVisit::Map(values.identity()), path, |visits| {
+                map_to_image(values.snapshot(), path, visits)
+            })
+        }
+        Value::Set(values) => {
+            with_image_collection(visits, ImageVisit::Set(values.identity()), path, |visits| {
+                sequence_to_image(values.snapshot(), path, visits, ImageValue::Set)
+            })
+        }
         Value::Class(name) => Ok(ImageValue::Class(name.clone())),
-        Value::Instance(instance) => instance_to_image(instance, path),
+        Value::Instance(instance) => instance_to_image(instance, path, visits),
         Value::Member(name) => Ok(ImageValue::Member(name.clone())),
         Value::Block(chunk) => Ok(ImageValue::Block(chunk.clone())),
-        Value::Result(result) => result_to_image(result, path),
+        Value::Result(result) => result_to_image(result, path, visits),
         Value::Task(_) => Err(non_serializable(path, "task")),
         Value::Regex(_) => Err(non_serializable(path, "regex")),
         Value::Capability(_) => Err(non_serializable(path, "capability")),
@@ -249,19 +283,43 @@ fn class_accessors(class: &Class) -> Vec<String> {
         .collect()
 }
 
-fn sequence_to_image<F>(values: Vec<Value>, path: &str, build: F) -> Result<ImageValue, ImageError>
+fn with_image_collection<T>(
+    visits: &mut Vec<ImageVisit>,
+    visit: ImageVisit,
+    path: &str,
+    serialize: impl FnOnce(&mut Vec<ImageVisit>) -> Result<T, ImageError>,
+) -> Result<T, ImageError> {
+    if visits.contains(&visit) {
+        return Err(non_serializable(path, "cyclic collection"));
+    }
+    visits.push(visit);
+    let result = serialize(visits);
+    visits.pop();
+    result
+}
+
+fn sequence_to_image<F>(
+    values: Vec<Value>,
+    path: &str,
+    visits: &mut Vec<ImageVisit>,
+    build: F,
+) -> Result<ImageValue, ImageError>
 where
     F: FnOnce(Vec<ImageValue>) -> ImageValue,
 {
     values
         .iter()
         .enumerate()
-        .map(|(index, value)| value_to_image(value, &format!("{path}[{index}]")))
+        .map(|(index, value)| value_to_image_inner(value, &format!("{path}[{index}]"), visits))
         .collect::<Result<Vec<_>, _>>()
         .map(build)
 }
 
-fn map_to_image(values: BTreeMap<String, Value>, path: &str) -> Result<ImageValue, ImageError> {
+fn map_to_image(
+    values: BTreeMap<String, Value>,
+    path: &str,
+    visits: &mut Vec<ImageVisit>,
+) -> Result<ImageValue, ImageError> {
     if is_literal_secret_reference(&values) {
         return Err(non_serializable(path, "literal secret reference"));
     }
@@ -269,18 +327,24 @@ fn map_to_image(values: BTreeMap<String, Value>, path: &str) -> Result<ImageValu
     values
         .iter()
         .map(|(key, value)| {
-            value_to_image(value, &format!("{path}.{key}")).map(|value| (key.clone(), value))
+            value_to_image_inner(value, &format!("{path}.{key}"), visits)
+                .map(|value| (key.clone(), value))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()
         .map(ImageValue::Map)
 }
 
-fn instance_to_image(instance: &Instance, path: &str) -> Result<ImageValue, ImageError> {
+fn instance_to_image(
+    instance: &Instance,
+    path: &str,
+    visits: &mut Vec<ImageVisit>,
+) -> Result<ImageValue, ImageError> {
     let fields = instance
         .fields
         .iter()
         .map(|(field, value)| {
-            value_to_image(value, &format!("{path}.{field}")).map(|value| (field.clone(), value))
+            value_to_image_inner(value, &format!("{path}.{field}"), visits)
+                .map(|value| (field.clone(), value))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
     Ok(ImageValue::Instance {
@@ -289,9 +353,13 @@ fn instance_to_image(instance: &Instance, path: &str) -> Result<ImageValue, Imag
     })
 }
 
-fn result_to_image(result: &RicochetResult, path: &str) -> Result<ImageValue, ImageError> {
+fn result_to_image(
+    result: &RicochetResult,
+    path: &str,
+    visits: &mut Vec<ImageVisit>,
+) -> Result<ImageValue, ImageError> {
     match result {
-        RicochetResult::Ok(value) => value_to_image(value, &format!("{path}.ok"))
+        RicochetResult::Ok(value) => value_to_image_inner(value, &format!("{path}.ok"), visits)
             .map(|value| ImageValue::Result(ImageResult::Ok(Box::new(value)))),
         RicochetResult::Err(error) => Ok(ImageValue::Result(ImageResult::Err {
             kind: error.kind.clone(),
@@ -333,5 +401,68 @@ fn decode_float(repr: &str, path: &str) -> Result<f64, ImageError> {
             path: path.to_string(),
             repr: repr.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_rejects_self_cycles_for_every_collection_kind() {
+        let array = ArrayValue::default();
+        array.push(Value::Array(array.clone()));
+        assert_cycle_path(Value::Array(array), "$[0]");
+
+        let list = ListValue::default();
+        list.push(Value::List(list.clone()));
+        assert_cycle_path(Value::List(list), "$[0]");
+
+        let map = MapValue::default();
+        map.insert("self".to_string(), Value::Map(map.clone()));
+        assert_cycle_path(Value::Map(map), "$.self");
+
+        let set = SetValue::default();
+        set.insert(Value::Set(set.clone()));
+        assert_cycle_path(Value::Set(set), "$[0]");
+    }
+
+    #[test]
+    fn image_rejects_cycle_through_result_and_instance_at_exact_path() {
+        let array = ArrayValue::default();
+        let instance = Instance::new(
+            "Node",
+            BTreeMap::from([("loop".to_string(), Value::Array(array.clone()))]),
+        );
+        array.push(Value::result_ok(Value::Instance(instance)));
+
+        assert_cycle_path(Value::Array(array), "$[0].ok.loop");
+    }
+
+    #[test]
+    fn image_serializes_shared_acyclic_child_in_each_branch() {
+        let child = ArrayValue::from(vec![Value::Number(7)]);
+        let root = Value::Array(ArrayValue::from(vec![
+            Value::Array(child.clone()),
+            Value::Array(child),
+        ]));
+
+        assert_eq!(
+            value_to_image(&root, "$"),
+            Ok(ImageValue::Array(vec![
+                ImageValue::Array(vec![ImageValue::Number(7)]),
+                ImageValue::Array(vec![ImageValue::Number(7)]),
+            ]))
+        );
+    }
+
+    fn assert_cycle_path(value: Value, expected_path: &str) {
+        assert_eq!(
+            value_to_image(&value, "$"),
+            Err(ImageError::NonSerializableValue {
+                path: expected_path.to_string(),
+                kind: "cyclic collection",
+            })
+        );
     }
 }

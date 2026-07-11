@@ -101,6 +101,49 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
+validate_semver() {
+  local candidate="$1"
+  local semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+  if [[ ! "$candidate" =~ $semver_pattern ]]; then
+    echo "Release version must be valid SemVer: $candidate" >&2
+    return 1
+  fi
+
+  local precedence="${candidate%%+*}"
+  if [[ "$precedence" == *-* ]]; then
+    local prerelease="${precedence#*-}"
+    local identifier
+    local identifiers=()
+    IFS='.' read -r -a identifiers <<< "$prerelease"
+    for identifier in "${identifiers[@]}"; do
+      if [[ "$identifier" =~ ^[0-9]+$ && "$identifier" != "0" && "$identifier" == 0* ]]; then
+        echo "Release version numeric prerelease identifiers must not contain leading zeroes: $candidate" >&2
+        return 1
+      fi
+    done
+  fi
+}
+
+semver_to_debian_version() {
+  local semver="$1"
+  local precedence="$semver"
+  local build=""
+
+  if [[ "$precedence" == *+* ]]; then
+    build="+${precedence#*+}"
+    precedence="${precedence%%+*}"
+  fi
+
+  if [[ "$precedence" == *-* ]]; then
+    printf '%s~%s%s\n' "${precedence%%-*}" "${precedence#*-}" "$build"
+  else
+    printf '%s%s\n' "$precedence" "$build"
+  fi
+}
+
+validate_semver "$version"
+debian_version="$(semver_to_debian_version "$version")"
+
 assert_new_path() {
   local path="$1"
   if [[ -e "$path" ]]; then
@@ -125,10 +168,23 @@ copy_release_directory() {
   local source="$1"
   local destination="$2"
 
-  if [[ -d "$source" ]]; then
-    mkdir -p "$(dirname -- "$destination")"
-    cp -R "$source" "$destination"
+  [[ -d "$source" ]] || return 0
+
+  local relative_source="${source#"$repo_root"/}"
+  if [[ "$relative_source" == "$source" ]]; then
+    echo "Release source directory must be inside the repository: $source" >&2
+    return 1
   fi
+
+  mkdir -p "$destination"
+  local tracked_file relative_path destination_file
+  while IFS= read -r -d '' tracked_file; do
+    relative_path="${tracked_file#"$relative_source"/}"
+    [[ "$relative_path" != "$tracked_file" ]] || continue
+    destination_file="$destination/$relative_path"
+    mkdir -p "$(dirname -- "$destination_file")"
+    cp -p "$repo_root/$tracked_file" "$destination_file"
+  done < <(git -C "$repo_root" ls-files -z -- "$relative_source")
 }
 
 json_escape() {
@@ -317,7 +373,7 @@ EOF
 <component type="console-application">
   <id>today.ricochet.rco</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>Apache-2.0</project_license>
   <name>Ricochet</name>
   <summary>Pure-postfix language, MVC web framework, and desktop app toolkit</summary>
   <description>
@@ -327,7 +383,6 @@ EOF
     <binary>rco</binary>
     <binary>ricochet</binary>
     <binary>rco-gui</binary>
-    <binary>rco-app</binary>
   </provides>
   <releases>
     <release version="$version" />
@@ -344,7 +399,7 @@ else
 fi
 package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
-deb_path="$out_dir_path/ricochet_${version}_amd64.deb"
+deb_path="$out_dir_path/ricochet_${debian_version}_amd64.deb"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
 signing_report_path="$out_dir_path/SIGNING-${target}.txt"
 manifest_path="$out_dir_path/ARTIFACTS-${target}.json"
@@ -376,7 +431,6 @@ target_dir="$repo_root/target/$configuration"
 binaries=(
   "$target_dir/rco"
   "$target_dir/rco-gui"
-  "$target_dir/rco-app"
   "$target_dir/ricochet"
 )
 
@@ -390,14 +444,16 @@ done
 mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
 install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
-install -m 755 "${binaries[2]}" "$package_dir/rco-app"
-install -m 755 "${binaries[3]}" "$package_dir/ricochet"
+install -m 755 "${binaries[2]}" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
+cp "$repo_root/THIRD_PARTY_LICENSES.html" "$package_dir/THIRD_PARTY_LICENSES.html"
+cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$package_dir/THIRD_PARTY_NOTICES.txt"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
+copy_release_directory "$repo_root/docs/learn" "$package_dir/docs/learn"
 copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
 write_linux_metadata "$package_dir" "$version"
 
@@ -408,7 +464,6 @@ Commands:
   rco --help
   rco gui examples/webview_ui.rco
   rco package examples/webview_ui.rco --gui --output webview-ui
-  rco package examples/native_showcase_app.rco --app --backend slint --output native-showcase
   ricochet --help
 
 Install locally:
@@ -434,11 +489,15 @@ bin_dir="$prefix/bin"
 mkdir -p "$bin_dir"
 cp "$script_dir/rco" "$bin_dir/rco"
 cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
-cp "$script_dir/rco-app" "$bin_dir/rco-app"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
-chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/rco-app" "$bin_dir/ricochet"
+chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
 
 share_dir="$prefix/share"
+doc_dir="$share_dir/doc/ricochet"
+mkdir -p "$doc_dir"
+cp "$script_dir/LICENSE" "$doc_dir/LICENSE"
+cp "$script_dir/THIRD_PARTY_LICENSES.html" "$doc_dir/THIRD_PARTY_LICENSES.html"
+cp "$script_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/THIRD_PARTY_NOTICES.txt"
 if [ -d "$script_dir/share/applications" ]; then
   mkdir -p "$share_dir/applications"
   cp "$script_dir/share/applications/"*.desktop "$share_dir/applications/"
@@ -473,35 +532,38 @@ if [[ "$build_deb" -eq 1 ]]; then
 
   install -m 755 "${binaries[0]}" "$deb_root/usr/bin/rco"
   install -m 755 "${binaries[1]}" "$deb_root/usr/bin/rco-gui"
-  install -m 755 "${binaries[2]}" "$deb_root/usr/bin/rco-app"
-  install -m 755 "${binaries[3]}" "$deb_root/usr/bin/ricochet"
+  install -m 755 "${binaries[2]}" "$deb_root/usr/bin/ricochet"
   cp "$repo_root/README.md" "$deb_root/usr/share/doc/ricochet/README.md"
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
+  cp "$repo_root/THIRD_PARTY_LICENSES.html" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_LICENSES.html"
+  cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_NOTICES.txt"
   cat > "$deb_root/usr/share/doc/ricochet/changelog" <<EOF
-ricochet ($version)
+ricochet ($debian_version)
 
   * Ricochet release package for $target.
 EOF
   copy_release_directory "$repo_root/examples" "$deb_root/usr/share/ricochet/examples"
   copy_release_directory "$repo_root/packages" "$deb_root/usr/share/ricochet/packages"
+  copy_release_directory "$repo_root/docs/assets" "$deb_root/usr/share/doc/ricochet/assets"
   copy_release_directory "$repo_root/docs/reference" "$deb_root/usr/share/doc/ricochet/reference"
+  copy_release_directory "$repo_root/docs/learn" "$deb_root/usr/share/doc/ricochet/learn"
   copy_release_directory "$repo_root/editors/vscode" "$deb_root/usr/share/ricochet/editors/vscode"
   write_linux_metadata "$deb_root/usr" "$version"
 
   installed_size="$(du -sk "$deb_root/usr" | awk '{ print $1 }')"
   cat > "$deb_root/DEBIAN/control" <<EOF
 Package: ricochet
-Version: $version
+Version: $debian_version
 Section: devel
 Priority: optional
 Architecture: amd64
-Depends: xdg-utils
+Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3
 Maintainer: Ricochet <noreply@ricochet.today>
 Installed-Size: $installed_size
 Description: Ricochet stack-based web language CLI
  Ricochet is a pure-postfix, stack-based programming language with a Rust
  bytecode VM, CLI scripting, MVC web scaffolding, beta Active Record support,
- and a desktop GUI launcher that opens Linux GUI apps in the system browser.
+ and a desktop GUI launcher that opens embedded Linux WebView windows.
 EOF
 
   dpkg-deb --build "$deb_root" "$deb_path"

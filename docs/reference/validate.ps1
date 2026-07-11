@@ -1,5 +1,6 @@
 param(
-    [string]$Root = (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    [string]$Root = (Split-Path -Parent $MyInvocation.MyCommand.Path),
+    [switch]$PackageMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,13 +11,17 @@ $docsRootFull = [System.IO.Path]::GetFullPath($docsRoot)
 function Get-DocsRelativePath {
     param([string]$Path)
 
+    $target = [System.IO.Path]::GetFullPath($Path)
+    if ([System.IO.Path].GetMethods().Name -contains "GetRelativePath") {
+        return [System.IO.Path]::GetRelativePath($docsRootFull, $target).Replace("\", "/")
+    }
+
     $base = $docsRootFull
     if (-not $base.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
         $base = $base + [System.IO.Path]::DirectorySeparatorChar
     }
-
     $baseUri = [System.Uri]$base
-    $targetUri = [System.Uri]([System.IO.Path]::GetFullPath($Path))
+    $targetUri = [System.Uri]$target
     return [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace("\", "/")
 }
 
@@ -52,29 +57,31 @@ foreach ($file in $requiredFiles) {
 }
 
 $noJekyllPath = Join-Path $docsRoot ".nojekyll"
-if (-not (Test-Path -LiteralPath $noJekyllPath -PathType Leaf)) {
+if (-not $PackageMode -and -not (Test-Path -LiteralPath $noJekyllPath -PathType Leaf)) {
     $failures.Add("docs/.nojekyll is missing; GitHub Pages should serve the pre-rendered static HTML without Jekyll")
 }
 
 $repoRoot = Split-Path -Parent $docsRoot
 $publicMarkdownFiles = @()
-$gitListSucceeded = $false
-try {
-    $trackedMarkdown = @(& git -C $repoRoot ls-files -- "docs/*.md" "docs/**/*.md" 2>$null)
-    if ($LASTEXITCODE -eq 0) {
-        $gitListSucceeded = $true
-        $publicMarkdownFiles = @(
-            $trackedMarkdown |
-                Where-Object {
-                    $_ -and $_ -ne "docs/feature-map.md" -and -not $_.StartsWith("docs/superpowers/")
-                } |
-                ForEach-Object {
-                    Get-Item -LiteralPath (Join-Path $repoRoot $_)
-                }
-        )
+$gitListSucceeded = [bool]$PackageMode
+if (-not $PackageMode) {
+    try {
+        $trackedMarkdown = @(& git -C $repoRoot ls-files -- "docs/*.md" "docs/**/*.md" 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $gitListSucceeded = $true
+            $publicMarkdownFiles = @(
+                $trackedMarkdown |
+                    Where-Object {
+                        $_ -and $_ -ne "docs/feature-map.md" -and -not $_.StartsWith("docs/superpowers/")
+                    } |
+                    ForEach-Object {
+                        Get-Item -LiteralPath (Join-Path $repoRoot $_)
+                    }
+            )
+        }
+    } catch {
+        $publicMarkdownFiles = @()
     }
-} catch {
-    $publicMarkdownFiles = @()
 }
 
 if (-not $gitListSucceeded) {
@@ -97,6 +104,7 @@ foreach ($markdownFile in $publicMarkdownFiles) {
 
 $publicDocsMarkdownPattern = [regex]"docs/(?:wiki|learn|benchmarks|releases|feature-map|adding-words|debugger-integrations|reference/README|superpowers/[^<`"\s]+)\.md"
 $htmlLinkPattern = [regex]'(?i)\b(?:href|src)="([^"]+)"'
+$candidateProductionValidationPattern = [regex]'(?is)validate-update-channel\.ps1(?:(?!</code>).)*-Channel\s+candidate(?:(?!</code>).)*-RequireProduction'
 
 foreach ($htmlFile in Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.html" -File -ErrorAction SilentlyContinue) {
     $relativeHtml = Get-DocsRelativePath -Path $htmlFile.FullName
@@ -105,6 +113,10 @@ foreach ($htmlFile in Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.h
     $markdownPathMatch = $publicDocsMarkdownPattern.Match($htmlText)
     if ($markdownPathMatch.Success) {
         $failures.Add("Public HTML references a docs Markdown path in ${relativeHtml}: $($markdownPathMatch.Value)")
+    }
+
+    if ($candidateProductionValidationPattern.IsMatch($htmlText)) {
+        $failures.Add("Candidate update-channel command incorrectly requires production signatures in ${relativeHtml}")
     }
 
     foreach ($match in $htmlLinkPattern.Matches($htmlText)) {
@@ -503,12 +515,30 @@ if ($failures.Count -eq 0) {
         '"webview_text"',
         '"webview_heading"',
         '"webview_button"',
+        '"web_command"',
+        '"web_command_button"',
         '"webview_action"',
         '"webview_input"',
         '"webview_link"',
         '"webview_container"',
+        '"web_toolbar"',
+        '"web_sidebar"',
+        '"web_tabs"',
+        '"web_split_pane"',
+        '"web_table"',
+        '"web_form_row"',
+        '"web_status_bar"',
+        '"web_menu"',
+        '"web_menu_bar"',
         '"webview_window"',
         '"webview_window_state"',
+        '"webview_window_app"',
+        '"webview_open_file"',
+        '"webview_save_file"',
+        '"webview_choose_folder"',
+        '"webview_clipboard_read"',
+        '"webview_clipboard_write"',
+        '"webview_open_url"',
         '"webview_document"',
         '"inspect"',
         '"debug"',
@@ -580,8 +610,7 @@ if ($failures.Count -eq 0) {
         "rco run-bytecode [--debug] [--trace-file PATH] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] &lt;path&gt; [args...]",
         "rco gui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] &lt;path&gt; [args...]",
         "rco tui [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] &lt;path&gt; [args...]",
-        "rco app [--backend winui|slint] [--export-ui-json PATH] [--replay-events PATH] [--winui-host PATH] [--slint-validate-only] &lt;path&gt; [args...]",
-        "rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--app] [--backend winui|slint] [--app-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION]",
+        "rco package [path] --output &lt;exe&gt; [--tui] [--gui] [--mvc] [--gui-launcher PATH] [--linux-package tar|deb] [--package-name NAME] [--package-version VERSION] [--package-license SPDX]",
         "rco add &lt;source&gt; [--name NAME|--as ALIAS] [--registry PATH|--registry-url URL] [--version REQ] [--no-fetch]",
         "rco publish [path] --registry PATH [--provenance-file PATH] [--signature-file PATH] [--signature-kind KIND] [--dry-run]",
         "rco registry rebuild PATH",
@@ -631,6 +660,11 @@ if ($failures.Count -eq 0) {
         "tui_read_key value",
         "`$body `$state `$actions webview_window_state value",
         "`"Increment`" `"increment`" webview_button",
+        "`"increment`" `"Increment`" `"Ctrl+I`" web_command",
+        "`"Increment`" `"increment`" web_command_button",
+        "`"Actions`" commands get web_menu",
+        "menus get web_menu_bar",
+        "webview_window_app value",
         "`"Increment`" `"increment`" `"increment_counter`" webview_action",
         "webview_window_state",
         "tasks count",

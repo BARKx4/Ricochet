@@ -17,10 +17,6 @@ path = "src/bin/ricochet.rs"
 name = "rco-gui"
 path = "src/bin/rco_gui.rs"
 
-[[bin]]
-name = "rco-app"
-path = "src/bin/rco_app.rs"
-
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }
@@ -40,8 +36,7 @@ serde.workspace = true
 serde_json.workspace = true
 semver.workspace = true
 sha2.workspace = true
-slint-interpreter.workspace = true
-spin_on.workspace = true
+spdx.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
@@ -53,6 +48,10 @@ tower.workspace = true
 [dev-dependencies]
 tungstenite.workspace = true
 
-[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-winit = "0.30"
-wry = { version = "0.55", default-features = false }
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+muda = "0.19.3"
+tao = "0.35.3"
+wry = "0.55.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging"] }

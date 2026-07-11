@@ -53,6 +53,24 @@ function Test-JsonProperty {
     return $Object.PSObject.Properties.Name -contains $Name
 }
 
+function ConvertTo-DebianVersion {
+    param([string] $Version)
+
+    $normalized = $Version.Trim().TrimStart("v")
+    $precedence = $normalized
+    $build = ""
+    $buildIndex = $precedence.IndexOf("+", [System.StringComparison]::Ordinal)
+    if ($buildIndex -ge 0) {
+        $build = $precedence.Substring($buildIndex)
+        $precedence = $precedence.Substring(0, $buildIndex)
+    }
+    $prereleaseIndex = $precedence.IndexOf("-", [System.StringComparison]::Ordinal)
+    if ($prereleaseIndex -lt 0) {
+        return "$precedence$build"
+    }
+    return "$($precedence.Substring(0, $prereleaseIndex))~$($precedence.Substring($prereleaseIndex + 1))$build"
+}
+
 function Get-Artifact {
     param(
         [object[]] $Artifacts,
@@ -170,13 +188,51 @@ function Assert-EntriesContain {
     foreach ($pattern in $RequiredPatterns) {
         $found = $false
         foreach ($entry in $Entries) {
-            if ($entry -like $pattern) {
+            if ($entry -clike $pattern) {
                 $found = $true
                 break
             }
         }
         if (-not $found) {
             Add-Error $Errors "$ArchiveName is missing store packaging entry pattern '$pattern'."
+        }
+    }
+}
+
+function Assert-EntriesExclude {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Entries,
+        [string] $ArchiveName,
+        [string[]] $ForbiddenPatterns
+    )
+
+    foreach ($pattern in $ForbiddenPatterns) {
+        $matches = @($Entries | Where-Object { $_ -like $pattern })
+        if ($matches.Count -gt 0) {
+            Add-Error $Errors "$ArchiveName contains forbidden release entry pattern '$pattern': $($matches -join ', ')."
+        }
+    }
+}
+
+function Assert-EntriesContainRegex {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Entries,
+        [string] $ArchiveName,
+        [string[]] $RequiredPatterns
+    )
+
+    foreach ($pattern in $RequiredPatterns) {
+        $found = $false
+        foreach ($entry in $Entries) {
+            if ($entry -cmatch $pattern) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            Add-Error $Errors "$ArchiveName is missing store packaging entry matching '$pattern'."
         }
     }
 }
@@ -206,12 +262,46 @@ function Assert-DebContains {
         [string] $Pattern
     )
 
-    if (-not ($Contents | Where-Object { $_ -match $Pattern })) {
+    if (-not ($Contents | Where-Object { $_ -cmatch $Pattern })) {
         Add-Error $Errors "Debian package is missing required entry matching '$Pattern'."
     }
 }
 
+function Assert-DebExcludes {
+    param(
+        [System.Collections.Generic.List[string]] $Errors,
+        [string[]] $Contents,
+        [string[]] $ForbiddenPatterns
+    )
+
+    foreach ($pattern in $ForbiddenPatterns) {
+        $matches = @($Contents | Where-Object { $_ -match $pattern })
+        if ($matches.Count -gt 0) {
+            Add-Error $Errors "Debian package contains forbidden release entry matching '$pattern'."
+        }
+    }
+}
+
 $errors = [System.Collections.Generic.List[string]]::new()
+$forbiddenArchivePatterns = @(
+    "*rco-app*",
+    "*rco_app*",
+    "*packages/ricochet_slint/*",
+    "*packages/ricochet_ui/*",
+    "*packages/ricochet_winui/*",
+    "*packages/ricochet_avalonia/*",
+    "*examples/*/build/*",
+    "*examples/*.rci",
+    "*examples/*.rcob",
+    "*examples/*.exe"
+)
+$forbiddenDebPatterns = @(
+    "usr/bin/rco-app$",
+    "usr/bin/rco_app$",
+    "usr/share/ricochet/packages/ricochet_(slint|ui|winui|avalonia)/",
+    "usr/share/ricochet/examples/.*/build/",
+    "usr/share/ricochet/examples/.*\.(rci|rcob|exe)$"
+)
 
 try {
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
@@ -269,16 +359,19 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "rco.exe",
                     "rco-gui.exe",
-                    "rco-app.exe",
                     "ricochet.exe",
                     "README.md",
                     "LICENSE",
+                    "THIRD_PARTY_LICENSES.html",
+                    "THIRD_PARTY_NOTICES.txt",
                     "RELEASE.txt",
                     "Ricochet Shell.cmd",
                     "docs/reference/index.html",
+                    "docs/learn/index.html",
                     "examples/basic-oop.rco",
                     "editors/vscode/*"
                 )
+                Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
             } catch {
                 Add-Error $errors $_.Exception.Message
             }
@@ -287,6 +380,11 @@ switch ($Target) {
     "linux-x64" {
         $deb = Get-Artifact $artifacts { param($artifact) $artifact.kind -eq "debian-package" -and $artifact.name -like "*.deb" }
         $debPath = Assert-Artifact $errors $deb "Debian package"
+        $expectedDebianVersion = ConvertTo-DebianVersion ([string]$manifest.package_version)
+        $expectedDebianName = "ricochet_${expectedDebianVersion}_amd64.deb"
+        if ($deb -and [string]$deb.name -cne $expectedDebianName) {
+            Add-Error $errors "Debian package artifact must be '$expectedDebianName', found '$($deb.name)'."
+        }
         $requiredStatuses = @()
         if ($RequireProduction) {
             $requiredStatuses += "status = signed"
@@ -300,15 +398,21 @@ switch ($Target) {
                     Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                         "*/rco",
                         "*/rco-gui",
-                        "*/rco-app",
                         "*/ricochet",
                         "*/install.sh",
+                        "*/LICENSE",
                         "*/share/applications/ricochet-repl.desktop",
                         "*/share/icons/hicolor/scalable/apps/ricochet.svg",
                         "*/share/metainfo/today.ricochet.rco.metainfo.xml",
                         "*/docs/reference/index.html",
+                        "*/docs/learn/index.html",
                         "*/examples/basic-oop.rco"
                     )
+                    Assert-EntriesContainRegex $errors $entries (Split-Path -Leaf $archivePath) @(
+                        '^[^/]+/THIRD_PARTY_LICENSES\.html$',
+                        '^[^/]+/THIRD_PARTY_NOTICES\.txt$'
+                    )
+                    Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
                 } catch {
                     Add-Error $errors $_.Exception.Message
                 }
@@ -319,20 +423,26 @@ switch ($Target) {
                     $contents = Get-DpkgOutput $debPath @("--contents")
                     Assert-DebContains $errors $contents "usr/bin/rco$"
                     Assert-DebContains $errors $contents "usr/bin/rco-gui$"
-                    Assert-DebContains $errors $contents "usr/bin/rco-app$"
                     Assert-DebContains $errors $contents "usr/bin/ricochet$"
                     Assert-DebContains $errors $contents "usr/share/applications/ricochet-repl\.desktop$"
                     Assert-DebContains $errors $contents "usr/share/icons/hicolor/scalable/apps/ricochet\.svg$"
                     Assert-DebContains $errors $contents "usr/share/metainfo/today\.ricochet\.rco\.metainfo\.xml$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/changelog$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/LICENSE$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_LICENSES\.html$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_NOTICES\.txt$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/assets/ricochet-logo\.png$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/learn/index\.html$"
+                    Assert-DebExcludes $errors $contents $forbiddenDebPatterns
 
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
                     foreach ($requiredField in @(
                             "Package: ricochet",
+                            "Version: $expectedDebianVersion",
                             "Section: devel",
                             "Architecture: amd64",
                             "Maintainer: Ricochet <noreply@ricochet.today>",
-                            "Depends: xdg-utils"
+                            "Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3"
                         )) {
                         if (-not $fields.Contains($requiredField)) {
                             Add-Error $errors "Debian package control metadata is missing '$requiredField'."
@@ -374,16 +484,21 @@ switch ($Target) {
                 Assert-EntriesContain $errors $entries (Split-Path -Leaf $archivePath) @(
                     "*/rco",
                     "*/rco-gui",
-                    "*/rco-app",
                     "*/ricochet",
                     "*/install.sh",
                     "*/README.md",
                     "*/LICENSE",
                     "*/RELEASE.txt",
                     "*/docs/reference/index.html",
+                    "*/docs/learn/index.html",
                     "*/examples/basic-oop.rco",
                     "*/editors/vscode/*"
                 )
+                Assert-EntriesContainRegex $errors $entries (Split-Path -Leaf $archivePath) @(
+                    '^[^/]+/THIRD_PARTY_LICENSES\.html$',
+                    '^[^/]+/THIRD_PARTY_NOTICES\.txt$'
+                )
+                Assert-EntriesExclude $errors $entries (Split-Path -Leaf $archivePath) $forbiddenArchivePatterns
             } catch {
                 Add-Error $errors $_.Exception.Message
             }

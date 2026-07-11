@@ -15,7 +15,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   resolve-version:
@@ -26,10 +26,13 @@ jobs:
       is_nightly: ${{ steps.version.outputs.is_nightly }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
       release_channel: ${{ steps.version.outputs.release_channel }}
+      artifact_suffix: ${{ steps.version.outputs.artifact_suffix }}
 
     steps:
       - name: Check out
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Resolve package version
         id: version
@@ -47,10 +50,12 @@ jobs:
           is_nightly=false
           is_prerelease=false
           release_channel=stable
+          artifact_suffix=""
 
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-            version="${workspace_version}-nightly.${GITHUB_RUN_NUMBER}"
+            version="$workspace_version"
             is_nightly=true
+            artifact_suffix="-nightly.${GITHUB_RUN_NUMBER}"
           elif [[ -z "$version" && "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
           elif [[ -z "$version" ]]; then
@@ -62,13 +67,13 @@ jobs:
             exit 1
           fi
 
-          if [[ "$is_nightly" != "true" && "$version" != "$workspace_version" ]]; then
+          if [[ "$version" != "$workspace_version" ]]; then
             echo "Resolved package version '$version' does not match workspace Cargo version '$workspace_version'." >&2
-            echo "Use the Cargo.toml version for tagged/manual releases; only scheduled nightlies append a suffix." >&2
+            echo "Every package must use the exact compiled Cargo.toml version." >&2
             exit 1
           fi
 
-          if [[ "$is_nightly" != "true" && "$version" == *-* ]]; then
+          if [[ "$version" == *-* ]]; then
             is_prerelease=true
             release_channel=candidate
           fi
@@ -77,6 +82,7 @@ jobs:
           echo "is_nightly=$is_nightly" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
           echo "release_channel=$release_channel" >> "$GITHUB_OUTPUT"
+          echo "artifact_suffix=$artifact_suffix" >> "$GITHUB_OUTPUT"
           {
             echo "### Ricochet package version"
             echo
@@ -95,6 +101,8 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -169,6 +177,30 @@ jobs:
           }
           $rco = $rcoCandidates[0].FullName
           $packageDir = Split-Path -Parent $rco
+          $packagedLicense = Join-Path $packageDir 'LICENSE'
+          $repositoryLicense = Join-Path $env:GITHUB_WORKSPACE 'LICENSE'
+          if (-not (Test-Path -LiteralPath $packagedLicense -PathType Leaf)) {
+            throw "Windows portable ZIP did not contain LICENSE."
+          }
+          if ((Get-FileHash -LiteralPath $packagedLicense -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $repositoryLicense -Algorithm SHA256).Hash) {
+            throw "Windows portable ZIP LICENSE did not match the repository license."
+          }
+
+          foreach ($noticeName in @(
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt'
+          )) {
+            $repositoryNotice = Join-Path $env:GITHUB_WORKSPACE $noticeName
+            $packagedNotice = Join-Path $packageDir $noticeName
+            if (-not (Test-Path -LiteralPath $packagedNotice -PathType Leaf)) {
+              throw "Windows portable ZIP did not contain $noticeName."
+            }
+            if ((Get-FileHash -LiteralPath $packagedNotice -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $repositoryNotice -Algorithm SHA256).Hash) {
+              throw "Windows portable ZIP $noticeName did not match the repository snapshot."
+            }
+          }
+
+          & .\docs\reference\validate.ps1 -Root (Join-Path $packageDir 'docs\reference') -PackageMode
 
           $basic = Join-Path $tmp 'basic-oop.exe'
           $basicSource = Join-Path $packageDir 'examples\basic-oop.rco'
@@ -197,6 +229,384 @@ jobs:
           }
           if (-not (Select-String -LiteralPath $env:RICOCHET_GUI_EXPORT_HTML -Pattern '<title>Ricochet Desktop UI</title>' -Quiet)) {
             throw "Packaged webview-ui HTML export did not contain the expected title."
+          }
+
+      - name: Smoke-test Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+
+          if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+            throw 'RUNNER_TEMP was not defined.'
+          }
+
+          $version = '${{ needs.resolve-version.outputs.version }}'
+          $repoRoot = $env:GITHUB_WORKSPACE
+          $distRoot = Join-Path $repoRoot 'dist'
+          $installerCandidates = @(Get-ChildItem -LiteralPath $distRoot -File -Filter "ricochet-v$version-windows-x64-setup.exe")
+          if ($installerCandidates.Count -ne 1) {
+            throw "Expected exactly one versioned Windows installer, found $($installerCandidates.Count)."
+          }
+          $sourceCandidates = @(Get-ChildItem -LiteralPath $distRoot -Directory -Filter "ricochet-v$version-windows-x64")
+          if ($sourceCandidates.Count -ne 1) {
+            throw "Expected exactly one versioned Windows installer source directory, found $($sourceCandidates.Count)."
+          }
+
+          $installer = $installerCandidates[0].FullName
+          $installerSource = $sourceCandidates[0].FullName
+          $smokeRoot = Join-Path $env:RUNNER_TEMP ("ricochet-installer-smoke-" + [guid]::NewGuid().ToString('N'))
+          $installDir = Join-Path $smokeRoot 'install'
+          $foreignDir = Join-Path $smokeRoot 'foreign'
+          $outsideDir = Join-Path $smokeRoot 'outside-checkout'
+          $foreignSentinel = Join-Path $foreignDir 'foreign-destination-sentinel.txt'
+          $userSentinel = Join-Path $installDir 'user-owned-sentinel.txt'
+          $sentinelContents = 'preserve unrelated user data'
+          if ($installDir -match '[\s"]') {
+            throw "NSIS smoke install path contains whitespace or quotes: $installDir"
+          }
+
+          $programsFolder = [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
+          if ([string]::IsNullOrWhiteSpace($programsFolder)) {
+            throw 'The current-user Start Menu Programs folder could not be resolved.'
+          }
+          $startMenuDir = Join-Path $programsFolder 'Ricochet'
+          $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Ricochet'
+
+          function Assert-Leaf {
+            param(
+              [string] $Path,
+              [string] $Label
+            )
+
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+              throw "$Label was missing: $Path"
+            }
+          }
+
+          function Assert-Sha256Match {
+            param(
+              [string] $Expected,
+              [string] $Actual,
+              [string] $Label
+            )
+
+            Assert-Leaf -Path $Expected -Label "$Label source"
+            Assert-Leaf -Path $Actual -Label "$Label packaged copy"
+            $expectedHash = (Get-FileHash -LiteralPath $Expected -Algorithm SHA256).Hash
+            $actualHash = (Get-FileHash -LiteralPath $Actual -Algorithm SHA256).Hash
+            if ($actualHash -cne $expectedHash) {
+              throw "$Label SHA-256 mismatch: expected $expectedHash, found $actualHash"
+            }
+          }
+
+          function Assert-SamePath {
+            param(
+              [string] $Expected,
+              [string] $Actual,
+              [string] $Label
+            )
+
+            $expectedFull = [IO.Path]::GetFullPath($Expected)
+            $actualFull = [IO.Path]::GetFullPath($Actual)
+            if (-not [string]::Equals($expectedFull, $actualFull, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "$Label targeted '$actualFull'; expected '$expectedFull'."
+            }
+          }
+
+          $legacyRc4Paths = @(
+            'rco-app.exe',
+            'packages\ricochet_slint\README.md',
+            'packages\ricochet_slint\backend.rco',
+            'packages\ricochet_slint\ricochet.toml',
+            'packages\ricochet_slint\tests\SlintBackendPackageTest.rco',
+            'packages\ricochet_ui\README.md',
+            'packages\ricochet_ui\commands.rco',
+            'packages\ricochet_ui\document.rco',
+            'packages\ricochet_ui\events.rco',
+            'packages\ricochet_ui\examples\counter_app.rco',
+            'packages\ricochet_ui\examples\data_grid_viewer.rco',
+            'packages\ricochet_ui\examples\native_showcase_app.rco',
+            'packages\ricochet_ui\examples\project_tree_drag_drop.rco',
+            'packages\ricochet_ui\examples\rich_text_note.rco',
+            'packages\ricochet_ui\rich_text.rco',
+            'packages\ricochet_ui\ricochet.toml',
+            'packages\ricochet_ui\tests\UiDocumentPackageTest.rco',
+            'packages\ricochet_ui\tests\UiInteractionPackageTest.rco',
+            'packages\ricochet_ui\tests\UiValidationPackageTest.rco',
+            'packages\ricochet_ui\validation.rco',
+            'packages\ricochet_winui\README.md',
+            'packages\ricochet_winui\backend.rco',
+            'packages\ricochet_winui\ricochet.toml',
+            'packages\ricochet_winui\tests\WinuiBackendPackageTest.rco'
+          )
+
+          foreach ($noticeName in @(
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt'
+          )) {
+            Assert-Sha256Match `
+              -Expected (Join-Path $repoRoot $noticeName) `
+              -Actual (Join-Path $installerSource $noticeName) `
+              -Label "Windows installer source $noticeName"
+          }
+
+          & .\docs\reference\validate.ps1 -Root (Join-Path $installerSource 'docs\reference') -PackageMode
+
+          if (Test-Path -LiteralPath $uninstallKey) {
+            throw 'Pre-existing Ricochet HKCU uninstall metadata would collide with the smoke test.'
+          }
+          if (Test-Path -LiteralPath $startMenuDir) {
+            throw 'Pre-existing Ricochet Start Menu state would collide with the smoke test.'
+          }
+
+          New-Item -ItemType Directory -Path $smokeRoot | Out-Null
+          New-Item -ItemType Directory -Path $outsideDir | Out-Null
+          New-Item -ItemType Directory -Path $foreignDir | Out-Null
+          Set-Content -LiteralPath $foreignSentinel -Value $sentinelContents -NoNewline
+
+          $foreignProcess = Start-Process `
+            -FilePath $installer `
+            -ArgumentList "/S /D=$foreignDir" `
+            -Wait `
+            -PassThru
+          if ($foreignProcess.ExitCode -eq 0) {
+            throw 'Expected installer rejection for a foreign non-empty destination.'
+          }
+          if ((Get-Content -LiteralPath $foreignSentinel -Raw) -cne $sentinelContents) {
+            throw 'Foreign destination sentinel was removed or changed.'
+          }
+          if (Test-Path -LiteralPath (Join-Path $foreignDir 'rco.exe')) {
+            throw 'Rejected foreign destination received Ricochet files.'
+          }
+
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          Set-Content -LiteralPath $userSentinel -Value $sentinelContents -NoNewline
+          Set-Content -LiteralPath (Join-Path $installDir 'rco.exe') -Value 'legacy ownership fixture' -NoNewline
+          foreach ($relativePath in $legacyRc4Paths) {
+            $legacyPath = Join-Path $installDir $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $legacyPath) -Force | Out-Null
+            Set-Content -LiteralPath $legacyPath -Value 'published rc.4 fixture' -NoNewline
+          }
+          New-Item -Path $uninstallKey -Force | Out-Null
+          New-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value 'Ricochet' -PropertyType String -Force | Out-Null
+          New-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value ('0.1.19-rc.' + '4') -PropertyType String -Force | Out-Null
+          New-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $installDir -PropertyType String -Force | Out-Null
+
+          $installProcess = Start-Process `
+            -FilePath $installer `
+            -ArgumentList "/S /D=$installDir" `
+            -Wait `
+            -PassThru
+          if ($installProcess.ExitCode -ne 0) {
+            throw "Silent NSIS install failed with exit code $($installProcess.ExitCode)."
+          }
+
+          if ((Get-Content -LiteralPath $userSentinel -Raw) -cne $sentinelContents) {
+            throw 'User-owned sentinel was removed or changed during upgrade.'
+          }
+          foreach ($relativePath in $legacyRc4Paths) {
+            if (Test-Path -LiteralPath (Join-Path $installDir $relativePath)) {
+              throw "Seeded legacy path survived the rc.5 upgrade: $relativePath"
+            }
+          }
+
+          foreach ($relativePath in @(
+            'rco.exe',
+            'rco-gui.exe',
+            'ricochet.exe',
+            'Ricochet Shell.cmd',
+            '.ricochet-install-owner',
+            'Uninstall.exe',
+            'LICENSE',
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt',
+            'examples\basic-oop.rco',
+            'examples\webview_ui.rco',
+            'docs\reference\index.html',
+            'docs\learn\index.html'
+          )) {
+            Assert-Leaf -Path (Join-Path $installDir $relativePath) -Label "Installed $relativePath"
+          }
+
+          & .\docs\reference\validate.ps1 -Root (Join-Path $installDir 'docs\reference') -PackageMode
+
+          foreach ($binaryName in @('rco.exe', 'ricochet.exe')) {
+            $binary = Join-Path $installDir $binaryName
+            $versionOutput = (@(& $binary --version 2>&1) -join "`n").Trim()
+            $versionExitCode = $LASTEXITCODE
+            if ($versionExitCode -ne 0) {
+              throw "$binaryName --version failed with exit code $versionExitCode."
+            }
+            if ($versionOutput -cne "rco $version") {
+              throw "$binaryName --version returned '$versionOutput'; expected 'rco $version'."
+            }
+          }
+
+          foreach ($trackedFile in @(
+            'LICENSE',
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt'
+          )) {
+            Assert-Sha256Match `
+              -Expected (Join-Path $repoRoot $trackedFile) `
+              -Actual (Join-Path $installDir $trackedFile) `
+              -Label "Installed $trackedFile"
+          }
+
+          $rco = Join-Path $installDir 'rco.exe'
+          $webviewSource = Join-Path $installDir 'examples\webview_ui.rco'
+          $webviewExecutable = Join-Path $outsideDir 'installed-webview.exe'
+          $webviewHtml = Join-Path $outsideDir 'installed-webview.html'
+          Push-Location -LiteralPath $outsideDir
+          try {
+            & $rco package $webviewSource `
+              --gui `
+              --output $webviewExecutable `
+              --package-name installer-webview `
+              --package-version $version
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Installed rco failed to package the installed WebView example.'
+            }
+            Assert-Leaf -Path $webviewExecutable -Label 'Installed WebView package output'
+
+            $previousExport = [Environment]::GetEnvironmentVariable('RICOCHET_GUI_EXPORT_HTML', 'Process')
+            try {
+              [Environment]::SetEnvironmentVariable('RICOCHET_GUI_EXPORT_HTML', $webviewHtml, 'Process')
+              $webviewProcess = Start-Process `
+                -FilePath $webviewExecutable `
+                -WorkingDirectory $outsideDir `
+                -Wait `
+                -PassThru
+            } finally {
+              [Environment]::SetEnvironmentVariable('RICOCHET_GUI_EXPORT_HTML', $previousExport, 'Process')
+            }
+
+            if ($webviewProcess.ExitCode -ne 0) {
+              throw "Installed WebView export failed with exit code $($webviewProcess.ExitCode)."
+            }
+            Assert-Leaf -Path $webviewHtml -Label 'Installed WebView HTML export'
+            if (-not (Select-String -LiteralPath $webviewHtml -Pattern '<title>Ricochet Desktop UI</title>' -Quiet)) {
+              throw 'Installed WebView HTML export did not contain the expected title.'
+            }
+          } finally {
+            Pop-Location
+          }
+
+          if (-not (Test-Path -LiteralPath $uninstallKey)) {
+            throw 'Installer did not create the HKCU Ricochet uninstall key.'
+          }
+          $registration = Get-ItemProperty -LiteralPath $uninstallKey
+          foreach ($expected in ([ordered]@{
+            DisplayName = 'Ricochet'
+            DisplayVersion = $version
+            Publisher = 'Ricochet'
+            NoModify = 1
+            NoRepair = 1
+          }).GetEnumerator()) {
+            $property = $registration.PSObject.Properties[$expected.Key]
+            if ($null -eq $property) {
+              throw "Uninstall metadata omitted $($expected.Key)."
+            }
+            if ([string]$property.Value -cne [string]$expected.Value) {
+              throw "Uninstall metadata $($expected.Key) was '$($property.Value)'; expected '$($expected.Value)'."
+            }
+          }
+
+          Assert-SamePath `
+            -Expected $installDir `
+            -Actual ([string]$registration.InstallLocation) `
+            -Label 'Uninstall InstallLocation'
+          $uninstaller = Join-Path $installDir 'Uninstall.exe'
+          $expectedUninstallString = '"{0}"' -f $uninstaller
+          if ([string]$registration.UninstallString -ne $expectedUninstallString) {
+            throw "UninstallString was '$($registration.UninstallString)'; expected '$expectedUninstallString'."
+          }
+
+          $shortcutTargets = [ordered]@{
+            'Ricochet Shell.lnk' = Join-Path $installDir 'Ricochet Shell.cmd'
+            'Reference Docs.lnk' = Join-Path $installDir 'docs\reference\index.html'
+            'Third-Party Licenses.lnk' = Join-Path $installDir 'THIRD_PARTY_LICENSES.html'
+            'Uninstall Ricochet.lnk' = $uninstaller
+          }
+          $shell = $null
+          try {
+            $shell = New-Object -ComObject WScript.Shell
+            foreach ($shortcutEntry in $shortcutTargets.GetEnumerator()) {
+              $shortcutPath = Join-Path $startMenuDir $shortcutEntry.Key
+              Assert-Leaf -Path $shortcutPath -Label "Start Menu shortcut $($shortcutEntry.Key)"
+              $shortcut = $null
+              try {
+                $shortcut = $shell.CreateShortcut($shortcutPath)
+                $shortcutTarget = [string]$shortcut.TargetPath
+              } finally {
+                if ($null -ne $shortcut) {
+                  [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+                }
+              }
+              Assert-SamePath `
+                -Expected $shortcutEntry.Value `
+                -Actual $shortcutTarget `
+                -Label "Start Menu shortcut $($shortcutEntry.Key)"
+            }
+          } finally {
+            if ($null -ne $shell) {
+              [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+            }
+          }
+
+          $uninstallProcess = Start-Process `
+            -FilePath $uninstaller `
+            -ArgumentList '/S' `
+            -Wait `
+            -PassThru
+          $uninstallStubExitCode = $uninstallProcess.ExitCode
+
+          $installerOwnedPaths = @(
+            'rco.exe',
+            'rco-gui.exe',
+            'ricochet.exe',
+            'Ricochet Shell.cmd',
+            '.ricochet-install-owner',
+            'Uninstall.exe',
+            'LICENSE',
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt',
+            'examples\basic-oop.rco',
+            'examples\webview_ui.rco',
+            'docs\reference\index.html',
+            'docs\learn\index.html'
+          )
+          $deadline = [DateTime]::UtcNow.AddSeconds(30)
+          do {
+            $remainingOwnedPaths = @($installerOwnedPaths | Where-Object { Test-Path -LiteralPath (Join-Path $installDir $_) })
+            $sentinelPreserved = (Test-Path -LiteralPath $userSentinel -PathType Leaf) -and ((Get-Content -LiteralPath $userSentinel -Raw) -ceq $sentinelContents)
+            $registryRemoved = -not (Test-Path -LiteralPath $uninstallKey)
+            $shortcutsRemoved = -not (Test-Path -LiteralPath $startMenuDir)
+            if ($remainingOwnedPaths.Count -eq 0 -and $sentinelPreserved -and $registryRemoved -and $shortcutsRemoved) {
+              break
+            }
+            Start-Sleep -Milliseconds 250
+          } while ([DateTime]::UtcNow -lt $deadline)
+
+          $remaining = @()
+          foreach ($relativePath in $remainingOwnedPaths) {
+            $remaining += "Installer-owned path survived uninstall: $relativePath"
+          }
+          if (-not $sentinelPreserved) {
+            $remaining += 'User-owned sentinel was removed or changed'
+          }
+          if (Test-Path -LiteralPath $uninstallKey) {
+            $remaining += "registry key '$uninstallKey'"
+          }
+          if (Test-Path -LiteralPath $startMenuDir) {
+            $remaining += "Start Menu directory '$startMenuDir'"
+          }
+          if ($remaining.Count -ne 0) {
+            throw "Silent uninstall left state behind: $($remaining -join '; '). Stub exit code: $uninstallStubExitCode."
+          }
+          if ($uninstallStubExitCode -ne 0) {
+            throw "NSIS uninstaller stub returned exit code $uninstallStubExitCode even though installer-owned state was removed."
           }
 
       - name: Validate release artifact manifest
@@ -228,7 +638,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ricochet-${{ needs.resolve-version.outputs.version }}-windows-x64
+          name: ricochet-${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}-windows-x64
           path: |
             dist/*.zip
             dist/*-setup.exe
@@ -244,14 +654,21 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Test Linux release version guard
+        shell: bash
+        run: bash scripts/test-linux-release-version.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux native UI dependencies
+      - name: Install Linux GUI build dependencies
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev
 
       - name: Import Linux GPG signing key
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
@@ -280,17 +697,72 @@ jobs:
         shell: bash
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
+          semver_to_debian_version() {
+            local semver="$1"
+            local precedence="$semver"
+            local build=""
+            if [[ "$precedence" == *+* ]]; then
+              build="+${precedence#*+}"
+              precedence="${precedence%%+*}"
+            fi
+            if [[ "$precedence" == *-* ]]; then
+              printf '%s~%s%s\n' "${precedence%%-*}" "${precedence#*-}" "$build"
+            else
+              printf '%s%s\n' "$precedence" "$build"
+            fi
+          }
+          debian_version="$(semver_to_debian_version "$version")"
+          official_deb="dist/ricochet_${debian_version}_amd64.deb"
 
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -f "$package_dir/LICENSE"
+          cmp LICENSE "$package_dir/LICENSE"
           test -f "$package_dir/share/applications/ricochet-repl.desktop"
           grep -q 'Exec=rco repl' "$package_dir/share/applications/ricochet-repl.desktop"
           test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
+          grep -q '<project_license>Apache-2.0</project_license>' "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
-          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" > "$tmp/ricochet-deb-contents.txt"
+          for binary in rco rco-gui ricochet; do
+            readelf -d "$package_dir/$binary" | grep -q 'Shared library: \[libxdo\.so\.3\]'
+          done
+          dpkg-deb --contents "$official_deb" > "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/applications/ricochet-repl.desktop' "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml' "$tmp/ricochet-deb-contents.txt"
+          grep -q 'usr/share/doc/ricochet/LICENSE' "$tmp/ricochet-deb-contents.txt"
+          package_debian_version="$(dpkg-deb --field "$official_deb" Version)"
+          test "$package_debian_version" = "$debian_version"
+          if [[ "$version" == *-* ]]; then
+            stable_version="${version%%-*}"
+            dpkg --compare-versions "$package_debian_version" lt "$stable_version"
+          fi
+          dpkg-deb --extract "$official_deb" "$tmp/deb-root"
+          cmp LICENSE "$tmp/deb-root/usr/share/doc/ricochet/LICENSE"
+          pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$package_dir/docs/reference" -PackageMode
+          pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$tmp/deb-root/usr/share/doc/ricochet/reference" -PackageMode
+
+          notice_hash() {
+            sha256sum "$1" | awk '{ print $1 }'
+          }
+          for notice in THIRD_PARTY_LICENSES.html THIRD_PARTY_NOTICES.txt; do
+            tar_notice="$package_dir/$notice"
+            deb_notice="$tmp/deb-root/usr/share/doc/ricochet/$notice"
+            test -f "$tar_notice"
+            test -f "$deb_notice"
+            repository_hash="$(notice_hash "$notice")"
+            tar_hash="$(notice_hash "$tar_notice")"
+            deb_hash="$(notice_hash "$deb_notice")"
+            if [[ "$tar_hash" != "$repository_hash" ]]; then
+              echo "Linux tar $notice hash mismatch: expected $repository_hash, found $tar_hash" >&2
+              exit 1
+            fi
+            if [[ "$deb_hash" != "$repository_hash" ]]; then
+              echo "Debian $notice hash mismatch: expected $repository_hash, found $deb_hash" >&2
+              exit 1
+            fi
+          done
+
           "$package_dir/rco" package examples/basic-oop.rco \
             --output "$tmp/basic-oop" \
             --linux-package tar \
@@ -299,23 +771,27 @@ jobs:
             --package-version "$version"
           "$tmp/basic-oop" > "$tmp/basic-oop.out"
           grep -q 'ada@example.com' "$tmp/basic-oop.out"
+          readelf -d "$tmp/basic-oop" | grep -q 'Shared library: \[libxdo\.so\.3\]'
           test -f "$tmp/basic-oop-v${version}-linux-x64.tar.gz"
-          test -f "$tmp/basic-oop_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
+          test -f "$tmp/basic-oop_${debian_version}_amd64.deb"
+          dpkg-deb --info "$tmp/basic-oop_${debian_version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
           grep -q 'Package: basic-oop' "$tmp/basic-oop-deb-info.txt"
+          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3' "$tmp/basic-oop-deb-info.txt"
 
           "$package_dir/rco" package examples/webview_ui.rco \
             --gui \
             --output "$tmp/webview-ui" \
             --linux-package deb \
             --package-name webview-ui \
-            --package-version "$version"
+            --package-version "$version" \
+            --package-license Apache-2.0
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
-          test -f "$tmp/webview-ui_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
-          grep -q 'Depends: xdg-utils' "$tmp/webview-ui-deb-info.txt"
-          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
+          readelf -d "$tmp/webview-ui" | grep -q 'Shared library: \[libxdo\.so\.3\]'
+          test -f "$tmp/webview-ui_${debian_version}_amd64.deb"
+          dpkg-deb --info "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
+          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3' "$tmp/webview-ui-deb-info.txt"
+          dpkg-deb --contents "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"
 
@@ -354,7 +830,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ricochet-${{ needs.resolve-version.outputs.version }}-linux-x64
+          name: ricochet-${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}-linux-x64
           path: |
             dist/*.tar.gz
             dist/*.deb
@@ -379,6 +855,8 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -429,6 +907,23 @@ jobs:
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-${{ matrix.target }}.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          cmp LICENSE "$package_dir/LICENSE"
+          pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$package_dir/docs/reference" -PackageMode
+
+          notice_hash() {
+            shasum -a 256 "$1" | awk '{ print $1 }'
+          }
+          for notice in THIRD_PARTY_LICENSES.html THIRD_PARTY_NOTICES.txt; do
+            packaged_notice="$package_dir/$notice"
+            test -f "$packaged_notice"
+            repository_hash="$(notice_hash "$notice")"
+            packaged_hash="$(notice_hash "$packaged_notice")"
+            if [[ "$packaged_hash" != "$repository_hash" ]]; then
+              echo "${{ matrix.target }} $notice hash mismatch: expected $repository_hash, found $packaged_hash" >&2
+              exit 1
+            fi
+          done
+
           "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
           "$tmp/basic-oop" | grep -q 'ada@example.com'
           "$package_dir/rco" package examples/webview_ui.rco --gui --output "$tmp/webview-ui"
@@ -463,26 +958,79 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ricochet-${{ needs.resolve-version.outputs.version }}-${{ matrix.target }}
+          name: ricochet-${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}-${{ matrix.target }}
           path: |
             dist/*.tar.gz
             dist/*.txt
             dist/*.json
           retention-days: 30
 
+  smoke-linux-deb:
+    name: Smoke-test Debian runtime install
+    needs:
+      - resolve-version
+      - package-linux
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+
+    steps:
+      - name: Download Linux package artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ricochet-${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}-linux-x64
+          path: dist
+
+      - name: Install and smoke-test Debian package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.resolve-version.outputs.version }}'
+          shopt -s nullglob
+          deb_candidates=(dist/*.deb)
+          if [[ ${#deb_candidates[@]} -ne 1 ]]; then
+            echo "Expected exactly one Debian package, found ${#deb_candidates[@]}." >&2
+            exit 1
+          fi
+          deb="$(realpath "${deb_candidates[0]}")"
+
+          apt-get update
+          apt-get install -y --no-install-recommends "$deb"
+
+          for binary in /usr/bin/rco /usr/bin/rco-gui /usr/bin/ricochet; do
+            ldd_report="/tmp/$(basename "$binary")-ldd.txt"
+            ldd "$binary" > "$ldd_report"
+            if grep -Fq 'not found' "$ldd_report"; then
+              cat "$ldd_report" >&2
+              exit 1
+            fi
+          done
+
+          [[ "$(rco --version)" == "rco $version" ]]
+          [[ "$(ricochet --version)" == "rco $version" ]]
+          rco run /usr/share/ricochet/examples/basic-oop.rco
+          webview_export="/tmp/ricochet-webview-export-${GITHUB_RUN_ID}.html"
+          RICOCHET_GUI_EXPORT_HTML="$webview_export" rco gui /usr/share/ricochet/examples/webview_ui.rco
+          grep -Fq '<title>Ricochet Desktop UI</title>' "$webview_export"
+
   publish-release:
     name: Publish GitHub release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     needs:
       - resolve-version
       - package-windows
       - package-linux
       - package-macos
+      - smoke-linux-deb
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Download release artifacts
         uses: actions/download-artifact@v8
@@ -512,6 +1060,15 @@ jobs:
           find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
             | sort \
             | xargs sha256sum > SHA256SUMS.txt
+
+      - name: Revalidate finalized update channel
+        shell: pwsh
+        run: |
+          ./scripts/validate-update-channel.ps1 `
+            -DistDir dist `
+            -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
+            -Version '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
 
       - name: Create GitHub release
         shell: bash

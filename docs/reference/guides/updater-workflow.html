@@ -46,21 +46,20 @@
           <p>Ricochet's production updater workflow is channel metadata plus platform verification. The v1 beta does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
 
           <h2 id="channel-metadata">Channel Metadata</h2>
-          <p>Production stable tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts and require platform signature/notarization verification. Semver prerelease tags such as <code>v0.1.19-rc.4</code> publish <code>UPDATE-CHANNEL-candidate.json</code>, are marked as GitHub prereleases, and record SHA-256 verification metadata for dry-run signed candidate artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
+          <p>Production stable tag releases publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts and require platform signature/notarization verification. Semver prerelease tags such as <code>v0.1.19-rc.5</code> publish <code>UPDATE-CHANNEL-candidate.json</code>, are marked as GitHub prereleases, and record SHA-256 verification metadata for dry-run signed candidate artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel candidate `
-  -Version 0.1.19-rc.4 `
-  -ReleaseTag v0.1.19-rc.4 `
-  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.4</code></pre>
+  -Version 0.1.19-rc.5 `
+  -ReleaseTag v0.1.19-rc.5 `
+  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.5</code></pre>
           <p>The channel document records release identity, rollout percentage, rollback policy, target manifests, primary artifacts, checksum files, signing reports, optional notary reports, required verification methods, and per-artifact SHA-256 metadata.</p>
           <p>Validate channel metadata before publishing it:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 `
   -DistDir dist `
   -Channel candidate `
-  -Version 0.1.19-rc.4 `
-  -RequireProduction</code></pre>
-          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle.</p>
+  -Version 0.1.19-rc.5</code></pre>
+          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle. It then revalidates the channel against the finalized files before publication.</p>
 
           <h2 id="update-check-contract">Update Check Contract</h2>
           <p>A Ricochet-compatible updater fetches the channel over HTTPS, requires the expected schema and channel such as <code>stable</code> or <code>candidate</code>, rejects older or equal versions unless an operator explicitly chooses a rollback, selects the local platform target, downloads the referenced manifest and artifacts, verifies all SHA-256 values, then runs platform verification before install.</p>

@@ -44,12 +44,12 @@
 <li>a portable <code>ricochet-v&lt;version&gt;-windows-x64.zip</code>.</li>
 <li>an NSIS <code>ricochet-v&lt;version&gt;-windows-x64-setup.exe</code> installer.</li>
 <li>Authenticode signing for the ZIP executables and installer on production tags.</li>
-<li><code>ARTIFACTS-windows-x64.json</code>, <code>SIGNING-windows-x64.txt</code>, and <code>SHA256SUMS.txt</code>.</li>
+<li><code>ARTIFACTS-windows-x64.json</code>, <code>SIGNING-windows-x64.txt</code>, and <code>SHA256SUMS-windows-x64.txt</code>.</li>
 </ul>
 <p>Linux releases provide:</p>
 <ul>
 <li>a portable <code>ricochet-v&lt;version&gt;-linux-x64.tar.gz</code>.</li>
-<li>a Debian <code>ricochet_&lt;version&gt;_amd64.deb</code>.</li>
+<li>a Debian <code>ricochet_&lt;debian-version&gt;_amd64.deb</code>; prereleases use Debian ordering, so Ricochet <code>0.1.19-rc.5</code> becomes <code>ricochet_0.1.19~rc.5_amd64.deb</code> and remains older than stable <code>0.1.19</code>.</li>
 <li><code>ricochet-repl.desktop</code>, <code>ricochet.svg</code>, AppStream metainfo, changelog, maintainer metadata, bundled docs, examples, and first-party packages.</li>
 <li>detached GPG signatures on production tags.</li>
 <li><code>ARTIFACTS-linux-x64.json</code>, <code>SIGNING-linux-x64.txt</code>, and <code>SHA256SUMS-linux-x64.txt</code>.</li>
@@ -60,25 +60,27 @@
 <li>codesigned binaries and accepted Apple notarization reports on production tags.</li>
 <li><code>ARTIFACTS-&lt;target&gt;.json</code>, <code>SIGNING-&lt;target&gt;.txt</code>, <code>NOTARY-&lt;target&gt;.json</code>, and target checksum files.</li>
 </ul>
+<p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
 <h2 id="store-readiness-gate">Store Readiness Gate</h2>
 <p>Run the store packaging validator after artifact manifest validation:</p>
 <pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 0.1.19-rc.4
+  -PackageVersion 0.1.19-rc.5
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 0.1.19-rc.4
+  -PackageVersion 0.1.19-rc.5
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 0.1.19-rc.4</code></pre>
+  -PackageVersion 0.1.19-rc.5</code></pre>
 <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
 <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects:</p>
 <ul>
 <li>Windows ZIP contents and installer presence.</li>
 <li>Linux tarball metadata and Debian package control/filesystem metadata.</li>
 <li>macOS tarball contents and, for production tags, accepted notarization reports.</li>
+<li>Required first-party and third-party license and notice files in every package.</li>
 </ul>
 <h2 id="marketplace-submission">Marketplace Submission</h2>
 <p>Marketplace submission starts from the validated GitHub release artifacts:</p>

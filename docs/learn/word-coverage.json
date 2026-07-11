@@ -1884,6 +1884,18 @@
     "status": "drafted"
   },
   {
+    "word": "web_command",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_command_button",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
     "word": "webview_action",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
@@ -1908,6 +1920,60 @@
     "status": "drafted"
   },
   {
+    "word": "web_toolbar",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_sidebar",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_tabs",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_split_pane",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_table",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_form_row",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_status_bar",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_menu",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "web_menu_bar",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
     "word": "webview_window",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
@@ -1915,6 +1981,48 @@
   },
   {
     "word": "webview_window_state",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_window_app",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_open_file",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_save_file",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_choose_folder",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_clipboard_read",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_clipboard_write",
+    "detail": "system",
+    "primary_chapter": "22-webview-and-desktop-gui",
+    "status": "drafted"
+  },
+  {
+    "word": "webview_open_url",
     "detail": "system",
     "primary_chapter": "22-webview-and-desktop-gui",
     "status": "drafted"

@@ -92,6 +92,8 @@
 <p>On Linux, install the Debian package with:</p>
 <pre><code class="language-bash">sudo apt install ./ricochet_X.Y.Z_amd64.deb
 </code></pre>
+<p>Prerelease Debian artifacts use Debian ordering in both the filename and package metadata. For example, Ricochet <code>0.1.19-rc.5</code> is <code>ricochet_0.1.19~rc.5_amd64.deb</code>, which sorts before the eventual stable <code>0.1.19</code> package so normal upgrades work.</p>
+<p>The Debian package declares <code>libgtk-3-0</code>, <code>libwebkit2gtk-4.1-0</code>, and <code>libxdo3</code>. Install those runtime packages manually before using the portable Linux tarball.</p>
 <p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
 <p>On macOS, choose the unsigned tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. These beta tarballs are not notarized by Apple.</p>
 <h2>Check your install</h2>
@@ -120,15 +122,13 @@ rco routes my_app
 cd my_app
 rco serve
 </code></pre>
-<h2 id="native-desktop-ui">Native desktop UI</h2>
-<p>Native desktop UI work starts with the backend-neutral <code>@ricochet/ui</code> package, the live WinUI backend, and the live Slint renderer for cross-platform native availability:</p>
-<pre><code class="language-powershell">rco app packages/ricochet_ui/examples/counter_app.rco --backend winui --export-ui-json counter-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend winui --export-ui-json native-showcase-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --export-ui-json native-showcase-slint-ui.json
-rco app packages/ricochet_ui/examples/native_showcase_app.rco --backend slint --slint-validate-only
-rco package packages/ricochet_ui/examples/counter_app.rco --app --backend winui --output Counter.exe
+<h2 id="desktop-webview-ui">Desktop WebView UI</h2>
+<p>Desktop UI work starts with the built-in WebView document words. These are the supported app path for the current release candidate:</p>
+<pre><code class="language-powershell">rco gui examples/webview_ui.rco
+rco package examples/webview_ui.rco --gui --output WebviewUi.exe
+rco package examples/learn/38-capstone-gui/personal_ledger --gui --mvc --output PersonalLedger.exe
 </code></pre>
-<p>Omit <code>--export-ui-json</code> to launch the WinUI host after building <code>hosts/winui/Ricochet.WinUI.Host</code>, or to launch the Slint renderer directly. The native showcase app is a small release desk that combines commands, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one window.</p>
+<p><code>rco gui</code> opens <code>webview_window</code>, <code>webview_window_state</code>, and <code>webview_window_app</code> documents in native embedded WebView windows on Windows, macOS, and Linux. <code>rco package --gui</code> embeds the same app in the <code>rco-gui</code> launcher, and <code>--gui --mvc</code> packages an MVC project as a local-server desktop GUI app. Current Linux launchers require GTK 3, WebKitGTK 4.1, and libxdo 3 runtime libraries.</p>
 
       <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
     </main>

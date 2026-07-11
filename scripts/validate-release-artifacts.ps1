@@ -214,7 +214,7 @@ Assert-RequiredArtifact $errors $artifacts "signing report" { param($artifact) $
 switch ($Target) {
     "windows-x64" {
         Assert-RequiredArtifact $errors $artifacts "portable ZIP" { param($artifact) $artifact.kind -eq "archive" -and $artifact.name -like "*.zip" }
-        Assert-RequiredArtifact $errors $artifacts "checksum" { param($artifact) $artifact.kind -eq "checksums" -and $artifact.name -eq "SHA256SUMS.txt" }
+        Assert-RequiredArtifact $errors $artifacts "checksum" { param($artifact) $artifact.kind -eq "checksums" -and $artifact.name -eq "SHA256SUMS-$Target.txt" }
         if ($RequireInstaller) {
             Assert-RequiredArtifact $errors $artifacts "installer" { param($artifact) $artifact.kind -eq "installer" -and $artifact.name -like "*-setup.exe" }
         }

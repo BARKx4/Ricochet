@@ -49,6 +49,7 @@ use crate::socket_runtime::{
     WebSocketListenRequest, WebSocketListenerSnapshot, WebSocketRead, WebSocketSnapshot,
 };
 use crate::upload_runtime::{UploadStreamRead, UploadStreamRuntimeError, UploadStreamSnapshot};
+use crate::vm::numeric_ordering;
 use crate::vm::{
     arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
 };
@@ -236,10 +237,29 @@ impl Vm {
                 "text"
                     | "heading"
                     | "button"
+                    | "command"
+                    | "command_button"
+                    | "action"
                     | "input"
                     | "link"
                     | "container"
+                    | "toolbar"
+                    | "sidebar"
+                    | "tabs"
+                    | "split_pane"
+                    | "table"
+                    | "form_row"
+                    | "status_bar"
+                    | "menu"
+                    | "menu_bar"
+                    | "open_file"
+                    | "save_file"
+                    | "choose_folder"
+                    | "clipboard_read"
+                    | "clipboard_write"
+                    | "open_url"
                     | "window"
+                    | "window_app"
                     | "document"
             ),
             Value::Regex(_) => matches!(
@@ -357,11 +377,29 @@ impl Vm {
             "text" => self.method_webview_text(receiver, method),
             "heading" => self.method_webview_heading(receiver, method),
             "button" => self.method_webview_button(receiver, method),
+            "command" => self.method_web_command(receiver, method),
+            "command_button" => self.method_web_command_button(receiver, method),
             "action" => self.method_webview_action(receiver, method),
             "input" => self.method_webview_input(receiver, method),
             "link" => self.method_webview_link(receiver, method),
             "container" => self.method_webview_container(receiver, method),
+            "toolbar" => self.method_web_toolbar(receiver, method),
+            "sidebar" => self.method_web_sidebar(receiver, method),
+            "tabs" => self.method_web_tabs(receiver, method),
+            "split_pane" => self.method_web_split_pane(receiver, method),
+            "table" => self.method_web_table(receiver, method),
+            "form_row" => self.method_web_form_row(receiver, method),
+            "status_bar" => self.method_web_status_bar(receiver, method),
+            "menu" => self.method_web_menu(receiver, method),
+            "menu_bar" => self.method_web_menu_bar(receiver, method),
+            "open_file" => self.method_webview_open_file(receiver, method),
+            "save_file" => self.method_webview_save_file(receiver, method),
+            "choose_folder" => self.method_webview_choose_folder(receiver, method),
+            "clipboard_read" => self.method_webview_clipboard_read(receiver, method),
+            "clipboard_write" => self.method_webview_clipboard_write(receiver, method),
+            "open_url" => self.method_webview_open_url(receiver, method),
             "window_state" => self.method_webview_window_state(receiver, method),
+            "window_app" => self.method_webview_window_app(receiver, method),
             "window" | "document" => self.method_webview_window(receiver, method),
             "matches?" => self.method_regex_matches(receiver, method),
             "captures" => self.method_regex_captures(receiver, method),
@@ -388,17 +426,51 @@ impl Vm {
         match receiver {
             Value::String(value) => {
                 let index = self.pop_index(method)?;
-                Ok(value
-                    .chars()
-                    .nth(index)
-                    .map(|value| Value::String(value.to_string()))
-                    .unwrap_or(Value::Nil))
+                match value.chars().nth(index) {
+                    Some(value) => Ok(Value::String(value.to_string())),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for string index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
             }
-            Value::Array(value) => Ok(value.get(self.pop_index(method)?).unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.get(self.pop_index(method)?).unwrap_or(Value::Nil)),
+            Value::Array(value) => {
+                let index = self.pop_index(method)?;
+                match value.get(index) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for array index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
+            }
+            Value::List(value) => {
+                let index = self.pop_index(method)?;
+                match value.get(index) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for list index {index}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
+            }
             Value::Map(value) => {
                 let key = self.pop_string(method, "map key string")?;
-                Ok(value.get(&key).unwrap_or(Value::Nil))
+                match value.get(&key) {
+                    Some(value) => Ok(value),
+                    None => {
+                        self.record_nil_producing_lookup(format!(
+                            "{method} returned nil for missing map key {key:?}"
+                        ));
+                        Ok(Value::Nil)
+                    }
+                }
             }
             value => Err(method_type_error(
                 method,
@@ -408,16 +480,44 @@ impl Vm {
         }
     }
 
-    fn method_first(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+    fn method_first(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         match receiver {
-            Value::String(value) => Ok(value
-                .chars()
-                .next()
-                .map(|character| Value::String(character.to_string()))
-                .unwrap_or(Value::Nil)),
-            Value::Array(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.get(0).unwrap_or(Value::Nil)),
-            Value::Set(value) => Ok(value.snapshot().first().cloned().unwrap_or(Value::Nil)),
+            Value::String(value) => match value.chars().next() {
+                Some(character) => Ok(Value::String(character.to_string())),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty string"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Array(value) => match value.get(0) {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty array"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::List(value) => match value.get(0) {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty list"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Set(value) => match value.snapshot().first().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty set"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
             value => Err(method_type_error(
                 method,
                 "string, array, list, or set",
@@ -426,16 +526,44 @@ impl Vm {
         }
     }
 
-    fn method_last(&self, receiver: Value, method: &str) -> Result<Value, VmError> {
+    fn method_last(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         match receiver {
-            Value::String(value) => Ok(value
-                .chars()
-                .last()
-                .map(|character| Value::String(character.to_string()))
-                .unwrap_or(Value::Nil)),
-            Value::Array(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
-            Value::List(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
-            Value::Set(value) => Ok(value.snapshot().last().cloned().unwrap_or(Value::Nil)),
+            Value::String(value) => match value.chars().last() {
+                Some(character) => Ok(Value::String(character.to_string())),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty string"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Array(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty array"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::List(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty list"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
+            Value::Set(value) => match value.snapshot().last().cloned() {
+                Some(value) => Ok(value),
+                None => {
+                    self.record_nil_producing_lookup(format!(
+                        "{method} returned nil for empty set"
+                    ));
+                    Ok(Value::Nil)
+                }
+            },
             value => Err(method_type_error(
                 method,
                 "string, array, list, or set",
@@ -4581,6 +4709,37 @@ impl Vm {
         )))
     }
 
+    fn method_web_command(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let shortcut = self.pop_string(method, "shortcut string")?;
+        let label = self.pop_string(method, "command label string")?;
+        let action = self.pop_string(method, "action name string")?;
+        Ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("command".to_string())),
+                ("label".to_string(), Value::String(label)),
+                ("action".to_string(), Value::String(action)),
+                ("shortcut".to_string(), Value::String(shortcut)),
+            ])
+            .into(),
+        ))
+    }
+
+    fn method_web_command_button(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let action = self.pop_string(method, "action name string")?;
+        let label = self.pop_string(method, "button label string")?;
+        Ok(Value::String(format!(
+            r#"<button class="rco-command-button" type="button" data-rco-action="{}">{}</button>"#,
+            escape_html_attribute(&action),
+            escape_html_text(&label)
+        )))
+    }
+
     fn method_webview_action(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Webview, method)?;
         let callback = self.pop_string(method, "callback word string")?;
@@ -4612,6 +4771,14 @@ impl Vm {
         require_capability(receiver, Capability::Webview, method)?;
         let href = self.pop_string(method, "link href string")?;
         let label = self.pop_string(method, "link label string")?;
+        if !is_safe_webview_link_href(&href) {
+            return Err(VmError::InvalidArgument {
+                word: method.to_string(),
+                message:
+                    "link href must be a fragment or an absolute http/https URL without credentials"
+                        .to_string(),
+            });
+        }
         Ok(Value::String(format!(
             r#"<a href="{}">{}</a>"#,
             escape_html_attribute(&href),
@@ -4631,6 +4798,144 @@ impl Vm {
         )))
     }
 
+    fn method_web_toolbar(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let body = self.pop_string(method, "toolbar HTML string")?;
+        Ok(Value::String(format!(
+            r#"<nav class="rco-toolbar">{body}</nav>"#
+        )))
+    }
+
+    fn method_web_sidebar(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let body = self.pop_string(method, "sidebar HTML string")?;
+        Ok(Value::String(format!(
+            r#"<aside class="rco-sidebar">{body}</aside>"#
+        )))
+    }
+
+    fn method_web_tabs(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let tabs = self.pop_web_collection(method, "tabs array or list")?;
+        let mut buttons = String::new();
+        let mut panels = String::new();
+        for (index, tab) in tabs.iter().enumerate() {
+            let Value::Map(map) = tab else {
+                return Err(method_type_error(method, "tab map", tab));
+            };
+            let label = web_map_string(map, "label", method)?;
+            let body = web_map_string(map, "body", method)?;
+            let active = matches!(map.get("active"), Some(Value::Bool(true)))
+                || (index == 0 && !tabs.iter().any(web_tab_active));
+            let selected = if active { "true" } else { "false" };
+            let hidden = if active { "" } else { " hidden" };
+            buttons.push_str(&format!(
+                r#"<button type="button" role="tab" aria-selected="{selected}" data-rco-tab="{index}">{}</button>"#,
+                escape_html_text(&label)
+            ));
+            panels.push_str(&format!(
+                r#"<section role="tabpanel"{hidden}>{body}</section>"#
+            ));
+        }
+        Ok(Value::String(format!(
+            r#"<section class="rco-tabs"><div class="rco-tab-list" role="tablist">{buttons}</div><div class="rco-tab-panels">{panels}</div></section>"#
+        )))
+    }
+
+    fn method_web_split_pane(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let right = self.pop_string(method, "right pane HTML string")?;
+        let left = self.pop_string(method, "left pane HTML string")?;
+        Ok(Value::String(format!(
+            r#"<section class="rco-split-pane"><div class="rco-pane">{left}</div><div class="rco-pane">{right}</div></section>"#
+        )))
+    }
+
+    fn method_web_table(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let rows = self.pop_web_collection(method, "row array or list")?;
+        let mut columns = BTreeSet::new();
+        for row in &rows {
+            let Value::Map(map) = row else {
+                return Err(method_type_error(method, "row map", row));
+            };
+            for (key, _) in map.entries() {
+                columns.insert(key);
+            }
+        }
+
+        let header_html = columns
+            .iter()
+            .map(|column| format!("<th>{}</th>", escape_html_text(column)))
+            .collect::<String>();
+        let mut rows_html = String::new();
+        for row in rows {
+            let Value::Map(map) = row else {
+                unreachable!("rows were validated above");
+            };
+            let cells = columns
+                .iter()
+                .map(|column| {
+                    let text = map
+                        .get(column)
+                        .map(|value| display_value(&value))
+                        .unwrap_or_default();
+                    format!("<td>{}</td>", escape_html_text(&text))
+                })
+                .collect::<String>();
+            rows_html.push_str(&format!("<tr>{cells}</tr>"));
+        }
+
+        Ok(Value::String(format!(
+            r#"<table class="rco-table"><thead><tr>{header_html}</tr></thead><tbody>{rows_html}</tbody></table>"#
+        )))
+    }
+
+    fn method_web_form_row(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let control = self.pop_string(method, "control HTML string")?;
+        let label = self.pop_string(method, "form row label string")?;
+        Ok(Value::String(format!(
+            r#"<label class="rco-form-row"><span>{}</span>{control}</label>"#,
+            escape_html_text(&label)
+        )))
+    }
+
+    fn method_web_status_bar(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let body = self.pop_string(method, "status text string")?;
+        Ok(Value::String(format!(
+            r#"<footer class="rco-status-bar">{}</footer>"#,
+            escape_html_text(&body)
+        )))
+    }
+
+    fn method_web_menu(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let items = self.pop_web_collection_value(method, "menu item array or list")?;
+        let label = self.pop_string(method, "menu label string")?;
+        Ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("menu".to_string())),
+                ("label".to_string(), Value::String(label)),
+                ("items".to_string(), items),
+            ])
+            .into(),
+        ))
+    }
+
+    fn method_web_menu_bar(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let menus = self.pop_web_collection_value(method, "menu array or list")?;
+        Ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("menu_bar".to_string())),
+                ("menus".to_string(), menus),
+            ])
+            .into(),
+        ))
+    }
+
     fn method_webview_window(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Webview, method)?;
         let body = self.pop_string(method, "webview body HTML string")?;
@@ -4648,6 +4953,34 @@ impl Vm {
                 ("height".to_string(), Value::Number(600)),
                 ("state".to_string(), state),
                 ("actions".to_string(), actions),
+            ])
+            .into(),
+        )))
+    }
+
+    fn method_webview_window_app(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let menu_bar = self.pop_web_menu_bar(method)?;
+        let actions = self.pop_webview_actions(method)?;
+        let state = self.pop_webview_state(method)?;
+        let body = self.pop_string(method, "webview body HTML string")?;
+        let title = self.pop_string(method, "webview title string")?;
+        let html = webview_document_html(&title, &body, &state, &actions)?;
+        Ok(Value::result_ok(Value::Map(
+            BTreeMap::from([
+                ("type".to_string(), Value::String("webview".to_string())),
+                ("title".to_string(), Value::String(title)),
+                ("body".to_string(), Value::String(body)),
+                ("html".to_string(), Value::String(html)),
+                ("width".to_string(), Value::Number(800)),
+                ("height".to_string(), Value::Number(600)),
+                ("state".to_string(), state),
+                ("actions".to_string(), actions),
+                ("menus".to_string(), menu_bar),
             ])
             .into(),
         )))
@@ -4679,6 +5012,81 @@ impl Vm {
         )))
     }
 
+    fn method_webview_open_file(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let value = rfd::FileDialog::new()
+            .pick_file()
+            .map(|path| Value::String(path.to_string_lossy().into_owned()))
+            .unwrap_or(Value::Nil);
+        Ok(Value::result_ok(value))
+    }
+
+    fn method_webview_save_file(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let value = rfd::FileDialog::new()
+            .save_file()
+            .map(|path| Value::String(path.to_string_lossy().into_owned()))
+            .unwrap_or(Value::Nil);
+        Ok(Value::result_ok(value))
+    }
+
+    fn method_webview_choose_folder(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let value = rfd::FileDialog::new()
+            .pick_folder()
+            .map(|path| Value::String(path.to_string_lossy().into_owned()))
+            .unwrap_or(Value::Nil);
+        Ok(Value::result_ok(value))
+    }
+
+    fn method_webview_clipboard_read(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let result = arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.get_text())
+            .map(|text| Value::result_ok(Value::String(text)))
+            .unwrap_or_else(|error| Value::result_err("ClipboardError", error.to_string()));
+        Ok(result)
+    }
+
+    fn method_webview_clipboard_write(
+        &mut self,
+        receiver: Value,
+        method: &str,
+    ) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let text = self.pop_string(method, "clipboard text string")?;
+        let result = arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_text(text))
+            .map(|_| Value::result_ok(Value::Bool(true)))
+            .unwrap_or_else(|error| Value::result_err("ClipboardError", error.to_string()));
+        Ok(result)
+    }
+
+    fn method_webview_open_url(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
+        require_capability(receiver, Capability::Webview, method)?;
+        let url = self.pop_string(method, "URL string")?;
+        let result = open_external_url(&url)
+            .map(|_| Value::result_ok(Value::Bool(true)))
+            .unwrap_or_else(|error| Value::result_err("ShellError", error));
+        Ok(result)
+    }
+
     fn pop_webview_state(&mut self, word: &str) -> Result<Value, VmError> {
         match self.pop(word)? {
             state @ Value::Map(_) => Ok(state),
@@ -4690,6 +5098,28 @@ impl Vm {
         match self.pop(word)? {
             actions @ Value::Array(_) | actions @ Value::List(_) => Ok(actions),
             value => Err(method_type_error(word, "actions array or list", &value)),
+        }
+    }
+
+    fn pop_web_menu_bar(&mut self, word: &str) -> Result<Value, VmError> {
+        match self.pop(word)? {
+            menu_bar @ Value::Map(_) => Ok(menu_bar),
+            value => Err(method_type_error(word, "menu bar map", &value)),
+        }
+    }
+
+    fn pop_web_collection(&mut self, word: &str, expected: &str) -> Result<Vec<Value>, VmError> {
+        match self.pop(word)? {
+            Value::Array(values) => Ok(values.snapshot()),
+            Value::List(values) => Ok(values.snapshot()),
+            value => Err(method_type_error(word, expected, &value)),
+        }
+    }
+
+    fn pop_web_collection_value(&mut self, word: &str, expected: &str) -> Result<Value, VmError> {
+        match self.pop(word)? {
+            value @ Value::Array(_) | value @ Value::List(_) => Ok(value),
+            value => Err(method_type_error(word, expected, &value)),
         }
     }
 
@@ -4951,6 +5381,94 @@ fn display_value(value: &Value) -> String {
     }
 }
 
+fn web_map_string(map: &MapValue, key: &str, word: &str) -> Result<String, VmError> {
+    match map.get(key) {
+        Some(Value::String(value)) => Ok(value),
+        Some(value) => Err(method_type_error(
+            word,
+            &format!("string field `{key}`"),
+            &value,
+        )),
+        None => Err(VmError::InvalidArgument {
+            word: word.to_string(),
+            message: format!("webview map is missing string field `{key}`"),
+        }),
+    }
+}
+
+fn web_tab_active(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Map(map) if matches!(map.get("active"), Some(Value::Bool(true)))
+    )
+}
+
+fn is_safe_webview_link_href(href: &str) -> bool {
+    href.strip_prefix('#').is_some_and(|fragment| {
+        !fragment
+            .chars()
+            .any(|character| character.is_ascii_control())
+    }) || is_safe_external_web_url(href)
+}
+
+pub fn is_safe_external_web_url(url: &str) -> bool {
+    if url.trim() != url {
+        return false;
+    }
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    matches!(parsed.scheme(), "http" | "https")
+        && parsed.host_str().is_some()
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+}
+
+pub fn open_external_url(url: &str) -> Result<(), String> {
+    if !is_safe_external_web_url(url) {
+        return Err(
+            "external URL must be an absolute http/https URL without credentials".to_string(),
+        );
+    }
+
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler").arg(url);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+
+    #[cfg(not(any(windows, unix)))]
+    {
+        return Err("opening URLs is not supported on this platform".to_string());
+    }
+
+    #[cfg(any(windows, unix))]
+    {
+        configure_process_window(&mut command);
+        let status = command.status().map_err(|error| error.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("URL launcher exited with status {status}"))
+        }
+    }
+}
+
 fn convert_numeric(word: &str, value: Value) -> Value {
     match word {
         "to_float" | "to_float64" | "to_double" | "to_real" => {
@@ -5176,11 +5694,20 @@ fn numeric_clamp(
             Ok(Value::Number(value.clamp(minimum, maximum)))
         }
         _ => {
-            if minimum.as_f64() > maximum.as_f64() {
-                return Err(VmError::InvalidArgument {
-                    word: word.to_string(),
-                    message: "minimum cannot exceed maximum".to_string(),
-                });
+            match numeric_ordering(minimum, maximum) {
+                Some(std::cmp::Ordering::Greater) => {
+                    return Err(VmError::InvalidArgument {
+                        word: word.to_string(),
+                        message: "minimum cannot exceed maximum".to_string(),
+                    });
+                }
+                None => {
+                    return Err(VmError::InvalidArgument {
+                        word: word.to_string(),
+                        message: "minimum and maximum must be ordered numbers".to_string(),
+                    });
+                }
+                Some(_) => {}
             }
             finite_float_result(
                 word,
@@ -5395,7 +5922,7 @@ fn webview_document_html(
     let state_json = webview_json_literal("state", state)?;
     let actions_json = webview_json_literal("actions", actions)?;
     Ok(format!(
-        r#"<!doctype html>
+        r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -5408,20 +5935,155 @@ fn webview_document_html(
     }}
     body {{
       margin: 0;
-      padding: 24px;
+      background: Canvas;
+      color: CanvasText;
     }}
     button,
     input {{
       font: inherit;
     }}
+    .rco-root {{
+      min-height: 100vh;
+      padding: 24px;
+      box-sizing: border-box;
+    }}
+    .rco-toolbar {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 0 16px;
+      border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      margin-bottom: 16px;
+    }}
+    .rco-command-button {{
+      border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+      border-radius: 6px;
+      padding: 6px 10px;
+      background: ButtonFace;
+      color: ButtonText;
+    }}
+    .rco-sidebar {{
+      padding: 12px;
+      border-right: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      min-width: 180px;
+    }}
+    .rco-split-pane {{
+      display: grid;
+      grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
+      gap: 18px;
+      min-height: 0;
+    }}
+    .rco-pane {{
+      min-width: 0;
+    }}
+    .rco-tabs {{
+      display: grid;
+      gap: 12px;
+    }}
+    .rco-tab-list {{
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+    }}
+    .rco-tab-list button[aria-selected="true"] {{
+      font-weight: 700;
+      border-bottom: 2px solid Highlight;
+    }}
+    .rco-table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }}
+    .rco-table th,
+    .rco-table td {{
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }}
+    .rco-form-row {{
+      display: grid;
+      gap: 4px;
+      margin: 8px 0;
+    }}
+    .rco-status-bar {{
+      margin-top: 16px;
+      padding-top: 10px;
+      border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      font-size: 0.9rem;
+      opacity: 0.78;
+    }}
   </style>
 </head>
 <body>
+<main id="rco-root" class="rco-root">
 {}
+</main>
 <script>
 (() => {{
   window.__RICOCHET_STATE__ = {};
   window.__RICOCHET_ACTIONS__ = {};
+  const root = () => document.getElementById("rco-root");
+  const cssEscape = (value) => {{
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
+    return String(value).replace(/["\\]/g, "\\$&");
+  }};
+  const focusSelector = (element) => {{
+    if (!element) return null;
+    if (element.id) return "#" + cssEscape(element.id);
+    if (element.name) return `[name="${{cssEscape(element.name)}}"]`;
+    const key = element.getAttribute("data-rco-focus");
+    return key ? `[data-rco-focus="${{cssEscape(key)}}"]` : null;
+  }};
+  const snapshotUi = () => {{
+    const active = document.activeElement;
+    return {{
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      selector: focusSelector(active),
+      start: typeof active?.selectionStart === "number" ? active.selectionStart : null,
+      end: typeof active?.selectionEnd === "number" ? active.selectionEnd : null
+    }};
+  }};
+  const restoreUi = (snapshot) => {{
+    requestAnimationFrame(() => {{
+      if (snapshot.selector) {{
+        const active = document.querySelector(snapshot.selector);
+        if (active && typeof active.focus === "function") {{
+          active.focus({{ preventScroll: true }});
+          if (
+            snapshot.start !== null &&
+            snapshot.end !== null &&
+            typeof active.setSelectionRange === "function"
+          ) {{
+            active.setSelectionRange(snapshot.start, snapshot.end);
+          }}
+        }}
+      }}
+      window.scrollTo(snapshot.scrollX, snapshot.scrollY);
+    }});
+  }};
+  window.__ricochetApplyDocument = (documentUpdate) => {{
+    const snapshot = snapshotUi();
+    if (typeof documentUpdate.title === "string") {{
+      document.title = documentUpdate.title;
+    }}
+    if (documentUpdate.state !== undefined) {{
+      window.__RICOCHET_STATE__ = documentUpdate.state;
+    }}
+    if (documentUpdate.actions !== undefined) {{
+      window.__RICOCHET_ACTIONS__ = documentUpdate.actions;
+    }}
+    const appRoot = root();
+    if (appRoot && typeof documentUpdate.body === "string") {{
+      appRoot.innerHTML = documentUpdate.body;
+    }}
+    restoreUi(snapshot);
+  }};
+  window.__ricochetDispatch = (message) => {{
+    if (window.ipc && typeof window.ipc.postMessage === "function") {{
+      window.ipc.postMessage(JSON.stringify(message));
+    }}
+  }};
   document.addEventListener("click", (event) => {{
     const target = event.target.closest("[data-rco-action]");
     if (!target) return;
@@ -5430,14 +6092,12 @@ fn webview_document_html(
       action: target.getAttribute("data-rco-action"),
       state: window.__RICOCHET_STATE__
     }};
-    if (window.ipc && typeof window.ipc.postMessage === "function") {{
-      window.ipc.postMessage(JSON.stringify(message));
-    }}
+    window.__ricochetDispatch(message);
   }});
 }})();
 </script>
 </body>
-</html>"#,
+</html>"##,
         escape_html_text(title),
         body,
         state_json,
@@ -9009,6 +9669,39 @@ mod tests {
     }
 
     #[test]
+    fn mixed_clamp_rejects_minimum_above_rounded_float_maximum() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let result = numeric_clamp(
+            "clamp",
+            NumericValue::Integer(0),
+            NumericValue::Integer(TWO_TO_53 + 1),
+            NumericValue::Float(TWO_TO_53 as f64),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::InvalidArgument { message, .. })
+                if message == "minimum cannot exceed maximum"
+        ));
+    }
+
+    #[test]
+    fn mixed_clamp_rejects_unordered_nan_bounds_without_panicking() {
+        let result = numeric_clamp(
+            "clamp",
+            NumericValue::Integer(0),
+            NumericValue::Float(f64::NAN),
+            NumericValue::Integer(1),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::InvalidArgument { message, .. })
+                if message == "minimum and maximum must be ordered numbers"
+        ));
+    }
+
+    #[test]
     fn float_to_integer_rejects_exclusive_i64_upper_bound() {
         let result = input_to_integer(Value::Float(I64_FLOAT_UPPER_BOUND_EXCLUSIVE));
 
@@ -9042,6 +9735,54 @@ mod tests {
         assert!(html.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)"));
         assert!(html.contains("\\u2028"));
         assert!(html.contains("\\u2029"));
+    }
+
+    #[test]
+    fn webview_links_accept_fragments_and_absolute_web_urls() {
+        for (href, expected) in [
+            ("#details", r##"<a href="#details">Details</a>"##),
+            (
+                "https://try.ricochet.today/docs?q=webview#links",
+                r#"<a href="https://try.ricochet.today/docs?q=webview#links">Details</a>"#,
+            ),
+        ] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::String("Details".to_string()));
+            vm.stack.push(Value::String(href.to_string()));
+
+            let rendered = vm
+                .method_webview_link(Value::Capability(Capability::Webview), "webview_link")
+                .expect("safe webview link should render");
+
+            assert_eq!(rendered, Value::String(expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn webview_links_reject_active_and_privileged_schemes() {
+        for href in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///etc/passwd",
+            "vbscript:msgbox(1)",
+            "//example.com/protocol-relative",
+            "relative/page.html",
+            " https://example.com/leading-space",
+            "https://user:secret@example.com/",
+        ] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::String("Unsafe".to_string()));
+            vm.stack.push(Value::String(href.to_string()));
+
+            let error = vm
+                .method_webview_link(Value::Capability(Capability::Webview), "webview_link")
+                .expect_err("unsafe webview link should be rejected");
+
+            assert!(
+                matches!(error, VmError::InvalidArgument { .. }),
+                "unexpected error for {href:?}: {error:?}"
+            );
+        }
     }
 
     #[test]

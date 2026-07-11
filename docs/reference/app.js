@@ -2512,6 +2512,22 @@ const WORDS = [
     "example": "\"Increment\" \"increment\" webview_button"
   },
   {
+    "word": "web_command",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "action:string label:string shortcut:string -> map",
+    "body": "Builds a native menu command descriptor. Command action IDs dispatch through matching `webview_action` callbacks.",
+    "example": "\"save\" \"Save\" \"Ctrl+S\" web_command"
+  },
+  {
+    "word": "web_command_button",
+    "aliases": ["webview"],
+    "group": "system",
+    "stack": "label:string action:string -> html:string",
+    "body": "Builds a styled app-kit button with a `data-rco-action` attribute.",
+    "example": "\"Save\" \"save\" web_command_button"
+  },
+  {
     "word": "webview_action",
     "aliases": ["webview"],
     "group": "system",
@@ -2544,6 +2560,78 @@ const WORDS = [
     "example": "$body webview_container"
   },
   {
+    "word": "web_toolbar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "bodyHtml:string -> html:string",
+    "body": "Wraps controls in a desktop app toolbar fragment.",
+    "example": "$buttons web_toolbar"
+  },
+  {
+    "word": "web_sidebar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "bodyHtml:string -> html:string",
+    "body": "Wraps navigation or supporting content in a sidebar fragment.",
+    "example": "$nav web_sidebar"
+  },
+  {
+    "word": "web_tabs",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "tabs:array -> html:string",
+    "body": "Builds a tabbed fragment from tab maps with `label`, `body`, and optional `active` fields.",
+    "example": "$tabs web_tabs"
+  },
+  {
+    "word": "web_split_pane",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "leftHtml:string rightHtml:string -> html:string",
+    "body": "Builds a two-pane desktop layout fragment.",
+    "example": "$sidebar $content web_split_pane"
+  },
+  {
+    "word": "web_table",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "rows:array -> html:string",
+    "body": "Builds a simple table from an array or list of row maps.",
+    "example": "$rows web_table"
+  },
+  {
+    "word": "web_form_row",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "label:string controlHtml:string -> html:string",
+    "body": "Builds a labeled form row around an existing control fragment.",
+    "example": "\"Name\" $input web_form_row"
+  },
+  {
+    "word": "web_status_bar",
+    "aliases": ["webview", "app-kit"],
+    "group": "system",
+    "stack": "text:string -> html:string",
+    "body": "Builds a compact status bar fragment.",
+    "example": "\"Ready\" web_status_bar"
+  },
+  {
+    "word": "web_menu",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "label:string items:array -> map",
+    "body": "Builds a native menu descriptor from command or separator item maps.",
+    "example": "\"File\" $commands web_menu"
+  },
+  {
+    "word": "web_menu_bar",
+    "aliases": ["webview", "menu"],
+    "group": "system",
+    "stack": "menus:array -> map",
+    "body": "Builds a native menu bar descriptor for `webview_window_app`.",
+    "example": "$menus web_menu_bar"
+  },
+  {
     "word": "webview_window",
     "aliases": ["webview_document"],
     "group": "system",
@@ -2558,6 +2646,62 @@ const WORDS = [
     "stack": "title:string bodyHtml:string state:map actions:array -> result(map)",
     "body": "Builds a webview document map with explicit `state` and `actions`; action callbacks receive `(state event -> document)`.",
     "example": "\"Counter\" $body $state $actions webview_window_state value"
+  },
+  {
+    "word": "webview_window_app",
+    "aliases": ["webview_document"],
+    "group": "system",
+    "stack": "title:string bodyHtml:string state:map actions:array menuBar:map -> result(map)",
+    "body": "Builds a stateful webview app document with native OS menu metadata.",
+    "example": "\"Counter\" $body $state $actions $menuBar webview_window_app value"
+  },
+  {
+    "word": "webview_open_file",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native file picker and returns the selected path, or nil when canceled.",
+    "example": "webview_open_file"
+  },
+  {
+    "word": "webview_save_file",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native save-file picker and returns the selected path, or nil when canceled.",
+    "example": "webview_save_file"
+  },
+  {
+    "word": "webview_choose_folder",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string|nil)",
+    "body": "Opens a native folder picker and returns the selected path, or nil when canceled.",
+    "example": "webview_choose_folder"
+  },
+  {
+    "word": "webview_clipboard_read",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "-> result(string)",
+    "body": "Reads text from the OS clipboard.",
+    "example": "webview_clipboard_read"
+  },
+  {
+    "word": "webview_clipboard_write",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "text:string -> result(bool)",
+    "body": "Writes text to the OS clipboard.",
+    "example": "\"Copied from Ricochet\" webview_clipboard_write"
+  },
+  {
+    "word": "webview_open_url",
+    "aliases": ["webview", "shell"],
+    "group": "system",
+    "stack": "url:string -> result(bool)",
+    "body": "Opens a URL in the operating system's external URL handler.",
+    "example": "\"https://try.ricochet.today\" webview_open_url"
   },
   {
     "word": "inspect",
@@ -2681,528 +2825,7 @@ const WORDS = [
   }
 ];
 
-const PACKAGE_WORDS = [
-  {
-    "word": "ui_node",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id type props children events nativeOptions -> map",
-    "body": "Builds a backend-neutral native UI node map with stable id, type, props, children, events, and scoped native options.",
-    "example": "\"save\" \"button\" props children events native ui_node"
-  },
-  {
-    "word": "ui_window",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title children -> result",
-    "body": "Builds the root native app window document as a Result value.",
-    "example": "\"main\" \"Counter\" children ui_window value"
-  },
-  {
-    "word": "ui_response",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "state document commands -> result",
-    "body": "Builds an app update response containing next state, next document, commands, and diagnostics.",
-    "example": "$state $document commands ui_response value"
-  },
-  {
-    "word": "ui_native_options",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "node backend options required -> map",
-    "body": "Attaches scoped backend options without making ordinary app code backend-specific.",
-    "example": "$button \"winui\" options true ui_native_options"
-  },
-  {
-    "word": "ui_validation",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "-> map",
-    "body": "Builds an empty validation result map for native UI documents and responses.",
-    "example": "ui_validation"
-  },
-  {
-    "word": "ui_add_validation_error",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "validation id message -> map",
-    "body": "Appends a validation error and marks the validation result as not ok.",
-    "example": "$validation \"node\" \"node id is required\" ui_add_validation_error"
-  },
-  {
-    "word": "ui_validate_node",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "node -> map",
-    "body": "Validates the basic shape of a native UI node map.",
-    "example": "$button ui_validate_node"
-  },
-  {
-    "word": "ui_validate_document",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "document -> map",
-    "body": "Validates the basic shape of a native UI document root.",
-    "example": "$document ui_validate_document"
-  },
-  {
-    "word": "ui_validate_response",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "response -> map",
-    "body": "Validates the basic shape of an app update response.",
-    "example": "$response ui_validate_response"
-  },
-  {
-    "word": "ui_text",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id text -> map",
-    "body": "Builds a portable text display node.",
-    "example": "\"count_label\" \"Count: 0\" ui_text"
-  },
-  {
-    "word": "ui_heading",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id text level -> map",
-    "body": "Builds a portable heading node with a numeric heading level.",
-    "example": "\"title\" \"Settings\" 2 ui_heading"
-  },
-  {
-    "word": "ui_button",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label -> map",
-    "body": "Builds a portable button node that emits click events.",
-    "example": "\"increment_button\" \"Increment\" ui_button"
-  },
-  {
-    "word": "ui_text_input",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label value -> map",
-    "body": "Builds a single-line text input node that emits change and submit events.",
-    "example": "\"name\" \"Name\" $name ui_text_input"
-  },
-  {
-    "word": "ui_multiline_text_input",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label value -> map",
-    "body": "Builds a multiline text input node.",
-    "example": "\"notes\" \"Notes\" $body ui_multiline_text_input"
-  },
-  {
-    "word": "ui_checkbox",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label checked -> map",
-    "body": "Builds a checkbox node with portable checked state.",
-    "example": "\"enabled\" \"Enabled\" true ui_checkbox"
-  },
-  {
-    "word": "ui_toggle",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label checked -> map",
-    "body": "Builds a toggle switch node with portable checked state.",
-    "example": "\"dark\" \"Dark mode\" false ui_toggle"
-  },
-  {
-    "word": "ui_select",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label value options -> map",
-    "body": "Builds a combo/select node with portable option values.",
-    "example": "\"theme\" \"Theme\" \"system\" options ui_select"
-  },
-  {
-    "word": "ui_stack",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id orientation children -> map",
-    "body": "Builds a vertical or horizontal stack layout node.",
-    "example": "\"body\" \"vertical\" children ui_stack"
-  },
-  {
-    "word": "ui_grid",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id columns rows children -> map",
-    "body": "Builds a portable grid layout node.",
-    "example": "\"form\" columns rows children ui_grid"
-  },
-  {
-    "word": "ui_split_pane",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id orientation first second -> map",
-    "body": "Builds a two-pane split layout.",
-    "example": "\"main_split\" \"horizontal\" left right ui_split_pane"
-  },
-  {
-    "word": "ui_scroll_view",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id child -> map",
-    "body": "Builds a scrollable viewport around one child node.",
-    "example": "\"scroll\" content ui_scroll_view"
-  },
-  {
-    "word": "ui_group",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title children -> map",
-    "body": "Builds a titled grouping node.",
-    "example": "\"account\" \"Account\" children ui_group"
-  },
-  {
-    "word": "ui_spacer",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id -> map",
-    "body": "Builds a portable spacing node.",
-    "example": "\"gap\" ui_spacer"
-  },
-  {
-    "word": "ui_list",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id items selectedIds -> map",
-    "body": "Builds a list node with stable selection ids.",
-    "example": "\"files\" items selected ui_list"
-  },
-  {
-    "word": "ui_tree_node",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label children -> map",
-    "body": "Builds a tree item for use inside `ui_tree`.",
-    "example": "\"src\" \"src\" children ui_tree_node"
-  },
-  {
-    "word": "ui_tree",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id nodes expandedIds selectedIds -> map",
-    "body": "Builds a tree view node with portable expansion, selection, and drag/drop event contracts.",
-    "example": "\"project\" nodes expanded selected ui_tree"
-  },
-  {
-    "word": "ui_grid_column",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title kind width -> map",
-    "body": "Builds a portable data-grid column descriptor.",
-    "example": "\"name\" \"Name\" \"string\" \"2*\" ui_grid_column"
-  },
-  {
-    "word": "ui_grid_row",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id cells -> map",
-    "body": "Builds a portable data-grid row descriptor.",
-    "example": "\"row-1\" cells ui_grid_row"
-  },
-  {
-    "word": "ui_data_grid",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id columns rows selectedRowIds -> map",
-    "body": "Builds a basic portable data grid for read-only structured rows and selection events.",
-    "example": "\"users\" columns rows selected ui_data_grid"
-  },
-  {
-    "word": "ui_rich_document",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "blocks -> map",
-    "body": "Builds the portable rich text document value used by rich text view and input nodes.",
-    "example": "blocks ui_rich_document"
-  },
-  {
-    "word": "ui_rich_paragraph",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "spans -> map",
-    "body": "Builds a rich text paragraph block.",
-    "example": "spans ui_rich_paragraph"
-  },
-  {
-    "word": "ui_rich_span",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "text marks href -> map",
-    "body": "Builds a rich text span with marks such as bold, italic, inline code, or link metadata.",
-    "example": "\"native UI\" marks nil ui_rich_span"
-  },
-  {
-    "word": "ui_rich_text",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id document -> map",
-    "body": "Builds a read-only rich text view node.",
-    "example": "\"preview\" document ui_rich_text"
-  },
-  {
-    "word": "ui_rich_text_input",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label document -> map",
-    "body": "Builds an editable rich text input node when the backend supports it.",
-    "example": "\"note\" \"Note\" document ui_rich_text_input"
-  },
-  {
-    "word": "ui_menu_bar",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id items -> map",
-    "body": "Builds a portable menu bar node from command items.",
-    "example": "\"main_menu\" items ui_menu_bar"
-  },
-  {
-    "word": "ui_command_bar",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id items -> map",
-    "body": "Builds a portable command bar node from command items.",
-    "example": "\"toolbar\" items ui_command_bar"
-  },
-  {
-    "word": "ui_context_menu",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id items -> map",
-    "body": "Builds a portable context menu node from command items.",
-    "example": "\"row_menu\" items ui_context_menu"
-  },
-  {
-    "word": "ui_command_item",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id label shortcut -> map",
-    "body": "Builds a menu or command-bar item with a stable id and optional shortcut.",
-    "example": "\"save\" \"Save\" \"Ctrl+S\" ui_command_item"
-  },
-  {
-    "word": "ui_event",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "type id value -> map",
-    "body": "Builds a portable event map for replay tests and host protocols.",
-    "example": "\"click\" \"increment_button\" nil ui_event"
-  },
-  {
-    "word": "ui_click_event?",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "event -> bool",
-    "body": "Returns true when an event map has type `click`.",
-    "example": "$event ui_click_event?"
-  },
-  {
-    "word": "ui_change_event?",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "event -> bool",
-    "body": "Returns true when an event map has type `change`.",
-    "example": "$event ui_change_event?"
-  },
-  {
-    "word": "ui_drop_event?",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "event -> bool",
-    "body": "Returns true when an event map has type `drop`.",
-    "example": "$event ui_drop_event?"
-  },
-  {
-    "word": "ui_focus",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "target -> map",
-    "body": "Builds a required focus command for the backend.",
-    "example": "\"name\" ui_focus"
-  },
-  {
-    "word": "ui_command",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "type target payload required -> map",
-    "body": "Builds a portable imperative command map with required/advisory support.",
-    "example": "\"focus\" \"name\" payload true ui_command"
-  },
-  {
-    "word": "ui_open_dialog",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "target -> map",
-    "body": "Builds a required open-dialog command targeting a stable node id.",
-    "example": "\"settings_dialog\" ui_open_dialog"
-  },
-  {
-    "word": "ui_close_dialog",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "target -> map",
-    "body": "Builds a required close-dialog command targeting a stable node id.",
-    "example": "\"settings_dialog\" ui_close_dialog"
-  },
-  {
-    "word": "ui_show_message",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "title message -> map",
-    "body": "Builds a message command for the backend.",
-    "example": "\"Saved\" \"Project saved.\" ui_show_message"
-  },
-  {
-    "word": "ui_open_file_picker",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title -> map",
-    "body": "Builds a file-open picker command that returns a follow-up event.",
-    "example": "\"open_project\" \"Open project\" ui_open_file_picker"
-  },
-  {
-    "word": "ui_save_file_picker",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title -> map",
-    "body": "Builds a file-save picker command that returns a follow-up event.",
-    "example": "\"save_as\" \"Save as\" ui_save_file_picker"
-  },
-  {
-    "word": "ui_open_folder_picker",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "id title -> map",
-    "body": "Builds a folder picker command that returns a follow-up event.",
-    "example": "\"choose_root\" \"Choose root\" ui_open_folder_picker"
-  },
-  {
-    "word": "ui_clipboard_write",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "text -> map",
-    "body": "Builds a clipboard write command.",
-    "example": "\"copied\" ui_clipboard_write"
-  },
-  {
-    "word": "ui_scroll_into_view",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "target -> map",
-    "body": "Builds a scroll command targeting a stable node id.",
-    "example": "\"row-42\" ui_scroll_into_view"
-  },
-  {
-    "word": "ui_set_window_state",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "state -> map",
-    "body": "Builds a window-state command such as maximize or restore.",
-    "example": "\"maximized\" ui_set_window_state"
-  },
-  {
-    "word": "ui_close_window",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "-> map",
-    "body": "Builds a close-window command.",
-    "example": "ui_close_window"
-  },
-  {
-    "word": "ui_drag_payload",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "kind value -> map",
-    "body": "Builds a portable drag payload descriptor.",
-    "example": "\"tree_nodes\" \"node-1\" ui_drag_payload"
-  },
-  {
-    "word": "ui_drag_source",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "node payload operations -> map",
-    "body": "Annotates a node with portable drag-source metadata.",
-    "example": "$node $payload operations ui_drag_source"
-  },
-  {
-    "word": "ui_drop_target",
-    "aliases": ["@ricochet/ui"],
-    "group": "ui",
-    "stack": "node accepts operations -> map",
-    "body": "Annotates a node with portable drop-target metadata.",
-    "example": "$node accepts operations ui_drop_target"
-  },
-  {
-    "word": "winui_backend",
-    "aliases": ["@ricochet/winui"],
-    "group": "winui",
-    "stack": "-> map",
-    "body": "Returns the WinUI backend descriptor for native Windows app rendering.",
-    "example": "winui_backend"
-  },
-  {
-    "word": "winui_option",
-    "aliases": ["@ricochet/winui"],
-    "group": "winui",
-    "stack": "key value -> map",
-    "body": "Builds a one-entry WinUI option map.",
-    "example": "\"style\" \"AccentButtonStyle\" winui_option"
-  },
-  {
-    "word": "winui_required_options",
-    "aliases": ["@ricochet/winui"],
-    "group": "winui",
-    "stack": "options -> map",
-    "body": "Marks WinUI options as required so an unsupported backend detail fails loudly.",
-    "example": "options winui_required_options"
-  },
-  {
-    "word": "winui_advisory_options",
-    "aliases": ["@ricochet/winui"],
-    "group": "winui",
-    "stack": "options -> map",
-    "body": "Marks WinUI options as advisory so a backend may ignore them with diagnostics.",
-    "example": "options winui_advisory_options"
-  },
-  {
-    "word": "slint_backend",
-    "aliases": ["@ricochet/slint"],
-    "group": "slint",
-    "stack": "-> map",
-    "body": "Returns the Slint backend descriptor for cross-platform native app payloads.",
-    "example": "slint_backend"
-  },
-  {
-    "word": "slint_option",
-    "aliases": ["@ricochet/slint"],
-    "group": "slint",
-    "stack": "key value -> map",
-    "body": "Builds a one-entry Slint option map.",
-    "example": "\"style\" \"fluent\" slint_option"
-  },
-  {
-    "word": "slint_required_options",
-    "aliases": ["@ricochet/slint"],
-    "group": "slint",
-    "stack": "options -> map",
-    "body": "Marks Slint options as required so an unsupported backend detail fails loudly.",
-    "example": "options slint_required_options"
-  },
-  {
-    "word": "slint_advisory_options",
-    "aliases": ["@ricochet/slint"],
-    "group": "slint",
-    "stack": "options -> map",
-    "body": "Marks Slint options as advisory so a backend may ignore them with diagnostics.",
-    "example": "options slint_advisory_options"
-  }
-];
+const PACKAGE_WORDS = [];
 
 const ALL_WORDS = WORDS.concat(PACKAGE_WORDS);
 
@@ -3217,10 +2840,7 @@ const groupLabels = {
   "web": "Web",
   "result": "Result",
   "system": "System",
-  "inspect": "Introspection",
-  "ui": "@ricochet/ui",
-  "winui": "@ricochet/winui",
-  "slint": "@ricochet/slint"
+  "inspect": "Introspection"
 };
 
 const grid = document.querySelector("#word-grid");

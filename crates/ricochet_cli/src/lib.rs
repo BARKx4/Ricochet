@@ -38,7 +38,8 @@ use ricochet_syntax::{
 };
 use ricochet_vm::{
     DebugAction, DebugControl, DebugEvent, DebugPause, DebugPauseReason, DebugTask, DebugTaskFrame,
-    DynamicModuleSource, MapValue, RicochetResult, Value, Vm, VmImage,
+    DynamicModuleSource, MapValue, RicochetResult, StrictnessConfig, StrictnessDiagnostic, Value,
+    Vm, VmImage,
 };
 use ricochet_web::{
     install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
@@ -52,6 +53,7 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use toml_edit::{value, DocumentMut, Item, Table};
 use tower::ServiceExt;
 
+mod commands;
 mod debug_protocol;
 mod hosted_registry;
 mod hosted_registry_server;
@@ -59,6 +61,7 @@ mod lsp;
 mod migration_dsl;
 mod static_registry;
 
+use commands::package::{EmbeddedAppKind, EmbeddedAppPayload, LinuxPackageFormat, PackageOptions};
 use debug_protocol::{
     apply_debug_control_command, debug_command_from_command, debug_command_from_web_request,
     debug_command_label, debug_command_resumes, debug_event_json, debug_value_label, DebugCommand,
@@ -73,16 +76,15 @@ const EMBEDDED_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_APP_V1\0";
 const EMBEDDED_TUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_TUI_APP_V1\0";
 const EMBEDDED_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_GUI_APP_V1\0";
 const EMBEDDED_MVC_GUI_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_MVC_GUI_APP_V1\0";
-const EMBEDDED_NATIVE_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_APP_V1\0";
-const EMBEDDED_NATIVE_SLINT_APP_MARKER: &[u8] = b"\nRICOCHET_EMBEDDED_NATIVE_SLINT_APP_V1\0";
 const MVC_BUNDLE_MAGIC: &[u8] = b"RICOCHET_MVC_BUNDLE_V1\0";
 const GUI_EXPORT_HTML_ENV: &str = "RICOCHET_GUI_EXPORT_HTML";
 const GUI_EXPORT_PATH_ENV: &str = "RICOCHET_GUI_EXPORT_PATH";
 const GUI_EVENT_ENV: &str = "RICOCHET_GUI_EVENT";
-const APP_EXPORT_UI_JSON_ENV: &str = "RICOCHET_APP_EXPORT_UI_JSON";
-const APP_REPLAY_EVENTS_JSON_ENV: &str = "RICOCHET_APP_REPLAY_EVENTS_JSON";
-const APP_WINUI_HOST_ENV: &str = "RICOCHET_WINUI_HOST";
-const APP_SLINT_VALIDATE_ONLY_ENV: &str = "RICOCHET_SLINT_VALIDATE_ONLY";
+#[cfg(target_os = "linux")]
+const GUI_EXTERNAL_BROWSER_ENV: &str = "RICOCHET_GUI_EXTERNAL_BROWSER";
+const RICOCHET_QUIT_ACTION: &str = "__ricochet_quit";
+const RICOCHET_COPY_ACTION: &str = "__ricochet_copy";
+const RICOCHET_PASTE_ACTION: &str = "__ricochet_paste";
 const DEFAULT_MVC_GUI_TITLE: &str = "Ricochet MVC App";
 const DEFAULT_MVC_GUI_WIDTH: u32 = 1100;
 const DEFAULT_MVC_GUI_HEIGHT: u32 = 760;
@@ -90,6 +92,7 @@ const CLI_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
 #[command(about = "Ricochet language toolchain")]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -106,6 +109,11 @@ enum Command {
         path: String,
     },
     Check {
+        #[arg(
+            long = "strict",
+            help = "Emit strictness warnings for dynamic convenience fallbacks"
+        )]
+        strict: bool,
         path: Option<String>,
     },
     Expand {
@@ -237,35 +245,6 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    App {
-        #[command(flatten)]
-        capabilities: CapabilityOptions,
-        path: String,
-        #[arg(
-            long,
-            default_value = "winui",
-            value_name = "BACKEND",
-            help = "Native backend to use: winui or slint"
-        )]
-        backend: String,
-        #[arg(long = "export-ui-json")]
-        export_ui_json: Option<PathBuf>,
-        #[arg(long = "replay-events")]
-        replay_events: Option<PathBuf>,
-        #[arg(
-            long = "winui-host",
-            value_name = "PATH",
-            help = "Use a specific Ricochet.WinUI.Host executable for live WinUI rendering"
-        )]
-        winui_host: Option<PathBuf>,
-        #[arg(
-            long = "slint-validate-only",
-            help = "Compile the generated Slint renderer document without opening a window"
-        )]
-        slint_validate_only: bool,
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     Tui {
         #[command(flatten)]
         capabilities: CapabilityOptions,
@@ -295,21 +274,6 @@ enum Command {
             help = "Use a specific rco-gui launcher executable for --gui packages"
         )]
         gui_launcher: Option<PathBuf>,
-        #[arg(long, help = "Package as a native app using --backend")]
-        app: bool,
-        #[arg(
-            long,
-            default_value = "winui",
-            value_name = "BACKEND",
-            help = "Native app backend to embed: winui or slint"
-        )]
-        backend: String,
-        #[arg(
-            long = "app-launcher",
-            value_name = "PATH",
-            help = "Use a specific rco-app launcher executable for --app packages"
-        )]
-        app_launcher: Option<PathBuf>,
         #[arg(
             long = "linux-package",
             value_enum,
@@ -321,6 +285,12 @@ enum Command {
         package_name: Option<String>,
         #[arg(long = "package-version", default_value = "0.1.0")]
         package_version: String,
+        #[arg(
+            long = "package-license",
+            value_name = "SPDX",
+            help = "Set the AppStream project license for GUI Linux packages; required with --gui and --linux-package"
+        )]
+        package_license: Option<String>,
         #[arg(
             long = "package-description",
             default_value = "Packaged Ricochet application"
@@ -651,119 +621,6 @@ enum RegistryCommand {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-enum LinuxPackageFormat {
-    Tar,
-    Deb,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EmbeddedAppKind {
-    Console,
-    Tui,
-    Gui,
-    MvcGui,
-    NativeApp,
-    NativeSlintApp,
-}
-
-impl EmbeddedAppKind {
-    fn marker(self) -> &'static [u8] {
-        match self {
-            EmbeddedAppKind::Console => EMBEDDED_APP_MARKER,
-            EmbeddedAppKind::Tui => EMBEDDED_TUI_APP_MARKER,
-            EmbeddedAppKind::Gui => EMBEDDED_GUI_APP_MARKER,
-            EmbeddedAppKind::MvcGui => EMBEDDED_MVC_GUI_APP_MARKER,
-            EmbeddedAppKind::NativeApp => EMBEDDED_NATIVE_APP_MARKER,
-            EmbeddedAppKind::NativeSlintApp => EMBEDDED_NATIVE_SLINT_APP_MARKER,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativeAppBackend {
-    Winui,
-    Slint,
-}
-
-impl NativeAppBackend {
-    fn parse(value: &str) -> Result<Self> {
-        match value {
-            "winui" => Ok(Self::Winui),
-            "slint" => Ok(Self::Slint),
-            other => bail!(
-                "unsupported native app backend {other:?}; supported backends: {}",
-                Self::supported_list()
-            ),
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Winui => "winui",
-            Self::Slint => "slint",
-        }
-    }
-
-    fn embedded_kind(self) -> EmbeddedAppKind {
-        match self {
-            Self::Winui => EmbeddedAppKind::NativeApp,
-            Self::Slint => EmbeddedAppKind::NativeSlintApp,
-        }
-    }
-
-    fn from_embedded_kind(kind: EmbeddedAppKind) -> Option<Self> {
-        match kind {
-            EmbeddedAppKind::NativeApp => Some(Self::Winui),
-            EmbeddedAppKind::NativeSlintApp => Some(Self::Slint),
-            _ => None,
-        }
-    }
-
-    fn supported_list() -> &'static str {
-        "winui, slint"
-    }
-}
-
-#[derive(Debug)]
-struct EmbeddedApp {
-    kind: EmbeddedAppKind,
-    payload: EmbeddedAppPayload,
-}
-
-#[derive(Debug)]
-enum EmbeddedAppPayload {
-    Chunk(Chunk),
-    MvcBundle(MvcBundle),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct MvcBundle {
-    files: Vec<MvcBundleFile>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct MvcBundleFile {
-    relative_path: PathBuf,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct WebviewDocument {
-    title: String,
-    html: String,
-    width: u32,
-    height: u32,
-    state: Value,
-    actions: Vec<WebviewAction>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct WebviewAction {
-    action: String,
-    callback: String,
-}
-
 #[derive(Clone, Debug, Default, Args)]
 struct CapabilityOptions {
     #[arg(
@@ -966,7 +823,7 @@ fn parse_cli_from(args: Vec<OsString>) -> Cli {
 }
 
 pub async fn run_cli() -> Result<()> {
-    if let Some(app) = embedded_app_from_current_exe()? {
+    if let Some(app) = commands::package::embedded_app_from_current_exe()? {
         match app.payload {
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Console => {
                 run_chunk_cli(
@@ -989,17 +846,11 @@ pub async fn run_cli() -> Result<()> {
                 run_embedded_tui_app(&chunk, std::env::args().skip(1).collect())?
             }
             EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
-                run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
-            }
-            EmbeddedAppPayload::Chunk(chunk)
-                if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
-            {
-                let backend = NativeAppBackend::from_embedded_kind(app.kind)
-                    .expect("native app backend should be available for native app marker");
-                run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)?
+                commands::gui::run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())?
             }
             EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
-                run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await?
+                commands::gui::run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect())
+                    .await?
             }
             _ => bail!("embedded Ricochet app payload does not match its marker"),
         }
@@ -1015,7 +866,7 @@ pub async fn run_cli() -> Result<()> {
         Command::New { path, with_sqlite } => {
             new_project(Path::new(&path), NewProjectOptions { with_sqlite })?
         }
-        Command::Check { path } => check(path.as_deref().unwrap_or("."))?,
+        Command::Check { path, strict } => check(path.as_deref().unwrap_or("."), strict)?,
         Command::Expand { path, json } => expand_path(&path, json)?,
         Command::Repl {
             debug,
@@ -1137,28 +988,7 @@ pub async fn run_cli() -> Result<()> {
             capabilities,
             path,
             args,
-        } => run_gui_file(&path, args, capabilities)?,
-        Command::App {
-            capabilities,
-            path,
-            backend,
-            export_ui_json,
-            replay_events,
-            winui_host,
-            slint_validate_only,
-            args,
-        } => run_app_file(
-            &path,
-            args,
-            capabilities,
-            AppRunOptions {
-                backend: &backend,
-                export_ui_json: export_ui_json.as_deref(),
-                replay_events: replay_events.as_deref(),
-                winui_host: winui_host.as_deref(),
-                slint_validate_only,
-            },
-        )?,
+        } => commands::gui::run_gui_file(&path, args, capabilities)?,
         Command::Tui {
             capabilities,
             path,
@@ -1171,14 +1001,12 @@ pub async fn run_cli() -> Result<()> {
             gui,
             mvc,
             gui_launcher,
-            app,
-            backend,
-            app_launcher,
             linux_packages,
             package_name,
             package_version,
+            package_license,
             package_description,
-        } => package(
+        } => commands::package::package(
             path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE),
             &output,
             PackageOptions {
@@ -1186,12 +1014,10 @@ pub async fn run_cli() -> Result<()> {
                 gui,
                 mvc,
                 gui_launcher: gui_launcher.as_deref(),
-                app,
-                backend: &backend,
-                app_launcher: app_launcher.as_deref(),
                 linux_packages: &linux_packages,
                 package_name: package_name.as_deref(),
                 package_version: &package_version,
+                package_license: package_license.as_deref(),
                 package_description: &package_description,
             },
         )?,
@@ -1326,6 +1152,7 @@ pub async fn run_cli() -> Result<()> {
                 allow_pty,
                 fs_root,
                 fs_readonly,
+                sqlite_data_root: None,
                 http_allow_hosts,
                 ai_allow_hosts,
                 database_allow_hosts,
@@ -1351,37 +1178,19 @@ pub async fn run_cli() -> Result<()> {
 }
 
 pub async fn run_gui_launcher() -> Result<()> {
-    let app = embedded_app_from_current_exe()?
+    let app = commands::package::embedded_app_from_current_exe()?
         .context("rco-gui must be packaged with `rco package --gui` before it can launch an app")?;
     match app.payload {
         EmbeddedAppPayload::Chunk(chunk) if app.kind == EmbeddedAppKind::Gui => {
-            run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())
+            commands::gui::run_embedded_gui_app(&chunk, std::env::args().skip(1).collect())
         }
         EmbeddedAppPayload::MvcBundle(bundle) if app.kind == EmbeddedAppKind::MvcGui => {
-            run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect()).await
+            commands::gui::run_embedded_mvc_gui_app(bundle, std::env::args().skip(1).collect())
+                .await
         }
         _ => {
             bail!("rco-gui can only launch apps packaged with `rco package --gui`");
         }
-    }
-}
-
-pub fn run_app_launcher() -> Result<()> {
-    let Some(app) = embedded_app_from_current_exe()? else {
-        bail!(
-            "rco-app can only launch apps packaged with `rco package --app`; no embedded native app payload was found"
-        );
-    };
-
-    match app.payload {
-        EmbeddedAppPayload::Chunk(chunk)
-            if NativeAppBackend::from_embedded_kind(app.kind).is_some() =>
-        {
-            let backend = NativeAppBackend::from_embedded_kind(app.kind)
-                .expect("native app backend should be available for native app marker");
-            run_embedded_native_app(&chunk, std::env::args().skip(1).collect(), backend)
-        }
-        _ => bail!("rco-app can only launch native app payloads packaged with `rco package --app`"),
     }
 }
 
@@ -2126,10 +1935,12 @@ fn is_incomplete_compile_error(error: &CompileError) -> bool {
     )
 }
 
-fn check(path: &str) -> Result<()> {
+const STRICT_CHECK_INSTRUCTION_LIMIT: u64 = 100_000;
+
+fn check(path: &str, strict: bool) -> Result<()> {
     let path = Path::new(path);
     if path.is_file() {
-        check_source_file(path)?;
+        check_source_file(path, strict)?;
         println!("checked {}", path.display());
         return Ok(());
     }
@@ -2149,7 +1960,7 @@ fn check(path: &str) -> Result<()> {
     collect_rco_files(path, &mut files)?;
     files.sort();
     for file in &files {
-        check_source_file(file)?;
+        check_source_file(file, strict)?;
     }
 
     println!(
@@ -2160,9 +1971,31 @@ fn check(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_source_file(path: &Path) -> Result<()> {
-    compile_source_file(path).with_context(|| format!("failed to compile {}", path.display()))?;
+fn check_source_file(path: &Path, strict: bool) -> Result<()> {
+    let chunk = compile_source_file(path)
+        .with_context(|| format!("failed to compile {}", path.display()))?;
+    if strict {
+        emit_strictness_warnings(path, &chunk);
+    }
     Ok(())
+}
+
+fn emit_strictness_warnings(path: &Path, chunk: &Chunk) {
+    let mut vm = Vm::default();
+    vm.set_instruction_limit(STRICT_CHECK_INSTRUCTION_LIMIT);
+    vm.set_strictness(StrictnessConfig {
+        warn_unknown_question_word_fallback: true,
+        warn_nil_producing_lookup: true,
+    });
+
+    let _ = vm.run_chunk(chunk);
+    print_strictness_warnings(path, vm.strictness_diagnostics());
+}
+
+fn print_strictness_warnings(path: &Path, diagnostics: &[StrictnessDiagnostic]) {
+    for diagnostic in diagnostics {
+        eprintln!("strict warning: {}: {}", path.display(), diagnostic.message);
+    }
 }
 
 fn doctor(path: &str, show_capabilities: bool) -> Result<()> {
@@ -2184,7 +2017,7 @@ fn doctor(path: &str, show_capabilities: bool) -> Result<()> {
 
     if path.is_file() {
         doctor_step(&mut report, "source compile", || {
-            check_source_file(path)?;
+            check_source_file(path, false)?;
             Ok("single source file compiles".to_string())
         });
         report.finish()?;
@@ -2274,7 +2107,7 @@ fn doctor_mvc_project(
             Ok(format!("{} .rco file(s) discovered", files.len()))
         } else {
             for file in &files {
-                check_source_file(file)?;
+                check_source_file(file, false)?;
             }
             Ok(format!("{} .rco file(s) compile", files.len()))
         }
@@ -2295,7 +2128,7 @@ fn doctor_source_tree(path: &Path, report: &mut DoctorReport) -> Result<()> {
         collect_rco_files(path, &mut files)?;
         files.sort();
         for file in &files {
-            check_source_file(file)?;
+            check_source_file(file, false)?;
         }
         Ok(format!("{} .rco file(s) compile", files.len()))
     });
@@ -2407,10 +2240,11 @@ fn words(json_output: bool, check: bool, docs_app: &Path, grammar: &Path) -> Res
     if check {
         let summary = check_word_inventory(docs_app, grammar)?;
         let message = format!(
-            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries ({} documented token words missing from the embedded LSP inventory, {} duplicate reference entries)",
+            "word inventory check passed: {} documented words, {} TextMate token literals, {} built-in LSP entries, {} registered VM words ({} documented token words missing from the embedded LSP inventory, {} duplicate reference entries)",
             summary.documented_words,
             summary.grammar_token_words,
             summary.lsp_words,
+            summary.registered_words,
             summary.documented_only_words,
             summary.duplicate_reference_entries
         );
@@ -2448,6 +2282,7 @@ struct WordInventoryCheckSummary {
     documented_words: usize,
     grammar_token_words: usize,
     lsp_words: usize,
+    registered_words: usize,
     documented_only_words: usize,
     duplicate_reference_entries: usize,
 }
@@ -2514,6 +2349,7 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
         .iter()
         .map(|entry| entry.label.to_string())
         .collect::<BTreeSet<_>>();
+    let registered_words = registered_builtin_word_names();
     let stale_lsp_words = lsp_words
         .iter()
         .filter(|word| !documented_all_names.contains(*word))
@@ -2526,6 +2362,21 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
     let stale_grammar_builtin_words = grammar_builtin_words
         .iter()
         .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_docs = registered_words
+        .iter()
+        .filter(|word| !documented_all_names.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_lsp = registered_words
+        .iter()
+        .filter(|word| !lsp_words.contains(*word))
+        .cloned()
+        .collect::<Vec<_>>();
+    let registry_missing_from_grammar = registered_words
+        .iter()
+        .filter(|word| !grammar_builtin_words.contains(*word))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -2560,17 +2411,43 @@ fn check_word_inventory(docs_app: &Path, grammar: &Path) -> Result<WordInventory
             stale_grammar_builtin_words.join(", ")
         ));
     }
+    if !registry_missing_from_docs.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from docs/reference/app.js: {}",
+            registry_missing_from_docs.join(", ")
+        ));
+    }
+    if !registry_missing_from_lsp.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from LSP inventory: {}",
+            registry_missing_from_lsp.join(", ")
+        ));
+    }
+    if !registry_missing_from_grammar.is_empty() {
+        failures.push(format!(
+            "registered built-in words missing from TextMate grammar: {}",
+            registry_missing_from_grammar.join(", ")
+        ));
+    }
     if failures.is_empty() {
         Ok(WordInventoryCheckSummary {
             documented_words: documented_primary.len(),
             grammar_token_words: token_words.len(),
             lsp_words: lsp_words.len(),
+            registered_words: registered_words.len(),
             documented_only_words,
             duplicate_reference_entries: duplicate_words.len(),
         })
     } else {
         bail!("word inventory check failed:\n{}", failures.join("\n"));
     }
+}
+
+fn registered_builtin_word_names() -> BTreeSet<String> {
+    ricochet_vm::builtin_words()
+        .iter()
+        .map(|word| word.name.to_string())
+        .collect()
 }
 
 fn validate_reference_word_entry(entry: &ReferenceWord, failures: &mut Vec<String>) {
@@ -3500,6 +3377,130 @@ fn migrate_apply_sqlite(
 
     print_migration_apply_summary(applied_count);
     Ok(())
+}
+
+fn migrate_apply_packaged_sqlite_at_path(
+    database_path: &Path,
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+) -> Result<()> {
+    if let Some(parent) = database_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    ensure_private_packaged_sqlite_file(database_path)?;
+    let mut connection = rusqlite::Connection::open(database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    connection
+        .busy_timeout(Duration::from_secs(30))
+        .with_context(|| {
+            format!(
+                "failed to configure SQLite locking for {}",
+                database_path.display()
+            )
+        })?;
+    ensure_schema_migrations_table(&connection)?;
+    for migration in migrations {
+        let sql = migration_sql(&migration.source, database)
+            .with_context(|| format!("failed to prepare migration {}", migration.version))?;
+        let tx = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .with_context(|| format!("failed to start migration {}", migration.version))?;
+        let already_applied: bool = tx
+            .query_row(
+                "select exists(select 1 from schema_migrations where version = ?1)",
+                [&migration.version],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("failed to check migration {}", migration.version))?;
+        if already_applied {
+            tx.commit().with_context(|| {
+                format!("failed to finish migration check {}", migration.version)
+            })?;
+            continue;
+        }
+        tx.execute_batch(&sql)
+            .with_context(|| format!("failed to apply migration {}", migration.version))?;
+        tx.execute(
+            "insert into schema_migrations (version, applied_at) values (?1, ?2)",
+            (&migration.version, migration_timestamp()),
+        )
+        .with_context(|| format!("failed to record migration {}", migration.version))?;
+        tx.commit()
+            .with_context(|| format!("failed to commit migration {}", migration.version))?;
+    }
+    restrict_packaged_sqlite_file_permissions(database_path)
+}
+
+fn ensure_private_packaged_sqlite_file(database_path: &Path) -> Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.open(database_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to create {}", database_path.display()));
+        }
+    }
+    restrict_packaged_sqlite_file_permissions(database_path)
+}
+
+#[cfg(unix)]
+fn restrict_packaged_sqlite_file_permissions(database_path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(database_path, fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "failed to restrict packaged SQLite permissions on {}",
+            database_path.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_packaged_sqlite_file_permissions(_database_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+pub(crate) fn prepare_packaged_mvc_sqlite(project_root: &Path, data_root: &Path) -> Result<()> {
+    let Some(database) = project_database_config(project_root)? else {
+        return Ok(());
+    };
+    if !database.adapter.eq_ignore_ascii_case("sqlite") {
+        return Ok(());
+    }
+    let url = database.url.trim();
+    if url == ":memory:" || url == "sqlite::memory:" {
+        return Ok(());
+    }
+    if url.contains("${") {
+        bail!(
+            "packaged MVC SQLite database.default.url must be a literal project-relative path or :memory: so its persistent data location is deterministic"
+        );
+    }
+    let path = url
+        .strip_prefix("sqlite://")
+        .or_else(|| url.strip_prefix("sqlite:"))
+        .unwrap_or(url);
+    if path == ":memory:" {
+        return Ok(());
+    }
+    validate_project_relative_path(path, "database.default.url")?;
+    let database_path = data_root.join(path);
+    ensure_contained_candidate(data_root, &database_path, "packaged SQLite database")?;
+    let migrations = discover_migrations(project_root)?;
+    if migrations.is_empty() {
+        bail!(
+            "packaged file-backed SQLite requires at least one db/migrations migration; the development database is not a package schema source"
+        );
+    }
+    migrate_apply_packaged_sqlite_at_path(&database_path, &database, migrations)
 }
 
 fn migrate_rollback_sqlite(
@@ -7462,62 +7463,6 @@ fn run_bytecode(
     )
 }
 
-fn run_gui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
-    let source_path = Path::new(path);
-    let chunk = compile_source_file(source_path)?;
-    run_gui_chunk(
-        &chunk,
-        args,
-        capabilities,
-        dynamic_import_parent_for_source(source_path)?,
-    )
-}
-
-struct AppRunOptions<'a> {
-    backend: &'a str,
-    export_ui_json: Option<&'a Path>,
-    replay_events: Option<&'a Path>,
-    winui_host: Option<&'a Path>,
-    slint_validate_only: bool,
-}
-
-fn run_app_file(
-    path: &str,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    options: AppRunOptions<'_>,
-) -> Result<()> {
-    let backend = NativeAppBackend::parse(options.backend)?;
-
-    let source_path = Path::new(path);
-    let chunk = compile_source_file(source_path)?;
-    let dynamic_import_parent = dynamic_import_parent_for_source(source_path)?;
-    let export_path = options
-        .export_ui_json
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from));
-    let replay_path = options
-        .replay_events
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from));
-    let mut session = NativeAppSession::start(&chunk, args, capabilities, dynamic_import_parent)?;
-    if let Some(path) = replay_path.as_deref() {
-        session.replay_events(path)?;
-    }
-
-    if let Some(path) = export_path {
-        write_app_export_json(&path, backend.id(), &session.render())?;
-        return Ok(());
-    }
-
-    match backend {
-        NativeAppBackend::Winui => {
-            run_live_winui_backend(&mut session, backend.id(), options.winui_host)
-        }
-        NativeAppBackend::Slint => run_live_slint_backend(session, options.slint_validate_only),
-    }
-}
-
 fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) -> Result<()> {
     let source_path = Path::new(path);
     let chunk = compile_source_file(source_path)?;
@@ -7538,43 +7483,6 @@ fn run_tui_file(path: &str, args: Vec<String>, capabilities: CapabilityOptions) 
     )
 }
 
-fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
-    run_gui_chunk(
-        chunk,
-        args,
-        CapabilityOptions::default(),
-        current_dir_for_dynamic_imports()?,
-    )
-}
-
-fn run_embedded_native_app(
-    chunk: &Chunk,
-    args: Vec<String>,
-    backend: NativeAppBackend,
-) -> Result<()> {
-    let export_path = std::env::var_os(APP_EXPORT_UI_JSON_ENV).map(PathBuf::from);
-    let replay_path = std::env::var_os(APP_REPLAY_EVENTS_JSON_ENV).map(PathBuf::from);
-    let mut session = NativeAppSession::start(
-        chunk,
-        args,
-        CapabilityOptions::default(),
-        current_dir_for_dynamic_imports()?,
-    )?;
-    if let Some(path) = replay_path.as_deref() {
-        session.replay_events(path)?;
-    }
-
-    if let Some(path) = export_path {
-        write_app_export_json(&path, backend.id(), &session.render())?;
-        return Ok(());
-    }
-
-    match backend {
-        NativeAppBackend::Winui => run_live_winui_backend(&mut session, backend.id(), None),
-        NativeAppBackend::Slint => run_live_slint_backend(session, slint_validate_only_from_env()),
-    }
-}
-
 fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
     run_chunk_cli(
         chunk,
@@ -7591,1358 +7499,6 @@ fn run_embedded_tui_app(chunk: &Chunk, args: Vec<String>) -> Result<()> {
             dynamic_import_parent: current_dir_for_dynamic_imports()?,
         },
     )
-}
-
-async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Result<()> {
-    let project_root = extract_embedded_mvc_bundle(&bundle)?;
-    std::env::set_current_dir(&project_root).with_context(|| {
-        format!(
-            "failed to use embedded MVC project directory {}",
-            project_root.display()
-        )
-    })?;
-
-    let serve_options = embedded_mvc_serve_options(&project_root)?;
-    let app = ricochet_web::build_served_app_from_dir(&project_root, false, false, &serve_options)
-        .await?;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .context("failed to bind local MVC GUI server")?;
-    let address = listener
-        .local_addr()
-        .context("failed to read local MVC GUI server address")?;
-    let server = tokio::spawn(async move {
-        if let Err(error) = ricochet_web::serve_app_on_listener(listener, app).await {
-            eprintln!("Ricochet MVC GUI server stopped: {error:?}");
-        }
-    });
-    let url = format!("http://{address}/");
-
-    if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
-        let export_request_path =
-            std::env::var(GUI_EXPORT_PATH_ENV).unwrap_or_else(|_| "/".to_string());
-        if !export_request_path.starts_with('/') {
-            bail!("{GUI_EXPORT_PATH_ENV} must start with /");
-        }
-        let html = fetch_http_body(address, &export_request_path).await?;
-        fs::write(&path, html).with_context(|| {
-            format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
-        })?;
-        server.abort();
-        return Ok(());
-    }
-
-    let result = open_native_webview_url(
-        DEFAULT_MVC_GUI_TITLE,
-        &url,
-        DEFAULT_MVC_GUI_WIDTH,
-        DEFAULT_MVC_GUI_HEIGHT,
-    );
-    server.abort();
-    result
-}
-
-fn embedded_mvc_serve_options(project_root: &Path) -> Result<ricochet_web::ServeOptions> {
-    let manifest = load_embedded_mvc_manifest(project_root)?;
-    let capabilities = &manifest.web.capabilities;
-    let process_root_requested =
-        capabilities.allow_process || capabilities.allow_pty || capabilities.process_root.is_some();
-
-    Ok(ricochet_web::ServeOptions {
-        fs_root: Some(project_root.to_path_buf()),
-        allow_env: capabilities.allow_env,
-        env_allow: if capabilities.allow_env {
-            Vec::new()
-        } else {
-            capabilities.env_allow.clone()
-        },
-        allow_process: capabilities.allow_process,
-        process_root: process_root_requested.then(|| project_root.to_path_buf()),
-        allow_pty: capabilities.allow_pty,
-        http_allow_hosts: capabilities.http_allow_hosts.clone(),
-        ..Default::default()
-    })
-}
-
-fn load_embedded_mvc_manifest(project_root: &Path) -> Result<ricochet_web::Manifest> {
-    let manifest_path = project_root.join("ricochet.toml");
-    let manifest_source = fs::read_to_string(&manifest_path).with_context(|| {
-        format!(
-            "failed to read embedded MVC manifest {}",
-            manifest_path.display()
-        )
-    })?;
-    toml::from_str(&manifest_source).with_context(|| {
-        format!(
-            "failed to parse embedded MVC manifest {}",
-            manifest_path.display()
-        )
-    })
-}
-
-async fn fetch_http_body(address: SocketAddr, path: &str) -> Result<String> {
-    let mut last_error = None;
-    for _ in 0..50 {
-        match try_fetch_http_body(address, path).await {
-            Ok(body) => return Ok(body),
-            Err(error) => {
-                last_error = Some(error);
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }
-    }
-
-    Err(last_error
-        .unwrap_or_else(|| anyhow::anyhow!("local MVC GUI server did not respond"))
-        .context(format!("failed to fetch http://{address}{path}")))
-}
-
-async fn try_fetch_http_body(address: SocketAddr, path: &str) -> Result<String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let mut stream = tokio::net::TcpStream::connect(address)
-        .await
-        .context("failed to connect to local MVC GUI server")?;
-    let request = format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(request.as_bytes())
-        .await
-        .context("failed to send MVC GUI export request")?;
-
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .await
-        .context("failed to read MVC GUI export response")?;
-    let response = String::from_utf8_lossy(&response);
-    let (headers, body) = response
-        .split_once("\r\n\r\n")
-        .context("MVC GUI export response was not valid HTTP")?;
-    let status_line = headers.lines().next().unwrap_or_default();
-    if !status_line.contains(" 200 ") {
-        bail!("MVC GUI export request returned {status_line}");
-    }
-    Ok(body.to_string())
-}
-
-fn run_gui_chunk(
-    chunk: &Chunk,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    dynamic_import_parent: PathBuf,
-) -> Result<()> {
-    let document = render_webview_document(chunk, args, capabilities, dynamic_import_parent)?;
-    if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
-        fs::write(&path, &document.html).with_context(|| {
-            format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
-        })?;
-        return Ok(());
-    }
-    open_native_webview(document)
-}
-
-#[derive(Clone)]
-struct NativeAppRender {
-    state: Value,
-    document: Value,
-}
-
-struct NativeAppSession {
-    vm: Vm,
-    state: Value,
-    document: Value,
-}
-
-impl NativeAppSession {
-    fn start(
-        chunk: &Chunk,
-        args: Vec<String>,
-        capabilities: CapabilityOptions,
-        dynamic_import_parent: PathBuf,
-    ) -> Result<Self> {
-        let mut vm = cli_vm(args, &capabilities)?;
-        install_dynamic_module_loader(&mut vm, dynamic_import_parent);
-        run_app_chunk(&mut vm, chunk, "app source")?;
-
-        let state = call_app_function(&mut vm, "app_init", Vec::new())?;
-        let document = call_app_function(&mut vm, "app_view", vec![state.clone()])?;
-        ensure_native_app_document(&document)?;
-
-        Ok(Self {
-            vm,
-            state,
-            document,
-        })
-    }
-
-    fn replay_events(&mut self, path: &Path) -> Result<()> {
-        for event in read_app_replay_events(path)? {
-            self.apply_event(event)?;
-        }
-        Ok(())
-    }
-
-    fn apply_event(&mut self, event: Value) -> Result<NativeAppRender> {
-        let response =
-            call_app_function(&mut self.vm, "app_update", vec![self.state.clone(), event])?;
-        let parts = native_app_response_parts(response)?;
-        ensure_native_app_document(&parts.document)?;
-        self.state = parts.state;
-        self.document = parts.document;
-        Ok(self.render())
-    }
-
-    fn render(&self) -> NativeAppRender {
-        NativeAppRender {
-            state: self.state.clone(),
-            document: self.document.clone(),
-        }
-    }
-}
-
-fn run_app_chunk(vm: &mut Vm, chunk: &Chunk, label: &str) -> Result<()> {
-    let result = vm.run_chunk(chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
-        std::process::exit(code);
-    }
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(vm, &error));
-    }
-    if vm.stack().last().is_none() && label.is_empty() {
-        bail!("native app host received an empty chunk label");
-    }
-    Ok(())
-}
-
-fn call_app_function(vm: &mut Vm, name: &str, arguments: Vec<Value>) -> Result<Value> {
-    let before = vm.stack().len();
-    for argument in arguments {
-        vm.push_value(argument);
-    }
-    let mut chunk = Chunk::new(format!("<app:{name}>"));
-    chunk.push(Op::CallWord(name.to_string()), app_host_span(name));
-    run_app_chunk(vm, &chunk, name)?;
-    vm.stack()
-        .last()
-        .cloned()
-        .filter(|_| vm.stack().len() > before)
-        .with_context(|| format!("native app function {name:?} must return one value"))
-        .and_then(unwrap_native_app_value)
-}
-
-fn unwrap_native_app_value(value: Value) -> Result<Value> {
-    match value {
-        Value::Result(RicochetResult::Ok(inner)) => unwrap_native_app_value(*inner),
-        Value::Result(RicochetResult::Err(error)) => {
-            bail!(
-                "native app returned an error result: {}: {}",
-                error.kind,
-                error.message
-            )
-        }
-        value => Ok(value),
-    }
-}
-
-fn ensure_native_app_document(value: &Value) -> Result<()> {
-    let Value::Map(map) = value else {
-        bail!("native app document must be a map, got {value:?}");
-    };
-    match map.get("type") {
-        Some(Value::String(kind)) if kind == "window" => Ok(()),
-        Some(value) => bail!("native app document root type must be \"window\", got {value:?}"),
-        None => bail!("native app document is missing root `type`"),
-    }
-}
-
-fn native_app_response_parts(response: Value) -> Result<NativeAppRender> {
-    let Value::Map(map) = response else {
-        bail!("native app update response must be a map");
-    };
-    let state = map
-        .get("state")
-        .context("native app update response is missing `state`")?;
-    let document = map
-        .get("document")
-        .context("native app update response is missing `document`")?;
-    Ok(NativeAppRender { state, document })
-}
-
-fn read_app_replay_events(path: &Path) -> Result<Vec<Value>> {
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read native app replay events {}", path.display()))?;
-    let json: serde_json::Value = serde_json::from_str(&source)
-        .with_context(|| format!("native app replay events must be JSON: {}", path.display()))?;
-    let serde_json::Value::Array(events) = json else {
-        bail!("native app replay events must be a JSON array");
-    };
-    Ok(events.into_iter().map(json_to_ricochet_value).collect())
-}
-
-fn app_export_json(backend: &str, state: &Value, document: &Value) -> Result<serde_json::Value> {
-    Ok(json!({
-        "schema_version": 1,
-        "backend": backend,
-        "state": ricochet_value_to_json(state)?,
-        "document": ricochet_value_to_json(document)?,
-    }))
-}
-
-fn write_app_export_json(path: &Path, backend: &str, rendered: &NativeAppRender) -> Result<()> {
-    let payload = app_export_json(backend, &rendered.state, &rendered.document)?;
-    let json = serde_json::to_string_pretty(&payload)?;
-    fs::write(path, json).with_context(|| {
-        format!(
-            "failed to write native app UI JSON export requested at {}",
-            path.display()
-        )
-    })
-}
-
-struct SlintRenderPlan {
-    title: String,
-    source: String,
-    projection: String,
-}
-
-#[derive(Clone)]
-struct SlintButtonBinding {
-    id: String,
-    label: String,
-}
-
-fn run_live_slint_backend(session: NativeAppSession, validate_only: bool) -> Result<()> {
-    use slint_interpreter::ComponentHandle as _;
-
-    let rendered = session.render();
-    let plan = slint_render_plan(&rendered.document)?;
-    let definition = compile_slint_render_plan(&plan)?;
-
-    if validate_only || slint_validate_only_from_env() {
-        println!("Slint renderer validated {}", plan.title);
-        return Ok(());
-    }
-
-    let instance = definition
-        .create()
-        .context("failed to create Slint renderer instance")?;
-    instance
-        .set_property("projection", slint_string_value(&plan.projection))
-        .context("failed to initialize Slint projection property")?;
-
-    let session = Rc::new(RefCell::new(session));
-    let instance_weak = instance.as_weak();
-    instance
-        .set_callback("dispatch", move |args| {
-            let Some(slint_interpreter::Value::String(id)) = args.first() else {
-                return slint_interpreter::Value::Void;
-            };
-            let event = json!({
-                "schema_version": 1,
-                "type": "click",
-                "id": id.to_string(),
-                "value": null,
-                "backend": "slint",
-                "native": {}
-            });
-
-            match session
-                .borrow_mut()
-                .apply_event(json_to_ricochet_value(event))
-                .and_then(|rendered| slint_projection_from_document(&rendered.document))
-            {
-                Ok(projection) => {
-                    if let Some(instance) = instance_weak.upgrade() {
-                        if let Err(error) =
-                            instance.set_property("projection", slint_string_value(&projection))
-                        {
-                            eprintln!("failed to update Slint projection: {error}");
-                        }
-                    }
-                }
-                Err(error) => eprintln!("failed to handle Slint UI event: {error:?}"),
-            }
-
-            slint_interpreter::Value::Void
-        })
-        .context("failed to install Slint dispatch callback")?;
-
-    instance.run().context("Slint renderer failed")
-}
-
-fn slint_validate_only_from_env() -> bool {
-    std::env::var_os(APP_SLINT_VALIDATE_ONLY_ENV)
-        .and_then(|value| value.into_string().ok())
-        .is_some_and(|value| {
-            matches!(
-                value.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-}
-
-fn slint_render_plan(document: &Value) -> Result<SlintRenderPlan> {
-    let document = ricochet_value_to_json(document)?;
-    let title = json_node_prop_string(&document, "title")
-        .unwrap_or_else(|| "Ricochet Slint App".to_string());
-    let mut lines = Vec::new();
-    let mut buttons = Vec::new();
-    append_slint_projection_for_node(&document, 0, &mut lines, &mut buttons);
-    let projection = lines
-        .into_iter()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let projection = if projection.is_empty() {
-        title.clone()
-    } else {
-        projection
-    };
-
-    Ok(SlintRenderPlan {
-        source: slint_source_for_projection(&title, &buttons),
-        title,
-        projection,
-    })
-}
-
-fn compile_slint_render_plan(
-    plan: &SlintRenderPlan,
-) -> Result<slint_interpreter::ComponentDefinition> {
-    let compiler = slint_interpreter::Compiler::default();
-    let result =
-        spin_on::spin_on(compiler.build_from_source(plan.source.clone(), Default::default()));
-    let diagnostics = result.diagnostics().collect::<Vec<_>>();
-    if !diagnostics.is_empty() {
-        bail!("generated Slint renderer document did not compile: {diagnostics:?}");
-    }
-    result
-        .component("RicochetApp")
-        .context("generated Slint renderer did not export RicochetApp")
-}
-
-fn slint_projection_from_document(document: &Value) -> Result<String> {
-    let plan = slint_render_plan(document)?;
-    Ok(plan.projection)
-}
-
-fn slint_source_for_projection(title: &str, buttons: &[SlintButtonBinding]) -> String {
-    let mut source = String::new();
-    source.push_str("import { Button } from \"std-widgets.slint\";\n\n");
-    source.push_str("export component RicochetApp inherits Window {\n");
-    source.push_str("  title: ");
-    source.push_str(&slint_string_literal(title));
-    source.push_str(";\n");
-    source.push_str("  preferred-width: 960px;\n");
-    source.push_str("  preferred-height: 720px;\n");
-    source.push_str("  callback dispatch(string);\n");
-    source.push_str("  in-out property <string> projection;\n\n");
-    source.push_str("  VerticalLayout {\n");
-    source.push_str("    padding: 16px;\n");
-    source.push_str("    spacing: 8px;\n");
-    source.push_str("    Text { text: root.projection; }\n");
-    for button in buttons {
-        source.push_str("    Button { text: ");
-        source.push_str(&slint_string_literal(&button.label));
-        source.push_str("; clicked => { root.dispatch(");
-        source.push_str(&slint_string_literal(&button.id));
-        source.push_str("); } }\n");
-    }
-    source.push_str("  }\n");
-    source.push_str("}\n");
-    source
-}
-
-fn slint_string_literal(value: &str) -> String {
-    serde_json::to_string(value).expect("string literal should serialize")
-}
-
-fn slint_string_value(value: &str) -> slint_interpreter::Value {
-    slint_interpreter::Value::from(slint_interpreter::SharedString::from(value))
-}
-
-fn append_slint_projection_for_node(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    let node_type = json_property_string(node, "type").unwrap_or_default();
-    let node_id = json_property_string(node, "id").unwrap_or_default();
-    match node_type.as_str() {
-        "window" => {
-            if let Some(title) = json_node_prop_string(node, "title") {
-                lines.push(title);
-            }
-            append_slint_child_nodes(node, indent, lines, buttons);
-        }
-        "text" | "heading" => {
-            if let Some(text) = json_node_prop_string(node, "text") {
-                lines.push(format!("{}{}", slint_indent(indent), text));
-            }
-        }
-        "button" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            lines.push(format!("{}[Button] {}", slint_indent(indent), label));
-            buttons.push(SlintButtonBinding { id: node_id, label });
-        }
-        "text_input" | "multiline_text_input" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let value = json_node_prop_string(node, "value").unwrap_or_default();
-            lines.push(format!("{}{}: {}", slint_indent(indent), label, value));
-        }
-        "checkbox" | "toggle" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let checked = json_node_prop_bool(node, "checked").unwrap_or(false);
-            lines.push(format!(
-                "{}{}: {}",
-                slint_indent(indent),
-                label,
-                if checked { "checked" } else { "unchecked" }
-            ));
-        }
-        "select" => {
-            let label = json_node_prop_string(node, "label").unwrap_or_else(|| node_id.clone());
-            let value = json_node_prop_string(node, "value").unwrap_or_default();
-            lines.push(format!("{}{}: {}", slint_indent(indent), label, value));
-        }
-        "stack" | "grid" | "split_pane" | "scroll_view" => {
-            append_slint_child_nodes(node, indent, lines, buttons);
-        }
-        "group" => {
-            let title = json_node_prop_string(node, "title").unwrap_or_else(|| node_id.clone());
-            lines.push(format!("{}{}", slint_indent(indent), title));
-            append_slint_child_nodes(node, indent + 1, lines, buttons);
-        }
-        "spacer" => lines.push(String::new()),
-        "list" => append_slint_list_projection(node, indent, lines),
-        "tree" => append_slint_tree_projection(node, indent, lines),
-        "data_grid" => append_slint_data_grid_projection(node, indent, lines, buttons),
-        "rich_text" | "rich_text_input" => append_slint_rich_text_projection(node, indent, lines),
-        "menu_bar" | "command_bar" | "context_menu" => {
-            append_slint_command_items_projection(node, indent, lines, buttons);
-        }
-        _ => {
-            lines.push(format!(
-                "{}Unsupported node {} ({})",
-                slint_indent(indent),
-                node_id,
-                node_type
-            ));
-            append_slint_child_nodes(node, indent + 1, lines, buttons);
-        }
-    }
-}
-
-fn append_slint_child_nodes(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    if let Some(children) = node.get("children").and_then(serde_json::Value::as_array) {
-        for child in children {
-            append_slint_projection_for_node(child, indent, lines, buttons);
-        }
-    }
-}
-
-fn append_slint_command_items_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    for item in json_node_prop_array(node, "items") {
-        let id = json_property_string(item, "id").unwrap_or_default();
-        let label = json_property_string(item, "label").unwrap_or_else(|| id.clone());
-        let shortcut = json_property_string(item, "shortcut").unwrap_or_default();
-        let suffix = if shortcut.is_empty() {
-            String::new()
-        } else {
-            format!(" ({shortcut})")
-        };
-        lines.push(format!(
-            "{}[Command] {}{}",
-            slint_indent(indent),
-            label,
-            suffix
-        ));
-        buttons.push(SlintButtonBinding { id, label });
-    }
-}
-
-fn append_slint_list_projection(node: &serde_json::Value, indent: usize, lines: &mut Vec<String>) {
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        json_property_string(node, "id").unwrap_or_else(|| "list".to_string())
-    ));
-    for item in json_node_prop_array(node, "items") {
-        lines.push(format!(
-            "{}- {}",
-            slint_indent(indent + 1),
-            json_label(item)
-        ));
-    }
-}
-
-fn append_slint_tree_projection(node: &serde_json::Value, indent: usize, lines: &mut Vec<String>) {
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        json_property_string(node, "id").unwrap_or_else(|| "tree".to_string())
-    ));
-    for tree_node in json_node_prop_array(node, "nodes") {
-        append_slint_tree_node_projection(tree_node, indent + 1, lines);
-    }
-}
-
-fn append_slint_tree_node_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-) {
-    let label = json_property_string(node, "label")
-        .or_else(|| json_property_string(node, "id"))
-        .unwrap_or_default();
-    lines.push(format!("{}- {}", slint_indent(indent), label));
-    if let Some(children) = node.get("children").and_then(serde_json::Value::as_array) {
-        for child in children {
-            append_slint_tree_node_projection(child, indent + 1, lines);
-        }
-    }
-}
-
-fn append_slint_data_grid_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-    buttons: &mut Vec<SlintButtonBinding>,
-) {
-    let columns = json_node_prop_array(node, "columns");
-    let column_titles = columns
-        .iter()
-        .map(|column| {
-            json_property_string(column, "title")
-                .or_else(|| json_property_string(column, "id"))
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>();
-    lines.push(format!(
-        "{}{}",
-        slint_indent(indent),
-        column_titles.join(" | ")
-    ));
-
-    for row in json_node_prop_array(node, "rows") {
-        let row_id = json_property_string(row, "id").unwrap_or_default();
-        let mut cells = Vec::new();
-        if let Some(cell_map) = row.get("cells").and_then(serde_json::Value::as_object) {
-            for column in &columns {
-                let column_id = json_property_string(column, "id").unwrap_or_default();
-                cells.push(cell_map.get(&column_id).map(json_label).unwrap_or_default());
-            }
-        }
-        lines.push(format!("{}{}", slint_indent(indent + 1), cells.join(" | ")));
-        if !row_id.is_empty() {
-            buttons.push(SlintButtonBinding {
-                id: json_property_string(node, "id").unwrap_or_default(),
-                label: format!("Open {row_id}"),
-            });
-        }
-    }
-}
-
-fn append_slint_rich_text_projection(
-    node: &serde_json::Value,
-    indent: usize,
-    lines: &mut Vec<String>,
-) {
-    if let Some(label) = json_node_prop_string(node, "label") {
-        lines.push(format!("{}{}", slint_indent(indent), label));
-    }
-    let Some(document) = json_node_prop(node, "document") else {
-        return;
-    };
-    let Some(blocks) = document.get("blocks").and_then(serde_json::Value::as_array) else {
-        return;
-    };
-    for block in blocks {
-        let mut text = String::new();
-        if let Some(spans) = block.get("spans").and_then(serde_json::Value::as_array) {
-            for span in spans {
-                text.push_str(&json_property_string(span, "text").unwrap_or_default());
-            }
-        }
-        if !text.is_empty() {
-            lines.push(format!("{}{}", slint_indent(indent + 1), text));
-        }
-    }
-}
-
-fn slint_indent(indent: usize) -> String {
-    "  ".repeat(indent)
-}
-
-fn json_node_prop<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
-    node.get("props")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|props| props.get(name))
-}
-
-fn json_node_prop_string(node: &serde_json::Value, name: &str) -> Option<String> {
-    json_node_prop(node, name).map(json_label)
-}
-
-fn json_node_prop_bool(node: &serde_json::Value, name: &str) -> Option<bool> {
-    json_node_prop(node, name).and_then(serde_json::Value::as_bool)
-}
-
-fn json_node_prop_array<'a>(node: &'a serde_json::Value, name: &str) -> Vec<&'a serde_json::Value> {
-    json_node_prop(node, name)
-        .and_then(serde_json::Value::as_array)
-        .map(|values| values.iter().collect())
-        .unwrap_or_default()
-}
-
-fn json_property_string(value: &serde_json::Value, name: &str) -> Option<String> {
-    value.get(name).map(json_label)
-}
-
-fn json_label(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => String::new(),
-        serde_json::Value::Bool(value) => value.to_string(),
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Array(values) => {
-            values.iter().map(json_label).collect::<Vec<_>>().join(", ")
-        }
-        serde_json::Value::Object(values) => values
-            .get("label")
-            .or_else(|| values.get("title"))
-            .or_else(|| values.get("id"))
-            .map(json_label)
-            .unwrap_or_else(|| serde_json::Value::Object(values.clone()).to_string()),
-    }
-}
-
-fn run_live_winui_backend(
-    session: &mut NativeAppSession,
-    backend: &str,
-    winui_host: Option<&Path>,
-) -> Result<()> {
-    let host = resolve_winui_host(winui_host)?;
-    let protocol_dir = create_winui_protocol_dir()?;
-    let document_path = protocol_dir.join("initial-ui.json");
-    let events_path = protocol_dir.join("events.jsonl");
-    let responses_path = protocol_dir.join("responses.jsonl");
-
-    write_app_export_json(&document_path, backend, &session.render())?;
-    fs::write(&events_path, "")
-        .with_context(|| format!("failed to initialize {}", events_path.display()))?;
-    fs::write(&responses_path, "")
-        .with_context(|| format!("failed to initialize {}", responses_path.display()))?;
-
-    let mut child = std::process::Command::new(&host)
-        .arg("--document")
-        .arg(&document_path)
-        .arg("--events")
-        .arg(&events_path)
-        .arg("--responses")
-        .arg(&responses_path)
-        .spawn()
-        .with_context(|| format!("failed to launch WinUI backend host {}", host.display()))?;
-
-    let mut events_offset = 0_usize;
-    loop {
-        if let Some(status) = child
-            .try_wait()
-            .context("failed to poll WinUI backend host")?
-        {
-            if status.success() {
-                return Ok(());
-            }
-            bail!("WinUI backend host exited with status {status}");
-        }
-
-        for line in read_new_json_lines(&events_path, &mut events_offset)? {
-            let event: serde_json::Value = serde_json::from_str(&line)
-                .with_context(|| format!("WinUI backend wrote invalid event JSON: {line}"))?;
-            let rendered = session.apply_event(json_to_ricochet_value(event))?;
-            let response = app_export_json(backend, &rendered.state, &rendered.document)?;
-            let response = serde_json::to_string(&response)?;
-            fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&responses_path)
-                .with_context(|| format!("failed to open {}", responses_path.display()))?
-                .write_all(format!("{response}\n").as_bytes())
-                .with_context(|| format!("failed to write {}", responses_path.display()))?;
-        }
-
-        std::thread::sleep(Duration::from_millis(30));
-    }
-}
-
-fn resolve_winui_host(winui_host: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = winui_host {
-        return ensure_winui_host_path(path);
-    }
-
-    if let Some(path) = std::env::var_os(APP_WINUI_HOST_ENV) {
-        return ensure_winui_host_path(Path::new(&path));
-    }
-
-    let exe_suffix = std::env::consts::EXE_SUFFIX;
-    let host_name = format!("Ricochet.WinUI.Host{exe_suffix}");
-    let mut candidates = Vec::new();
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            candidates.push(parent.join(&host_name));
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        for configuration in ["Release", "Debug"] {
-            candidates.push(
-                current_dir
-                    .join("hosts")
-                    .join("winui")
-                    .join("Ricochet.WinUI.Host")
-                    .join("bin")
-                    .join(configuration)
-                    .join("net10.0-windows10.0.19041.0")
-                    .join("win-x64")
-                    .join(&host_name),
-            );
-            candidates.push(
-                current_dir
-                    .join("hosts")
-                    .join("winui")
-                    .join("Ricochet.WinUI.Host")
-                    .join("bin")
-                    .join(configuration)
-                    .join("net10.0-windows10.0.19041.0")
-                    .join(&host_name),
-            );
-        }
-    }
-
-    for candidate in candidates {
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    bail!(
-        "WinUI backend host not found; build it with dotnet publish hosts/winui/Ricochet.WinUI.Host/Ricochet.WinUI.Host.csproj or pass --winui-host PATH"
-    )
-}
-
-fn ensure_winui_host_path(path: &Path) -> Result<PathBuf> {
-    if !path.is_file() {
-        bail!("WinUI backend host does not exist: {}", path.display());
-    }
-    Ok(path.to_path_buf())
-}
-
-fn create_winui_protocol_dir() -> Result<PathBuf> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ricochet-winui-{}-{now}", std::process::id()));
-    fs::create_dir_all(&dir).with_context(|| {
-        format!(
-            "failed to create WinUI protocol directory {}",
-            dir.display()
-        )
-    })?;
-    Ok(dir)
-}
-
-fn read_new_json_lines(path: &Path, offset: &mut usize) -> Result<Vec<String>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read WinUI event stream {}", path.display()))?;
-    if *offset > source.len() {
-        *offset = 0;
-    }
-    let new_source = &source[*offset..];
-    *offset = source.len();
-    Ok(new_source
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect())
-}
-
-fn render_webview_document(
-    chunk: &Chunk,
-    args: Vec<String>,
-    capabilities: CapabilityOptions,
-    dynamic_import_parent: PathBuf,
-) -> Result<WebviewDocument> {
-    let mut vm = cli_vm(args, &capabilities)?;
-    install_dynamic_module_loader(&mut vm, dynamic_import_parent);
-    let result = vm.run_chunk(chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(ricochet_vm::VmError::ExitRequested { code }) = result {
-        std::process::exit(code);
-    }
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(&vm, &error));
-    }
-    let document = webview_document_from_vm(&vm)?;
-    dispatch_webview_event_if_requested(&mut vm, document)
-}
-
-fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
-    for value in vm.stack().iter().rev() {
-        if let Some(document) = webview_document_from_value(value)? {
-            return Ok(document);
-        }
-    }
-
-    if let Some(value) = vm.variable("document") {
-        if let Some(document) = webview_document_from_value(value)? {
-            return Ok(document);
-        }
-    }
-
-    bail!(
-        "GUI apps must leave a `webview_window` result on the stack or store it in a variable named `document`"
-    )
-}
-
-fn webview_document_from_value(value: &Value) -> Result<Option<WebviewDocument>> {
-    match value {
-        Value::Result(RicochetResult::Ok(inner)) => webview_document_from_value(inner),
-        Value::Result(RicochetResult::Err(error)) => {
-            bail!(
-                "GUI app returned an error result: {}: {}",
-                error.kind,
-                error.message
-            )
-        }
-        Value::Map(map) => webview_document_from_map(map),
-        _ => Ok(None),
-    }
-}
-
-fn webview_document_from_map(map: &MapValue) -> Result<Option<WebviewDocument>> {
-    if map.get("type") != Some(Value::String("webview".to_string())) {
-        return Ok(None);
-    }
-
-    Ok(Some(WebviewDocument {
-        title: required_document_string(map, "title")?,
-        html: required_document_string(map, "html")?,
-        width: required_document_dimension(map, "width")?,
-        height: required_document_dimension(map, "height")?,
-        state: optional_document_value(map, "state")
-            .unwrap_or_else(|| Value::Map(BTreeMap::new().into())),
-        actions: optional_document_value(map, "actions")
-            .map(|value| webview_actions_from_value(&value))
-            .transpose()?
-            .unwrap_or_default(),
-    }))
-}
-
-fn dispatch_webview_event_if_requested(
-    vm: &mut Vm,
-    document: WebviewDocument,
-) -> Result<WebviewDocument> {
-    let Ok(event_source) = std::env::var(GUI_EVENT_ENV) else {
-        return Ok(document);
-    };
-    let event_json: serde_json::Value = serde_json::from_str(&event_source)
-        .with_context(|| format!("{GUI_EVENT_ENV} must be a JSON object"))?;
-    let action_name = event_json
-        .get("action")
-        .and_then(|value| value.as_str())
-        .context("GUI action event is missing string field `action`")?;
-    let action = document
-        .actions
-        .iter()
-        .find(|action| action.action == action_name)
-        .with_context(|| format!("GUI document has no action named {action_name:?}"))?;
-
-    vm.push_value(document.state.clone());
-    vm.push_value(json_to_ricochet_value(event_json));
-    let mut chunk = Chunk::new("<gui-event>");
-    chunk.push(Op::CallWord(action.callback.clone()), gui_event_span());
-    let result = vm.run_chunk(&chunk);
-    print!("{}", vm.stdout());
-    eprint!("{}", vm.stderr());
-    if let Err(error) = result {
-        bail!("{}", runtime_error_message(vm, &error));
-    }
-    webview_document_from_vm(vm).with_context(|| {
-        format!(
-            "GUI action callback {:?} must return a webview document",
-            action.callback
-        )
-    })
-}
-
-fn webview_actions_from_value(value: &Value) -> Result<Vec<WebviewAction>> {
-    let values = match value {
-        Value::Array(values) => values.snapshot(),
-        Value::List(values) => values.snapshot(),
-        value => bail!("webview document `actions` must be an array or list, got {value:?}"),
-    };
-
-    values
-        .iter()
-        .map(webview_action_from_value)
-        .collect::<Result<Vec<_>>>()
-}
-
-fn webview_action_from_value(value: &Value) -> Result<WebviewAction> {
-    let Value::Map(map) = value else {
-        bail!("webview action entries must be maps, got {value:?}");
-    };
-    if let Some(Value::String(kind)) = map.get("type") {
-        if kind != "action" {
-            bail!("webview action `type` must be \"action\", got {kind:?}");
-        }
-    }
-    Ok(WebviewAction {
-        action: required_document_string(map, "action")?,
-        callback: required_document_string(map, "callback")?,
-    })
-}
-
-fn optional_document_value(map: &MapValue, key: &str) -> Option<Value> {
-    map.get(key)
-}
-
-fn required_document_string(map: &MapValue, key: &str) -> Result<String> {
-    match map.get(key) {
-        Some(Value::String(value)) => Ok(value),
-        Some(value) => bail!("webview document `{key}` must be a string, got {value:?}"),
-        None => bail!("webview document is missing `{key}`"),
-    }
-}
-
-fn required_document_dimension(map: &MapValue, key: &str) -> Result<u32> {
-    match map.get(key) {
-        Some(Value::Number(value)) if value > 0 => u32::try_from(value)
-            .with_context(|| format!("webview document `{key}` is too large: {value}")),
-        Some(Value::Number(value)) => {
-            bail!("webview document `{key}` must be positive, got {value}")
-        }
-        Some(value) => bail!("webview document `{key}` must be a number, got {value:?}"),
-        None => bail!("webview document is missing `{key}`"),
-    }
-}
-
-fn gui_event_span() -> SourceSpan {
-    SourceSpan {
-        file: "<gui-event>".to_string(),
-        start: 0,
-        end: 0,
-        line: 1,
-        column: 1,
-    }
-}
-
-fn app_host_span(function: &str) -> SourceSpan {
-    SourceSpan {
-        file: format!("<app:{function}>"),
-        start: 0,
-        end: 0,
-        line: 1,
-        column: 1,
-    }
-}
-
-fn json_to_ricochet_value(value: serde_json::Value) -> Value {
-    match value {
-        serde_json::Value::Null => Value::Nil,
-        serde_json::Value::Bool(value) => Value::Bool(value),
-        serde_json::Value::Number(value) => {
-            if let Some(value) = value.as_i64() {
-                Value::Number(value)
-            } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
-                Value::Number(value)
-            } else if let Some(value) = value.as_f64() {
-                Value::Float(value)
-            } else {
-                Value::Nil
-            }
-        }
-        serde_json::Value::String(value) => Value::String(value),
-        serde_json::Value::Array(values) => Value::Array(
-            values
-                .into_iter()
-                .map(json_to_ricochet_value)
-                .collect::<Vec<_>>()
-                .into(),
-        ),
-        serde_json::Value::Object(values) => Value::Map(
-            values
-                .into_iter()
-                .map(|(key, value)| (key, json_to_ricochet_value(value)))
-                .collect::<BTreeMap<_, _>>()
-                .into(),
-        ),
-    }
-}
-
-fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
-    match value {
-        Value::Nil => Ok(serde_json::Value::Null),
-        Value::Bool(value) => Ok(serde_json::Value::Bool(*value)),
-        Value::Number(value) => Ok(json!(*value)),
-        Value::Float(value) => serde_json::Number::from_f64(*value)
-            .map(serde_json::Value::Number)
-            .with_context(|| format!("cannot encode non-finite float {value} as JSON")),
-        Value::String(value) => Ok(serde_json::Value::String(value.clone())),
-        Value::Array(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::List(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::Set(values) => values
-            .snapshot()
-            .iter()
-            .map(ricochet_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        Value::Map(values) => values
-            .snapshot()
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), ricochet_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()
-            .map(serde_json::Value::Object),
-        Value::Result(RicochetResult::Ok(value)) => ricochet_value_to_json(value),
-        Value::Result(RicochetResult::Err(error)) => {
-            bail!(
-                "cannot encode error result as native app JSON: {}: {}",
-                error.kind,
-                error.message
-            )
-        }
-        value => bail!("cannot encode {value:?} as native app JSON"),
-    }
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    open_platform_webview(
-        document.title,
-        document.width,
-        document.height,
-        NativeWebviewSource::Html(document.html),
-    )
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn open_native_webview_url(title: &str, url: &str, width: u32, height: u32) -> Result<()> {
-    open_platform_webview(
-        title.to_string(),
-        width,
-        height,
-        NativeWebviewSource::Url(url.to_string()),
-    )
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-enum NativeWebviewSource {
-    Html(String),
-    Url(String),
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn open_platform_webview(
-    title: String,
-    width: u32,
-    height: u32,
-    source: NativeWebviewSource,
-) -> Result<()> {
-    use winit::{
-        application::ApplicationHandler,
-        dpi::LogicalSize,
-        event::WindowEvent,
-        event_loop::{ActiveEventLoop, EventLoop},
-        window::{Window, WindowId},
-    };
-    use wry::WebViewBuilder;
-
-    struct NativeWebviewState {
-        title: String,
-        width: u32,
-        height: u32,
-        source: Option<NativeWebviewSource>,
-        window: Option<Window>,
-        webview: Option<wry::WebView>,
-        error: Option<String>,
-    }
-
-    impl ApplicationHandler for NativeWebviewState {
-        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-            if self.window.is_some() || self.error.is_some() {
-                return;
-            }
-
-            let mut attributes = Window::default_attributes();
-            attributes.title = self.title.clone();
-            attributes.inner_size =
-                Some(LogicalSize::new(f64::from(self.width), f64::from(self.height)).into());
-
-            let window = match event_loop.create_window(attributes) {
-                Ok(window) => window,
-                Err(error) => {
-                    self.error = Some(format!("failed to create native GUI window: {error}"));
-                    event_loop.exit();
-                    return;
-                }
-            };
-
-            let Some(source) = self.source.take() else {
-                self.error = Some("native GUI source was already consumed".to_string());
-                event_loop.exit();
-                return;
-            };
-            let builder = match source {
-                NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
-                NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
-            };
-            let webview = match builder.build(&window) {
-                Ok(webview) => webview,
-                Err(error) => {
-                    self.error = Some(format!("failed to create native WebView: {error}"));
-                    event_loop.exit();
-                    return;
-                }
-            };
-
-            self.webview = Some(webview);
-            self.window = Some(window);
-        }
-
-        fn window_event(
-            &mut self,
-            event_loop: &ActiveEventLoop,
-            _window_id: WindowId,
-            event: WindowEvent,
-        ) {
-            if let WindowEvent::CloseRequested = event {
-                event_loop.exit();
-            }
-        }
-    }
-
-    let event_loop = EventLoop::new().context("failed to create native GUI event loop")?;
-    let mut state = NativeWebviewState {
-        title,
-        width,
-        height,
-        source: Some(source),
-        window: None,
-        webview: None,
-        error: None,
-    };
-    event_loop
-        .run_app(&mut state)
-        .context("native GUI event loop failed")?;
-    if let Some(error) = state.error {
-        bail!("{error}");
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn open_native_webview(document: WebviewDocument) -> Result<()> {
-    let path = write_linux_webview_document(&document)?;
-    open_linux_gui_target(path.as_os_str())?;
-    eprintln!(
-        "Ricochet opened file {} with your system browser.",
-        path.display()
-    );
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn open_native_webview_url(_title: &str, url: &str, _width: u32, _height: u32) -> Result<()> {
-    open_linux_gui_target(OsStr::new(url))?;
-    wait_for_linux_browser_session(url)
-}
-
-#[cfg(target_os = "linux")]
-fn write_linux_webview_document(document: &WebviewDocument) -> Result<PathBuf> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let file_name = format!("ricochet-gui-{}-{timestamp}.html", std::process::id());
-    let path = std::env::temp_dir().join(file_name);
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&path)
-        .with_context(|| format!("failed to create GUI HTML file {}", path.display()))?;
-    file.write_all(document.html.as_bytes())
-        .with_context(|| format!("failed to write GUI HTML file {}", path.display()))?;
-    Ok(path)
-}
-
-#[cfg(target_os = "linux")]
-fn open_linux_gui_target(target: &OsStr) -> Result<()> {
-    let status = std::process::Command::new("xdg-open")
-        .arg(target)
-        .status()
-        .context(
-            "failed to launch `xdg-open`; install `xdg-utils` to open Ricochet GUI apps on Linux",
-        )?;
-    if !status.success() {
-        bail!("`xdg-open` failed with status {status}");
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn wait_for_linux_browser_session(target_label: &str) -> Result<()> {
-    eprintln!(
-        "Ricochet opened {target_label} with your system browser. Press Ctrl+C in this terminal to stop the GUI host when finished."
-    );
-    loop {
-        std::thread::park_timeout(Duration::from_secs(3600));
-    }
-}
-
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn open_native_webview(_document: WebviewDocument) -> Result<()> {
-    bail!("GUI hosting is currently implemented for Windows, Linux, and macOS builds")
-}
-
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn open_native_webview_url(_title: &str, _url: &str, _width: u32, _height: u32) -> Result<()> {
-    bail!("GUI hosting is currently implemented for Windows, Linux, and macOS builds")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11754,1104 +10310,6 @@ fn build(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()> {
-    if output.is_dir() {
-        bail!("package output is a directory: {}", output.display());
-    }
-    if options.tui && options.gui {
-        bail!("--tui cannot be used with --gui");
-    }
-    if options.app && options.tui {
-        bail!("--app cannot be used with --tui");
-    }
-    if options.app && options.gui {
-        bail!("--app cannot be used with --gui");
-    }
-    if options.tui && options.mvc {
-        bail!("--mvc requires --gui and cannot be used with --tui");
-    }
-    if options.app && options.mvc {
-        bail!("--mvc requires --gui and cannot be used with --app");
-    }
-    if options.mvc && !options.gui {
-        bail!("--mvc requires --gui");
-    }
-    if options.gui_launcher.is_some() && !options.gui {
-        bail!("--gui-launcher requires --gui");
-    }
-    if options.app_launcher.is_some() && !options.app {
-        bail!("--app-launcher requires --app");
-    }
-    let native_app_backend = if options.app {
-        Some(NativeAppBackend::parse(options.backend)?)
-    } else {
-        None
-    };
-    if options.gui && !native_gui_packaging_supported() {
-        bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
-    }
-    if options.app && !options.linux_packages.is_empty() {
-        bail!("--linux-package is not supported with --app yet");
-    }
-    if !options.linux_packages.is_empty() {
-        ensure_linux_package_host()?;
-    }
-
-    let package_kind = if options.mvc {
-        EmbeddedAppKind::MvcGui
-    } else if options.app {
-        native_app_backend
-            .expect("native app backend should be parsed when --app is set")
-            .embedded_kind()
-    } else if options.gui {
-        EmbeddedAppKind::Gui
-    } else if options.tui {
-        EmbeddedAppKind::Tui
-    } else {
-        EmbeddedAppKind::Console
-    };
-    let bytes = if options.mvc {
-        build_mvc_bundle(Path::new(path), output)?.to_bytes()?
-    } else {
-        compile_source_file(Path::new(path))?.to_bytes()?
-    };
-    let launcher = if options.app {
-        package_app_launcher(options.app_launcher)?
-    } else {
-        package_launcher(options.gui, options.gui_launcher)?
-    };
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::copy(&launcher, output).with_context(|| {
-        format!(
-            "failed to copy launcher {} to {}",
-            launcher.display(),
-            output.display()
-        )
-    })?;
-    append_embedded_payload(output, &bytes, package_kind)?;
-
-    println!("packaged {}", output.display());
-
-    if !options.linux_packages.is_empty() {
-        create_linux_package_artifacts(
-            output,
-            options.linux_packages,
-            options.package_name,
-            options.package_version,
-            options.package_description,
-            options.gui,
-        )?;
-    }
-
-    Ok(())
-}
-
-struct PackageOptions<'a> {
-    tui: bool,
-    gui: bool,
-    mvc: bool,
-    gui_launcher: Option<&'a Path>,
-    app: bool,
-    backend: &'a str,
-    app_launcher: Option<&'a Path>,
-    linux_packages: &'a [LinuxPackageFormat],
-    package_name: Option<&'a str>,
-    package_version: &'a str,
-    package_description: &'a str,
-}
-
-impl MvcBundle {
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        let mut output = Vec::new();
-        output.extend_from_slice(MVC_BUNDLE_MAGIC);
-        write_u64(&mut output, self.files.len() as u64);
-        for file in &self.files {
-            validate_bundle_relative_path(&file.relative_path)?;
-            let path = path_to_bundle_string(&file.relative_path)?;
-            let path_bytes = path.as_bytes();
-            write_u32(&mut output, path_bytes.len() as u32);
-            write_u64(&mut output, file.bytes.len() as u64);
-            output.extend_from_slice(path_bytes);
-            output.extend_from_slice(&file.bytes);
-        }
-        Ok(output)
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let mut cursor = ByteCursor::new(bytes);
-        cursor.expect_bytes(MVC_BUNDLE_MAGIC)?;
-        let file_count = cursor.read_u64()? as usize;
-        let mut files = Vec::with_capacity(file_count);
-        for _ in 0..file_count {
-            let path_len = cursor.read_u32()? as usize;
-            let file_len = cursor.read_u64()? as usize;
-            let path = cursor.read_bytes(path_len)?;
-            let path = std::str::from_utf8(path).context("MVC bundle path is not UTF-8")?;
-            let relative_path = bundle_string_to_path(path)?;
-            validate_bundle_relative_path(&relative_path)?;
-            let bytes = cursor.read_bytes(file_len)?.to_vec();
-            files.push(MvcBundleFile {
-                relative_path,
-                bytes,
-            });
-        }
-        cursor.finish()?;
-        Ok(Self { files })
-    }
-
-    fn extract_to(&self, root: &Path) -> Result<()> {
-        for file in &self.files {
-            validate_bundle_relative_path(&file.relative_path)?;
-            let destination = root.join(&file.relative_path);
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            fs::write(&destination, &file.bytes)
-                .with_context(|| format!("failed to extract {}", destination.display()))?;
-        }
-        Ok(())
-    }
-}
-
-struct ByteCursor<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> ByteCursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn expect_bytes(&mut self, expected: &[u8]) -> Result<()> {
-        let actual = self.read_bytes(expected.len())?;
-        if actual != expected {
-            bail!("embedded MVC bundle has an unsupported format");
-        }
-        Ok(())
-    }
-
-    fn read_u32(&mut self) -> Result<u32> {
-        let bytes = self.read_bytes(4)?;
-        Ok(u32::from_le_bytes(
-            bytes.try_into().expect("u32 byte count"),
-        ))
-    }
-
-    fn read_u64(&mut self) -> Result<u64> {
-        let bytes = self.read_bytes(8)?;
-        Ok(u64::from_le_bytes(
-            bytes.try_into().expect("u64 byte count"),
-        ))
-    }
-
-    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .context("embedded MVC bundle length overflow")?;
-        if end > self.bytes.len() {
-            bail!("embedded MVC bundle ended unexpectedly");
-        }
-        let bytes = &self.bytes[self.offset..end];
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    fn finish(&self) -> Result<()> {
-        if self.offset != self.bytes.len() {
-            bail!("embedded MVC bundle has trailing bytes");
-        }
-        Ok(())
-    }
-}
-
-fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
-    if !project_root.is_dir() {
-        bail!(
-            "rco package --mvc expects a Ricochet MVC project directory, got {}",
-            project_root.display()
-        );
-    }
-    let manifest_path = project_root.join("ricochet.toml");
-    if !manifest_path.is_file() {
-        bail!(
-            "rco package --mvc expects {} to contain ricochet.toml",
-            project_root.display()
-        );
-    }
-
-    let project_root = project_root
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
-    validate_mvc_bundle_manifest(&project_root, &manifest_path)?;
-    let output_path = absolute_package_output_path(output)?;
-    let mut files = Vec::new();
-    collect_mvc_bundle_files(&project_root, &project_root, &output_path, &mut files)?;
-    files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok(MvcBundle { files })
-}
-
-fn validate_mvc_bundle_manifest(project_root: &Path, manifest_path: &Path) -> Result<()> {
-    let source = fs::read_to_string(manifest_path)
-        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let manifest = source
-        .parse::<DocumentMut>()
-        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
-    verify_dependency_manifest(project_root, manifest_path, &manifest, false)?;
-
-    let Some(capabilities) = manifest
-        .get("web")
-        .and_then(Item::as_table)
-        .and_then(|web| web.get("capabilities"))
-        .and_then(Item::as_table)
-    else {
-        return Ok(());
-    };
-
-    for key in ["fs_root", "process_root"] {
-        let Some(value) = capabilities.get(key) else {
-            continue;
-        };
-        let path = value
-            .as_str()
-            .with_context(|| format!("web.capabilities.{key} must be a string path"))?;
-        validate_project_relative_path(path, &format!("web.capabilities.{key}"))?;
-        let candidate = project_root.join(path);
-        ensure_contained_candidate(project_root, &candidate, &format!("web.capabilities.{key}"))?;
-    }
-
-    Ok(())
-}
-
-fn absolute_package_output_path(output: &Path) -> Result<PathBuf> {
-    if output.is_absolute() {
-        Ok(output.to_path_buf())
-    } else {
-        Ok(std::env::current_dir()
-            .context("failed to read current directory")?
-            .join(output))
-    }
-}
-
-fn collect_mvc_bundle_files(
-    project_root: &Path,
-    current: &Path,
-    output_path: &Path,
-    files: &mut Vec<MvcBundleFile>,
-) -> Result<()> {
-    for entry in
-        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
-    {
-        let entry = entry.with_context(|| format!("failed to read {}", current.display()))?;
-        let path = entry.path();
-        let relative_path = path
-            .strip_prefix(project_root)
-            .with_context(|| format!("failed to make {} project-relative", path.display()))?;
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("failed to inspect {}", path.display()))?;
-        if file_type.is_dir() {
-            if should_skip_mvc_bundle_directory(relative_path) {
-                continue;
-            }
-            collect_mvc_bundle_files(project_root, &path, output_path, files)?;
-        } else if file_type.is_file() {
-            if same_package_output_file(&path, output_path) {
-                continue;
-            }
-            validate_bundle_relative_path(relative_path)?;
-            let bytes =
-                fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
-            files.push(MvcBundleFile {
-                relative_path: relative_path.to_path_buf(),
-                bytes,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn should_skip_mvc_bundle_directory(relative_path: &Path) -> bool {
-    relative_path.components().next().is_some_and(|component| {
-        matches!(
-            component,
-            Component::Normal(name) if name == ".git" || name == "target"
-        )
-    })
-}
-
-fn same_package_output_file(path: &Path, output_path: &Path) -> bool {
-    if path == output_path {
-        return true;
-    }
-    match (path.canonicalize(), output_path.canonicalize()) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => false,
-    }
-}
-
-fn validate_bundle_relative_path(path: &Path) -> Result<()> {
-    if path.as_os_str().is_empty() {
-        bail!("MVC bundle path must not be empty");
-    }
-    for component in path.components() {
-        match component {
-            Component::Normal(_) => {}
-            _ => bail!(
-                "MVC bundle path must stay project-relative: {}",
-                path.display()
-            ),
-        }
-    }
-    Ok(())
-}
-
-fn path_to_bundle_string(path: &Path) -> Result<String> {
-    validate_bundle_relative_path(path)?;
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(value) => {
-                let value = value
-                    .to_str()
-                    .with_context(|| format!("MVC bundle path is not UTF-8: {}", path.display()))?;
-                parts.push(value.to_string());
-            }
-            _ => bail!(
-                "MVC bundle path must stay project-relative: {}",
-                path.display()
-            ),
-        }
-    }
-    Ok(parts.join("/"))
-}
-
-fn bundle_string_to_path(path: &str) -> Result<PathBuf> {
-    if path.is_empty() || path.split('/').any(|part| part.is_empty()) {
-        bail!("MVC bundle path must not be empty");
-    }
-    let mut result = PathBuf::new();
-    for part in path.split('/') {
-        if part == "." || part == ".." || part.contains('\\') {
-            bail!("MVC bundle path must stay project-relative: {path}");
-        }
-        result.push(part);
-    }
-    Ok(result)
-}
-
-fn write_u32(output: &mut Vec<u8>, value: u32) {
-    output.extend_from_slice(&value.to_le_bytes());
-}
-
-fn write_u64(output: &mut Vec<u8>, value: u64) {
-    output.extend_from_slice(&value.to_le_bytes());
-}
-
-fn extract_embedded_mvc_bundle(bundle: &MvcBundle) -> Result<PathBuf> {
-    let root = unique_mvc_extract_dir()?;
-    bundle.extract_to(&root)?;
-    Ok(root)
-}
-
-fn unique_mvc_extract_dir() -> Result<PathBuf> {
-    let temp_dir = tempfile::Builder::new()
-        .prefix("ricochet-mvc-")
-        .tempdir()
-        .context("failed to create MVC extraction directory")?;
-    Ok(temp_dir.keep())
-}
-
-fn native_gui_packaging_supported() -> bool {
-    cfg!(any(windows, target_os = "linux", target_os = "macos"))
-}
-
-fn package_launcher(gui: bool, gui_launcher: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = gui_launcher {
-        if !path.is_file() {
-            bail!("GUI launcher does not exist: {}", path.display());
-        }
-        return Ok(path.to_path_buf());
-    }
-
-    let current_exe =
-        std::env::current_exe().context("failed to locate current Ricochet executable")?;
-    if !gui {
-        return Ok(current_exe);
-    }
-
-    if current_exe
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .is_some_and(|stem| stem == "rco-gui")
-    {
-        return Ok(current_exe);
-    }
-
-    let gui_launcher =
-        current_exe.with_file_name(format!("rco-gui{}", std::env::consts::EXE_SUFFIX));
-    if gui_launcher.is_file() {
-        return Ok(gui_launcher);
-    }
-
-    bail!(
-        "rco package --gui requires the rco-gui launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-gui` or pass --gui-launcher PATH"
-    )
-}
-
-fn package_app_launcher(app_launcher: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = app_launcher {
-        if !path.is_file() {
-            bail!("native app launcher does not exist: {}", path.display());
-        }
-        return Ok(path.to_path_buf());
-    }
-
-    let current_exe =
-        std::env::current_exe().context("failed to locate current Ricochet executable")?;
-    if current_exe
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .is_some_and(|stem| stem == "rco-app")
-    {
-        return Ok(current_exe);
-    }
-
-    let app_launcher =
-        current_exe.with_file_name(format!("rco-app{}", std::env::consts::EXE_SUFFIX));
-    if app_launcher.is_file() {
-        return Ok(app_launcher);
-    }
-
-    bail!(
-        "rco package --app requires the rco-app launcher next to rco; build it with `cargo build -p ricochet_cli --bin rco-app` or pass --app-launcher PATH"
-    )
-}
-
-fn append_embedded_payload(path: &Path, payload: &[u8], kind: EmbeddedAppKind) -> Result<()> {
-    let mut file = fs::OpenOptions::new()
-        .append(true)
-        .open(path)
-        .with_context(|| format!("failed to open {} for packaging", path.display()))?;
-    file.write_all(payload)
-        .with_context(|| format!("failed to append embedded app to {}", path.display()))?;
-    file.write_all(kind.marker())
-        .with_context(|| format!("failed to append package marker to {}", path.display()))?;
-    file.write_all(&(payload.len() as u64).to_le_bytes())
-        .with_context(|| format!("failed to append package length to {}", path.display()))?;
-    Ok(())
-}
-
-fn ensure_linux_package_host() -> Result<()> {
-    if std::env::consts::OS != "linux" {
-        bail!(
-            "Linux package artifacts can only be built on Linux; run this command on a Linux host or in the release workflow"
-        );
-    }
-    Ok(())
-}
-
-fn create_linux_package_artifacts(
-    executable: &Path,
-    formats: &[LinuxPackageFormat],
-    package_name: Option<&str>,
-    package_version: &str,
-    package_description: &str,
-    gui: bool,
-) -> Result<()> {
-    let artifact_dir = artifact_directory_for(executable);
-    fs::create_dir_all(&artifact_dir)
-        .with_context(|| format!("failed to create {}", artifact_dir.display()))?;
-
-    let name = match package_name {
-        Some(name) => name.to_string(),
-        None => default_linux_package_name(executable),
-    };
-    validate_linux_package_name(&name)?;
-    validate_linux_package_version(package_version)?;
-    let description = linux_package_description(package_description);
-    let staging_root = linux_package_staging_root(&name, package_version)?;
-    let unique_formats: BTreeSet<_> = formats.iter().copied().collect();
-
-    for format in unique_formats {
-        match format {
-            LinuxPackageFormat::Tar => create_linux_tarball(
-                executable,
-                &artifact_dir,
-                &staging_root,
-                &name,
-                package_version,
-                &description,
-                gui,
-            )?,
-            LinuxPackageFormat::Deb => create_linux_deb(
-                executable,
-                &artifact_dir,
-                &staging_root,
-                &name,
-                package_version,
-                &description,
-                gui,
-            )?,
-        }
-    }
-
-    Ok(())
-}
-
-fn artifact_directory_for(path: &Path) -> PathBuf {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf()
-}
-
-fn default_linux_package_name(executable: &Path) -> String {
-    let stem = executable
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("ricochet-app");
-    sanitize_linux_package_name(stem)
-}
-
-fn sanitize_linux_package_name(value: &str) -> String {
-    let mut output = String::new();
-    for ch in value.chars() {
-        let ch = ch.to_ascii_lowercase();
-        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '+' | '-' | '.') {
-            output.push(ch);
-        } else if ch == '_' || ch.is_ascii_whitespace() {
-            output.push('-');
-        }
-    }
-
-    while output
-        .chars()
-        .next()
-        .is_some_and(|ch| !ch.is_ascii_lowercase() && !ch.is_ascii_digit())
-    {
-        output.remove(0);
-    }
-    while output
-        .chars()
-        .last()
-        .is_some_and(|ch| !ch.is_ascii_lowercase() && !ch.is_ascii_digit())
-    {
-        output.pop();
-    }
-
-    if output.len() < 2 {
-        "ricochet-app".to_string()
-    } else {
-        output
-    }
-}
-
-fn validate_linux_package_name(name: &str) -> Result<()> {
-    if name.len() < 2 {
-        bail!("Linux package name must contain at least two characters");
-    }
-    let mut chars = name.chars();
-    let first = chars
-        .next()
-        .expect("name length was checked before reading first char");
-    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        bail!("Linux package name must start with a lowercase letter or digit");
-    }
-    if !name
-        .chars()
-        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '+' | '-' | '.'))
-    {
-        bail!("Linux package name may only contain lowercase letters, digits, '+', '-', or '.'");
-    }
-    Ok(())
-}
-
-fn validate_linux_package_version(version: &str) -> Result<()> {
-    if version.trim().is_empty() {
-        bail!("Linux package version must not be empty");
-    }
-    if version
-        .chars()
-        .any(|ch| ch.is_whitespace() || matches!(ch, '/' | '\\'))
-    {
-        bail!("Linux package version must not contain whitespace or path separators");
-    }
-    Ok(())
-}
-
-fn linux_package_description(description: &str) -> String {
-    let description = description
-        .lines()
-        .next()
-        .unwrap_or("Packaged Ricochet application")
-        .trim();
-    if description.is_empty() {
-        "Packaged Ricochet application".to_string()
-    } else {
-        description.to_string()
-    }
-}
-
-fn linux_package_staging_root(name: &str, version: &str) -> Result<PathBuf> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .context("system clock is before Unix epoch")?
-        .as_nanos();
-    let root = Path::new("target")
-        .join("ricochet-package")
-        .join(format!("{name}-{version}-{}-{nanos}", std::process::id()));
-    fs::create_dir_all(&root).with_context(|| format!("failed to create {}", root.display()))?;
-    Ok(root)
-}
-
-fn create_linux_tarball(
-    executable: &Path,
-    artifact_dir: &Path,
-    staging_root: &Path,
-    name: &str,
-    version: &str,
-    description: &str,
-    gui: bool,
-) -> Result<()> {
-    let package_dir_name = format!("{name}-v{version}-linux-x64");
-    let package_dir = staging_root.join(&package_dir_name);
-    let archive = artifact_dir.join(format!("{package_dir_name}.tar.gz"));
-    assert_new_artifact(&archive)?;
-
-    fs::create_dir_all(&package_dir)
-        .with_context(|| format!("failed to create {}", package_dir.display()))?;
-    copy_executable(executable, &package_dir.join(name))?;
-    fs::write(
-        package_dir.join("README.txt"),
-        format!(
-            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n{}",
-            if gui {
-                "\nLinux GUI apps open through the system browser and require `xdg-open`, usually provided by the `xdg-utils` package.\n"
-            } else {
-                ""
-            }
-        ),
-    )
-    .with_context(|| format!("failed to write {}", package_dir.join("README.txt").display()))?;
-    fs::write(
-        package_dir.join("CHANGELOG.txt"),
-        format!("{name} ({version})\n\n  * Packaged Ricochet application release.\n"),
-    )
-    .with_context(|| {
-        format!(
-            "failed to write {}",
-            package_dir.join("CHANGELOG.txt").display()
-        )
-    })?;
-    if gui {
-        write_linux_gui_metadata(&package_dir.join("share"), name, version, description)?;
-    }
-    write_linux_install_script(&package_dir.join("install.sh"), name, gui)?;
-
-    let output = std::process::Command::new("tar")
-        .arg("-czf")
-        .arg(&archive)
-        .arg("-C")
-        .arg(staging_root)
-        .arg(&package_dir_name)
-        .output()
-        .context("failed to launch tar for Linux package")?;
-    ensure_command_success("tar", &output)?;
-
-    println!("packaged {}", archive.display());
-    Ok(())
-}
-
-fn create_linux_deb(
-    executable: &Path,
-    artifact_dir: &Path,
-    staging_root: &Path,
-    name: &str,
-    version: &str,
-    description: &str,
-    gui: bool,
-) -> Result<()> {
-    let deb_path = artifact_dir.join(format!("{name}_{version}_amd64.deb"));
-    assert_new_artifact(&deb_path)?;
-
-    let deb_root = staging_root.join(format!("{name}-deb-root"));
-    let control_dir = deb_root.join("DEBIAN");
-    let bin_dir = deb_root.join("usr/bin");
-    let doc_dir = deb_root.join("usr/share/doc").join(name);
-    let share_dir = deb_root.join("usr/share");
-
-    fs::create_dir_all(&control_dir)
-        .with_context(|| format!("failed to create {}", control_dir.display()))?;
-    fs::create_dir_all(&bin_dir)
-        .with_context(|| format!("failed to create {}", bin_dir.display()))?;
-    fs::create_dir_all(&doc_dir)
-        .with_context(|| format!("failed to create {}", doc_dir.display()))?;
-
-    copy_executable(executable, &bin_dir.join(name))?;
-    fs::write(
-        doc_dir.join("README.txt"),
-        format!("{description}\n\nThis package was generated from a Ricochet .rco file.\n"),
-    )
-    .with_context(|| format!("failed to write {}", doc_dir.join("README.txt").display()))?;
-    fs::write(
-        doc_dir.join("changelog"),
-        format!("{name} ({version})\n\n  * Packaged Ricochet application release.\n"),
-    )
-    .with_context(|| format!("failed to write {}", doc_dir.join("changelog").display()))?;
-    if gui {
-        write_linux_gui_metadata(&share_dir, name, version, description)?;
-    }
-    fs::write(
-        control_dir.join("control"),
-        format!(
-            "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
-            if gui {
-                "Depends: xdg-utils\n"
-            } else {
-                ""
-            }
-        ),
-    )
-    .with_context(|| format!("failed to write {}", control_dir.join("control").display()))?;
-
-    let output = std::process::Command::new("dpkg-deb")
-        .arg("--root-owner-group")
-        .arg("--build")
-        .arg(&deb_root)
-        .arg(&deb_path)
-        .output()
-        .context("failed to launch dpkg-deb for Linux package")?;
-    ensure_command_success("dpkg-deb", &output)?;
-
-    println!("packaged {}", deb_path.display());
-    Ok(())
-}
-
-fn assert_new_artifact(path: &Path) -> Result<()> {
-    if path.exists() {
-        bail!(
-            "package artifact already exists: {}; choose a different --output, --package-name, or --package-version",
-            path.display()
-        );
-    }
-    Ok(())
-}
-
-fn copy_executable(source: &Path, destination: &Path) -> Result<()> {
-    fs::copy(source, destination).with_context(|| {
-        format!(
-            "failed to copy executable {} to {}",
-            source.display(),
-            destination.display()
-        )
-    })?;
-    set_executable_permissions(destination)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_executable_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut permissions = fs::metadata(path)
-        .with_context(|| format!("failed to read permissions for {}", path.display()))?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions)
-        .with_context(|| format!("failed to set executable permissions on {}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_executable_permissions(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-fn write_linux_gui_metadata(
-    share_dir: &Path,
-    name: &str,
-    version: &str,
-    description: &str,
-) -> Result<()> {
-    let applications_dir = share_dir.join("applications");
-    let icons_dir = share_dir.join("icons/hicolor/scalable/apps");
-    let metainfo_dir = share_dir.join("metainfo");
-    fs::create_dir_all(&applications_dir)
-        .with_context(|| format!("failed to create {}", applications_dir.display()))?;
-    fs::create_dir_all(&icons_dir)
-        .with_context(|| format!("failed to create {}", icons_dir.display()))?;
-    fs::create_dir_all(&metainfo_dir)
-        .with_context(|| format!("failed to create {}", metainfo_dir.display()))?;
-
-    fs::write(
-        applications_dir.join(format!("{name}.desktop")),
-        linux_desktop_entry(name, description),
-    )
-    .with_context(|| {
-        format!(
-            "failed to write {}",
-            applications_dir.join(format!("{name}.desktop")).display()
-        )
-    })?;
-    fs::write(
-        icons_dir.join(format!("{name}.svg")),
-        linux_app_icon_svg(name),
-    )
-    .with_context(|| {
-        format!(
-            "failed to write {}",
-            icons_dir.join(format!("{name}.svg")).display()
-        )
-    })?;
-    fs::write(
-        metainfo_dir.join(format!("{name}.metainfo.xml")),
-        linux_app_metainfo(name, version, description),
-    )
-    .with_context(|| {
-        format!(
-            "failed to write {}",
-            metainfo_dir.join(format!("{name}.metainfo.xml")).display()
-        )
-    })?;
-    Ok(())
-}
-
-fn linux_desktop_entry(name: &str, description: &str) -> String {
-    let display_name = linux_app_display_name(name);
-    format!(
-        "[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={}\nIcon={}\nTerminal=false\nCategories=Development;Utility;\nStartupNotify=true\n",
-        desktop_entry_escape(&display_name),
-        desktop_entry_escape(description),
-        desktop_entry_escape(name),
-        desktop_entry_escape(name)
-    )
-}
-
-fn linux_app_metainfo(name: &str, version: &str, description: &str) -> String {
-    let component_id = appstream_component_id(name);
-    let display_name = linux_app_display_name(name);
-    format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<component type=\"desktop-application\">\n  <id>{}</id>\n  <metadata_license>CC0-1.0</metadata_license>\n  <project_license>MIT</project_license>\n  <name>{}</name>\n  <summary>{}</summary>\n  <description>\n    <p>{}</p>\n  </description>\n  <launchable type=\"desktop-id\">{}.desktop</launchable>\n  <provides>\n    <binary>{}</binary>\n  </provides>\n  <releases>\n    <release version=\"{}\" />\n  </releases>\n</component>\n",
-        xml_escape(&component_id),
-        xml_escape(&display_name),
-        xml_escape(description),
-        xml_escape(description),
-        xml_escape(name),
-        xml_escape(name),
-        xml_escape(version)
-    )
-}
-
-fn linux_app_icon_svg(name: &str) -> String {
-    let letters = linux_app_display_name(name)
-        .split_whitespace()
-        .filter_map(|part| part.chars().next())
-        .take(2)
-        .collect::<String>();
-    let letters = if letters.is_empty() {
-        "Rc".to_string()
-    } else {
-        letters
-    };
-    format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 128\">\n  <rect width=\"128\" height=\"128\" rx=\"24\" fill=\"#1f2937\"/>\n  <path d=\"M28 36h72v16H48v18h42v16H48v30H28z\" fill=\"#f8fafc\"/>\n  <text x=\"64\" y=\"112\" text-anchor=\"middle\" font-family=\"Arial, sans-serif\" font-size=\"22\" font-weight=\"700\" fill=\"#38bdf8\">{}</text>\n</svg>\n",
-        xml_escape(&letters)
-    )
-}
-
-fn linux_app_display_name(name: &str) -> String {
-    let mut output = String::new();
-    for part in name
-        .split(|ch: char| !(ch.is_ascii_alphanumeric()))
-        .filter(|part| !part.is_empty())
-    {
-        if !output.is_empty() {
-            output.push(' ');
-        }
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            output.push(first.to_ascii_uppercase());
-            for ch in chars {
-                output.push(ch.to_ascii_lowercase());
-            }
-        }
-    }
-    if output.is_empty() {
-        "Ricochet App".to_string()
-    } else {
-        output
-    }
-}
-
-fn appstream_component_id(name: &str) -> String {
-    let mut suffix = String::new();
-    for ch in name.chars() {
-        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '.') {
-            suffix.push(ch);
-        } else if ch == '+' {
-            suffix.push('-');
-        }
-    }
-    if suffix.is_empty() {
-        "today.ricochet.ricochet-app".to_string()
-    } else {
-        format!("today.ricochet.{suffix}")
-    }
-}
-
-fn desktop_entry_escape(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| match ch {
-            '\n' | '\r' => ' ',
-            _ => ch,
-        })
-        .collect()
-}
-
-fn xml_escape(value: &str) -> String {
-    let mut output = String::new();
-    for ch in value.chars() {
-        match ch {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            '\'' => output.push_str("&apos;"),
-            _ => output.push(ch),
-        }
-    }
-    output
-}
-
-fn write_linux_install_script(path: &Path, binary_name: &str, gui: bool) -> Result<()> {
-    let metadata_install = if gui {
-        r#"
-share_dir="$prefix/share"
-if [ -d "$script_dir/share/applications" ]; then
-  mkdir -p "$share_dir/applications"
-  cp "$script_dir/share/applications/"*.desktop "$share_dir/applications/"
-fi
-if [ -d "$script_dir/share/metainfo" ]; then
-  mkdir -p "$share_dir/metainfo"
-  cp "$script_dir/share/metainfo/"*.metainfo.xml "$share_dir/metainfo/"
-fi
-if [ -d "$script_dir/share/icons/hicolor/scalable/apps" ]; then
-  mkdir -p "$share_dir/icons/hicolor/scalable/apps"
-  cp "$script_dir/share/icons/hicolor/scalable/apps/"*.svg "$share_dir/icons/hicolor/scalable/apps/"
-fi
-"#
-    } else {
-        ""
-    };
-    fs::write(
-        path,
-        format!(
-            r#"#!/usr/bin/env sh
-set -eu
-
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-prefix="${{PREFIX:-$HOME/.local}}"
-bin_dir="$prefix/bin"
-
-mkdir -p "$bin_dir"
-cp "$script_dir/{binary_name}" "$bin_dir/{binary_name}"
-chmod 755 "$bin_dir/{binary_name}"
-{metadata_install}
-
-printf 'Installed {binary_name} to %s\n' "$bin_dir"
-printf 'Make sure %s is on your PATH.\n' "$bin_dir"
-"#
-        ),
-    )
-    .with_context(|| format!("failed to write {}", path.display()))?;
-    set_executable_permissions(path)?;
-    Ok(())
-}
-
-fn ensure_command_success(command: &str, output: &std::process::Output) -> Result<()> {
-    if output.status.success() {
-        return Ok(());
-    }
-
-    bail!(
-        "{command} failed with status {}\nstdout:\n{}\nstderr:\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn embedded_app_from_current_exe() -> Result<Option<EmbeddedApp>> {
-    let current_exe =
-        std::env::current_exe().context("failed to locate current Ricochet executable")?;
-    let bytes = fs::read(&current_exe)
-        .with_context(|| format!("failed to read {}", current_exe.display()))?;
-    embedded_app_from_bytes(&bytes)
-        .with_context(|| format!("failed to load embedded app from {}", current_exe.display()))
-}
-
-fn embedded_app_from_bytes(bytes: &[u8]) -> Result<Option<EmbeddedApp>> {
-    for kind in [
-        EmbeddedAppKind::MvcGui,
-        EmbeddedAppKind::NativeSlintApp,
-        EmbeddedAppKind::NativeApp,
-        EmbeddedAppKind::Gui,
-        EmbeddedAppKind::Tui,
-        EmbeddedAppKind::Console,
-    ] {
-        if let Some(app) = embedded_app_from_bytes_with_marker(bytes, kind)? {
-            return Ok(Some(app));
-        }
-    }
-    Ok(None)
-}
-
-fn embedded_app_from_bytes_with_marker(
-    bytes: &[u8],
-    kind: EmbeddedAppKind,
-) -> Result<Option<EmbeddedApp>> {
-    let marker = kind.marker();
-    let trailer_len = marker.len() + 8;
-    if bytes.len() < trailer_len {
-        return Ok(None);
-    }
-
-    let length_start = bytes.len() - 8;
-    let marker_start = length_start - marker.len();
-    if &bytes[marker_start..length_start] != marker {
-        return Ok(None);
-    }
-
-    let mut length_bytes = [0_u8; 8];
-    length_bytes.copy_from_slice(&bytes[length_start..]);
-    let chunk_len = u64::from_le_bytes(length_bytes) as usize;
-    if marker_start < chunk_len {
-        bail!("embedded Ricochet app length exceeds executable size");
-    }
-    let payload_start = marker_start - chunk_len;
-    let payload_bytes = &bytes[payload_start..marker_start];
-    let payload = match kind {
-        EmbeddedAppKind::Console
-        | EmbeddedAppKind::Tui
-        | EmbeddedAppKind::Gui
-        | EmbeddedAppKind::NativeApp
-        | EmbeddedAppKind::NativeSlintApp => {
-            EmbeddedAppPayload::Chunk(Chunk::from_bytes(payload_bytes)?)
-        }
-        EmbeddedAppKind::MvcGui => {
-            EmbeddedAppPayload::MvcBundle(MvcBundle::from_bytes(payload_bytes)?)
-        }
-    };
-    Ok(Some(EmbeddedApp { kind, payload }))
-}
-
 fn expand_path(path: &str, json_output: bool) -> Result<()> {
     let path = Path::new(path);
     let module_id = module_id_for_path(path);
@@ -13844,5 +11302,97 @@ end
         };
 
         assert_eq!(module_id_for_path(path), "macro_test.rco");
+    }
+
+    #[test]
+    fn packaged_sqlite_migrations_serialize_concurrent_first_launches() {
+        let project = tempfile::tempdir().expect("temporary packaged MVC project");
+        let migrations_dir = project.path().join("db/migrations");
+        fs::create_dir_all(&migrations_dir).expect("migrations directory");
+        fs::write(
+            migrations_dir.join("0001_create_launches.sql"),
+            "create table launches (id integer primary key, label text not null);\n",
+        )
+        .expect("migration fixture");
+        let migrations = discover_migrations(project.path()).expect("migration discovery");
+        let database = MigrationDatabase {
+            adapter: "sqlite".to_string(),
+            url: "db/development.sqlite3".to_string(),
+        };
+        let database_path = project.path().join("data/db/development.sqlite3");
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let barrier = barrier.clone();
+            let database_path = database_path.clone();
+            let database = database.clone();
+            let migrations = migrations.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                migrate_apply_packaged_sqlite_at_path(&database_path, &database, migrations)
+            }));
+        }
+        for handle in handles {
+            handle
+                .join()
+                .expect("migration thread should not panic")
+                .expect("concurrent packaged migration should succeed");
+        }
+
+        let connection =
+            rusqlite::Connection::open(&database_path).expect("persistent SQLite database");
+        let applied: i64 = connection
+            .query_row("select count(*) from schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("migration count");
+        let tables: i64 = connection
+            .query_row(
+                "select count(*) from sqlite_schema where type = 'table' and name = 'launches'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("launches table count");
+        assert_eq!(applied, 1);
+        assert_eq!(tables, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_sqlite_rejects_data_root_symlink_escape_before_migrating() {
+        let roots = tempfile::tempdir().expect("temporary packaged MVC roots");
+        let project_root = roots.path().join("project");
+        let data_root = roots.path().join("data");
+        let outside = roots.path().join("outside");
+        fs::create_dir_all(project_root.join("db/migrations")).expect("migrations directory");
+        fs::create_dir_all(&data_root).expect("data root");
+        fs::create_dir_all(&outside).expect("outside directory");
+        fs::write(
+            project_root.join("ricochet.toml"),
+            r#"[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+        )
+        .expect("SQLite manifest");
+        fs::write(
+            project_root.join("db/migrations/0001_schema.sql"),
+            "create table entries (id integer primary key);\n",
+        )
+        .expect("migration");
+        std::os::unix::fs::symlink(&outside, data_root.join("db"))
+            .expect("database directory symlink");
+
+        let error = prepare_packaged_mvc_sqlite(&project_root, &data_root)
+            .expect_err("SQLite data-root symlink escape must be rejected");
+
+        assert!(
+            error.to_string().contains("resolves outside"),
+            "unexpected containment error: {error:#}"
+        );
+        assert!(
+            !outside.join("development.sqlite3").exists(),
+            "containment must be checked before the database is created"
+        );
     }
 }

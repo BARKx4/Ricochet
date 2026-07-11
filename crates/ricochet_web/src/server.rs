@@ -39,6 +39,7 @@ use crate::manifest::{
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
+use crate::value_json::{value_to_json, SetMode};
 
 #[derive(Clone)]
 struct AppState {
@@ -333,6 +334,7 @@ pub struct ServeOptions {
     pub allow_pty: bool,
     pub fs_root: Option<PathBuf>,
     pub fs_readonly: bool,
+    pub sqlite_data_root: Option<PathBuf>,
     pub http_allow_hosts: Vec<String>,
     pub ai_allow_hosts: Vec<String>,
     pub database_allow_hosts: Vec<String>,
@@ -352,6 +354,7 @@ impl Default for ServeOptions {
             allow_pty: false,
             fs_root: None,
             fs_readonly: false,
+            sqlite_data_root: None,
             http_allow_hosts: Vec::new(),
             ai_allow_hosts: Vec::new(),
             database_allow_hosts: Vec::new(),
@@ -367,6 +370,13 @@ impl ServeOptions {
     pub fn validate(&self) -> Result<()> {
         if self.fs_readonly && self.fs_root.is_none() {
             bail!("--fs-readonly requires --fs-root");
+        }
+        if self
+            .sqlite_data_root
+            .as_ref()
+            .is_some_and(|root| !root.is_absolute())
+        {
+            bail!("SQLite data root must be an absolute path");
         }
         Ok(())
     }
@@ -386,15 +396,16 @@ pub fn build_test_app() -> Result<Router> {
 }
 
 pub fn build_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    build_app_from_dir_internal(project_root, None)
+    crate::ServeBuilder::new(project_root).build()
 }
 
 pub fn build_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    build_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .build()
 }
 
 pub fn build_app_from_dir_with_options_and_request_fault_sink(
@@ -402,35 +413,33 @@ pub fn build_app_from_dir_with_options_and_request_fault_sink(
     options: &ServeOptions,
     request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    let vm_setup = model_vm_setup(project_root)?;
-    let vm_setup = compose_serve_capability_vm_setup(project_root, vm_setup, options)?;
-    build_app_from_dir_internal_with_options_and_request_fault_sink(
-        project_root,
-        vm_setup,
-        Some(options),
-        request_fault_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .request_fault_sink_option(request_fault_sink)
+        .build()
 }
 
 pub fn build_app_from_dir_with_database(
     project_root: impl AsRef<Path>,
     backend: Arc<dyn DatabaseBackend>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref();
-    let vm_setup = database_vm_setup(project_root, backend)?;
-    build_app_from_dir_internal(project_root, Some(vm_setup))
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .build()
 }
 
 pub fn build_watched_app_from_dir(project_root: impl AsRef<Path>) -> Result<Router> {
-    build_watched_app_from_dir_with_options(project_root, &ServeOptions::default())
+    crate::ServeBuilder::new(project_root).watched(true).build()
 }
 
 pub fn build_watched_app_from_dir_with_options(
     project_root: impl AsRef<Path>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_options_and_request_fault_sink(project_root, options, None)
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_options_and_request_fault_sink(
@@ -438,42 +447,21 @@ pub fn build_watched_app_from_dir_with_options_and_request_fault_sink(
     options: &ServeOptions,
     request_fault_sink: Option<RequestFaultSink>,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = model_vm_setup(&builder_root)?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            vm_setup,
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        None,
-        request_fault_sink_for_options(Some(options), request_fault_sink),
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .request_fault_sink_option(request_fault_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_trace(
     project_root: impl AsRef<Path>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_options_and_trace(
-        project_root,
-        &ServeOptions::default(),
-        trace_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_options_and_trace(
@@ -481,42 +469,21 @@ pub fn build_watched_app_from_dir_with_options_and_trace(
     options: &ServeOptions,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = model_vm_setup(&builder_root)?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            vm_setup,
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        Some(trace_sink),
-        request_fault_sink_for_options(Some(options), None),
-    )
+    crate::ServeBuilder::new(project_root)
+        .options(options.clone())
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database(
     project_root: impl AsRef<Path>,
     backend: Arc<dyn DatabaseBackend>,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_database_and_options(
-        project_root,
-        backend,
-        &ServeOptions::default(),
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_and_options(
@@ -524,31 +491,11 @@ pub fn build_watched_app_from_dir_with_database_and_options(
     backend: Arc<dyn DatabaseBackend>,
     options: &ServeOptions,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
-    let builder_root = project_root.clone();
-    let builder_options = options.clone();
-    let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            Some(vm_setup),
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
-
-    build_watched_app_from_runtime_builder(
-        project_root,
-        builder,
-        None,
-        request_fault_sink_for_options(Some(options), None),
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .options(options.clone())
+        .watched(true)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_and_trace(
@@ -556,12 +503,11 @@ pub fn build_watched_app_from_dir_with_database_and_trace(
     backend: Arc<dyn DatabaseBackend>,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    build_watched_app_from_dir_with_database_options_and_trace(
-        project_root,
-        backend,
-        &ServeOptions::default(),
-        trace_sink,
-    )
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
 }
 
 pub fn build_watched_app_from_dir_with_database_options_and_trace(
@@ -570,30 +516,93 @@ pub fn build_watched_app_from_dir_with_database_options_and_trace(
     options: &ServeOptions,
     trace_sink: WatchTraceSink,
 ) -> Result<Router> {
-    let project_root = project_root.as_ref().to_path_buf();
+    crate::ServeBuilder::new(project_root)
+        .database_backend(backend)
+        .options(options.clone())
+        .watched(true)
+        .trace_sink(trace_sink)
+        .build()
+}
+
+pub fn build_app_from_serve_builder(builder: crate::ServeBuilder) -> Result<Router> {
+    let parts = builder.into_parts();
+    if let Some(options) = &parts.options {
+        options.validate()?;
+    }
+
+    if parts.watched {
+        return build_watched_app_from_serve_builder_parts(parts);
+    }
+
+    let vm_setup = match parts.database_backend {
+        Some(backend) => Some(database_vm_setup(&parts.project_root, backend)?),
+        None => {
+            if parts.options.is_some() {
+                model_vm_setup(&parts.project_root)?
+            } else {
+                None
+            }
+        }
+    };
+    let vm_setup = match &parts.options {
+        Some(options) => compose_serve_capability_vm_setup(&parts.project_root, vm_setup, options)?,
+        None => vm_setup,
+    };
+    build_app_from_dir_internal_with_options_and_request_fault_sink(
+        &parts.project_root,
+        vm_setup,
+        parts.options.as_ref(),
+        parts.request_fault_sink,
+    )
+}
+
+fn build_watched_app_from_serve_builder_parts(
+    parts: crate::serve_builder::ServeBuilderParts,
+) -> Result<Router> {
+    let project_root = parts.project_root;
     let builder_root = project_root.clone();
-    let builder_options = options.clone();
+    let builder_options = parts.options.clone().unwrap_or_default();
+    builder_options.validate()?;
     let capability_state = Arc::new(ServeCapabilityState::default());
-    let builder: RuntimeBuilder = Arc::new(move || {
-        let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
-        let vm_setup = compose_serve_capability_vm_setup_with_state(
-            &builder_root,
-            Some(vm_setup),
-            &builder_options,
-            capability_state.clone(),
-        )?;
-        build_runtime_from_dir_internal_with_options(
-            &builder_root,
-            vm_setup,
-            Some(&builder_options),
-        )
-    });
+    let request_fault_sink =
+        request_fault_sink_for_options(Some(&builder_options), parts.request_fault_sink);
+
+    let builder: RuntimeBuilder = match parts.database_backend {
+        Some(backend) => Arc::new(move || {
+            let vm_setup = database_vm_setup(&builder_root, backend.clone())?;
+            let vm_setup = compose_serve_capability_vm_setup_with_state(
+                &builder_root,
+                Some(vm_setup),
+                &builder_options,
+                capability_state.clone(),
+            )?;
+            build_runtime_from_dir_internal_with_options(
+                &builder_root,
+                vm_setup,
+                Some(&builder_options),
+            )
+        }),
+        None => Arc::new(move || {
+            let vm_setup = model_vm_setup(&builder_root)?;
+            let vm_setup = compose_serve_capability_vm_setup_with_state(
+                &builder_root,
+                vm_setup,
+                &builder_options,
+                capability_state.clone(),
+            )?;
+            build_runtime_from_dir_internal_with_options(
+                &builder_root,
+                vm_setup,
+                Some(&builder_options),
+            )
+        }),
+    };
 
     build_watched_app_from_runtime_builder(
         project_root,
         builder,
-        Some(trace_sink),
-        request_fault_sink_for_options(Some(options), None),
+        parts.trace_sink,
+        request_fault_sink,
     )
 }
 
@@ -605,11 +614,6 @@ pub fn routes_from_dir(project_root: impl AsRef<Path>) -> Result<Vec<Route>> {
         .with_context(|| format!("failed to read {}", routes_path.display()))?;
     parse_routes(&routes_source)
         .with_context(|| format!("failed to parse {}", routes_path.display()))
-}
-
-fn build_app_from_dir_internal(project_root: &Path, vm_setup: Option<VmSetup>) -> Result<Router> {
-    let runtime = Arc::new(build_runtime_from_dir_internal(project_root, vm_setup)?);
-    build_static_router(runtime, None)
 }
 
 fn build_app_from_dir_internal_with_options_and_request_fault_sink(
@@ -627,13 +631,6 @@ fn build_app_from_dir_internal_with_options_and_request_fault_sink(
         runtime,
         request_fault_sink_for_options(options, request_fault_sink),
     )
-}
-
-fn build_runtime_from_dir_internal(
-    project_root: &Path,
-    vm_setup: Option<VmSetup>,
-) -> Result<AppRuntime> {
-    build_runtime_from_dir_internal_with_options(project_root, vm_setup, None)
 }
 
 fn build_runtime_from_dir_internal_with_options(
@@ -1814,6 +1811,8 @@ fn render_action(
         runtime.session_signing_key.as_ref(),
         runtime.session_encryption_key.as_ref(),
     );
+    let initial_session_json = session_json_value(&initial_session)
+        .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?;
     let mut ctx = RequestContext {
         method: request.method,
         path: request.path,
@@ -1894,11 +1893,14 @@ fn render_action(
         },
     };
 
-    if ctx.session != initial_session {
+    let current_session_json = session_json_value(&ctx.session)
+        .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?;
+    if current_session_json != initial_session_json {
         rendered.insert_header(
             "set-cookie",
             session_cookie_header(
-                &ctx.session,
+                &current_session_json,
+                ctx.session.is_empty(),
                 runtime.session_signing_key.as_ref(),
                 runtime.session_encryption_key.as_ref(),
                 runtime.session_secure,
@@ -2175,8 +2177,14 @@ fn json_number_to_value(value: serde_json::Number) -> Option<Value> {
     }
 }
 
+fn session_json_value(session: &BTreeMap<String, Value>) -> Result<JsonValue> {
+    value_to_json(&Value::Map(session.clone().into()), "$", SetMode::Reject)
+        .context("failed to serialize session")
+}
+
 fn session_cookie_header(
-    session: &BTreeMap<String, Value>,
+    session: &JsonValue,
+    session_is_empty: bool,
     signing_key: Option<&SessionSigningKey>,
     encryption_key: Option<&SessionEncryptionKey>,
     secure_policy: SessionSecure,
@@ -2188,17 +2196,11 @@ fn session_cookie_header(
         auto_allows_insecure_loopback,
         request_headers,
     );
-    if session.is_empty() {
+    if session_is_empty {
         return Ok(format!("{SESSION_COOKIE_NAME}=; Max-Age=0; {attributes}"));
     }
 
-    let json = JsonValue::Object(
-        session
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()?,
-    );
-    let session_json = serde_json::to_string(&json)?;
+    let session_json = serde_json::to_string(session)?;
     let cookie_value = match encryption_key {
         Some(encryption_key) => encrypted_session_cookie_value(&session_json, encryption_key)?,
         None => match signing_key {
@@ -2302,37 +2304,6 @@ fn verified_signed_session_json(
         return None;
     }
     String::from_utf8(payload).ok()
-}
-
-fn session_value_to_json(value: &Value) -> Result<JsonValue> {
-    match value {
-        Value::Nil => Ok(JsonValue::Null),
-        Value::Bool(value) => Ok(JsonValue::Bool(*value)),
-        Value::Number(value) => Ok(JsonValue::Number((*value).into())),
-        Value::Float(value) => serde_json::Number::from_f64(*value)
-            .map(JsonValue::Number)
-            .ok_or_else(|| anyhow!("cannot encode non-finite float in session")),
-        Value::String(value) => Ok(JsonValue::String(value.clone())),
-        Value::Array(values) => values
-            .snapshot()
-            .iter()
-            .map(session_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::List(values) => values
-            .snapshot()
-            .iter()
-            .map(session_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::Map(values) => values
-            .snapshot()
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()
-            .map(JsonValue::Object),
-        value => bail!("session values must be JSON-serializable, got {value:?}"),
-    }
 }
 
 #[derive(Default)]
@@ -2733,66 +2704,19 @@ pub async fn build_served_app_from_dir(
     let effective_options = apply_manifest_capabilities(project_root, &manifest, options)?;
     effective_options.validate()?;
     let watch_trace_sink = (watch && debug).then(stdout_watch_trace_sink);
-    match (watch, manifest.database.default) {
-        (true, Some(database)) => {
-            let backend =
-                connect_served_database_backend(project_root, &database, &effective_options)
-                    .await?;
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_database_options_and_trace(
-                    project_root,
-                    backend,
-                    &effective_options,
-                    trace_sink,
-                )
-            } else {
-                build_watched_app_from_dir_with_database_and_options(
-                    project_root,
-                    backend,
-                    &effective_options,
-                )
-            }
-        }
-        (true, None) => {
-            if let Some(trace_sink) = watch_trace_sink.clone() {
-                build_watched_app_from_dir_with_options_and_trace(
-                    project_root,
-                    &effective_options,
-                    trace_sink,
-                )
-            } else {
-                build_watched_app_from_dir_with_options(project_root, &effective_options)
-            }
-        }
-        (false, Some(database)) => {
-            let backend =
-                connect_served_database_backend(project_root, &database, &effective_options)
-                    .await?;
-            let vm_setup = database_vm_setup(project_root, backend)?;
-            let vm_setup = compose_serve_capability_vm_setup(
-                project_root,
-                Some(vm_setup),
-                &effective_options,
-            )?;
-            build_app_from_dir_internal_with_options_and_request_fault_sink(
-                project_root,
-                vm_setup,
-                Some(&effective_options),
-                None,
-            )
-        }
-        (false, None) => {
-            let vm_setup = model_vm_setup(project_root)?;
-            let vm_setup =
-                compose_serve_capability_vm_setup(project_root, vm_setup, &effective_options)?;
-            build_app_from_dir_internal_with_options_and_request_fault_sink(
-                project_root,
-                vm_setup,
-                Some(&effective_options),
-                None,
-            )
-        }
+    let mut builder = crate::ServeBuilder::new(project_root)
+        .options(effective_options.clone())
+        .watched(watch);
+    if let Some(database) = manifest.database.default {
+        let backend =
+            connect_served_database_backend(project_root, &database, &effective_options).await?;
+        builder = builder.database_backend(backend);
     }
+    if let Some(trace_sink) = watch_trace_sink {
+        builder = builder.trace_sink(trace_sink);
+    }
+
+    builder.build()
 }
 
 fn apply_manifest_capabilities(
@@ -3112,7 +3036,9 @@ fn resolve_served_database_url(
             ensure_database_endpoint_allowed(&url, &options.database_allow_hosts)?;
             Ok(url)
         }
-        "sqlite" => resolve_served_sqlite_url(project_root, &url),
+        "sqlite" => {
+            resolve_served_sqlite_url(project_root, &url, options.sqlite_data_root.as_deref())
+        }
         _ => bail!(
             "unsupported database adapter {}; expected postgres, sqlite, or mysql",
             database.adapter
@@ -3120,7 +3046,11 @@ fn resolve_served_database_url(
     }
 }
 
-fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
+fn resolve_served_sqlite_url(
+    project_root: &Path,
+    url: &str,
+    data_root: Option<&Path>,
+) -> Result<String> {
     let path = sqlite_path_from_url_text(url)?;
     if path == ":memory:" {
         return Ok(path);
@@ -3138,10 +3068,15 @@ fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
             }
         }
     }
-    let resolved = project_root.join(path);
+    let containment_root = data_root.unwrap_or(project_root);
+    let resolved = containment_root.join(path);
     let existing = nearest_existing_ancestor(&resolved);
-    let canonical_root = fs::canonicalize(project_root)
-        .with_context(|| format!("failed to resolve project root {}", project_root.display()))?;
+    let canonical_root = fs::canonicalize(containment_root).with_context(|| {
+        format!(
+            "failed to resolve SQLite containment root {}",
+            containment_root.display()
+        )
+    })?;
     let canonical_existing = fs::canonicalize(existing).with_context(|| {
         format!(
             "failed to resolve SQLite database path {}",
@@ -3150,7 +3085,7 @@ fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
     })?;
     if !canonical_existing.starts_with(canonical_root) {
         bail!(
-            "SQLite database path is outside the project root: {}",
+            "SQLite database path is outside its containment root: {}",
             resolved.display()
         );
     }
@@ -3241,6 +3176,32 @@ mod tests {
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
+    }
+
+    #[tokio::test]
+    async fn serve_builder_builds_static_router() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
+
+        let _ = crate::ServeBuilder::new(fixture_root)
+            .build()
+            .expect("ServeBuilder should build a static router");
+    }
+
+    #[tokio::test]
+    async fn serve_builder_builds_watched_router_with_options() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
+        let options = ServeOptions {
+            watch: true,
+            ..ServeOptions::default()
+        };
+
+        let _ = crate::ServeBuilder::new(fixture_root)
+            .options(options)
+            .watched(true)
+            .build()
+            .expect("ServeBuilder should build a watched router with serve options");
     }
 
     #[tokio::test]
@@ -3505,11 +3466,12 @@ end
     fn served_sqlite_urls_must_stay_under_project_root() {
         let project_root = std::env::current_dir().expect("test cwd should exist");
 
-        let relative = resolve_served_sqlite_url(&project_root, "sqlite:db/development.sqlite3")
-            .expect("relative SQLite URL should resolve under project root");
+        let relative =
+            resolve_served_sqlite_url(&project_root, "sqlite:db/development.sqlite3", None)
+                .expect("relative SQLite URL should resolve under project root");
         assert!(Path::new(&relative).starts_with(&project_root));
 
-        let parent_error = resolve_served_sqlite_url(&project_root, "../outside.sqlite3")
+        let parent_error = resolve_served_sqlite_url(&project_root, "../outside.sqlite3", None)
             .expect_err("parent traversal should be rejected");
         assert!(
             parent_error.to_string().contains("must not contain .."),
@@ -3521,12 +3483,33 @@ end
             &std::env::temp_dir()
                 .join("outside.sqlite3")
                 .to_string_lossy(),
+            None,
         )
         .expect_err("absolute SQLite path should be rejected");
         assert!(
             absolute_error.to_string().contains("must be relative"),
             "absolute path error was: {absolute_error:#}"
         );
+    }
+
+    #[test]
+    fn served_sqlite_urls_can_use_a_separate_persistent_data_root() {
+        let roots = tempfile::tempdir().expect("temporary SQLite roots");
+        let project_root = roots.path().join("code");
+        let data_root = roots.path().join("data");
+        fs::create_dir_all(&project_root).expect("code root");
+        fs::create_dir_all(&data_root).expect("data root");
+
+        let resolved =
+            resolve_served_sqlite_url(&project_root, "db/development.sqlite3", Some(&data_root))
+                .expect("relative SQLite URL should resolve under persistent data root");
+
+        assert!(Path::new(&resolved).starts_with(&data_root));
+        assert!(!Path::new(&resolved).starts_with(&project_root));
+        let escaped =
+            resolve_served_sqlite_url(&project_root, "../outside.sqlite3", Some(&data_root))
+                .expect_err("persistent SQLite root must still reject parent traversal");
+        assert!(escaped.to_string().contains("must not contain .."));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::cmp::Ordering as NumericOrdering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -26,9 +27,11 @@ use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
+use crate::runtime_state::{HostRuntimeState, SharedRuntimeState};
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
+use crate::strictness::{StrictnessConfig, StrictnessDiagnostic, StrictnessDiagnosticKind};
 use crate::upload_runtime::UploadStreamRegistry;
 use crate::value::Value;
 
@@ -253,6 +256,8 @@ pub struct Vm {
     suppressed_breakpoint: Option<(String, String, usize)>,
     instruction_limit: Option<u64>,
     instructions_executed: u64,
+    strictness: StrictnessConfig,
+    strictness_diagnostics: Vec<StrictnessDiagnostic>,
     tasks: BTreeMap<u64, TaskState>,
     next_task_id: u64,
 }
@@ -318,6 +323,8 @@ impl Default for Vm {
             suppressed_breakpoint: None,
             instruction_limit: None,
             instructions_executed: 0,
+            strictness: StrictnessConfig::default(),
+            strictness_diagnostics: Vec::new(),
             tasks: BTreeMap::new(),
             next_task_id: 0,
         }
@@ -338,31 +345,10 @@ struct Task {
     dynamic_module_aliases: BTreeMap<String, String>,
     dynamic_modules_loading: BTreeSet<String>,
     program_args: Vec<String>,
-    filesystem_enabled: bool,
-    filesystem_root: Option<PathBuf>,
-    filesystem_writes_enabled: bool,
-    http_enabled: bool,
-    http_allowed_hosts: Option<BTreeSet<String>>,
-    http_stream_registry: HttpStreamRegistry,
-    upload_stream_registry: UploadStreamRegistry,
-    socket_enabled: bool,
-    socket_allowed_hosts: Option<BTreeSet<String>>,
-    tcp_socket_registry: TcpSocketRegistry,
-    tcp_listener_registry: TcpListenerRegistry,
-    websocket_registry: WebSocketRegistry,
-    websocket_listener_registry: WebSocketListenerRegistry,
-    process_enabled: bool,
-    process_root: Option<PathBuf>,
-    process_registry: ProcessRegistry,
-    pty_enabled: bool,
-    pty_registry: PtyRegistry,
-    approval_registry: ApprovalRegistry,
-    terminal_enabled: bool,
-    webview_enabled: bool,
-    environment_enabled: bool,
-    environment_allowed_names: Option<BTreeSet<String>>,
-    sleep_enabled: bool,
+    host_runtime: HostRuntimeState,
+    shared_runtime: SharedRuntimeState,
     instruction_limit: Option<u64>,
+    strictness: StrictnessConfig,
 }
 
 #[derive(Clone)]
@@ -579,6 +565,8 @@ fn run_task_to_completion(
     task: Task,
     task_debug_snapshot: Option<Arc<Mutex<TaskDebugSnapshot>>>,
 ) -> TaskCompletion {
+    let host_runtime = task.host_runtime;
+    let shared_runtime = task.shared_runtime;
     let mut task_vm = Vm {
         variables: task.variables,
         local_variables: task.local_variables,
@@ -592,31 +580,32 @@ fn run_task_to_completion(
         dynamic_module_aliases: task.dynamic_module_aliases,
         dynamic_modules_loading: task.dynamic_modules_loading,
         program_args: task.program_args,
-        filesystem_enabled: task.filesystem_enabled,
-        filesystem_root: task.filesystem_root,
-        filesystem_writes_enabled: task.filesystem_writes_enabled,
-        http_enabled: task.http_enabled,
-        http_allowed_hosts: task.http_allowed_hosts,
-        http_stream_registry: task.http_stream_registry,
-        upload_stream_registry: task.upload_stream_registry,
-        socket_enabled: task.socket_enabled,
-        socket_allowed_hosts: task.socket_allowed_hosts,
-        tcp_socket_registry: task.tcp_socket_registry,
-        tcp_listener_registry: task.tcp_listener_registry,
-        websocket_registry: task.websocket_registry,
-        websocket_listener_registry: task.websocket_listener_registry,
-        process_enabled: task.process_enabled,
-        process_root: task.process_root,
-        process_registry: task.process_registry,
-        pty_enabled: task.pty_enabled,
-        pty_registry: task.pty_registry,
-        approval_registry: task.approval_registry,
-        terminal_enabled: task.terminal_enabled,
-        webview_enabled: task.webview_enabled,
-        environment_enabled: task.environment_enabled,
-        environment_allowed_names: task.environment_allowed_names,
-        sleep_enabled: task.sleep_enabled,
+        filesystem_enabled: host_runtime.filesystem_enabled,
+        filesystem_root: host_runtime.filesystem_root,
+        filesystem_writes_enabled: host_runtime.filesystem_writes_enabled,
+        http_enabled: host_runtime.http_enabled,
+        http_allowed_hosts: host_runtime.http_allowed_hosts,
+        http_stream_registry: shared_runtime.http_stream_registry,
+        upload_stream_registry: shared_runtime.upload_stream_registry,
+        socket_enabled: host_runtime.socket_enabled,
+        socket_allowed_hosts: host_runtime.socket_allowed_hosts,
+        tcp_socket_registry: shared_runtime.tcp_socket_registry,
+        tcp_listener_registry: shared_runtime.tcp_listener_registry,
+        websocket_registry: shared_runtime.websocket_registry,
+        websocket_listener_registry: shared_runtime.websocket_listener_registry,
+        process_enabled: host_runtime.process_enabled,
+        process_root: host_runtime.process_root,
+        process_registry: shared_runtime.process_registry,
+        pty_enabled: host_runtime.pty_enabled,
+        pty_registry: shared_runtime.pty_registry,
+        approval_registry: shared_runtime.approval_registry,
+        terminal_enabled: host_runtime.terminal_enabled,
+        webview_enabled: host_runtime.webview_enabled,
+        environment_enabled: host_runtime.environment_enabled,
+        environment_allowed_names: host_runtime.environment_allowed_names,
+        sleep_enabled: host_runtime.sleep_enabled,
         instruction_limit: task.instruction_limit,
+        strictness: task.strictness,
         task_debug_snapshot,
         ..Vm::default()
     };
@@ -665,6 +654,32 @@ impl Vm {
 
     pub fn variables(&self) -> &BTreeMap<String, Value> {
         &self.variables
+    }
+
+    pub fn set_strictness(&mut self, strictness: StrictnessConfig) {
+        self.strictness = strictness;
+    }
+
+    pub fn strictness_diagnostics(&self) -> &[StrictnessDiagnostic] {
+        &self.strictness_diagnostics
+    }
+
+    fn record_unknown_question_word_fallback(&mut self, word: &str) {
+        if self.strictness.warn_unknown_question_word_fallback {
+            self.strictness_diagnostics.push(StrictnessDiagnostic {
+                kind: StrictnessDiagnosticKind::UnknownQuestionWordFallback,
+                message: format!("{word} fell back to generic predicate dispatch"),
+            });
+        }
+    }
+
+    pub(crate) fn record_nil_producing_lookup(&mut self, message: impl Into<String>) {
+        if self.strictness.warn_nil_producing_lookup {
+            self.strictness_diagnostics.push(StrictnessDiagnostic {
+                kind: StrictnessDiagnosticKind::NilProducingLookup,
+                message: message.into(),
+            });
+        }
     }
 
     pub fn to_image(&self) -> Result<VmImage, ImageError> {
@@ -1274,6 +1289,22 @@ impl Vm {
         }
     }
 
+    fn get_field_for_runtime(&mut self, instance: &Value, field: &str) -> Result<Value, VmError> {
+        match instance {
+            Value::Instance(instance) if !instance.fields.contains_key(field) => {
+                self.record_nil_producing_lookup(format!(
+                    "missing field {field:?} on {} returned nil",
+                    instance.class_name
+                ));
+            }
+            Value::Map(map) if !map.contains_key(field) => {
+                self.record_nil_producing_lookup(format!("missing map key {field:?} returned nil"));
+            }
+            _ => {}
+        }
+        self.get_field(instance, field)
+    }
+
     pub fn call_method_value(
         &mut self,
         receiver: Value,
@@ -1758,14 +1789,18 @@ impl Vm {
             "assert_ok" => self.call_assert_ok(word),
             "assert_error" => self.call_assert_error(word),
             "assert_equals" => self.call_assert_equals(word),
-            "less_than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
-            "greater_than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
-            "less_or_equals?" | "<=" => {
-                self.call_number_comparison(word, |left, right| left <= right)
+            "less_than?" | "<" => {
+                self.call_number_comparison(word, |ordering| ordering == NumericOrdering::Less)
             }
-            "greater_or_equals?" | ">=" => {
-                self.call_number_comparison(word, |left, right| left >= right)
+            "greater_than?" | ">" => {
+                self.call_number_comparison(word, |ordering| ordering == NumericOrdering::Greater)
             }
+            "less_or_equals?" | "<=" => self.call_number_comparison(word, |ordering| {
+                matches!(ordering, NumericOrdering::Less | NumericOrdering::Equal)
+            }),
+            "greater_or_equals?" | ">=" => self.call_number_comparison(word, |ordering| {
+                matches!(ordering, NumericOrdering::Greater | NumericOrdering::Equal)
+            }),
             "self" => self.call_self(word),
             "get" => self.call_get(word),
             "set" => self.call_set(word),
@@ -1943,6 +1978,10 @@ impl Vm {
             "webview_button" => {
                 self.call_capability_method_word(word, Capability::Webview, "button")
             }
+            "web_command" => self.call_capability_method_word(word, Capability::Webview, "command"),
+            "web_command_button" => {
+                self.call_capability_method_word(word, Capability::Webview, "command_button")
+            }
             "webview_action" => {
                 self.call_capability_method_word(word, Capability::Webview, "action")
             }
@@ -1951,8 +1990,46 @@ impl Vm {
             "webview_container" => {
                 self.call_capability_method_word(word, Capability::Webview, "container")
             }
+            "web_toolbar" => self.call_capability_method_word(word, Capability::Webview, "toolbar"),
+            "web_sidebar" => self.call_capability_method_word(word, Capability::Webview, "sidebar"),
+            "web_tabs" => self.call_capability_method_word(word, Capability::Webview, "tabs"),
+            "web_split_pane" => {
+                self.call_capability_method_word(word, Capability::Webview, "split_pane")
+            }
+            "web_table" => self.call_capability_method_word(word, Capability::Webview, "table"),
+            "web_form_row" => {
+                self.call_capability_method_word(word, Capability::Webview, "form_row")
+            }
+            "web_status_bar" => {
+                self.call_capability_method_word(word, Capability::Webview, "status_bar")
+            }
+            "web_menu" => self.call_capability_method_word(word, Capability::Webview, "menu"),
+            "web_menu_bar" => {
+                self.call_capability_method_word(word, Capability::Webview, "menu_bar")
+            }
+            "webview_open_file" => {
+                self.call_capability_method_word(word, Capability::Webview, "open_file")
+            }
+            "webview_save_file" => {
+                self.call_capability_method_word(word, Capability::Webview, "save_file")
+            }
+            "webview_choose_folder" => {
+                self.call_capability_method_word(word, Capability::Webview, "choose_folder")
+            }
+            "webview_clipboard_read" => {
+                self.call_capability_method_word(word, Capability::Webview, "clipboard_read")
+            }
+            "webview_clipboard_write" => {
+                self.call_capability_method_word(word, Capability::Webview, "clipboard_write")
+            }
+            "webview_open_url" => {
+                self.call_capability_method_word(word, Capability::Webview, "open_url")
+            }
             "webview_window_state" => {
                 self.call_capability_method_word(word, Capability::Webview, "window_state")
+            }
+            "webview_window_app" => {
+                self.call_capability_method_word(word, Capability::Webview, "window_app")
             }
             "webview_window" | "webview_document" => {
                 self.call_capability_method_word(word, Capability::Webview, "window")
@@ -2140,7 +2217,10 @@ impl Vm {
         }
 
         match self.call_function(word) {
-            Err(VmError::UnknownWord(_)) => self.call_predicate(word),
+            Err(VmError::UnknownWord(_)) => {
+                self.record_unknown_question_word_fallback(word);
+                self.call_predicate(word)
+            }
             result => result,
         }
     }
@@ -2505,31 +2585,10 @@ impl Vm {
             dynamic_module_aliases: self.dynamic_module_aliases.clone(),
             dynamic_modules_loading: self.dynamic_modules_loading.clone(),
             program_args: self.program_args.clone(),
-            filesystem_enabled: self.filesystem_enabled,
-            filesystem_root: self.filesystem_root.clone(),
-            filesystem_writes_enabled: self.filesystem_writes_enabled,
-            http_enabled: self.http_enabled,
-            http_allowed_hosts: self.http_allowed_hosts.clone(),
-            http_stream_registry: self.http_stream_registry.clone(),
-            upload_stream_registry: self.upload_stream_registry.clone(),
-            socket_enabled: self.socket_enabled,
-            socket_allowed_hosts: self.socket_allowed_hosts.clone(),
-            tcp_socket_registry: self.tcp_socket_registry.clone(),
-            tcp_listener_registry: self.tcp_listener_registry.clone(),
-            websocket_registry: self.websocket_registry.clone(),
-            websocket_listener_registry: self.websocket_listener_registry.clone(),
-            process_enabled: self.process_enabled,
-            process_root: self.process_root.clone(),
-            process_registry: self.process_registry.clone(),
-            pty_enabled: self.pty_enabled,
-            pty_registry: self.pty_registry.clone(),
-            approval_registry: self.approval_registry.clone(),
-            terminal_enabled: self.terminal_enabled,
-            webview_enabled: self.webview_enabled,
-            environment_enabled: self.environment_enabled,
-            environment_allowed_names: self.environment_allowed_names.clone(),
-            sleep_enabled: self.sleep_enabled,
+            host_runtime: self.host_runtime_state(),
+            shared_runtime: self.shared_runtime_state(),
             instruction_limit: self.instruction_limit,
+            strictness: self.strictness.clone(),
         };
         self.tasks.insert(
             task_id,
@@ -3582,6 +3641,40 @@ impl Vm {
         self.self_stack = state.self_stack;
     }
 
+    fn host_runtime_state(&self) -> HostRuntimeState {
+        HostRuntimeState {
+            filesystem_enabled: self.filesystem_enabled,
+            filesystem_root: self.filesystem_root.clone(),
+            filesystem_writes_enabled: self.filesystem_writes_enabled,
+            http_enabled: self.http_enabled,
+            http_allowed_hosts: self.http_allowed_hosts.clone(),
+            socket_enabled: self.socket_enabled,
+            socket_allowed_hosts: self.socket_allowed_hosts.clone(),
+            process_enabled: self.process_enabled,
+            process_root: self.process_root.clone(),
+            pty_enabled: self.pty_enabled,
+            terminal_enabled: self.terminal_enabled,
+            webview_enabled: self.webview_enabled,
+            environment_enabled: self.environment_enabled,
+            environment_allowed_names: self.environment_allowed_names.clone(),
+            sleep_enabled: self.sleep_enabled,
+        }
+    }
+
+    fn shared_runtime_state(&self) -> SharedRuntimeState {
+        SharedRuntimeState {
+            http_stream_registry: self.http_stream_registry.clone(),
+            upload_stream_registry: self.upload_stream_registry.clone(),
+            tcp_socket_registry: self.tcp_socket_registry.clone(),
+            tcp_listener_registry: self.tcp_listener_registry.clone(),
+            websocket_registry: self.websocket_registry.clone(),
+            websocket_listener_registry: self.websocket_listener_registry.clone(),
+            process_registry: self.process_registry.clone(),
+            pty_registry: self.pty_registry.clone(),
+            approval_registry: self.approval_registry.clone(),
+        }
+    }
+
     fn dynamic_module_descriptor(&self, module: &DynamicModuleState) -> Value {
         Value::Map(
             BTreeMap::from([
@@ -3741,7 +3834,7 @@ impl Vm {
             }
         };
 
-        match self.get_field(&receiver, &field) {
+        match self.get_field_for_runtime(&receiver, &field) {
             Ok(value) => {
                 self.stack.push(value);
                 Ok(())
@@ -4255,15 +4348,15 @@ impl Vm {
     fn call_number_comparison(
         &mut self,
         word: &str,
-        compare: impl FnOnce(f64, f64) -> bool,
+        compare: impl FnOnce(NumericOrdering) -> bool,
     ) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
         let right = self.pop_numeric_or_restore(word, &stack_before)?;
         let left = self.pop_numeric_or_restore(word, &stack_before)?;
 
-        self.stack
-            .push(Value::Bool(compare(left.as_f64(), right.as_f64())));
+        let ordering = numeric_ordering(left, right);
+        self.stack.push(Value::Bool(ordering.is_some_and(compare)));
 
         Ok(())
     }
@@ -4587,7 +4680,44 @@ pub(super) fn numeric_value(value: &Value) -> Option<NumericValue> {
 }
 
 pub(super) fn numeric_values_equal(left: &Value, right: &Value) -> Option<bool> {
-    Some(numeric_value(left)?.as_f64() == numeric_value(right)?.as_f64())
+    let left = numeric_value(left)?;
+    let right = numeric_value(right)?;
+    Some(numeric_ordering(left, right) == Some(NumericOrdering::Equal))
+}
+
+pub(super) fn numeric_ordering(left: NumericValue, right: NumericValue) -> Option<NumericOrdering> {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => Some(left.cmp(&right)),
+        (NumericValue::Float(left), NumericValue::Float(right)) => left.partial_cmp(&right),
+        (NumericValue::Integer(left), NumericValue::Float(right)) => {
+            compare_integer_float(left, right)
+        }
+        (NumericValue::Float(left), NumericValue::Integer(right)) => {
+            compare_integer_float(right, left).map(NumericOrdering::reverse)
+        }
+    }
+}
+
+fn compare_integer_float(integer: i64, float: f64) -> Option<NumericOrdering> {
+    const I64_LOWER_BOUND: f64 = -9_223_372_036_854_775_808.0;
+    const I64_UPPER_BOUND: f64 = 9_223_372_036_854_775_808.0;
+
+    if float.is_nan() {
+        return None;
+    }
+    if float < I64_LOWER_BOUND {
+        return Some(NumericOrdering::Greater);
+    }
+    if float >= I64_UPPER_BOUND {
+        return Some(NumericOrdering::Less);
+    }
+
+    let truncated = float.trunc();
+    match integer.cmp(&(truncated as i64)) {
+        NumericOrdering::Equal if float > truncated => Some(NumericOrdering::Less),
+        NumericOrdering::Equal if float < truncated => Some(NumericOrdering::Greater),
+        ordering => Some(ordering),
+    }
 }
 
 pub(super) fn numeric_add(
@@ -4819,10 +4949,13 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
+    use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
     use super::*;
-    use crate::{debug::DebugEvent, value::Value};
+    use crate::{
+        approval_runtime::ApprovalCreateRequest, debug::DebugEvent, result::RicochetResult,
+        value::Value,
+    };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 
     fn span() -> SourceSpan {
@@ -4832,6 +4965,19 @@ mod tests {
             end: 0,
             line: 1,
             column: 1,
+        }
+    }
+
+    fn call_boolean_word(left: Value, right: Value, word: &str) -> bool {
+        let mut vm = Vm::default();
+        vm.stack.push(left);
+        vm.stack.push(right);
+        vm.call_word(word)
+            .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+        match vm.stack() {
+            [Value::Bool(value)] => *value,
+            stack => panic!("{word} should leave one boolean, got {stack:?}"),
         }
     }
 
@@ -5516,6 +5662,72 @@ mod tests {
     }
 
     #[test]
+    fn large_integer_equality_preserves_i64_precision() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+
+        for (word, expected) in [("=", false), ("!=", true)] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::Number(TWO_TO_53));
+            vm.stack.push(Value::Number(TWO_TO_53 + 1));
+
+            vm.call_word(word)
+                .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+            assert_eq!(
+                vm.stack(),
+                &[Value::Bool(expected)],
+                "{word} must not round distinct i64 values through f64"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_numeric_equality_requires_exact_representability() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        const TWO_TO_63: f64 = 9_223_372_036_854_775_808.0;
+        let cases = [
+            (
+                Value::Number(TWO_TO_53 + 1),
+                Value::Float(TWO_TO_53 as f64),
+                false,
+            ),
+            (
+                Value::Float(TWO_TO_53 as f64),
+                Value::Number(TWO_TO_53 + 1),
+                false,
+            ),
+            (
+                Value::Number(TWO_TO_53),
+                Value::Float(TWO_TO_53 as f64),
+                true,
+            ),
+            (Value::Number(i64::MIN), Value::Float(i64::MIN as f64), true),
+            (
+                Value::Number(i64::MAX - 1023),
+                Value::Float((i64::MAX - 1023) as f64),
+                true,
+            ),
+            (Value::Number(i64::MAX), Value::Float(TWO_TO_63), false),
+            (Value::Number(0), Value::Float(-0.0), true),
+            (Value::Number(0), Value::Float(f64::NAN), false),
+        ];
+
+        for (left, right, expected) in cases {
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), "="),
+                expected,
+                "{left:?} = {right:?} should be {expected}"
+            );
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), "!="),
+                !expected,
+                "{left:?} != {right:?} should be {}",
+                !expected
+            );
+        }
+    }
+
+    #[test]
     fn assert_equals_consumes_matching_values() {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Ada".to_string()), span());
@@ -5551,6 +5763,26 @@ mod tests {
     }
 
     #[test]
+    fn assert_equals_rejects_large_integer_precision_mismatch_and_preserves_stack() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Number(TWO_TO_53));
+        vm.stack.push(Value::Number(TWO_TO_53 + 1));
+
+        assert_eq!(
+            vm.call_word("assert_equals"),
+            Err(VmError::AssertionFailed {
+                expected: format!("Number({})", TWO_TO_53 + 1),
+                actual: format!("Number({TWO_TO_53})"),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[Value::Number(TWO_TO_53), Value::Number(TWO_TO_53 + 1)]
+        );
+    }
+
+    #[test]
     fn executes_comparison_words() {
         let cases = [
             (2, 3, "less_than?", true),
@@ -5578,6 +5810,93 @@ mod tests {
                 vm.stack(),
                 &[Value::Bool(expected)],
                 "{left} {right} {word} should be {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_integer_ordering_preserves_i64_precision() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let cases = [
+            (TWO_TO_53, TWO_TO_53 + 1, "<", true),
+            (TWO_TO_53, TWO_TO_53 + 1, ">", false),
+            (TWO_TO_53, TWO_TO_53 + 1, "<=", true),
+            (TWO_TO_53, TWO_TO_53 + 1, ">=", false),
+            (TWO_TO_53 + 1, TWO_TO_53, "<", false),
+            (TWO_TO_53 + 1, TWO_TO_53, ">", true),
+        ];
+
+        for (left, right, word, expected) in cases {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::Number(left));
+            vm.stack.push(Value::Number(right));
+
+            vm.call_word(word)
+                .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+            assert_eq!(
+                vm.stack(),
+                &[Value::Bool(expected)],
+                "{left} {right} {word} must not round i64 operands through f64"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_numeric_relations_handle_boundaries_fractions_infinities_and_nan() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        const TWO_TO_63: f64 = 9_223_372_036_854_775_808.0;
+        let cases = [
+            (
+                Value::Number(TWO_TO_53 + 1),
+                Value::Float(TWO_TO_53 as f64),
+                ">",
+                true,
+            ),
+            (
+                Value::Float(TWO_TO_53 as f64),
+                Value::Number(TWO_TO_53 + 1),
+                "<",
+                true,
+            ),
+            (Value::Number(i64::MAX), Value::Float(TWO_TO_63), "<", true),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(i64::MIN as f64),
+                "<=",
+                true,
+            ),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(-9_223_372_036_854_777_856.0),
+                ">",
+                true,
+            ),
+            (Value::Number(1), Value::Float(1.5), "<", true),
+            (Value::Number(-1), Value::Float(-1.5), ">", true),
+            (Value::Number(0), Value::Float(f64::from_bits(1)), "<", true),
+            (Value::Float(-0.0), Value::Number(0), ">=", true),
+            (
+                Value::Number(i64::MAX),
+                Value::Float(f64::INFINITY),
+                "<",
+                true,
+            ),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(f64::NEG_INFINITY),
+                ">",
+                true,
+            ),
+            (Value::Number(0), Value::Float(f64::NAN), "<", false),
+            (Value::Float(f64::NAN), Value::Number(0), ">=", false),
+        ];
+
+        for (left, right, word, expected) in cases {
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), word),
+                expected,
+                "{left:?} {right:?} {word} should be {expected}"
             );
         }
     }
@@ -5726,6 +6045,58 @@ mod tests {
             .push(Value::result_ok(Value::String("saved".to_string())));
         ok_vm.run_chunk(&ok_chunk).expect("ok? succeeds");
         assert_eq!(ok_vm.stack(), &[Value::Bool(true)]);
+    }
+
+    #[test]
+    fn strictness_warns_on_unknown_question_word_fallback() {
+        let mut vm = Vm::default();
+        vm.set_strictness(StrictnessConfig {
+            warn_unknown_question_word_fallback: true,
+            ..StrictnessConfig::default()
+        });
+        vm.stack.push(Value::Number(1));
+
+        assert_eq!(
+            vm.call_word("typo?"),
+            Err(VmError::UnknownWord("typo?".to_string()))
+        );
+        assert!(vm.strictness_diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind == StrictnessDiagnosticKind::UnknownQuestionWordFallback
+                && diagnostic
+                    .message
+                    .contains("fell back to generic predicate dispatch")
+        }));
+    }
+
+    #[test]
+    fn strictness_warns_on_nil_producing_lookup() {
+        let mut vm = Vm::default();
+        vm.set_strictness(StrictnessConfig {
+            warn_nil_producing_lookup: true,
+            ..StrictnessConfig::default()
+        });
+        vm.stack.push(Value::Array(Vec::new().into()));
+
+        vm.call_word("first")
+            .expect("nil-producing lookup remains allowed");
+
+        assert_eq!(vm.stack(), &[Value::Nil]);
+        assert!(vm
+            .strictness_diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.kind == StrictnessDiagnosticKind::NilProducingLookup }));
+    }
+
+    #[test]
+    fn strictness_defaults_to_no_diagnostics() {
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Array(Vec::new().into()));
+
+        vm.call_word("first")
+            .expect("nil-producing lookup remains allowed by default");
+
+        assert_eq!(vm.stack(), &[Value::Nil]);
+        assert!(vm.strictness_diagnostics().is_empty());
     }
 
     #[test]
@@ -6907,6 +7278,80 @@ mod tests {
         assert_eq!(
             vm.run_chunk(&chunk),
             Err(VmError::InstructionLimitExceeded { limit: 16 })
+        );
+    }
+
+    #[test]
+    fn spawned_task_inherits_runtime_capability_state() {
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("runtime_capabilities".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_environment_enabled(true);
+        vm.set_environment_allowed_names(["RICOCHET_TASK_TEST".to_string()]);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Map(capabilities)] = vm.stack() else {
+            panic!("expected runtime capabilities map, got {:?}", vm.stack());
+        };
+        let Some(Value::Map(filesystem)) = capabilities.get("filesystem") else {
+            panic!("expected filesystem capability map, got {capabilities:?}");
+        };
+        assert_eq!(filesystem.get("enabled"), Some(Value::Bool(true)));
+        assert_eq!(filesystem.get("writes_enabled"), Some(Value::Bool(true)));
+
+        let Some(Value::Map(environment)) = capabilities.get("environment") else {
+            panic!("expected environment capability map, got {capabilities:?}");
+        };
+        assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn spawned_task_shares_approval_registry_with_parent() {
+        let registry = ApprovalRegistry::default();
+        let approval = registry
+            .create(ApprovalCreateRequest {
+                id: Some("task-approval".to_string()),
+                token: Some("task-token".to_string()),
+                operation: Value::Map(BTreeMap::new().into()),
+                metadata: Value::Nil,
+                ttl_ms: None,
+                expires_at_ms: None,
+            })
+            .expect("approval should be created");
+        let token = approval.token.expect("new approval should expose token");
+
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::PushString(approval.id), span());
+        task.push(Op::PushString(token), span());
+        task.push(Op::CallWord("approval_claim".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let mut vm = Vm::default();
+        vm.set_approval_registry(registry);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Result(RicochetResult::Ok(snapshot))] = vm.stack() else {
+            panic!("expected ok approval result, got {:?}", vm.stack());
+        };
+        let Value::Map(snapshot) = snapshot.as_ref() else {
+            panic!("expected approval snapshot map, got {snapshot:?}");
+        };
+        assert_eq!(
+            snapshot.get("status"),
+            Some(Value::String("claimed".to_string()))
         );
     }
 

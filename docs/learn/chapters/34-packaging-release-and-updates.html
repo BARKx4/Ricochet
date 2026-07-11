@@ -109,7 +109,7 @@ operator-facing release metadata.</li>
 <h2>Vocabulary and commands</h2>
 <p>Primary coverage: <code>rco package</code>, <code>--output</code>, <code>--tui</code>, <code>--gui</code>, <code>--mvc</code>,
 <code>--linux-package tar</code>, <code>--linux-package deb</code>, <code>--package-name</code>,
-<code>--package-version</code>, <code>--package-description</code>, release scripts, store packaging
+<code>--package-version</code>, <code>--package-license</code>, <code>--package-description</code>, release scripts, store packaging
 validation, signature verification, and updater channel metadata.</p>
 <h2>Guided example</h2>
 <p>Open <code>examples/learn/34-packaging-release-and-updates/run-lab.ps1</code>:</p>
@@ -154,6 +154,8 @@ but the output path and nonzero size are the important checks.</p>
 For desktop webview apps, use <code>--gui</code>. For an MVC project packaged as a local
 desktop webview app, combine <code>--gui --mvc</code>. On Linux, <code>--linux-package tar</code> and
 <code>--linux-package deb</code> add portable tarball or Debian package outputs.</p>
+<p>MVC bundles use Git ignore rules when the project is selectable from a worktree. Standalone or enclosing-worktree-ignored project roots preserve custom layouts by recursively including ordinary files, so audit those trees before packaging. A declared dependency is a narrow exception: once its lock and package-content hash verify, all eligible regular files covered by that hash are required in the bundle even if the outer project ignores the dependency cache or Git reports a fetched dependency as one nested-repository directory. Ricochet still omits environment files, SQLite runtime databases and sidecars, Git, Mercurial, and Subversion repository or working-copy metadata (<code>.git</code>, <code>.hg</code>, and <code>.svn</code>), and the output executable; an integrity-covered file that conflicts with those state rules, a private-key/credential shape, or a symbolic link stops packaging rather than weakening the hash, and an excluded <code>ricochet.lock</code> also stops packaging.</p>
+<p>File-backed packaged SQLite requires migrations in <code>db/migrations</code>. Development rows are never embedded. Pending migrations run against per-user data before the local server starts, without automatically running seeds. The persistence identity combines the manifest <code>package.name</code> with the canonical executable path: an in-place upgrade keeps data, while a copied, moved, or renamed executable receives an isolated data directory.</p>
 <p>Package metadata is separate from program behavior:</p>
 <pre><code>--package-name learn-task-dashboard `
 --package-version 0.1.0 `
@@ -161,6 +163,10 @@ desktop webview app, combine <code>--gui --mvc</code>. On Linux, <code>--linux-p
 </code></pre>
 <p>Treat that metadata as release-facing user information. It should match the
 artifact you intend to distribute.</p>
+<p>GUI Linux tarballs and Debian packages also require
+<code>--package-license SPDX</code>. Pass the application author's actual SPDX
+expression; Ricochet does not default user-authored applications to MIT or to
+the Ricochet project license.</p>
 <h2>How to read the example</h2>
 <p>Read artifact examples by separating source from output. Source files are what you edit. Bytecode, images, packages, and update metadata are generated artifacts with their own verification steps.</p>
 <h2>Try it</h2>
@@ -220,8 +226,8 @@ per-target JSON manifests. The release workflow then validates store-ready
 packaging and verifies production signatures when a production tag requires
 them.</p>
 <p>Update-channel files are release metadata:</p>
-<pre><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.4 -ReleaseTag v0.1.19-rc.4 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.4
-pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.4 -RequireProduction
+<pre><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.5 -ReleaseTag v0.1.19-rc.5 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.5
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.5
 </code></pre>
 <p>Stable channel metadata requires production signature or notarization evidence.
 Candidate channel metadata can record SHA-256 verification for dry-run signed

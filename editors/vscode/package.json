@@ -3,6 +3,7 @@
   "displayName": "Ricochet Language",
   "description": "Syntax highlighting and language-server support for Ricochet .rco files.",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "publisher": "ricochet",
   "engines": {
     "vscode": "^1.84.0"

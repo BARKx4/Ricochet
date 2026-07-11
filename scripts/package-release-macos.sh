@@ -132,10 +132,23 @@ copy_release_directory() {
   local source="$1"
   local destination="$2"
 
-  if [[ -d "$source" ]]; then
-    mkdir -p "$(dirname -- "$destination")"
-    cp -R "$source" "$destination"
+  [[ -d "$source" ]] || return 0
+
+  local relative_source="${source#"$repo_root"/}"
+  if [[ "$relative_source" == "$source" ]]; then
+    echo "Release source directory must be inside the repository: $source" >&2
+    return 1
   fi
+
+  mkdir -p "$destination"
+  local tracked_file relative_path destination_file
+  while IFS= read -r -d '' tracked_file; do
+    relative_path="${tracked_file#"$relative_source"/}"
+    [[ "$relative_path" != "$tracked_file" ]] || continue
+    destination_file="$destination/$relative_path"
+    mkdir -p "$(dirname -- "$destination_file")"
+    cp -p "$repo_root/$tracked_file" "$destination_file"
+  done < <(git -C "$repo_root" ls-files -z -- "$relative_source")
 }
 
 json_escape() {
@@ -387,7 +400,6 @@ target_dir="$repo_root/target/$configuration"
 binaries=(
   "$target_dir/rco"
   "$target_dir/rco-gui"
-  "$target_dir/rco-app"
   "$target_dir/ricochet"
 )
 
@@ -401,15 +413,17 @@ done
 mkdir -p "$package_dir"
 install -m 755 "${binaries[0]}" "$package_dir/rco"
 install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
-install -m 755 "${binaries[2]}" "$package_dir/rco-app"
-install -m 755 "${binaries[3]}" "$package_dir/ricochet"
-sign_macos_binaries "$package_dir/rco" "$package_dir/rco-gui" "$package_dir/rco-app" "$package_dir/ricochet"
+install -m 755 "${binaries[2]}" "$package_dir/ricochet"
+sign_macos_binaries "$package_dir/rco" "$package_dir/rco-gui" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
+cp "$repo_root/THIRD_PARTY_LICENSES.html" "$package_dir/THIRD_PARTY_LICENSES.html"
+cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$package_dir/THIRD_PARTY_NOTICES.txt"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
+copy_release_directory "$repo_root/docs/learn" "$package_dir/docs/learn"
 copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
 
 cat > "$package_dir/RELEASE.txt" <<EOF
@@ -419,7 +433,6 @@ Commands:
   rco --help
   rco gui examples/webview_ui.rco
   rco package examples/webview_ui.rco --gui --output webview-ui
-  rco package examples/native_showcase_app.rco --app --backend slint --output native-showcase
   ricochet --help
 
 Signing and notarization status is recorded in SIGNING-$target.txt beside this
@@ -443,12 +456,18 @@ bin_dir="$prefix/bin"
 mkdir -p "$bin_dir"
 cp "$script_dir/rco" "$bin_dir/rco"
 cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
-cp "$script_dir/rco-app" "$bin_dir/rco-app"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
-chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/rco-app" "$bin_dir/ricochet"
+chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
+
+share_dir="$prefix/share"
+doc_dir="$share_dir/doc/ricochet"
+mkdir -p "$doc_dir"
+cp "$script_dir/LICENSE" "$doc_dir/LICENSE"
+cp "$script_dir/THIRD_PARTY_LICENSES.html" "$doc_dir/THIRD_PARTY_LICENSES.html"
+cp "$script_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/THIRD_PARTY_NOTICES.txt"
 
 if command -v xattr >/dev/null 2>&1; then
-  xattr -d com.apple.quarantine "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/rco-app" "$bin_dir/ricochet" 2>/dev/null || true
+  xattr -d com.apple.quarantine "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet" 2>/dev/null || true
 fi
 
 printf 'Installed Ricochet CLI tools to %s\n' "$bin_dir"

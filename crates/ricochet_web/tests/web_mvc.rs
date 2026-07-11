@@ -643,6 +643,121 @@ end
 }
 
 #[test]
+fn ricochet_controller_rejects_cyclic_json_body_without_overflowing() {
+    const CHILD_ENV: &str = "RICOCHET_TEST_CYCLIC_CONTROLLER_JSON_CHILD";
+    if std::env::var_os(CHILD_ENV).is_some() {
+        let mut controllers = ControllerRegistry::default();
+        let source = r#"
+ApiController Controller Subclass
+  [
+    body map
+    $body "self" $body put drop
+    $body json
+  ] "show" Method
+end
+"#;
+        controllers
+            .register_ricochet_source("ApiController", "show", "ApiController.rco", source)
+            .expect("controller source should register");
+
+        let error = controllers
+            .call("ApiController", "show", &mut RequestContext::default())
+            .expect_err("cyclic JSON body should be rejected");
+        assert_eq!(
+            error.to_string(),
+            "cannot encode cyclic collection as JSON at $.self"
+        );
+        return;
+    }
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test path"))
+        .arg("ricochet_controller_rejects_cyclic_json_body_without_overflowing")
+        .arg("--exact")
+        .arg("--nocapture")
+        .env(CHILD_ENV, "1")
+        .output()
+        .expect("cycle-isolated test child should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "cyclic JSON child failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[tokio::test]
+async fn cyclic_json_fault_is_action_staged_and_server_remains_healthy() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "cyclic_json_fault",
+        r#"
+HomeController Controller Subclass
+  [
+    payload map
+    $payload "self" $payload put drop
+    $payload json
+  ] "index" Method
+
+  [ "healthy" text ] "health" Method
+end
+"#,
+    );
+    fs::write(
+        project_root.join("config/routes.rco"),
+        "GET \"/\" HomeController \"index\" route\nGET \"/health\" HomeController \"health\" route\n",
+    )
+    .expect("routes should be written");
+    let (pauses, sink) = recording_request_fault_sink();
+    let options = ricochet_web::server::ServeOptions {
+        debug: true,
+        ..ricochet_web::server::ServeOptions::default()
+    };
+    let app = ricochet_web::build_app_from_dir_with_options_and_request_fault_sink(
+        &project_root,
+        &options,
+        Some(sink),
+    )
+    .expect("build app");
+
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("cyclic response");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+    assert!(
+        body.contains("cannot encode cyclic collection as JSON at $.self"),
+        "cycle error should include the exact JSON path, got: {body}"
+    );
+
+    let health = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("health response");
+    assert_eq!(health.status(), StatusCode::OK);
+    let health = to_bytes(health.into_body(), usize::MAX)
+        .await
+        .expect("health body");
+    assert_eq!(&health[..], b"healthy");
+
+    let pauses = pauses
+        .lock()
+        .expect("request fault pauses lock should not be poisoned");
+    assert_eq!(pauses.len(), 1);
+    assert_eq!(pauses[0].stage, RequestFaultStage::Action);
+}
+
+#[test]
 fn ricochet_controller_returns_redirect_response() {
     let mut controllers = ControllerRegistry::default();
     let source = r#"
@@ -4270,6 +4385,166 @@ end
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
     assert_eq!(body, "Ada");
+}
+
+#[tokio::test]
+async fn nested_session_mutation_emits_an_updated_cookie() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "nested_session_mutation",
+        r#"
+HomeController Controller Subclass
+  ( session ) [
+    session var
+    session get "items" at nil? if
+      items array
+      $items 1 push drop
+      session get "items" $items put drop
+    else
+      session get "items" at 2 push drop
+    end
+    session get "items" at count to_string text
+  ] "index" Method
+end
+"#,
+    );
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let first = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("first response");
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_cookie = first
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("initial nested session should set a cookie")
+        .to_str()
+        .expect("set-cookie should be UTF-8")
+        .split(';')
+        .next()
+        .expect("set-cookie should include a cookie pair")
+        .to_string();
+
+    let second = app
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header("cookie", first_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("second response");
+    assert_eq!(second.status(), StatusCode::OK);
+    assert!(
+        second.headers().get(header::SET_COOKIE).is_some(),
+        "in-place mutation of a nested session collection must update the cookie"
+    );
+    let body = to_bytes(second.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(&body[..], b"2");
+}
+
+#[test]
+fn cyclic_session_fails_at_response_stage_without_killing_server() {
+    const CHILD_ENV: &str = "RICOCHET_TEST_CYCLIC_SESSION_CHILD";
+    if std::env::var_os(CHILD_ENV).is_some() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime.block_on(async {
+            let project_root = temp_project_path();
+            write_basic_mvc_project(
+                &project_root,
+                "cyclic_session",
+                r#"
+HomeController Controller Subclass
+  ( session ) [
+    session var
+    loop map
+    $loop "self" $loop put drop
+    session get "loop" $loop put drop
+    "unreachable" text
+  ] "index" Method
+
+  [ "healthy" text ] "health" Method
+end
+"#,
+            );
+            fs::write(
+                project_root.join("config/routes.rco"),
+                "GET \"/\" HomeController \"index\" route\nGET \"/health\" HomeController \"health\" route\n",
+            )
+            .expect("routes should be written");
+            let (pauses, sink) = recording_request_fault_sink();
+            let options = ricochet_web::server::ServeOptions {
+                debug: true,
+                ..ricochet_web::server::ServeOptions::default()
+            };
+            let app = ricochet_web::build_app_from_dir_with_options_and_request_fault_sink(
+                &project_root,
+                &options,
+                Some(sink),
+            )
+            .expect("build app");
+
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .expect("cyclic response");
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body bytes");
+            let body = std::str::from_utf8(&body).expect("body should be UTF-8");
+            assert!(
+                body.contains("cannot encode cyclic collection as JSON at $.loop.self"),
+                "cycle error should include the exact session path, got: {body}"
+            );
+
+            let health = app
+                .oneshot(
+                    Request::builder()
+                        .uri("/health")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .expect("health response");
+            assert_eq!(health.status(), StatusCode::OK);
+            let health = to_bytes(health.into_body(), usize::MAX)
+                .await
+                .expect("health body");
+            assert_eq!(&health[..], b"healthy");
+
+            let pauses = pauses
+                .lock()
+                .expect("request fault pauses lock should not be poisoned");
+            assert_eq!(pauses.len(), 1);
+            assert_eq!(pauses[0].stage, RequestFaultStage::Response);
+        });
+        return;
+    }
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test path"))
+        .arg("cyclic_session_fails_at_response_stage_without_killing_server")
+        .arg("--exact")
+        .arg("--nocapture")
+        .env(CHILD_ENV, "1")
+        .output()
+        .expect("cycle-isolated session test child should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "cyclic session child failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[tokio::test]

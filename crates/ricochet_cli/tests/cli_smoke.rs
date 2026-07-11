@@ -44,6 +44,21 @@ $signals "release" push drop
 $task await drop
 "#;
 
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            for entry in fs::read_dir(&path).expect("test directory should be readable") {
+                pending.push(entry.expect("test directory entry").path());
+            }
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    files
+}
+
 fn debug_task_frame_breakpoint_line() -> usize {
     DEBUG_TASK_FRAME_FIXTURE_SOURCE
         .lines()
@@ -995,6 +1010,38 @@ fn check_reports_invalid_source_file() {
 }
 
 #[test]
+fn check_strict_reports_dynamic_convenience_warnings() {
+    let source_path = write_source("array first\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("check")
+        .arg("--strict")
+        .arg(&source_path)
+        .output()
+        .expect("rco check --strict should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rco check --strict should keep warning-only diagnostics non-fatal\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("checked"),
+        "stdout should keep normal check output, got:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("strict warning:"),
+        "stderr should include a strictness warning, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("returned nil"),
+        "stderr should describe the nil-producing lookup, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn run_reports_runtime_error_source_context() {
     let source_path = write_source("\"Ada\" 3 less_than?\n");
 
@@ -1530,6 +1577,10 @@ fn words_check_validates_reference_docs_and_textmate_inventory() {
         "stdout should report a passing inventory check, got:\n{stdout}"
     );
     assert!(
+        stdout.contains("registered VM words"),
+        "stdout should report registered VM word coverage, got:\n{stdout}"
+    );
+    assert!(
         stdout.contains("0 duplicate reference entries"),
         "stdout should confirm the reference catalog has no duplicate primary words, got:\n{stdout}"
     );
@@ -1889,6 +1940,30 @@ fn repl_debug_streams_instruction_events() {
 }
 
 #[test]
+fn root_version_flags_report_package_version() {
+    let expected = format!("rco {}\n", env!("CARGO_PKG_VERSION"));
+
+    for flag in ["--version", "-V"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg(flag)
+            .output()
+            .unwrap_or_else(|error| panic!("rco {flag} should launch: {error}"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "rco {flag} failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert_eq!(
+            stdout, expected,
+            "rco {flag} should report its Cargo version"
+        );
+        assert!(stderr.is_empty(), "rco {flag} wrote stderr:\n{stderr}");
+    }
+}
+
+#[test]
 fn root_help_lists_persistent_image_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("--help")
@@ -2100,6 +2175,38 @@ fn image_save_rejects_retained_task_state() {
     assert!(
         !image_path.exists(),
         "failed image save should not leave an image file"
+    );
+}
+
+#[test]
+fn image_save_rejects_cyclic_collections_without_leaving_an_artifact() {
+    let source_path = write_source("array dup push\n");
+    let root = source_path.parent().expect("source path has parent");
+    let image_path = root.join("cyclic.rci");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("image")
+        .arg("save")
+        .arg(&image_path)
+        .arg("--source")
+        .arg(&source_path)
+        .output()
+        .expect("rco image save should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "image save should reject a cyclic collection\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot serialize cyclic collection at stack[0][0]")
+            && !stderr.contains("overflowed its stack"),
+        "image save should return a typed cycle error, got:\n{stderr}"
+    );
+    assert!(
+        !image_path.exists(),
+        "failed cyclic image save should not leave an image file"
     );
 }
 
@@ -6546,422 +6653,135 @@ state get render_counter document var
     assert!(event_html.contains("\"count\":2"));
 }
 
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
-fn app_exports_native_ui_json_for_winui_backend() {
+fn gui_export_rejects_cyclic_state_without_leaving_an_artifact() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let export_path = root.join("ui.json");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("winui")
-        .arg("--export-ui-json")
-        .arg(&export_path)
-        .current_dir(root)
-        .output()
-        .expect("rco app should launch");
-    assert_run_success_for("rco app", "app.rco", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("UI JSON export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("UI JSON export should parse");
-    assert_eq!(exported["backend"], "winui");
-    assert_eq!(exported["document"]["type"], "window");
-    assert_eq!(exported["state"]["count"], 0);
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 0"
-    );
-}
-
-#[test]
-fn app_exports_native_ui_json_for_slint_backend() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let export_path = root.join("slint-ui.json");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("slint")
-        .arg("--export-ui-json")
-        .arg(&export_path)
-        .current_dir(root)
-        .output()
-        .expect("rco app slint export should launch");
-    assert_run_success_for("rco app", "app.rco", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("Slint UI JSON export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("Slint UI JSON export should parse");
-    assert_eq!(exported["backend"], "slint");
-    assert_eq!(exported["document"]["type"], "window");
-    assert_eq!(exported["state"]["count"], 0);
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 0"
-    );
-}
-
-#[test]
-fn native_showcase_example_exports_useful_desktop_ui_json() {
-    let root = repo_root_for_test();
-    let export_path = temp_source_path()
-        .parent()
-        .expect("temp source path should have parent")
-        .join("native-showcase-ui.json");
-    fs::create_dir_all(export_path.parent().expect("export path has parent"))
-        .expect("showcase export directory should be created");
-    let example = root
-        .join("packages")
-        .join("ricochet_ui")
-        .join("examples")
-        .join("native_showcase_app.rco");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg(&example)
-        .arg("--backend")
-        .arg("winui")
-        .arg("--export-ui-json")
-        .arg(&export_path)
-        .output()
-        .expect("rco app showcase export should launch");
-    assert_run_success_for("rco app", "native_showcase_app.rco", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("showcase UI JSON export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("showcase UI JSON export should parse");
-    assert_eq!(exported["backend"], "winui");
-    assert_eq!(
-        exported["document"]["props"]["title"],
-        "Native Release Desk"
-    );
-
-    let exported = serde_json::to_string(&exported).expect("showcase JSON should encode");
-    for marker in [
-        "\"release_command_bar\"",
-        "\"release_tree\"",
-        "\"release_grid\"",
-        "\"release_notes\"",
-        "\"ready_score\"",
-        "\"type\":\"data_grid\"",
-        "\"type\":\"tree\"",
-        "\"type\":\"rich_text_input\"",
-        "\"Ship confidence: 82%\"",
-    ] {
-        assert!(
-            exported.contains(marker),
-            "showcase export should contain {marker}, got:\n{exported}"
-        );
-    }
-}
-
-#[test]
-fn app_replays_events_before_exporting_native_ui_json() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
     write_source_at(
         root,
-        "events.json",
-        r#"[{"type":"click","id":"increment_button","value":null}]"#,
+        "main.rco",
+        r#"
+state map
+state get "self" state get put drop
+actions array
+"Cycle" "Cycle" webview_text state get actions get webview_window_state document var
+"#,
     );
-    let export_path = root.join("after.json");
+    let export_path = root.join("cyclic-gui.html");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("winui")
-        .arg("--replay-events")
-        .arg("events.json")
-        .arg("--export-ui-json")
-        .arg(&export_path)
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &export_path)
         .current_dir(root)
         .output()
-        .expect("rco app replay should launch");
-    assert_run_success_for("rco app replay", "app.rco", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("UI JSON export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("UI JSON export should parse");
-    assert_eq!(exported["backend"], "winui");
-    assert_eq!(exported["state"]["count"], 1);
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 1"
-    );
-}
-
-#[test]
-fn app_replays_events_before_exporting_slint_ui_json() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    write_source_at(
-        root,
-        "events.json",
-        r#"[{"type":"click","id":"increment_button","value":null}]"#,
-    );
-    let export_path = root.join("after-slint.json");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("slint")
-        .arg("--replay-events")
-        .arg("events.json")
-        .arg("--export-ui-json")
-        .arg(&export_path)
-        .current_dir(root)
-        .output()
-        .expect("rco app slint replay should launch");
-    assert_run_success_for("rco app replay", "app.rco", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("Slint UI JSON export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("Slint UI JSON export should parse");
-    assert_eq!(exported["backend"], "slint");
-    assert_eq!(exported["state"]["count"], 1);
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 1"
-    );
-}
-
-#[test]
-fn app_slint_validate_only_compiles_live_renderer_document() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("slint")
-        .arg("--slint-validate-only")
-        .current_dir(root)
-        .output()
-        .expect("rco app slint validate-only should launch");
-    assert_run_success_for("rco app slint validate-only", "app.rco", &output);
-
+        .expect("rco gui should launch");
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
     assert!(
-        stdout.contains("Slint renderer validated Counter"),
-        "Slint validate-only should report the rendered window title, got:\n{stdout}"
+        !output.status.success(),
+        "GUI export should reject cyclic state\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-}
-
-#[test]
-fn package_app_creates_standalone_executable_that_exports_native_ui_json() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let output_path = root.join(format!("native-app{}", std::env::consts::EXE_SUFFIX));
-    let export_path = root.join("packaged-ui.json");
-
-    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("package")
-        .arg("app.rco")
-        .arg("--app")
-        .arg("--backend")
-        .arg("winui")
-        .arg("--app-launcher")
-        .arg(env!("CARGO_BIN_EXE_rco-app"))
-        .arg("--output")
-        .arg(&output_path)
-        .current_dir(root)
-        .output()
-        .expect("rco package --app should launch");
-    assert_run_success_for("rco package --app", "app.rco", &package_output);
-
-    let output = Command::new(&output_path)
-        .env("RICOCHET_APP_EXPORT_UI_JSON", &export_path)
-        .output()
-        .expect("packaged native app should launch");
-    assert_run_success_for("packaged native app", "native-app", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("packaged UI export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("packaged UI export should parse");
-    assert_eq!(exported["backend"], "winui");
-    assert_eq!(exported["document"]["type"], "window");
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 0"
-    );
-}
-
-#[test]
-fn package_app_can_embed_slint_backend_for_exportable_native_ui_json() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let output_path = root.join(format!("slint-native-app{}", std::env::consts::EXE_SUFFIX));
-    let export_path = root.join("packaged-slint-ui.json");
-
-    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("package")
-        .arg("app.rco")
-        .arg("--app")
-        .arg("--backend")
-        .arg("slint")
-        .arg("--app-launcher")
-        .arg(env!("CARGO_BIN_EXE_rco-app"))
-        .arg("--output")
-        .arg(&output_path)
-        .current_dir(root)
-        .output()
-        .expect("rco package --app --backend slint should launch");
-    assert_run_success_for("rco package --app", "app.rco", &package_output);
-
-    let output = Command::new(&output_path)
-        .env("RICOCHET_APP_EXPORT_UI_JSON", &export_path)
-        .output()
-        .expect("packaged Slint native app should launch");
-    assert_run_success_for("packaged Slint native app", "slint-native-app", &output);
-
-    let exported = fs::read_to_string(&export_path).expect("packaged Slint UI export should exist");
-    let exported: serde_json::Value =
-        serde_json::from_str(&exported).expect("packaged Slint UI export should parse");
-    assert_eq!(exported["backend"], "slint");
-    assert_eq!(exported["document"]["type"], "window");
-    assert_eq!(
-        exported["document"]["children"][0]["props"]["text"],
-        "Count: 0"
-    );
-}
-
-#[test]
-fn packaged_slint_app_validate_only_compiles_live_renderer_document() {
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let output_path = root.join(format!(
-        "slint-renderer-app{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-
-    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("package")
-        .arg("app.rco")
-        .arg("--app")
-        .arg("--backend")
-        .arg("slint")
-        .arg("--app-launcher")
-        .arg(env!("CARGO_BIN_EXE_rco-app"))
-        .arg("--output")
-        .arg(&output_path)
-        .current_dir(root)
-        .output()
-        .expect("rco package --app --backend slint should launch");
-    assert_run_success_for("rco package --app", "app.rco", &package_output);
-
-    let output = Command::new(&output_path)
-        .env("RICOCHET_SLINT_VALIDATE_ONLY", "1")
-        .output()
-        .expect("packaged Slint native renderer app should launch");
-    assert_run_success_for(
-        "packaged Slint validate-only app",
-        "slint-renderer-app",
-        &output,
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Slint renderer validated Counter"),
-        "packaged Slint validate-only should report the rendered window title, got:\n{stdout}"
+        stderr.contains("cannot encode cyclic collection as JSON at $.self")
+            && !stderr.contains("overflowed its stack"),
+        "GUI export should return a path-aware cycle error, got:\n{stderr}"
     );
-}
-
-#[test]
-fn winui_host_validate_only_accepts_exported_native_ui_json() {
-    let Some(host_path) = built_winui_host_path() else {
-        eprintln!("skipping WinUI host validation smoke: host executable is not built");
-        return;
-    };
-
-    let main_path = temp_source_path();
-    let root = main_path.parent().expect("source path has parent");
-    write_source_at(root, "app.rco", native_counter_app_source());
-    let export_path = root.join("ui.json");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
-        .arg("app")
-        .arg("app.rco")
-        .arg("--backend")
-        .arg("winui")
-        .arg("--export-ui-json")
-        .arg(&export_path)
-        .current_dir(root)
-        .output()
-        .expect("rco app should launch");
-    assert_run_success_for("rco app", "app.rco", &output);
-
-    let output = Command::new(host_path)
-        .arg("--document")
-        .arg(&export_path)
-        .arg("--validate-only")
-        .output()
-        .expect("WinUI host validate-only should launch");
-    assert_run_success_for("WinUI host validate-only", "ui.json", &output);
-}
-
-fn built_winui_host_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("RICOCHET_WINUI_HOST").map(PathBuf::from) {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..");
-    for configuration in ["Release", "Debug"] {
-        let candidate = repo_root
-            .join("hosts")
-            .join("winui")
-            .join("Ricochet.WinUI.Host")
-            .join("bin")
-            .join(configuration)
-            .join("net10.0-windows10.0.19041.0")
-            .join("win-x64")
-            .join(format!(
-                "Ricochet.WinUI.Host{}",
-                std::env::consts::EXE_SUFFIX
-            ));
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-
-        let candidate = repo_root
-            .join("hosts")
-            .join("winui")
-            .join("Ricochet.WinUI.Host")
-            .join("bin")
-            .join(configuration)
-            .join("net10.0-windows10.0.19041.0")
-            .join(format!(
-                "Ricochet.WinUI.Host{}",
-                std::env::consts::EXE_SUFFIX
-            ));
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    assert!(
+        !export_path.exists(),
+        "failed cyclic GUI export should not leave an artifact"
+    );
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn gui_exports_app_kit_menu_document_and_dispatches_menu_actions() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+( state -> Map ) render_app function
+  state var
+  actions array
+  actions get "Save" "save-profile" "save_profile" webview_action push drop
+
+  commands array
+  commands get "save-profile" "Save Profile" "Ctrl+S" web_command push drop
+  menus array
+  menus get "File" commands get web_menu push drop
+  menus get web_menu_bar menuBar var
+
+  rows array
+  row map
+  row get "Name" state get "name" at put drop
+  row get "Saved" state get "saved" at to_string put drop
+  rows get row get push drop
+  rows get web_table table var
+
+  "name" state get "name" at webview_input nameInput var
+  "Name" nameInput get web_form_row nameRow var
+  "Save" "save-profile" web_command_button saveButton var
+  nameRow get saveButton get concat web_toolbar toolbar var
+  "Profile" webview_text web_sidebar sidebar var
+  toolbar get table get concat content var
+  sidebar get content get web_split_pane split var
+  "Ready" web_status_bar status var
+  split get status get concat body var
+
+  "Ricochet Profile" body get state get actions get menuBar get webview_window_app value
+end
+
+( state event -> Map ) save_profile function
+  event var
+  state var
+  state get "saved" true put drop
+  state get render_app
+end
+
+state map
+state get "name" "Ada" put drop
+state get "saved" false put drop
+state get render_app document var
+"#,
+    );
+    let initial_export_path = root.join("gui-app-kit-initial.html");
+    let event_export_path = root.join("gui-app-kit-event.html");
+
+    let preview_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &initial_export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch");
+    assert_run_success_for("rco gui", "GUI app-kit initial document", &preview_output);
+    let initial_html =
+        fs::read_to_string(&initial_export_path).expect("initial GUI HTML should exist");
+    assert!(initial_html.contains("class=\"rco-toolbar\""));
+    assert!(initial_html.contains("class=\"rco-split-pane\""));
+    assert!(initial_html.contains("window.__ricochetApplyDocument"));
+    assert!(initial_html.contains("\"saved\":false"));
+
+    let event_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &event_export_path)
+        .env(
+            "RICOCHET_GUI_EVENT",
+            r#"{"type":"menu","action":"save-profile"}"#,
+        )
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch with menu event");
+    assert_run_success_for("rco gui", "GUI app-kit menu dispatch", &event_output);
+    let event_html = fs::read_to_string(&event_export_path).expect("event GUI HTML should exist");
+    assert!(event_html.contains("\"saved\":true"));
+}
+
 #[test]
 fn package_mvc_gui_creates_standalone_executable_that_exports_root_route() {
     let main_path = temp_source_path();
@@ -7139,6 +6959,219 @@ end
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
+fn packaged_mvc_sqlite_uses_persistent_user_data_without_embedding_development_rows() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    let project_path = root.join("persistent_mvc_app");
+    let output_path = root.join(format!(
+        "persistent-mvc-app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let copied_output_path = root.join(format!(
+        "persistent-mvc-app-copy{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let data_home = root.join("packaged-user-data");
+    let first_export = root.join("persistent-first.txt");
+    let second_export = root.join("persistent-second.txt");
+    let copied_export = root.join("persistent-copy.txt");
+    fs::create_dir_all(project_path.join("config")).expect("config directory");
+    fs::create_dir_all(project_path.join("app/Controllers")).expect("controllers directory");
+    fs::create_dir_all(project_path.join("app/Models")).expect("models directory");
+    fs::create_dir_all(project_path.join("db/migrations")).expect("migrations directory");
+    fs::write(
+        project_path.join("ricochet.toml"),
+        r#"[package]
+name = "persistent_mvc_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+    )
+    .expect("manifest");
+    fs::write(
+        project_path.join("config/routes.rco"),
+        "GET \"/\" LaunchController \"index\" route\n",
+    )
+    .expect("routes");
+    fs::write(
+        project_path.join("app/Models/Launch.rco"),
+        r#"Launch Model Subclass
+  "launches" Table
+  "id" Accessor
+  "label" Accessor
+end
+"#,
+    )
+    .expect("model");
+    fs::write(
+        project_path.join("app/Controllers/LaunchController.rco"),
+        r#"LaunchController Controller Subclass
+  [
+    row map
+    $row "label" "packaged-launch" put drop
+    $row Launch insert value drop
+    Launch count_records value to_string text
+  ] "index" Method
+end
+"#,
+    )
+    .expect("controller");
+    fs::write(
+        project_path.join("db/migrations/0001_create_launches.sql"),
+        "create table launches (id integer primary key, label text not null);\n",
+    )
+    .expect("migration");
+
+    let development_database = project_path.join("db/development.sqlite3");
+    let development =
+        rusqlite::Connection::open(&development_database).expect("development database");
+    development
+        .execute_batch(
+            "create table launches (id integer primary key, label text not null);\
+             insert into launches (label) values ('PRIVATE-DEV-DATA');",
+        )
+        .expect("private development fixture");
+    drop(development);
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg(&project_path)
+        .arg("--gui")
+        .arg("--mvc")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("rco package --gui --mvc should launch");
+    assert_run_success_for(
+        "rco package --gui --mvc",
+        "persistent_mvc_app",
+        &package_output,
+    );
+
+    let package_bytes = fs::read(&output_path).expect("packaged executable should be readable");
+    assert!(
+        !package_bytes
+            .windows(b"PRIVATE-DEV-DATA".len())
+            .any(|window| window == b"PRIVATE-DEV-DATA"),
+        "packaged MVC executable must not embed development database rows"
+    );
+
+    for (export, expected_count) in [(&first_export, "1"), (&second_export, "2")] {
+        let output = Command::new(&output_path)
+            .env("RICOCHET_GUI_EXPORT_HTML", export)
+            .env("RICOCHET_MVC_DATA_HOME", &data_home)
+            .output()
+            .expect("packaged persistent MVC executable should launch");
+        assert_run_success_for(
+            "packaged persistent MVC executable",
+            "persistent-mvc-app",
+            &output,
+        );
+        let body = fs::read_to_string(export).expect("MVC export should exist");
+        assert_eq!(body.trim(), expected_count);
+    }
+
+    fs::copy(&output_path, &copied_output_path).expect("packaged executable copy");
+    let copied = Command::new(&copied_output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &copied_export)
+        .env("RICOCHET_MVC_DATA_HOME", &data_home)
+        .output()
+        .expect("copied packaged MVC executable should launch");
+    assert_run_success_for(
+        "copied packaged persistent MVC executable",
+        "persistent-mvc-app-copy",
+        &copied,
+    );
+    let copied_body = fs::read_to_string(&copied_export).expect("copied MVC export should exist");
+    assert_eq!(
+        copied_body.trim(),
+        "1",
+        "a copied executable path must receive isolated user data"
+    );
+
+    let databases = walk_files(&data_home)
+        .into_iter()
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("sqlite3"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        databases.len(),
+        2,
+        "original and copied executable paths should have isolated SQLite databases: {databases:#?}"
+    );
+    let mut packaged_row_counts = Vec::new();
+    for database in &databases {
+        let persistent =
+            rusqlite::Connection::open(database).expect("persistent database should open");
+        let private_rows: i64 = persistent
+            .query_row(
+                "select count(*) from launches where label = 'PRIVATE-DEV-DATA'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("private row count");
+        let packaged_rows: i64 = persistent
+            .query_row(
+                "select count(*) from launches where label = 'packaged-launch'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("packaged row count");
+        assert_eq!(private_rows, 0, "development rows must not seed user data");
+        packaged_row_counts.push(packaged_rows);
+    }
+    packaged_row_counts.sort_unstable();
+    assert_eq!(
+        packaged_row_counts,
+        vec![1, 2],
+        "the original path must persist rows while the copied path stays isolated"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        for entry in fs::read_dir(&data_home).expect("MVC data home") {
+            let entry = entry.expect("MVC app data entry");
+            if entry.path().is_dir() {
+                assert_eq!(
+                    entry
+                        .metadata()
+                        .expect("MVC app data metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o700,
+                    "app-specific MVC data directories must be private"
+                );
+            }
+        }
+        for database in &databases {
+            assert_eq!(
+                fs::metadata(database)
+                    .expect("SQLite metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600,
+                "packaged SQLite databases must be private"
+            );
+        }
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
 fn package_mvc_rejects_capability_root_outside_bundle() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -7260,6 +7293,46 @@ fn package_rejects_linux_package_artifacts_on_non_linux_hosts() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn package_gui_linux_requires_explicit_project_license_before_writing_output() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"License Gate\" \"<main><p>license</p></main>\" webview_window value drop\n",
+    );
+    let output_path = root.join("license-gate-app");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--gui")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--linux-package")
+        .arg("tar")
+        .current_dir(root)
+        .output()
+        .expect("rco package should launch");
+
+    assert!(!package_output.status.success());
+    let stderr = String::from_utf8_lossy(&package_output.stderr);
+    assert!(
+        stderr.contains(
+            "--package-license SPDX is required with --gui when creating Linux package artifacts"
+        ),
+        "stderr should explain the explicit license requirement, got:\n{stderr}"
+    );
+    assert!(
+        !output_path.exists(),
+        "license validation must happen before writing the packaged executable"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn package_gui_linux_artifacts_include_desktop_metadata() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -7285,7 +7358,9 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         .arg("--package-name")
         .arg("linux-gui-app")
         .arg("--package-version")
-        .arg("1.2.3")
+        .arg("1.2.3-rc.4")
+        .arg("--package-license")
+        .arg("Apache-2.0")
         .arg("--package-description")
         .arg("Linux GUI package test")
         .current_dir(root)
@@ -7297,7 +7372,19 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         &package_output,
     );
 
-    let tar_path = root.join("linux-gui-app-v1.2.3-linux-x64.tar.gz");
+    let dynamic_dependencies = Command::new("readelf")
+        .arg("-d")
+        .arg(&output_path)
+        .output()
+        .expect("readelf should inspect the packaged Linux launcher");
+    assert_run_success_for("readelf -d", "linux-gui-app", &dynamic_dependencies);
+    let dynamic_dependencies_stdout = String::from_utf8_lossy(&dynamic_dependencies.stdout);
+    assert!(
+        dynamic_dependencies_stdout.contains("Shared library: [libxdo.so.3]"),
+        "packaged Linux launcher should prove its direct libxdo runtime dependency, got:\n{dynamic_dependencies_stdout}"
+    );
+
+    let tar_path = root.join("linux-gui-app-v1.2.3-rc.4-linux-x64.tar.gz");
     let tar_list = Command::new("tar")
         .arg("-tzf")
         .arg(&tar_path)
@@ -7306,9 +7393,9 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
     assert_run_success_for("tar -tzf", "linux-gui-app", &tar_list);
     let tar_stdout = String::from_utf8_lossy(&tar_list.stdout);
     for expected in [
-        "linux-gui-app-v1.2.3-linux-x64/share/applications/linux-gui-app.desktop",
-        "linux-gui-app-v1.2.3-linux-x64/share/metainfo/linux-gui-app.metainfo.xml",
-        "linux-gui-app-v1.2.3-linux-x64/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/applications/linux-gui-app.desktop",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/metainfo/linux-gui-app.metainfo.xml",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
     ] {
         assert!(
             tar_stdout.contains(expected),
@@ -7328,7 +7415,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
     assert_run_success_for("tar -xzf", "linux-gui-app", &extract);
     let desktop = fs::read_to_string(
         extract_dir
-            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("linux-gui-app-v1.2.3-rc.4-linux-x64")
             .join("share/applications/linux-gui-app.desktop"),
     )
     .expect("desktop file should be readable");
@@ -7342,19 +7429,61 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
 
     let metainfo = fs::read_to_string(
         extract_dir
-            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("linux-gui-app-v1.2.3-rc.4-linux-x64")
             .join("share/metainfo/linux-gui-app.metainfo.xml"),
     )
     .expect("metainfo should be readable");
     assert!(
         metainfo.contains("<id>today.ricochet.linux-gui-app</id>")
+            && metainfo.contains("<project_license>Apache-2.0</project_license>")
             && metainfo
                 .contains("<launchable type=\"desktop-id\">linux-gui-app.desktop</launchable>")
-            && metainfo.contains("<release version=\"1.2.3\" />"),
+            && metainfo.contains("<release version=\"1.2.3-rc.4\" />"),
         "AppStream metainfo should describe the packaged GUI app, got:\n{metainfo}"
     );
 
-    let deb_path = root.join("linux-gui-app_1.2.3_amd64.deb");
+    let deb_path = root.join("linux-gui-app_1.2.3~rc.4_amd64.deb");
+    let deb_version_output = Command::new("dpkg-deb")
+        .arg("--field")
+        .arg(&deb_path)
+        .arg("Version")
+        .output()
+        .expect("dpkg-deb should report the package version");
+    assert_run_success_for(
+        "dpkg-deb --field Version",
+        "linux-gui-app",
+        &deb_version_output,
+    );
+    let deb_version = String::from_utf8_lossy(&deb_version_output.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(deb_version, "1.2.3~rc.4");
+    let deb_dependencies_output = Command::new("dpkg-deb")
+        .arg("--field")
+        .arg(&deb_path)
+        .arg("Depends")
+        .output()
+        .expect("dpkg-deb should report package dependencies");
+    assert_run_success_for(
+        "dpkg-deb --field Depends",
+        "linux-gui-app",
+        &deb_dependencies_output,
+    );
+    let deb_dependencies = String::from_utf8_lossy(&deb_dependencies_output.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(deb_dependencies, "libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3");
+    let prerelease_order = Command::new("dpkg")
+        .arg("--compare-versions")
+        .arg(&deb_version)
+        .arg("lt")
+        .arg("1.2.3")
+        .status()
+        .expect("dpkg should compare Debian versions");
+    assert!(
+        prerelease_order.success(),
+        "Debian prerelease {deb_version} must sort before stable 1.2.3"
+    );
     let deb_contents = Command::new("dpkg-deb")
         .arg("--contents")
         .arg(&deb_path)
@@ -9871,6 +10000,71 @@ bag get count
     assert!(
         stdout.contains("Number(1)"),
         "final stack should include map count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_handles_cycles_across_collection_kinds_without_overflowing() {
+    let output = run_source(
+        r#"
+leftArray array
+$leftArray $leftArray push drop
+rightArray array
+$rightArray $rightArray push drop
+$leftArray inspect println
+$leftArray $rightArray = println
+$leftArray 1 push drop
+$rightArray 2 push drop
+$leftArray $rightArray = println
+
+leftList list
+$leftList $leftList push drop
+rightList list
+$rightList $rightList push drop
+$leftList inspect println
+$leftList $rightList = println
+
+leftMap map
+$leftMap "self" $leftMap put drop
+rightMap map
+$rightMap "self" $rightMap put drop
+$leftMap inspect println
+$leftMap $rightMap = println
+
+leftSet Set
+$leftSet $leftSet push drop
+rightSet Set
+$rightSet $rightSet push drop
+$leftSet inspect println
+$leftSet $rightSet = println
+
+outer Set
+$outer $leftSet push drop
+$outer $rightSet push drop
+$outer count println
+$outer $rightSet has? println
+$outer $rightSet remove drop
+$outer empty? println
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("<cycle>").count() >= 4,
+        "every collection kind should render a cycle marker, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().filter(|line| *line == "true").count() >= 6,
+        "isomorphic cycles and cyclic set operations should succeed, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line == "false"),
+        "a scalar difference inside a cycle should compare false, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line == "1"),
+        "cyclic set insertion should preserve uniqueness, got:\n{stdout}"
     );
 }
 
@@ -13873,97 +14067,6 @@ fn accept_local_test_connection(listener: TcpListener) -> Option<std::net::TcpSt
         }
     }
     None
-}
-
-fn native_counter_app_source() -> &'static str {
-    r#"
-( -> Map ) app_init function
-  state map
-  $state "count" 0 put drop
-  $state
-end
-
-( id text -> Map ) app_text function
-  text var
-  id var
-  props map
-  $props "text" $text put drop
-  children array
-  events array
-  native map
-  node map
-  $node "schema_version" 1 put drop
-  $node "id" $id put drop
-  $node "type" "text" put drop
-  $node "props" $props put drop
-  $node "children" $children put drop
-  $node "events" $events put drop
-  $node "native_options" $native put drop
-  $node
-end
-
-( id label -> Map ) app_button function
-  label var
-  id var
-  props map
-  $props "label" $label put drop
-  children array
-  events array
-  $events "click" push drop
-  native map
-  node map
-  $node "schema_version" 1 put drop
-  $node "id" $id put drop
-  $node "type" "button" put drop
-  $node "props" $props put drop
-  $node "children" $children put drop
-  $node "events" $events put drop
-  $node "native_options" $native put drop
-  $node
-end
-
-( state -> Map ) app_view function
-  state var
-  props map
-  $props "title" "Counter" put drop
-  children array
-  $children "count_label" "Count: " $state "count" at to_string concat app_text push drop
-  $children "increment_button" "Increment" app_button push drop
-  events array
-  $events "close" push drop
-  native map
-  window map
-  $window "schema_version" 1 put drop
-  $window "id" "main" put drop
-  $window "type" "window" put drop
-  $window "props" $props put drop
-  $window "children" $children put drop
-  $window "events" $events put drop
-  $window "native_options" $native put drop
-  $window
-end
-
-( state event -> Map ) app_update function
-  event var
-  state var
-  $event "type" at "click" = if
-    $event "id" at "increment_button" = if
-      $state "count" at 1 + nextCount var
-      $state "count" $nextCount put drop
-    end
-  end
-  $state app_view document var
-  commands array
-  diagnostics array
-  response map
-  $response "schema_version" 1 put drop
-  $response "state" $state put drop
-  $response "document" $document put drop
-  $response "commands" $commands put drop
-  $response "diagnostics" $diagnostics put drop
-  $response
-end
-"#
 }
 
 fn escape_ricochet_string(value: &str) -> String {

@@ -6,8 +6,8 @@
 
 Ricochet is a modern, pure-postfix programming language for building real
 software in a deliberately different way: stack-first code with a Rust bytecode
-VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, native app UI
-experiments, debugger support, and sandboxable host capabilities. It keeps the
+VM, dynamic OOP, CLI scripting, MVC web apps, package workflows, desktop WebView
+apps, debugger support, and sandboxable host capabilities. It keeps the
 directness and composability that make Forth-like languages compelling, while
 adding the tools, safety boundaries, documentation, packaging, and editor
 support expected from a serious development platform.
@@ -30,6 +30,15 @@ On Linux, install the Debian package with:
 ```bash
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
+
+Prerelease Debian artifacts use Debian ordering in the filename and package
+metadata; for example, Ricochet `0.1.19-rc.5` is
+`ricochet_0.1.19~rc.5_amd64.deb`. This keeps the candidate older than the
+eventual stable `0.1.19` package so normal upgrades work.
+
+The Debian package declares the current Linux launcher runtime packages:
+`libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `libxdo3`. Install those packages
+manually before using the portable tarball.
 
 Portable Linux tarballs are also available. Extract the tarball and run
 `./install.sh`, or add the extracted folder to your `PATH`.
@@ -109,3 +118,15 @@ cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
 When adding or renaming public words, follow
 [docs/adding-words.html](docs/adding-words.html) so VM dispatch, tests, reference
 docs, LSP completions, editor grammar, validators, and examples stay in sync.
+
+## License and project policies
+
+Ricochet's first-party source, documentation, and assets are available under the
+[Apache License 2.0](LICENSE). Third-party components remain subject to their
+own licenses; see the [third-party license report](THIRD_PARTY_LICENSES.html)
+and [supplemental notices](THIRD_PARTY_NOTICES.txt).
+
+Report suspected vulnerabilities privately through the
+[security policy](https://github.com/BARKx4/Ricochet/security/policy). For usage
+questions, bug reports, and supported build information, see the
+[support guide](https://github.com/BARKx4/Ricochet/blob/main/SUPPORT.md).

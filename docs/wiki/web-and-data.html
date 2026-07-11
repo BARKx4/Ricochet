@@ -74,6 +74,7 @@ rco serve --watch --fs-root . --http-allow-host 127.0.0.1</code></pre>
 <pre class="code-block"><code class="language-toml">[database.default]
 adapter = "sqlite"
 url = "db/development.sqlite3"</code></pre>
+<p>For <code>rco package --gui --mvc</code>, that path names persistent application state rather than a file to embed. File-backed SQLite packages require migrations under <code>db/migrations</code>; the packaged launcher applies pending migrations to its per-user data directory before serving. The scaffold development database and its WAL, SHM, or journal sidecars are always omitted, and seed commands are not run automatically. The data identity combines <code>package.name</code> with the canonical executable path, so upgrades installed at the same path preserve state while copied or moved portable executables stay isolated. Unix app-data directories and database files are restricted to modes <code>0700</code> and <code>0600</code>; Windows uses the inherited per-user application-data ACL.</p>
 <p>For production credential flows, import <code>@ricochet/auth</code> and validate credentials before storing password hashes. The core <code>password_hash</code> and <code>password_verify</code> words use Argon2id PHC-format hashes; the auth package wraps them with credential normalization, length/common-password checks, and a generic <code>auth_credentials_verify</code> result map for login paths.</p>
 <pre class="code-block"><code class="language-ricochet">"auth/session" import
 

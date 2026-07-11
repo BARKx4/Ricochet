@@ -16,16 +16,22 @@ jobs:
       - name: Check out
         uses: actions/checkout@v6
 
+      - name: Test Linux release version guard
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/test-linux-release-version.sh
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
 
-      - name: Install Linux native UI dependencies
+      - name: Install Linux GUI build dependencies
         if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -61,7 +67,18 @@ jobs:
       - name: Run cargo-audit
         run: cargo audit --deny warnings
 
+      - name: Install cargo-about
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo install cargo-about --version 0.9.1 --locked --features cli
+
       - name: Run acceptance suite
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: .\scripts\acceptance.ps1
+
+      - name: Validate public Learn manual
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks

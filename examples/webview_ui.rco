@@ -1,35 +1,58 @@
 (( Preview with: rco gui examples/webview_ui.rco ))
 (( Package with: rco package examples/webview_ui.rco --gui --output webview-ui.exe ))
 (( Use --output webview-ui on Linux/macOS. ))
+
+( state -> Map ) render_app function
+  state var
+
+  actions array
+  actions get "Save Profile" "save-profile" "save_profile" webview_action push drop
+
+  commands array
+  commands get "save-profile" "Save Profile" "Ctrl+S" web_command push drop
+
+  menus array
+  menus get "File" commands get web_menu push drop
+  menus get web_menu_bar menuBar var
+
+  rows array
+  profileRow map
+  profileRow get "Field" "Name" put drop
+  profileRow get "Value" state get "name" at put drop
+  rows get profileRow get push drop
+
+  savedRow map
+  savedRow get "Field" "Saved" put drop
+  savedRow get "Value" state get "saved" at to_string put drop
+  rows get savedRow get push drop
+
+  rows get web_table table var
+
+  "name" state get "name" at webview_input nameInput var
+  "Name" nameInput get web_form_row nameRow var
+
+  "Save Profile" "save-profile" web_command_button saveButton var
+  nameRow get saveButton get concat web_toolbar toolbar var
+
+  "Ricochet Desktop UI" 1 webview_heading heading var
+  "Edit profile. Native menus dispatch through the same Ricochet action path." webview_text web_sidebar sidebar var
+
+  toolbar get table get concat content var
+  sidebar get content get web_split_pane split var
+  "Ready" web_status_bar status var
+  heading get split get concat status get concat body var
+
+  "Ricochet Desktop UI" body get state get actions get menuBar get webview_window_app value
+end
+
 ( state event -> Map ) save_profile function
   event var
   state var
-  actions array
-  $actions "Save" "save-profile" "save_profile" webview_action push drop
-  "Saved profile for " $state "name" at concat webview_text saved var
-  "Ricochet Desktop UI" $saved $state $actions webview_window_state value
+  state get "saved" true put drop
+  state get render_app
 end
 
-"Ricochet Desktop UI" 1 webview_heading heading var
-
-"Name" "Ada" webview_input nameInput var
-
-"Save" "save-profile" webview_button saveButton var
-
 state map
-
-$state "name" "Ada" put drop
-
-actions array
-
-$actions "Save" "save-profile" "save_profile" webview_action push drop
-
-"<main>" $heading concat
-
-$nameInput concat
-
-$saveButton concat
-
-"</main>" concat body var
-
-"Ricochet Desktop UI" $body $state $actions webview_window_state value document var
+state get "name" "Ada" put drop
+state get "saved" false put drop
+state get render_app document var

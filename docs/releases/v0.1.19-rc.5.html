@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.5 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.5 Release Candidate Notes</h1>
+          <p class="lede">A reconciled release-candidate snapshot of the WebView application surface, runtime fixes, governance, documentation, and packaging gates.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+            <a href="#release-identity-and-webview-lineage">Release Identity And WebView Lineage</a>
+            <a href="#runtime-correctness-and-cycle-safety">Runtime Correctness And Cycle Safety</a>
+            <a href="#governance-learn-and-packaging">Governance, Learn, And Packaging</a>
+            <a href="#installer-ci-and-update-channel">Installer CI And Update Channel</a>
+            <a href="#current-boundaries">Current Boundaries</a>
+            <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+            <p>Date: 2026-07-11</p>
+            <p>Ricochet v0.1.19-rc.5 advances the v0.1.19 candidate line without rewriting any previously published candidate record. It reconciles the supported WebView-only application surface with the runtime, documentation, licensing, and release-pipeline work completed since the previous immutable candidate.</p>
+
+            <h2 id="release-identity-and-webview-lineage">Release Identity And WebView Lineage</h2>
+            <ul>
+              <li>The supported desktop application lineage is the native host shell with a WebView body and Ricochet-managed state. The public entry points remain <code>rco gui</code>, <code>rco package --gui</code>, and the <code>rco-gui</code> launcher.</li>
+              <li>The withdrawn native-control renderer experiment is not part of this candidate's application surface. WebView windows, shell services, menus, dialogs, clipboard operations, tables, and split panes remain the supported path.</li>
+              <li><code>rco --version</code> and <code>rco -V</code> now report the package version, giving release probes a direct identity check.</li>
+            </ul>
+
+            <h2 id="runtime-correctness-and-cycle-safety">Runtime Correctness And Cycle Safety</h2>
+            <ul>
+              <li>Mixed integer and floating-point equality, ordering, and clamp bounds now use exact numeric comparison rules instead of first rounding integers through a floating-point conversion. Fractional values and infinities retain their ordering semantics, while unordered NaN bounds produce an error rather than a panic.</li>
+              <li>Array, list, map, and set traversal now detects reference cycles. Structural comparison, membership, set mutation, and debug formatting terminate safely instead of recursing without a bound.</li>
+              <li>JSON, image, WebView, and MVC serialization reject true cycles with path-aware diagnostics and do not leave partial image or GUI output artifacts behind. Shared acyclic subgraphs remain serializable.</li>
+              <li>The release probe set covers both CLI version flags and the settings-loader example linked from the tracked Learn manual.</li>
+            </ul>
+
+            <h2 id="governance-learn-and-packaging">Governance, Learn, And Packaging</h2>
+            <ul>
+              <li>Ricochet first-party source, documentation, assets, crates, packages, and editor metadata now identify the project under the Apache License 2.0 (<code>Apache-2.0</code>), with repository contribution, security, support, and license-governance checks kept in the release gate.</li>
+              <li>Dependencies retain their own licenses. Their deterministic locked, multi-target disclosures ship as <code>THIRD_PARTY_LICENSES.html</code> and <code>THIRD_PARTY_NOTICES.txt</code>; snapshot validation regenerates both files and rejects unresolved licenses or drift before packaging.</li>
+              <li>Learn chapter 22 and the word-coverage inventory now cover 18 supported WebView app-kit and shell-service words for toolbars, sidebars, tabs, split panes, tables, forms, status areas, menus, app documents, pickers, clipboard access, and external URLs. PTY examples also close spawned sessions during cleanup.</li>
+              <li>Release staging uses a clean tracked-source inventory, so untracked local files cannot silently enter a source or platform package.</li>
+              <li>Candidate update validation implements exact SemVer prerelease ordering, including arbitrary-size numeric identifiers, numeric-before-alphanumeric precedence, identifier length rules, and stable-release precedence over a prerelease.</li>
+            </ul>
+
+            <h2 id="installer-ci-and-update-channel">Installer CI And Update Channel</h2>
+            <ul>
+              <li>The CI workflow is configured with a disposable Windows installer smoke: it builds the NSIS installer, installs to a unique runner-temporary location, validates installed binaries and version output, checks documentation, examples, and notices, exercises WebView packaging and export outside the checkout, inspects per-user registration and shortcuts, then runs the normal silent uninstaller and checks cleanup.</li>
+              <li>The installer now refuses foreign non-empty destinations, removes only the exact retired rc.4 native-renderer files during an owned upgrade, and uninstalls from a generated exact-file manifest so unrelated user files survive.</li>
+              <li>Package validation requires the third-party notice bundles at their exact portable, installer, Debian, and macOS package paths.</li>
+              <li>Every official package now includes the public Learn manual beside the Reference Docs, and extracted-package link validation rejects broken offline navigation.</li>
+              <li>Debian prerelease filenames and control metadata use <code>0.1.19~rc.5</code> ordering while the Ricochet release identity remains <code>0.1.19-rc.5</code>, so the candidate upgrades normally to stable <code>0.1.19</code>.</li>
+              <li>Every current Debian launcher declares the GTK 3, WebKitGTK 4.1, and <code>libxdo3</code> runtime dependencies required by its ELF metadata, with clean-runner checks covering both basic and WebView downstream packages.</li>
+              <li>A separate Ubuntu 24.04 runtime-only job installs the generated Debian package from its declared dependencies, verifies that all launcher libraries resolve, and runs the installed basic and WebView probes.</li>
+              <li>Package jobs use read-only repository permissions and non-persisted checkout credentials; only a tag-push publication job receives <code>contents: write</code>. Target checksums remain immutable while the final combined checksum and update channel are revalidated before publication.</li>
+              <li>SemVer prerelease tags such as <code>v0.1.19-rc.5</code> remain GitHub prereleases, are not marked latest, use dry-run signing and notarization, and write <code>UPDATE-CHANNEL-candidate.json</code> with SHA-256 verification metadata.</li>
+            </ul>
+
+            <h2 id="current-boundaries">Current Boundaries</h2>
+            <ul>
+              <li>This repository snapshot prepares a candidate identity only. It does not itself create a tag or publish packages; promotion still requires the hosted release audit to pass against the exact commit selected for release.</li>
+              <li>Stable production publishing still requires external credentials for Windows Authenticode, Linux GPG, and macOS signing and notarization. Those production signing paths are intentionally outside the candidate dry-run.</li>
+              <li>The candidate channel remains separate from the stable channel. Promote only after the repository checks and native-platform artifact smokes complete against the exact commit selected for release.</li>
+            </ul>
+
+            <h2 id="verification-checklist">Verification Checklist</h2>
+            <p>Before creating the <code>v0.1.19-rc.5</code> tag, run the repository gates from a clean checkout:</p>
+            <pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.5"
+
+cargo metadata --locked --format-version 1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-version.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-license-governance.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
+
+$releaseOut = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version\release-windows"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+            <p>After any future release workflow completes, separately confirm its hosted job result and inspect the uploaded artifacts, checksum file, manifests, signing-status reports, notice bundles, and candidate update-channel metadata. Configuration in this snapshot is not evidence that a hosted release run passed.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>
