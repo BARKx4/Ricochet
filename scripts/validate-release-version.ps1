@@ -67,6 +67,22 @@ function Get-Sha256 {
     }
 }
 
+function ConvertFrom-ReleaseTextBytes {
+    param([byte[]]$Bytes)
+
+    if ([System.Array]::IndexOf($Bytes, [byte]0) -ge 0) {
+        return $null
+    }
+
+    $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+    try {
+        return $strictUtf8.GetString($Bytes)
+    }
+    catch [System.Text.DecoderFallbackException] {
+        return $null
+    }
+}
+
 $workspaceManifest = Read-RequiredFile "Cargo.toml"
 if ($null -ne $workspaceManifest) {
     $workspacePackage = [regex]::Match(
@@ -186,7 +202,6 @@ if ($LASTEXITCODE -ne 0) {
     Add-Failure "git ls-files failed while scanning for stale release-candidate references"
 }
 else {
-    $textExtensions = @(".html", ".json", ".lock", ".md", ".ps1", ".rci", ".rs", ".sh", ".toml", ".txt", ".yaml", ".yml")
     $stalePattern = [regex]::Escape($StaleVersion)
     foreach ($relativePathValue in $trackedFiles) {
         $relativePath = ([string]$relativePathValue).Replace('\', '/')
@@ -194,12 +209,15 @@ else {
             continue
         }
 
-        $extension = [System.IO.Path]::GetExtension($relativePath).ToLowerInvariant()
-        if ($textExtensions -notcontains $extension) {
+        $fullPath = Get-RepoPath $relativePath
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
             continue
         }
 
-        $contents = [System.IO.File]::ReadAllText((Get-RepoPath $relativePath))
+        $contents = ConvertFrom-ReleaseTextBytes -Bytes ([System.IO.File]::ReadAllBytes($fullPath))
+        if ($null -eq $contents) {
+            continue
+        }
         if ($contents -match $stalePattern) {
             Add-Failure "$relativePath contains stale current-version reference $StaleVersion"
         }

@@ -95,7 +95,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 $releaseOut = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version\release-windows"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode dry-run
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller</code></pre>
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
             <p>After any future release workflow completes, separately confirm its hosted job result and inspect the uploaded artifacts, checksum file, manifests, signing-status reports, notice bundles, and candidate update-channel metadata. Configuration in this snapshot is not evidence that a hosted release run passed.</p>
           </article>
         </div>
