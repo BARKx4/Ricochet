@@ -5,7 +5,8 @@ use anyhow::{bail, Context, Result};
 use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_source;
 use ricochet_vm::{UploadStreamRegistry, Value, Vm};
-use serde_json::Value as JsonValue;
+
+use crate::value_json::{value_to_json, SetMode};
 
 #[derive(Default)]
 pub struct RequestContext {
@@ -499,44 +500,11 @@ fn string_map(values: BTreeMap<String, Value>, context: &str) -> Result<BTreeMap
 }
 
 fn json_string_from_value(value: Value) -> Result<String> {
-    Ok(serde_json::to_string(&json_value_from_value(value)?)?)
-}
-
-fn json_value_from_value(value: Value) -> Result<JsonValue> {
-    match value {
-        Value::Nil => Ok(JsonValue::Null),
-        Value::Bool(value) => Ok(JsonValue::Bool(value)),
-        Value::Number(value) => Ok(JsonValue::Number(value.into())),
-        Value::Float(value) => serde_json::Number::from_f64(value)
-            .map(JsonValue::Number)
-            .ok_or_else(|| anyhow::anyhow!("cannot encode non-finite float as JSON")),
-        Value::String(value) => Ok(JsonValue::String(value)),
-        Value::Array(values) => values
-            .snapshot()
-            .into_iter()
-            .map(json_value_from_value)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::List(values) => values
-            .snapshot()
-            .into_iter()
-            .map(json_value_from_value)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::Set(values) => values
-            .snapshot()
-            .into_iter()
-            .map(json_value_from_value)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::Map(values) => values
-            .snapshot()
-            .into_iter()
-            .map(|(key, value)| Ok((key, json_value_from_value(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()
-            .map(JsonValue::Object),
-        value => bail!("Ricochet json action cannot serialize {value:?}"),
-    }
+    Ok(serde_json::to_string(&value_to_json(
+        &value,
+        "$",
+        SetMode::Array,
+    )?)?)
 }
 
 #[cfg(test)]

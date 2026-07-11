@@ -39,6 +39,7 @@ use crate::manifest::{
 use crate::revision::{AppRevision, RevisionManager};
 use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
+use crate::value_json::{value_to_json, SetMode};
 
 #[derive(Clone)]
 struct AppState {
@@ -1801,6 +1802,8 @@ fn render_action(
         runtime.session_signing_key.as_ref(),
         runtime.session_encryption_key.as_ref(),
     );
+    let initial_session_json = session_json_value(&initial_session)
+        .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?;
     let mut ctx = RequestContext {
         method: request.method,
         path: request.path,
@@ -1881,11 +1884,14 @@ fn render_action(
         },
     };
 
-    if ctx.session != initial_session {
+    let current_session_json = session_json_value(&ctx.session)
+        .map_err(|error| RequestFaultError::new(RequestFaultStage::Response, error))?;
+    if current_session_json != initial_session_json {
         rendered.insert_header(
             "set-cookie",
             session_cookie_header(
-                &ctx.session,
+                &current_session_json,
+                ctx.session.is_empty(),
                 runtime.session_signing_key.as_ref(),
                 runtime.session_encryption_key.as_ref(),
                 runtime.session_secure,
@@ -2162,8 +2168,14 @@ fn json_number_to_value(value: serde_json::Number) -> Option<Value> {
     }
 }
 
+fn session_json_value(session: &BTreeMap<String, Value>) -> Result<JsonValue> {
+    value_to_json(&Value::Map(session.clone().into()), "$", SetMode::Reject)
+        .context("failed to serialize session")
+}
+
 fn session_cookie_header(
-    session: &BTreeMap<String, Value>,
+    session: &JsonValue,
+    session_is_empty: bool,
     signing_key: Option<&SessionSigningKey>,
     encryption_key: Option<&SessionEncryptionKey>,
     secure_policy: SessionSecure,
@@ -2175,17 +2187,11 @@ fn session_cookie_header(
         auto_allows_insecure_loopback,
         request_headers,
     );
-    if session.is_empty() {
+    if session_is_empty {
         return Ok(format!("{SESSION_COOKIE_NAME}=; Max-Age=0; {attributes}"));
     }
 
-    let json = JsonValue::Object(
-        session
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()?,
-    );
-    let session_json = serde_json::to_string(&json)?;
+    let session_json = serde_json::to_string(session)?;
     let cookie_value = match encryption_key {
         Some(encryption_key) => encrypted_session_cookie_value(&session_json, encryption_key)?,
         None => match signing_key {
@@ -2289,37 +2295,6 @@ fn verified_signed_session_json(
         return None;
     }
     String::from_utf8(payload).ok()
-}
-
-fn session_value_to_json(value: &Value) -> Result<JsonValue> {
-    match value {
-        Value::Nil => Ok(JsonValue::Null),
-        Value::Bool(value) => Ok(JsonValue::Bool(*value)),
-        Value::Number(value) => Ok(JsonValue::Number((*value).into())),
-        Value::Float(value) => serde_json::Number::from_f64(*value)
-            .map(JsonValue::Number)
-            .ok_or_else(|| anyhow!("cannot encode non-finite float in session")),
-        Value::String(value) => Ok(JsonValue::String(value.clone())),
-        Value::Array(values) => values
-            .snapshot()
-            .iter()
-            .map(session_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::List(values) => values
-            .snapshot()
-            .iter()
-            .map(session_value_to_json)
-            .collect::<Result<Vec<_>>>()
-            .map(JsonValue::Array),
-        Value::Map(values) => values
-            .snapshot()
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), session_value_to_json(value)?)))
-            .collect::<Result<serde_json::Map<_, _>>>()
-            .map(JsonValue::Object),
-        value => bail!("session values must be JSON-serializable, got {value:?}"),
-    }
 }
 
 #[derive(Default)]

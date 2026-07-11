@@ -2164,6 +2164,38 @@ fn image_save_rejects_retained_task_state() {
 }
 
 #[test]
+fn image_save_rejects_cyclic_collections_without_leaving_an_artifact() {
+    let source_path = write_source("array dup push\n");
+    let root = source_path.parent().expect("source path has parent");
+    let image_path = root.join("cyclic.rci");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("image")
+        .arg("save")
+        .arg(&image_path)
+        .arg("--source")
+        .arg(&source_path)
+        .output()
+        .expect("rco image save should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "image save should reject a cyclic collection\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot serialize cyclic collection at stack[0][0]")
+            && !stderr.contains("overflowed its stack"),
+        "image save should return a typed cycle error, got:\n{stderr}"
+    );
+    assert!(
+        !image_path.exists(),
+        "failed cyclic image save should not leave an image file"
+    );
+}
+
+#[test]
 fn run_prints_final_stack_for_source_file() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
@@ -6608,6 +6640,48 @@ state get render_counter document var
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
+fn gui_export_rejects_cyclic_state_without_leaving_an_artifact() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        r#"
+state map
+state get "self" state get put drop
+actions array
+"Cycle" "Cycle" webview_text state get actions get webview_window_state document var
+"#,
+    );
+    let export_path = root.join("cyclic-gui.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("gui")
+        .arg("main.rco")
+        .env("RICOCHET_GUI_EXPORT_HTML", &export_path)
+        .current_dir(root)
+        .output()
+        .expect("rco gui should launch");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "GUI export should reject cyclic state\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot encode cyclic collection as JSON at $.self")
+            && !stderr.contains("overflowed its stack"),
+        "GUI export should return a path-aware cycle error, got:\n{stderr}"
+    );
+    assert!(
+        !export_path.exists(),
+        "failed cyclic GUI export should not leave an artifact"
+    );
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
 fn gui_exports_app_kit_menu_document_and_dispatches_menu_actions() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -9602,6 +9676,71 @@ bag get count
     assert!(
         stdout.contains("Number(1)"),
         "final stack should include map count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn run_handles_cycles_across_collection_kinds_without_overflowing() {
+    let output = run_source(
+        r#"
+leftArray array
+$leftArray $leftArray push drop
+rightArray array
+$rightArray $rightArray push drop
+$leftArray inspect println
+$leftArray $rightArray = println
+$leftArray 1 push drop
+$rightArray 2 push drop
+$leftArray $rightArray = println
+
+leftList list
+$leftList $leftList push drop
+rightList list
+$rightList $rightList push drop
+$leftList inspect println
+$leftList $rightList = println
+
+leftMap map
+$leftMap "self" $leftMap put drop
+rightMap map
+$rightMap "self" $rightMap put drop
+$leftMap inspect println
+$leftMap $rightMap = println
+
+leftSet Set
+$leftSet $leftSet push drop
+rightSet Set
+$rightSet $rightSet push drop
+$leftSet inspect println
+$leftSet $rightSet = println
+
+outer Set
+$outer $leftSet push drop
+$outer $rightSet push drop
+$outer count println
+$outer $rightSet has? println
+$outer $rightSet remove drop
+$outer empty? println
+"#,
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.matches("<cycle>").count() >= 4,
+        "every collection kind should render a cycle marker, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().filter(|line| *line == "true").count() >= 6,
+        "isomorphic cycles and cyclic set operations should succeed, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line == "false"),
+        "a scalar difference inside a cycle should compare false, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line == "1"),
+        "cyclic set insertion should preserve uniqueness, got:\n{stdout}"
     );
 }
 

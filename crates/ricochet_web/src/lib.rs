@@ -8,6 +8,7 @@ pub mod router;
 pub mod serve_builder;
 pub mod server;
 pub mod template;
+mod value_json;
 
 pub use active_record::{
     ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,

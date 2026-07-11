@@ -560,7 +560,7 @@ fn webview_document_update_script(document: &WebviewDocument) -> Result<String> 
     let payload = json!({
         "title": document.title,
         "body": document.body,
-        "state": ricochet_value_to_json(&document.state)?,
+        "state": ricochet_value_to_json(&document.state, "$.state")?,
         "actions": document
             .actions
             .iter()
@@ -580,7 +580,23 @@ fn webview_document_update_script(document: &WebviewDocument) -> Result<String> 
     ))
 }
 
-fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WebviewJsonVisit {
+    Array(usize),
+    List(usize),
+    Set(usize),
+    Map(usize),
+}
+
+fn ricochet_value_to_json(value: &Value, root: &str) -> Result<serde_json::Value> {
+    ricochet_value_to_json_inner(value, root, &mut Vec::new())
+}
+
+fn ricochet_value_to_json_inner(
+    value: &Value,
+    path: &str,
+    visits: &mut Vec<WebviewJsonVisit>,
+) -> Result<serde_json::Value> {
     Ok(match value {
         Value::Nil => serde_json::Value::Null,
         Value::Bool(value) => serde_json::Value::Bool(*value),
@@ -589,36 +605,91 @@ fn ricochet_value_to_json(value: &Value) -> Result<serde_json::Value> {
             .map(serde_json::Value::Number)
             .context("webview state cannot encode non-finite floats")?,
         Value::String(value) => serde_json::Value::String(value.clone()),
-        Value::Array(values) => serde_json::Value::Array(
-            values
-                .snapshot()
-                .iter()
-                .map(ricochet_value_to_json)
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        Value::List(values) => serde_json::Value::Array(
-            values
-                .snapshot()
-                .iter()
-                .map(ricochet_value_to_json)
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        Value::Set(values) => serde_json::Value::Array(
-            values
-                .snapshot()
-                .iter()
-                .map(ricochet_value_to_json)
-                .collect::<Result<Vec<_>>>()?,
-        ),
-        Value::Map(values) => {
-            let mut object = serde_json::Map::new();
-            for (key, value) in values.entries() {
-                object.insert(key, ricochet_value_to_json(&value)?);
-            }
-            serde_json::Value::Object(object)
-        }
+        Value::Array(values) => with_webview_json_collection(
+            visits,
+            WebviewJsonVisit::Array(values.identity()),
+            path,
+            |visits| webview_json_sequence(values.snapshot(), path, visits),
+        )?,
+        Value::List(values) => with_webview_json_collection(
+            visits,
+            WebviewJsonVisit::List(values.identity()),
+            path,
+            |visits| webview_json_sequence(values.snapshot(), path, visits),
+        )?,
+        Value::Set(values) => with_webview_json_collection(
+            visits,
+            WebviewJsonVisit::Set(values.identity()),
+            path,
+            |visits| webview_json_sequence(values.snapshot(), path, visits),
+        )?,
+        Value::Map(values) => with_webview_json_collection(
+            visits,
+            WebviewJsonVisit::Map(values.identity()),
+            path,
+            |visits| {
+                let mut object = serde_json::Map::new();
+                for (key, value) in values.entries() {
+                    object.insert(
+                        key.clone(),
+                        ricochet_value_to_json_inner(&value, &format!("{path}.{key}"), visits)?,
+                    );
+                }
+                Ok(serde_json::Value::Object(object))
+            },
+        )?,
         value => bail!("webview state cannot encode {value:?} as JSON"),
     })
+}
+
+fn webview_json_sequence(
+    values: Vec<Value>,
+    path: &str,
+    visits: &mut Vec<WebviewJsonVisit>,
+) -> Result<serde_json::Value> {
+    let mut output = Vec::with_capacity(values.len());
+    for (index, value) in values.into_iter().enumerate() {
+        output.push(ricochet_value_to_json_inner(
+            &value,
+            &format!("{path}[{index}]"),
+            visits,
+        )?);
+    }
+    Ok(serde_json::Value::Array(output))
+}
+
+fn with_webview_json_collection<T>(
+    visits: &mut Vec<WebviewJsonVisit>,
+    visit: WebviewJsonVisit,
+    path: &str,
+    serialize: impl FnOnce(&mut Vec<WebviewJsonVisit>) -> Result<T>,
+) -> Result<T> {
+    if visits.contains(&visit) {
+        bail!("cannot encode cyclic collection as WebView JSON at {path}");
+    }
+    visits.push(visit);
+    let result = serialize(visits);
+    visits.pop();
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webview_json_rejects_cycle_at_exact_state_path() {
+        let state = MapValue::default();
+        state.insert("self".to_string(), Value::Map(state.clone()));
+
+        let error = ricochet_value_to_json(&Value::Map(state), "$.state")
+            .expect_err("cyclic WebView state should be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "cannot encode cyclic collection as WebView JSON at $.state.self"
+        );
+    }
 }
 
 fn js_json_literal(json: &str) -> String {
