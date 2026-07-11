@@ -22,6 +22,35 @@ const HOSTED_PACKAGE_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.packa
 const HOSTED_ARCHIVE_MEDIA_TYPE: &str = "application/vnd.ricochet.package.archive.v1+gzip";
 const HOSTED_PUBLISH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.publish.v1+json";
 const HOSTED_ERROR_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.error.v1+json";
+const DEBUG_TASK_FRAME_FIXTURE_SOURCE: &str = r#"signals array
+[
+  $signals "ready" push drop
+  0 release_attempts var
+  $signals count 2 < $release_attempts 500 < and while
+    20 sleep
+    $release_attempts 1 + release_attempts set
+  end
+  $signals last "release" assert_equals
+  40 2 +
+] spawn task var
+0 ready_attempts var
+$signals empty? $ready_attempts 500 < and while
+  20 sleep
+  $ready_attempts 1 + ready_attempts set
+end
+$signals first "ready" assert_equals
+$task id
+$signals "release" push drop
+$task await drop
+"#;
+
+fn debug_task_frame_breakpoint_line() -> usize {
+    DEBUG_TASK_FRAME_FIXTURE_SOURCE
+        .lines()
+        .position(|line| line == "$task id")
+        .expect("debug task fixture should contain its breakpoint marker")
+        + 1
+}
 
 #[test]
 fn new_creates_mvc_project_skeleton() {
@@ -7419,16 +7448,13 @@ fn run_debug_breakpoint_prints_task_tree_and_task_stack() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
-    fs::write(
-        &source_path,
-        "[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n",
-    )
-    .expect("temp source should be written");
+    fs::write(&source_path, DEBUG_TASK_FRAME_FIXTURE_SOURCE)
+        .expect("temp source should be written");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("run")
         .arg("--breakpoint")
-        .arg("3")
+        .arg(debug_task_frame_breakpoint_line().to_string())
         .arg(&source_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -7542,12 +7568,12 @@ fn debug_json_streams_json_lines_events() {
 
 #[test]
 fn debug_tui_smoke_renders_read_only_pause_snapshot() {
-    let source_path = write_source("[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n");
+    let source_path = write_source("[ 40 2 + ] spawn task var\n$task id\n");
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("debug-tui")
         .arg("--smoke")
         .arg("--breakpoint")
-        .arg("3")
+        .arg("2")
         .arg(&source_path)
         .output()
         .expect("rco debug-tui should launch");
@@ -7563,7 +7589,7 @@ fn debug_tui_smoke_renders_read_only_pause_snapshot() {
         "debug-tui smoke should render pause reason, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("source line: task get id"),
+        stdout.contains("source line: $task id"),
         "debug-tui smoke should render source line text, got:\n{stdout}"
     );
     assert!(
@@ -8060,12 +8086,12 @@ fn debug_web_rejects_non_loopback_host_before_running_source() {
 
 #[test]
 fn debug_json_pause_includes_task_snapshot() {
-    let source_path = write_source("[ 5000 sleep 40 2 + ] spawn task var\n50 sleep\ntask get id\n");
+    let source_path = write_source(DEBUG_TASK_FRAME_FIXTURE_SOURCE);
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("debug")
         .arg("--json")
         .arg("--breakpoint")
-        .arg("3")
+        .arg(debug_task_frame_breakpoint_line().to_string())
         .arg(&source_path)
         .output()
         .expect("rco debug should launch");
@@ -8086,14 +8112,14 @@ fn debug_json_pause_includes_task_snapshot() {
     let task_status = pause["tasks"][0]["status"]
         .as_str()
         .expect("task snapshot should include a string status");
-    assert!(
-        matches!(task_status, "pending" | "running" | "completed"),
-        "task snapshot should include a live or completed task, got:\n{pause}"
-    );
     assert_eq!(
-        pause["tasks"][0]["running"],
-        serde_json::Value::Bool(task_status == "running")
+        task_status, "running",
+        "ready/release fixture should keep the task live, got:\n{pause}"
     );
+    assert_eq!(pause["tasks"][0]["pending"], true);
+    assert_eq!(pause["tasks"][0]["running"], true);
+    assert_eq!(pause["tasks"][0]["completed"], false);
+    assert_eq!(pause["tasks"][0]["failed"], false);
     let frames = pause["tasks"][0]["frames"]
         .as_array()
         .expect("task snapshot should include frame snapshots");
@@ -8105,12 +8131,14 @@ fn debug_json_pause_includes_task_snapshot() {
     assert!(
         frames[0]["source"]
             .as_str()
-            .is_some_and(|source| source.ends_with(":1")),
-        "task frame should point at the worker source line, got:\n{pause}"
+            .is_some_and(|source| source != "<pending>"),
+        "task frame should point at a published worker source line, got:\n{pause}"
     );
     assert!(
-        frames[0]["opcode"].as_str().is_some(),
-        "task frame should include the current opcode, got:\n{pause}"
+        frames[0]["opcode"]
+            .as_str()
+            .is_some_and(|opcode| opcode != "<pending>"),
+        "task frame should include a published worker opcode, got:\n{pause}"
     );
 }
 
@@ -8194,19 +8222,14 @@ name get
 
 #[test]
 fn debug_adapter_serves_task_snapshot_variables() {
-    let source_path = write_source(
-        r#"
-[ 5000 sleep 40 2 + ] spawn task var
-50 sleep
-task get id
-"#,
-    );
+    let source_path = write_source(DEBUG_TASK_FRAME_FIXTURE_SOURCE);
     let source = path_to_slash_for_test(&source_path);
+    let breakpoint_line = debug_task_frame_breakpoint_line();
     let mut input = Vec::new();
     for message in [
         json!({"seq":1,"type":"request","command":"initialize","arguments":{"adapterID":"ricochet","linesStartAt1":true,"columnsStartAt1":true}}),
         json!({"seq":2,"type":"request","command":"launch","arguments":{"program":source}}),
-        json!({"seq":3,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":source},"breakpoints":[{"line":4}]}}),
+        json!({"seq":3,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":source},"breakpoints":[{"line":breakpoint_line}]}}),
         json!({"seq":4,"type":"request","command":"configurationDone","arguments":{}}),
         json!({"seq":5,"type":"request","command":"variables","arguments":{"variablesReference":5}}),
         json!({"seq":6,"type":"request","command":"variables","arguments":{"variablesReference":10000}}),
@@ -8243,6 +8266,15 @@ task get id
                 .expect("task variables should be an array")
                 .iter()
                 .any(|variable| variable["name"] == "0" && variable["variablesReference"] == 10000)
+    }));
+    assert!(messages.iter().any(|message| {
+        message["type"] == "response"
+            && message["command"] == "variables"
+            && message["body"]["variables"]
+                .as_array()
+                .expect("task detail variables should be an array")
+                .iter()
+                .any(|variable| variable["name"] == "frame_count" && variable["value"] != "0")
     }));
     assert!(messages.iter().any(|message| {
         message["type"] == "response"

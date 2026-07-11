@@ -1428,7 +1428,7 @@ impl Vm {
             self.pause_before_instruction(frame, instruction)?;
             let stack_before = self.debug_enabled.then(|| self.stack.clone());
             let source = self.debug_enabled.then(|| source_label(&instruction.span));
-            let opcode = self.debug_enabled.then(|| format!("{:?}", &instruction.op));
+            let opcode = self.debug_enabled.then(|| format!("{:?}", instruction.op));
 
             let result = self.execute_instruction(&instruction.op, chunk, allow_return);
 
@@ -1452,7 +1452,7 @@ impl Vm {
                         self.last_error_site = Some(RuntimeErrorSite {
                             frame: frame.to_string(),
                             span: instruction.span.clone(),
-                            opcode: format!("{:?}", &instruction.op),
+                            opcode: format!("{:?}", instruction.op),
                         });
                     }
                     if self.debug_enabled {
@@ -1628,7 +1628,7 @@ impl Vm {
         let task_frame = DebugTaskFrame {
             frame: frame.to_string(),
             source: source_label(&instruction.span),
-            opcode: format!("{:?}", &instruction.op),
+            opcode: format!("{:?}", instruction.op),
             stack: self.stack.clone(),
             locals: self
                 .local_variables
