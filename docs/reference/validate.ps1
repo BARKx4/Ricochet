@@ -59,23 +59,25 @@ if (-not $PackageMode -and -not (Test-Path -LiteralPath $noJekyllPath -PathType 
 
 $repoRoot = Split-Path -Parent $docsRoot
 $publicMarkdownFiles = @()
-$gitListSucceeded = $false
-try {
-    $trackedMarkdown = @(& git -C $repoRoot ls-files -- "docs/*.md" "docs/**/*.md" 2>$null)
-    if ($LASTEXITCODE -eq 0) {
-        $gitListSucceeded = $true
-        $publicMarkdownFiles = @(
-            $trackedMarkdown |
-                Where-Object {
-                    $_ -and $_ -ne "docs/feature-map.md" -and -not $_.StartsWith("docs/superpowers/")
-                } |
-                ForEach-Object {
-                    Get-Item -LiteralPath (Join-Path $repoRoot $_)
-                }
-        )
+$gitListSucceeded = [bool]$PackageMode
+if (-not $PackageMode) {
+    try {
+        $trackedMarkdown = @(& git -C $repoRoot ls-files -- "docs/*.md" "docs/**/*.md" 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $gitListSucceeded = $true
+            $publicMarkdownFiles = @(
+                $trackedMarkdown |
+                    Where-Object {
+                        $_ -and $_ -ne "docs/feature-map.md" -and -not $_.StartsWith("docs/superpowers/")
+                    } |
+                    ForEach-Object {
+                        Get-Item -LiteralPath (Join-Path $repoRoot $_)
+                    }
+            )
+        }
+    } catch {
+        $publicMarkdownFiles = @()
     }
-} catch {
-    $publicMarkdownFiles = @()
 }
 
 if (-not $gitListSucceeded) {

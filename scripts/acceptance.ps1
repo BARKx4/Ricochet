@@ -49,6 +49,10 @@ $windowsInstallerContract = Join-Path $Root "scripts\test-windows-installer-cont
 Write-Host "==> Windows installer ownership contract tests"
 & $windowsInstallerContract
 
+$packagedDocsContract = Join-Path $Root "scripts\test-packaged-docs-contract.ps1"
+Write-Host "==> packaged docs link contract tests"
+& $packagedDocsContract
+
 $releaseVersionValidator = Join-Path $Root "scripts\validate-release-version.ps1"
 Write-Host "==> release version consistency validation"
 & $releaseVersionValidator
