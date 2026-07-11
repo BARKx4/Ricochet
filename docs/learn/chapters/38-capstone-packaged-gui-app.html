@@ -193,10 +193,11 @@ PASS LedgerTest.testMarkReviewedAction
 <pre><code>powershell -ExecutionPolicy Bypass -File examples/learn/38-capstone-gui/personal_ledger/run-package.ps1
 </code></pre>
 <p>Expected output:</p>
-<pre><code>packaged E:\LLM Projects\Ricochet\examples\learn\38-capstone-gui\personal_ledger\build\personal-ledger.exe
+<pre><code>packaged &lt;absolute-repository-path&gt;\examples\learn\38-capstone-gui\personal_ledger\build\personal-ledger.exe
 packaged artifact: personal-ledger.exe
 artifact bytes: 32235143
 </code></pre>
+<p><code>&lt;absolute-repository-path&gt;</code> stands for the full path to your local Ricochet checkout.</p>
 <p>The exact byte count can vary. The important part is that the package command
 creates a nonzero executable under the example’s ignored <code>build/</code> directory.</p>
 <h2>How to read the example</h2>

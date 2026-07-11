@@ -35,11 +35,12 @@ To try it locally, open this folder as an extension development host:
 ```powershell
 cd .\editors\vscode
 npm install
-code --extensionDevelopmentPath .
+code . --extensionDevelopmentPath .
 ```
 
 If `rco` is not on `PATH`, set `ricochet.server.path` to the built executable,
-for example `E:\LLM Projects\Ricochet\target\debug\rco.exe`.
+for example `..\..\target\debug\rco.exe` relative to the opened
+`editors\vscode` workspace.
 
 From the repository root, run `rco words --check` after adding or renaming
 built-in words. It compares the reference docs, TextMate grammar, and curated

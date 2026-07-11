@@ -11162,7 +11162,7 @@ end
     #[test]
     fn expand_module_id_for_external_absolute_paths_omits_machine_local_prefix() {
         let path = if cfg!(windows) {
-            Path::new(r"C:\Users\lotti\AppData\Local\Temp\macro_test.rco")
+            Path::new(r"C:\external\macro_test.rco")
         } else {
             Path::new("/tmp/macro_test.rco")
         };
