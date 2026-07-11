@@ -138,8 +138,9 @@ $artifact = Get-Item -LiteralPath $output
 <pre><code>powershell -ExecutionPolicy Bypass -File examples/learn/34-packaging-release-and-updates/run-lab.ps1
 </code></pre>
 <p>The first line comes from <code>rco package</code>:</p>
-<pre><code>packaged examples/learn/34-packaging-release-and-updates/build/learn-task-dashboard.exe
+<pre><code>packaged &lt;absolute-repository-path&gt;\examples\learn\34-packaging-release-and-updates\build\learn-task-dashboard.exe
 </code></pre>
+<p><code>&lt;absolute-repository-path&gt;</code> stands for the full path to your local Ricochet checkout.</p>
 <p>The wrapper then confirms the local artifact:</p>
 <pre><code>packaged artifact: learn-task-dashboard.exe
 artifact bytes: 40573898
