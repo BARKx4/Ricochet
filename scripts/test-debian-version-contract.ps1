@@ -20,6 +20,10 @@ function Assert-ContractText {
     }
 }
 
+Assert-ContractText $linuxPackager 'validate_semver\(\)' "Official Linux packaging does not define input SemVer validation."
+Assert-ContractText $linuxPackager '(?m)^validate_semver "\$version"\s*$' "Official Linux packaging does not reject invalid versions before deriving artifact paths."
+Assert-ContractText $linuxPackager '\^\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0-9\]\*\)' "Official Linux packaging does not anchor the numeric SemVer core."
+Assert-ContractText $linuxPackager 'numeric prerelease identifiers must not contain leading zeroes' "Official Linux packaging does not reject invalid numeric prerelease identifiers."
 Assert-ContractText $linuxPackager 'semver_to_debian_version\(\)' "Official Linux packaging does not define SemVer-to-Debian conversion."
 Assert-ContractText $linuxPackager 'debian_version="\$\(semver_to_debian_version "\$version"\)"' "Official Linux packaging does not derive a Debian version from the Ricochet SemVer."
 Assert-ContractText $linuxPackager 'deb_path="\$out_dir_path/ricochet_\$\{debian_version\}_amd64\.deb"' "Official Debian artifact naming does not use the Debian version."

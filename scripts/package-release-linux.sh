@@ -101,6 +101,29 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
+validate_semver() {
+  local candidate="$1"
+  local semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+  if [[ ! "$candidate" =~ $semver_pattern ]]; then
+    echo "Release version must be valid SemVer: $candidate" >&2
+    return 1
+  fi
+
+  local precedence="${candidate%%+*}"
+  if [[ "$precedence" == *-* ]]; then
+    local prerelease="${precedence#*-}"
+    local identifier
+    local identifiers=()
+    IFS='.' read -r -a identifiers <<< "$prerelease"
+    for identifier in "${identifiers[@]}"; do
+      if [[ "$identifier" =~ ^[0-9]+$ && "$identifier" != "0" && "$identifier" == 0* ]]; then
+        echo "Release version numeric prerelease identifiers must not contain leading zeroes: $candidate" >&2
+        return 1
+      fi
+    done
+  fi
+}
+
 semver_to_debian_version() {
   local semver="$1"
   local precedence="$semver"
@@ -118,6 +141,7 @@ semver_to_debian_version() {
   fi
 }
 
+validate_semver "$version"
 debian_version="$(semver_to_debian_version "$version")"
 
 assert_new_path() {

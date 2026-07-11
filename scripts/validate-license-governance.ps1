@@ -390,6 +390,14 @@ try {
     $Failures.Add("${debianVersionContractPath}: $($_.Exception.Message)") | Out-Null
 }
 
+$ciWorkflowContractPath = "scripts/test-ci-workflow-contract.ps1"
+[void](Read-RequiredFile $ciWorkflowContractPath)
+try {
+    & (Join-Path $Root $ciWorkflowContractPath)
+} catch {
+    $Failures.Add("${ciWorkflowContractPath}: $($_.Exception.Message)") | Out-Null
+}
+
 $releaseWorkflowPath = ".github/workflows/release.yml"
 $releaseWorkflow = Read-RequiredFile $releaseWorkflowPath
 Require-Match $releaseWorkflowPath $releaseWorkflow 'cmp LICENSE "\$package_dir/LICENSE"' 'compare the Linux archive license with the repository license'

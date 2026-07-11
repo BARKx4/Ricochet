@@ -187,6 +187,7 @@ $publishJob = Get-JobText -Name "publish-release" -NextName ""
 
 $windowsPortableStep = Get-StepText -JobText $windowsJob -Name "Smoke-test package executable"
 $windowsInstallerStep = Get-StepText -JobText $windowsJob -Name "Smoke-test Windows installer"
+$linuxDependenciesStep = Get-StepText -JobText $linuxJob -Name "Install Linux GUI build dependencies"
 $linuxSmokeStep = Get-StepText -JobText $linuxJob -Name "Smoke-test package executable"
 $macosSmokeStep = Get-StepText -JobText $macosJob -Name "Smoke-test package executable"
 
@@ -228,6 +229,18 @@ Require-PatternSet `
     -Description "Manual Linux packaging must run once on ubuntu-latest after version resolution."
 Require-Pattern $linuxJob 'args=\(--target linux-x64 ' "Linux package job must build the linux-x64 logical target."
 Reject-Pattern $linuxJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Linux package job."
+Require-PatternSet `
+    -Text $linuxDependenciesStep `
+    -Patterns @(
+        '(?m)^          sudo apt-get update\r?$',
+        '(?m)^          sudo apt-get install -y libwebkit2gtk-4\.1-dev libxdo-dev\r?$'
+    ) `
+    -Description "Linux release packaging must install the native WebKitGTK and libxdo build dependencies."
+$linuxDependenciesIndex = $linuxJob.IndexOf("      - name: Install Linux GUI build dependencies", [System.StringComparison]::Ordinal)
+$linuxBuildIndex = $linuxJob.IndexOf("      - name: Build release package", [System.StringComparison]::Ordinal)
+if ($linuxDependenciesIndex -lt 0 -or $linuxBuildIndex -le $linuxDependenciesIndex) {
+    Add-Failure "Linux GUI build dependencies must be installed before release packaging."
+}
 
 Require-PatternSet `
     -Text $macosJobHeader `

@@ -556,6 +556,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux GUI build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev
+
       - name: Import Linux GPG signing key
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
         shell: bash
