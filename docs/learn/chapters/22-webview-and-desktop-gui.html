@@ -107,7 +107,12 @@ with <code>rco gui</code>.</p>
 <h2>Vocabulary and commands</h2>
 <p>Primary coverage: <code>webview_text</code>, <code>webview_heading</code>, <code>webview_button</code>,
 <code>webview_action</code>, <code>webview_input</code>, <code>webview_link</code>, <code>webview_container</code>,
-<code>webview_window</code>, <code>webview_window_state</code>, the <code>webview_document</code> alias,
+<code>web_command</code>, <code>web_command_button</code>, <code>web_toolbar</code>, <code>web_sidebar</code>,
+<code>web_tabs</code>, <code>web_split_pane</code>, <code>web_table</code>, <code>web_form_row</code>,
+<code>web_status_bar</code>, <code>web_menu</code>, <code>web_menu_bar</code>, <code>webview_window</code>,
+<code>webview_window_state</code>, <code>webview_window_app</code>, <code>webview_open_file</code>,
+<code>webview_save_file</code>, <code>webview_choose_folder</code>, <code>webview_clipboard_read</code>,
+<code>webview_clipboard_write</code>, <code>webview_open_url</code>, the <code>webview_document</code> alias,
 <code>rco gui</code>, and <code>rco package --gui</code>.</p>
 <h2>Guided example</h2>
 <p>Open <code>examples/learn/22-gui/notes_gui.rco</code> and run the non-interactive self-check:</p>
@@ -151,6 +156,28 @@ $actions &quot;Save &lt;Now&gt;&quot; &quot;save-note&quot; &quot;save_note&quot
 state or actions:</p>
 <pre><code>&quot;Plain Notes&quot; $body webview_window value plainDocument var
 </code></pre>
+<p>The app-kit helpers compose the same escaped fragments into desktop-oriented
+toolbars, sidebars, tabs, split panes, tables, form rows, and status bars. Native
+menu metadata uses the same action IDs as document buttons:</p>
+<pre><code>commands array
+$commands &quot;save-note&quot; &quot;Save Note&quot; &quot;Ctrl+S&quot; web_command push drop
+menus array
+$menus &quot;File&quot; $commands web_menu push drop
+$menus web_menu_bar menuBar var
+
+&quot;Save Note&quot; &quot;save-note&quot; web_command_button saveButton var
+$saveButton web_toolbar toolbar var
+&quot;Notes&quot; webview_text web_sidebar sidebar var
+$sidebar $toolbar web_split_pane appBody var
+&quot;Ready&quot; web_status_bar statusBar var
+$appBody $statusBar concat appBody set
+
+&quot;Ricochet Notes&quot; $appBody $state $actions $menuBar webview_window_app value document var
+</code></pre>
+<p>Shell-service words open native file, save-file, and folder pickers; read or
+write clipboard text; and open an external URL. They return result values, so
+check <code>ok?</code> before reading <code>value</code>. Keep these calls in explicit user
+actions because they cross from Ricochet state into operating-system UI.</p>
 <h2>How to read the example</h2>
 <p>Trace one representative line from left to right. Identify the values placed on the stack, the word that consumes them, and the result or binding that carries the work forward.</p>
 <h2>Try it</h2>
