@@ -73,12 +73,12 @@
 </ul>
 <h2 id="verification">Verification</h2>
 <p>From the repository root, run:</p>
-<pre class="code-block"><code class="language-powershell">rtk cargo fmt --all -- --check
-rtk cargo clippy --workspace --all-targets -- -D warnings
-rtk cargo test --workspace
+<pre class="code-block"><code class="language-powershell">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
-rtk cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json</code></pre>
+cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json</code></pre>
 <p>For release-facing changes, also run:</p>
 <pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
 <h2 id="common-drift-symptoms">Common Drift Symptoms</h2>
