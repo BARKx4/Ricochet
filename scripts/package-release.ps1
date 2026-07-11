@@ -416,7 +416,9 @@ $InstallerPath = Join-Path $OutDirPath "$PackageName-setup.exe"
 $ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS-$Target.txt"
 $SigningReportPath = Join-Path $OutDirPath "SIGNING-$Target.txt"
 $ManifestPath = Join-Path $OutDirPath "ARTIFACTS-$Target.json"
-$NsisInstallManifestPath = Join-Path $OutDirPath "$PackageName-installed-files.nsh"
+$NsisManifestEvidenceRoot = Join-Path $RepoRoot "target\nsis-install-manifests"
+$NsisManifestEvidenceDir = Join-Path $NsisManifestEvidenceRoot ([guid]::NewGuid().ToString("N"))
+$NsisInstallManifestPath = Join-Path $NsisManifestEvidenceDir "$PackageName-installed-files.nsh"
 $LegacyRcVersion = "0.1.19-rc." + "4"
 $NsisLegacyCleanupPath = Join-Path $RepoRoot "packaging\windows\legacy-v$LegacyRcVersion-files.nsh"
 

@@ -44,12 +44,16 @@ Reject-Pattern $nsis '(?i)RMDir\s+/r' 'NSIS must never recursively remove the in
 
 foreach ($requirement in @(
         @('function Write-NsisInstallManifest', 'Windows packager must define exact NSIS manifest generation.'),
+        @('$NsisManifestEvidenceRoot = Join-Path $RepoRoot "target\nsis-install-manifests"', 'Windows packager must retain generated NSIS include evidence outside the release output directory.'),
+        @('$NsisManifestEvidenceDir = Join-Path $NsisManifestEvidenceRoot ([guid]::NewGuid().ToString("N"))', 'Windows packager must isolate retained NSIS evidence for each packaging run.'),
+        @('$NsisInstallManifestPath = Join-Path $NsisManifestEvidenceDir "$PackageName-installed-files.nsh"', 'Windows packager must bind the generated include to the internal evidence directory.'),
         @('Write-NsisInstallManifest -PackageDir $PackageDir -Path $NsisInstallManifestPath', 'Windows packager must generate the uninstall manifest from the staged package.'),
         @('"/DINSTALL_MANIFEST=$NsisInstallManifestPath"', 'Windows packager must pass the generated manifest to NSIS.'),
         @('"/DLEGACY_CLEANUP_MANIFEST=$NsisLegacyCleanupPath"', 'Windows packager must pass the reviewed rc.4 cleanup manifest to NSIS.')
     )) {
     Require-Text $packager $requirement[0] $requirement[1]
 }
+Reject-Pattern $packager '(?m)^\$NsisInstallManifestPath\s*=\s*Join-Path\s+\$OutDirPath\b' 'Generated internal NSIS include files must not remain as top-level release output files.'
 
 $expectedLegacyFiles = @(
     'rco-app.exe',
