@@ -324,7 +324,7 @@ jobs:
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
           test -f "$tmp/webview-ui_${version}_amd64.deb"
           dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
-          grep -q 'Depends: xdg-utils' "$tmp/webview-ui-deb-info.txt"
+          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0' "$tmp/webview-ui-deb-info.txt"
           dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"
