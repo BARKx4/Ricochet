@@ -36,6 +36,10 @@ metadata; for example, Ricochet `0.1.19-rc.5` is
 `ricochet_0.1.19~rc.5_amd64.deb`. This keeps the candidate older than the
 eventual stable `0.1.19` package so normal upgrades work.
 
+The Debian package declares the current Linux launcher runtime packages:
+`libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `libxdo3`. Install those packages
+manually before using the portable tarball.
+
 Portable Linux tarballs are also available. Extract the tarball and run
 `./install.sh`, or add the extracted folder to your `PATH`.
 

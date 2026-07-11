@@ -7144,6 +7144,18 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         &package_output,
     );
 
+    let dynamic_dependencies = Command::new("readelf")
+        .arg("-d")
+        .arg(&output_path)
+        .output()
+        .expect("readelf should inspect the packaged Linux launcher");
+    assert_run_success_for("readelf -d", "linux-gui-app", &dynamic_dependencies);
+    let dynamic_dependencies_stdout = String::from_utf8_lossy(&dynamic_dependencies.stdout);
+    assert!(
+        dynamic_dependencies_stdout.contains("Shared library: [libxdo.so.3]"),
+        "packaged Linux launcher should prove its direct libxdo runtime dependency, got:\n{dynamic_dependencies_stdout}"
+    );
+
     let tar_path = root.join("linux-gui-app-v1.2.3-rc.4-linux-x64.tar.gz");
     let tar_list = Command::new("tar")
         .arg("-tzf")
@@ -7218,6 +7230,21 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         .trim()
         .to_string();
     assert_eq!(deb_version, "1.2.3~rc.4");
+    let deb_dependencies_output = Command::new("dpkg-deb")
+        .arg("--field")
+        .arg(&deb_path)
+        .arg("Depends")
+        .output()
+        .expect("dpkg-deb should report package dependencies");
+    assert_run_success_for(
+        "dpkg-deb --field Depends",
+        "linux-gui-app",
+        &deb_dependencies_output,
+    );
+    let deb_dependencies = String::from_utf8_lossy(&deb_dependencies_output.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(deb_dependencies, "libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3");
     let prerelease_order = Command::new("dpkg")
         .arg("--compare-versions")
         .arg(&deb_version)

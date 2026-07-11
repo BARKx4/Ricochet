@@ -72,6 +72,7 @@
               <li>The CI workflow is configured with a disposable Windows installer smoke: it builds the NSIS installer, installs to a unique runner-temporary location, validates installed binaries and version output, checks documentation, examples, and notices, exercises WebView packaging and export outside the checkout, inspects per-user registration and shortcuts, then runs the normal silent uninstaller and checks cleanup.</li>
               <li>Package validation requires the third-party notice bundles at their exact portable, installer, Debian, and macOS package paths.</li>
               <li>Debian prerelease filenames and control metadata use <code>0.1.19~rc.5</code> ordering while the Ricochet release identity remains <code>0.1.19-rc.5</code>, so the candidate upgrades normally to stable <code>0.1.19</code>.</li>
+              <li>Every current Debian launcher declares the GTK 3, WebKitGTK 4.1, and <code>libxdo3</code> runtime dependencies required by its ELF metadata, with clean-runner checks covering both basic and WebView downstream packages.</li>
               <li>SemVer prerelease tags such as <code>v0.1.19-rc.5</code> remain GitHub prereleases, are not marked latest, use dry-run signing and notarization, and write <code>UPDATE-CHANNEL-candidate.json</code> with SHA-256 verification metadata.</li>
             </ul>
 

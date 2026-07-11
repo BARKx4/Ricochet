@@ -40,6 +40,10 @@ function Require-Pattern {
     }
 }
 
+$linuxVersionGuard = Get-StepText "Test Linux release version guard"
+Require-Pattern $linuxVersionGuard "(?m)^        if: matrix\.os == 'ubuntu-latest'\r?$" "Linux release version behavior must run only on the Ubuntu matrix job."
+Require-Pattern $linuxVersionGuard '(?m)^        run: bash scripts/test-linux-release-version\.sh\r?$' "Ubuntu CI must execute the Linux release version behavior test."
+
 $linuxDependencies = Get-StepText "Install Linux GUI build dependencies"
 Require-Pattern $linuxDependencies "(?m)^        if: matrix\.os == 'ubuntu-latest'\r?$" "Linux GUI dependencies must install only on the Ubuntu matrix job."
 Require-Pattern $linuxDependencies '(?m)^          sudo apt-get update\r?$' "Linux GUI dependency setup must refresh apt metadata."
@@ -50,9 +54,10 @@ Require-Pattern $cargoAbout "(?m)^        if: matrix\.os == 'windows-latest'\r?$
 Require-Pattern $cargoAbout '(?m)^          cargo install cargo-about --version 0\.9\.1 --locked --features cli\r?$' "CI must install the exact cargo-about 0.9.1 command required by acceptance."
 
 $linuxDependencyIndex = $workflow.IndexOf("      - name: Install Linux GUI build dependencies", [System.StringComparison]::Ordinal)
+$linuxVersionGuardIndex = $workflow.IndexOf("      - name: Test Linux release version guard", [System.StringComparison]::Ordinal)
 $formatIndex = $workflow.IndexOf("      - name: Check formatting", [System.StringComparison]::Ordinal)
-if ($linuxDependencyIndex -lt 0 -or $formatIndex -le $linuxDependencyIndex) {
-    Add-Failure "Linux native build dependencies must be installed before formatting, clippy, and tests."
+if ($linuxVersionGuardIndex -lt 0 -or $linuxDependencyIndex -le $linuxVersionGuardIndex -or $formatIndex -le $linuxDependencyIndex) {
+    Add-Failure "Linux version guards and native dependencies must run in order before formatting, clippy, and tests."
 }
 
 $cargoAboutIndex = $workflow.IndexOf("      - name: Install cargo-about", [System.StringComparison]::Ordinal)

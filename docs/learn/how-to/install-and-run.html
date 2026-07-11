@@ -93,6 +93,7 @@
 <pre><code class="language-bash">sudo apt install ./ricochet_X.Y.Z_amd64.deb
 </code></pre>
 <p>Prerelease Debian artifacts use Debian ordering in both the filename and package metadata. For example, Ricochet <code>0.1.19-rc.5</code> is <code>ricochet_0.1.19~rc.5_amd64.deb</code>, which sorts before the eventual stable <code>0.1.19</code> package so normal upgrades work.</p>
+<p>The Debian package declares <code>libgtk-3-0</code>, <code>libwebkit2gtk-4.1-0</code>, and <code>libxdo3</code>. Install those runtime packages manually before using the portable Linux tarball.</p>
 <p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
 <p>On macOS, choose the unsigned tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. These beta tarballs are not notarized by Apple.</p>
 <h2>Check your install</h2>
@@ -127,7 +128,7 @@ rco serve
 rco package examples/webview_ui.rco --gui --output WebviewUi.exe
 rco package examples/learn/38-capstone-gui/personal_ledger --gui --mvc --output PersonalLedger.exe
 </code></pre>
-<p><code>rco gui</code> opens <code>webview_window</code>, <code>webview_window_state</code>, and <code>webview_window_app</code> documents in native embedded WebView windows on Windows, macOS, and Linux. <code>rco package --gui</code> embeds the same app in the <code>rco-gui</code> launcher, and <code>--gui --mvc</code> packages an MVC project as a local-server desktop GUI app. Linux GUI apps require GTK 3 and WebKitGTK 4.1 runtime libraries.</p>
+<p><code>rco gui</code> opens <code>webview_window</code>, <code>webview_window_state</code>, and <code>webview_window_app</code> documents in native embedded WebView windows on Windows, macOS, and Linux. <code>rco package --gui</code> embeds the same app in the <code>rco-gui</code> launcher, and <code>--gui --mvc</code> packages an MVC project as a local-server desktop GUI app. Current Linux launchers require GTK 3, WebKitGTK 4.1, and libxdo 3 runtime libraries.</p>
 
       <div class="footer">Modernized learning-guide draft. Use the repository reference for exact word signatures and latest command details.</div>
     </main>

@@ -553,6 +553,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@v6
 
+      - name: Test Linux release version guard
+        shell: bash
+        run: bash scripts/test-linux-release-version.sh
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -616,6 +620,9 @@ jobs:
           test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           grep -q '<project_license>Apache-2.0</project_license>' "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
+          for binary in rco rco-gui ricochet; do
+            readelf -d "$package_dir/$binary" | grep -q 'Shared library: \[libxdo\.so\.3\]'
+          done
           dpkg-deb --contents "$official_deb" > "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/applications/ricochet-repl.desktop' "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml' "$tmp/ricochet-deb-contents.txt"
@@ -658,10 +665,12 @@ jobs:
             --package-version "$version"
           "$tmp/basic-oop" > "$tmp/basic-oop.out"
           grep -q 'ada@example.com' "$tmp/basic-oop.out"
+          readelf -d "$tmp/basic-oop" | grep -q 'Shared library: \[libxdo\.so\.3\]'
           test -f "$tmp/basic-oop-v${version}-linux-x64.tar.gz"
           test -f "$tmp/basic-oop_${debian_version}_amd64.deb"
           dpkg-deb --info "$tmp/basic-oop_${debian_version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
           grep -q 'Package: basic-oop' "$tmp/basic-oop-deb-info.txt"
+          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3' "$tmp/basic-oop-deb-info.txt"
 
           "$package_dir/rco" package examples/webview_ui.rco \
             --gui \
@@ -672,9 +681,10 @@ jobs:
             --package-license Apache-2.0
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
+          readelf -d "$tmp/webview-ui" | grep -q 'Shared library: \[libxdo\.so\.3\]'
           test -f "$tmp/webview-ui_${debian_version}_amd64.deb"
           dpkg-deb --info "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
-          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0' "$tmp/webview-ui-deb-info.txt"
+          grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3' "$tmp/webview-ui-deb-info.txt"
           dpkg-deb --contents "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"

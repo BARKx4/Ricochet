@@ -705,12 +705,7 @@ fn create_linux_tarball(
     fs::write(
         package_dir.join("README.txt"),
         format!(
-            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n{}",
-            if gui {
-                "\nLinux GUI apps open embedded WebView windows and require GTK 3 plus WebKitGTK 4.1 runtime libraries.\n"
-            } else {
-                ""
-            }
+            "{description}\n\nCommands:\n  ./{name} --help\n  ./{name}\n\nInstall locally:\n  ./install.sh\n\nCurrent Linux launchers require GTK 3, WebKitGTK 4.1, and libxdo 3 runtime libraries.\n"
         ),
     )
     .with_context(|| format!("failed to write {}", package_dir.join("README.txt").display()))?;
@@ -802,12 +797,7 @@ fn create_linux_deb(
     fs::write(
         control_dir.join("control"),
         format!(
-            "Package: {name}\nVersion: {debian_version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
-            if gui {
-                "Depends: libgtk-3-0, libwebkit2gtk-4.1-0\n"
-            } else {
-                ""
-            }
+            "Package: {name}\nVersion: {debian_version}\nSection: devel\nPriority: optional\nArchitecture: amd64\nDepends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3\nMaintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n"
         ),
     )
     .with_context(|| format!("failed to write {}", control_dir.join("control").display()))?;

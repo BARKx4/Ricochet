@@ -16,6 +16,11 @@ jobs:
       - name: Check out
         uses: actions/checkout@v6
 
+      - name: Test Linux release version guard
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/test-linux-release-version.sh
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:

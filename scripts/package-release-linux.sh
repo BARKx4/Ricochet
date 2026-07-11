@@ -554,7 +554,7 @@ Version: $debian_version
 Section: devel
 Priority: optional
 Architecture: amd64
-Depends: libgtk-3-0, libwebkit2gtk-4.1-0
+Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libxdo3
 Maintainer: Ricochet <noreply@ricochet.today>
 Installed-Size: $installed_size
 Description: Ricochet stack-based web language CLI

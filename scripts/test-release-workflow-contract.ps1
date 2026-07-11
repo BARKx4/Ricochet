@@ -187,6 +187,7 @@ $publishJob = Get-JobText -Name "publish-release" -NextName ""
 
 $windowsPortableStep = Get-StepText -JobText $windowsJob -Name "Smoke-test package executable"
 $windowsInstallerStep = Get-StepText -JobText $windowsJob -Name "Smoke-test Windows installer"
+$linuxVersionGuardStep = Get-StepText -JobText $linuxJob -Name "Test Linux release version guard"
 $linuxDependenciesStep = Get-StepText -JobText $linuxJob -Name "Install Linux GUI build dependencies"
 $linuxSmokeStep = Get-StepText -JobText $linuxJob -Name "Smoke-test package executable"
 $macosSmokeStep = Get-StepText -JobText $macosJob -Name "Smoke-test package executable"
@@ -229,6 +230,7 @@ Require-PatternSet `
     -Description "Manual Linux packaging must run once on ubuntu-latest after version resolution."
 Require-Pattern $linuxJob 'args=\(--target linux-x64 ' "Linux package job must build the linux-x64 logical target."
 Reject-Pattern $linuxJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Linux package job."
+Require-Pattern $linuxVersionGuardStep '(?m)^        run: bash scripts/test-linux-release-version\.sh\r?$' "Linux release packaging must execute the malformed-version behavior test."
 Require-PatternSet `
     -Text $linuxDependenciesStep `
     -Patterns @(
@@ -237,9 +239,10 @@ Require-PatternSet `
     ) `
     -Description "Linux release packaging must install the native WebKitGTK and libxdo build dependencies."
 $linuxDependenciesIndex = $linuxJob.IndexOf("      - name: Install Linux GUI build dependencies", [System.StringComparison]::Ordinal)
+$linuxVersionGuardIndex = $linuxJob.IndexOf("      - name: Test Linux release version guard", [System.StringComparison]::Ordinal)
 $linuxBuildIndex = $linuxJob.IndexOf("      - name: Build release package", [System.StringComparison]::Ordinal)
-if ($linuxDependenciesIndex -lt 0 -or $linuxBuildIndex -le $linuxDependenciesIndex) {
-    Add-Failure "Linux GUI build dependencies must be installed before release packaging."
+if ($linuxVersionGuardIndex -lt 0 -or $linuxDependenciesIndex -le $linuxVersionGuardIndex -or $linuxBuildIndex -le $linuxDependenciesIndex) {
+    Add-Failure "Linux version guards and GUI build dependencies must run in order before release packaging."
 }
 
 Require-PatternSet `
