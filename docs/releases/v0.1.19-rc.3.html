@@ -39,13 +39,17 @@
           </aside>
           <article class="guide-content">
 <p>Date: 2026-06-25</p>
-<p>Ricochet v0.1.19-rc.3 was an experimental desktop renderer release candidate on the v0.1.19 train. That experiment was withdrawn before 1.0; current desktop UI work is centered on <code>rco gui</code>, <code>rco package --gui</code>, and the WebView runtime. This historical page is intentionally condensed so current docs do not teach the withdrawn path.</p>
+<p>Ricochet v0.1.19-rc.3 is the native app UI release candidate on the v0.1.19 train. It supersedes v0.1.19-rc.2 without replacing that immutable candidate tag, and carries forward the rc.2 security hardening fixes.</p>
 <h2 id="highlights">Highlights</h2>
 <ul>
-<li>The experimental desktop renderer work from this candidate is no longer part of the current release surface.</li>
-<li>Current release packages include <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>.</li>
-<li>Desktop UI examples should use WebView documents and the <code>rco-gui</code> launcher.</li>
-<li>Audit policy continued to record known transitive advisory state explicitly, so <code>cargo audit --deny warnings</code> remained intentional rather than surprising.</li>
+<li><code>@ricochet/ui</code> now provides the backend-neutral native app contract for windows, controls, events, commands, tree views, drag/drop metadata, data grids, and rich text.</li>
+<li><code>@ricochet/winui</code> and <code>@ricochet/slint</code> are first-party backend packages with scoped native option helpers, keeping app code portable across native renderers.</li>
+<li><code>rco app PATH --backend winui</code> can launch the Windows App SDK / WinUI host when the host is built or provided, while JSON export and replay remain the stable non-window smoke boundary.</li>
+<li><code>rco app PATH --backend slint</code> now launches the built-in Slint renderer, and <code>--slint-validate-only</code> compiles the generated native renderer document without opening a window.</li>
+<li><code>rco package PATH --app --backend winui|slint</code> creates native app executables through the <code>rco-app</code> launcher. Packaged WinUI apps keep JSON export/replay smoke validation; packaged Slint apps also support <code>RICOCHET_SLINT_VALIDATE_ONLY=1</code>.</li>
+<li>Windows, Linux, and macOS release packages now include and validate <code>rco-app</code> alongside <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, so packaged native app executables have their launcher in the release bundle.</li>
+<li>The <code>native_showcase_app.rco</code> release desk combines commands, summary state, a tree view with drag/drop metadata, a data grid, rich text, and stateful update handling in one useful app.</li>
+<li>Audit policy now records Slint's transitive <code>typed-index-collections</code> / <code>bincode</code> compiler dependency warning explicitly, so `cargo audit --deny warnings` remains green while still failing on new advisories.</li>
 </ul>
 <h2 id="security-fixes-carried-forward">Security Fixes Carried Forward</h2>
 <ul>
@@ -60,8 +64,9 @@
 </ul>
 <h2 id="current-boundaries">Current Boundaries</h2>
 <ul>
-<li>The experimental renderer path described by this historical candidate was withdrawn before 1.0.</li>
-<li>Use the current WebView release surface for desktop UI work.</li>
+<li>WinUI live rendering is Windows-only and depends on the WinUI host being built or supplied with <code>--winui-host</code> / <code>RICOCHET_WINUI_HOST</code>.</li>
+<li>The Slint renderer is a v1 native projection with real native buttons for click/command dispatch and readable projected content for richer controls. Fuller retained-control parity can iterate behind the same backend contract.</li>
+<li>Data-grid and rich-text helpers are useful v1 app contracts, not spreadsheet or full word-processor implementations.</li>
 </ul>
 <h2 id="verification-checklist">Verification Checklist</h2>
 <p>Before tagging this candidate, run:</p>
@@ -78,8 +83,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-edito
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1
 
 cargo build -p ricochet_cli --bins
-.\target\debug\rco.exe gui examples\webview_ui.rco
-.\target\debug\rco.exe package examples\webview_ui.rco --gui --output (Join-Path $smoke "WebviewUi.exe")
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend winui --export-ui-json (Join-Path $smoke "native-showcase-winui.json")
+.\target\debug\rco.exe app packages\ricochet_ui\examples\native_showcase_app.rco --backend slint --slint-validate-only
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend winui --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseWinui.exe")
+$env:RICOCHET_APP_EXPORT_UI_JSON = Join-Path $smoke "packaged-winui.json"
+&amp; (Join-Path $smoke "NativeShowcaseWinui.exe")
+Remove-Item Env:\RICOCHET_APP_EXPORT_UI_JSON -ErrorAction SilentlyContinue
+.\target\debug\rco.exe package packages\ricochet_ui\examples\native_showcase_app.rco --app --backend slint --app-launcher .\target\debug\rco-app.exe --output (Join-Path $smoke "NativeShowcaseSlint.exe")
+$env:RICOCHET_SLINT_VALIDATE_ONLY = "1"
+&amp; (Join-Path $smoke "NativeShowcaseSlint.exe")
+Remove-Item Env:\RICOCHET_SLINT_VALIDATE_ONLY -ErrorAction SilentlyContinue
 
 $releaseOut = Join-Path $smoke "release-windows"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -SigningMode dry-run

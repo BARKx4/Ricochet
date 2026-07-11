@@ -423,6 +423,7 @@ copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
+copy_release_directory "$repo_root/docs/learn" "$package_dir/docs/learn"
 copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
 
 cat > "$package_dir/RELEASE.txt" <<EOF

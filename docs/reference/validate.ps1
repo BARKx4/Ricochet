@@ -1,5 +1,6 @@
 param(
-    [string]$Root = (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    [string]$Root = (Split-Path -Parent $MyInvocation.MyCommand.Path),
+    [switch]$PackageMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +53,7 @@ foreach ($file in $requiredFiles) {
 }
 
 $noJekyllPath = Join-Path $docsRoot ".nojekyll"
-if (-not (Test-Path -LiteralPath $noJekyllPath -PathType Leaf)) {
+if (-not $PackageMode -and -not (Test-Path -LiteralPath $noJekyllPath -PathType Leaf)) {
     $failures.Add("docs/.nojekyll is missing; GitHub Pages should serve the pre-rendered static HTML without Jekyll")
 }
 

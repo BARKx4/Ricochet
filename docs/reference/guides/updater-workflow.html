@@ -59,7 +59,7 @@
   -DistDir dist `
   -Channel candidate `
   -Version 0.1.19-rc.5</code></pre>
-          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle.</p>
+          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle. It then revalidates the channel against the finalized files before publication.</p>
 
           <h2 id="update-check-contract">Update Check Contract</h2>
           <p>A Ricochet-compatible updater fetches the channel over HTTPS, requires the expected schema and channel such as <code>stable</code> or <code>candidate</code>, rejects older or equal versions unless an operator explicitly chooses a rollback, selects the local platform target, downloads the referenced manifest and artifacts, verifies all SHA-256 values, then runs platform verification before install.</p>

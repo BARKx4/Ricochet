@@ -15,6 +15,11 @@ if ($parseErrors.Count -gt 0) {
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$windowsPackager = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "package-release.ps1"))
+$linuxPackager = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "package-release-linux.sh"))
+$macosPackager = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "package-release-macos.sh"))
+$validatorSource = [System.IO.File]::ReadAllText($validatorPath)
 $requiredFunctions = @(
     "Add-Error",
     "Assert-EntriesContain",
@@ -33,6 +38,34 @@ foreach ($functionName in $requiredFunctions) {
         continue
     }
     . ([scriptblock]::Create($definition.Extent.Text))
+}
+
+if ($windowsPackager -notmatch [regex]::Escape('Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\learn") -Destination (Join-Path $PackageDir "docs\learn")')) {
+    $failures.Add("Windows release packaging does not bundle docs/learn beside docs/reference.") | Out-Null
+}
+
+$linuxLearnCopies = [regex]::Matches($linuxPackager, [regex]::Escape('copy_release_directory "$repo_root/docs/learn"')).Count
+if ($linuxLearnCopies -ne 2) {
+    $failures.Add("Linux release packaging must bundle docs/learn in both the portable archive and Debian package; found $linuxLearnCopies copy operations.") | Out-Null
+}
+$linuxAssetCopies = [regex]::Matches($linuxPackager, [regex]::Escape('copy_release_directory "$repo_root/docs/assets"')).Count
+if ($linuxAssetCopies -ne 2) {
+    $failures.Add("Linux release packaging must bundle docs/assets in both the portable archive and Debian documentation layout; found $linuxAssetCopies copy operations.") | Out-Null
+}
+
+if ($macosPackager -notmatch [regex]::Escape('copy_release_directory "$repo_root/docs/learn" "$package_dir/docs/learn"')) {
+    $failures.Add("macOS release packaging does not bundle docs/learn beside docs/reference.") | Out-Null
+}
+
+foreach ($requiredLearnEntry in @(
+        '"docs/learn/index.html"',
+        '"*/docs/learn/index.html"',
+        '"usr/share/doc/ricochet/learn/index\.html$"',
+        '"usr/share/doc/ricochet/assets/ricochet-logo\.png$"'
+    )) {
+    if ($validatorSource -notmatch [regex]::Escape($requiredLearnEntry)) {
+        $failures.Add("Store packaging validation does not require Learn entry $requiredLearnEntry.") | Out-Null
+    }
 }
 
 foreach ($noticeName in @(

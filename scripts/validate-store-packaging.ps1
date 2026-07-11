@@ -367,6 +367,7 @@ switch ($Target) {
                     "RELEASE.txt",
                     "Ricochet Shell.cmd",
                     "docs/reference/index.html",
+                    "docs/learn/index.html",
                     "examples/basic-oop.rco",
                     "editors/vscode/*"
                 )
@@ -404,6 +405,7 @@ switch ($Target) {
                         "*/share/icons/hicolor/scalable/apps/ricochet.svg",
                         "*/share/metainfo/today.ricochet.rco.metainfo.xml",
                         "*/docs/reference/index.html",
+                        "*/docs/learn/index.html",
                         "*/examples/basic-oop.rco"
                     )
                     Assert-EntriesContainRegex $errors $entries (Split-Path -Leaf $archivePath) @(
@@ -429,6 +431,8 @@ switch ($Target) {
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/LICENSE$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_LICENSES\.html$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_NOTICES\.txt$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/assets/ricochet-logo\.png$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/learn/index\.html$"
                     Assert-DebExcludes $errors $contents $forbiddenDebPatterns
 
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
@@ -486,6 +490,7 @@ switch ($Target) {
                     "*/LICENSE",
                     "*/RELEASE.txt",
                     "*/docs/reference/index.html",
+                    "*/docs/learn/index.html",
                     "*/examples/basic-oop.rco",
                     "*/editors/vscode/*"
                 )

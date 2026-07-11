@@ -133,6 +133,57 @@ function Copy-ReleaseDirectory {
     }
 }
 
+function Write-NsisInstallManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $PackageDir,
+        [Parameter(Mandatory = $true)]
+        [string] $Path
+    )
+
+    $packageRoot = [System.IO.Path]::GetFullPath($PackageDir).TrimEnd("\", "/")
+    $lines = [System.Collections.Generic.List[string]]::new()
+
+    $toSafeRelativePath = {
+        param([string] $FullName)
+
+        $fullPath = [System.IO.Path]::GetFullPath($FullName)
+        $packagePrefix = $packageRoot + [System.IO.Path]::DirectorySeparatorChar
+        if (-not $fullPath.StartsWith($packagePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "NSIS manifest path is outside the staged package: $FullName"
+        }
+        $relative = $fullPath.Substring($packagePrefix.Length).Replace("/", "\")
+        if (
+            [System.IO.Path]::IsPathRooted($relative) -or
+            $relative -eq ".." -or
+            $relative.StartsWith("..\", [System.StringComparison]::Ordinal) -or
+            $relative.IndexOfAny([char[]]@("`r", "`n", '"', '$')) -ge 0
+        ) {
+            throw "Package path cannot be represented safely in an NSIS manifest: $relative"
+        }
+        return $relative
+    }
+
+    foreach ($file in Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Force | Sort-Object FullName) {
+        $relative = & $toSafeRelativePath $file.FullName
+        $lines.Add(('Delete "$INSTDIR\{0}"' -f $relative))
+    }
+    $lines.Add('Delete "$INSTDIR\.ricochet-install-owner"')
+    $lines.Add('Delete "$INSTDIR\Uninstall.exe"')
+
+    foreach ($directory in Get-ChildItem -LiteralPath $packageRoot -Recurse -Directory -Force | Sort-Object { $_.FullName.Length } -Descending) {
+        $relative = & $toSafeRelativePath $directory.FullName
+        $lines.Add(('RMDir "$INSTDIR\{0}"' -f $relative))
+    }
+    $lines.Add('RMDir "$INSTDIR"')
+
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    [System.IO.File]::WriteAllLines($Path, $lines, [System.Text.UTF8Encoding]::new($false))
+}
+
 function Get-Sha256Hex {
     param([string] $Path)
 
@@ -362,9 +413,12 @@ $OutDirPath = if ([System.IO.Path]::IsPathRooted($OutDir)) {
 $PackageDir = Join-Path $OutDirPath $PackageName
 $ArchivePath = Join-Path $OutDirPath "$PackageName.zip"
 $InstallerPath = Join-Path $OutDirPath "$PackageName-setup.exe"
-$ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS.txt"
+$ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS-$Target.txt"
 $SigningReportPath = Join-Path $OutDirPath "SIGNING-$Target.txt"
 $ManifestPath = Join-Path $OutDirPath "ARTIFACTS-$Target.json"
+$NsisInstallManifestPath = Join-Path $OutDirPath "$PackageName-installed-files.nsh"
+$LegacyRcVersion = "0.1.19-rc." + "4"
+$NsisLegacyCleanupPath = Join-Path $RepoRoot "packaging\windows\legacy-v$LegacyRcVersion-files.nsh"
 
 Assert-NewPath $PackageDir
 Assert-NewPath $ArchivePath
@@ -372,6 +426,7 @@ Assert-NewPath $InstallerPath
 Assert-NewPath $ChecksumsPath
 Assert-NewPath $SigningReportPath
 Assert-NewPath $ManifestPath
+Assert-NewPath $NsisInstallManifestPath
 
 if (-not $SkipBuild) {
     Push-Location $RepoRoot
@@ -422,6 +477,7 @@ Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "examples") -Destination (Joi
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "packages") -Destination (Join-Path $PackageDir "packages")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\assets") -Destination (Join-Path $PackageDir "docs\assets")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\reference") -Destination (Join-Path $PackageDir "docs\reference")
+Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\learn") -Destination (Join-Path $PackageDir "docs\learn")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "editors\vscode") -Destination (Join-Path $PackageDir "editors\vscode")
 
 $releaseNotes = @"
@@ -458,11 +514,17 @@ $makensis = Resolve-Nsis -RequestedPath $NsisPath
 if ($makensis) {
     $nsisScript = Join-Path $RepoRoot "packaging\windows\ricochet.nsi"
     $license = Join-Path $RepoRoot "LICENSE"
+    if (-not (Test-Path -LiteralPath $NsisLegacyCleanupPath -PathType Leaf)) {
+        throw "Legacy NSIS cleanup manifest was not found: $NsisLegacyCleanupPath"
+    }
+    Write-NsisInstallManifest -PackageDir $PackageDir -Path $NsisInstallManifestPath
     & $makensis `
         "/DVERSION=$Version" `
         "/DINPUT_DIR=$PackageDir" `
         "/DOUT_FILE=$InstallerPath" `
         "/DLICENSE_FILE=$license" `
+        "/DINSTALL_MANIFEST=$NsisInstallManifestPath" `
+        "/DLEGACY_CLEANUP_MANIFEST=$NsisLegacyCleanupPath" `
         $nsisScript
     if ($LASTEXITCODE -ne 0) {
         throw "NSIS installer build failed with exit code $LASTEXITCODE"

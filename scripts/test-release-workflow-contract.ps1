@@ -4,6 +4,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $workflowPath = Join-Path $root ".github\workflows\release.yml"
 $workflow = [System.IO.File]::ReadAllText($workflowPath)
+$windowsPackageScript = [System.IO.File]::ReadAllText((Join-Path $root "scripts\package-release.ps1"))
+$releaseArtifactValidator = [System.IO.File]::ReadAllText((Join-Path $root "scripts\validate-release-artifacts.ps1"))
 $failures = [System.Collections.Generic.List[string]]::new()
 
 function Add-Failure {
@@ -180,21 +182,31 @@ function Get-JobHeaderText {
     return $JobText.Substring(0, $stepsMatch.Index)
 }
 
+$resolveJob = Get-JobText -Name "resolve-version" -NextName "package-windows"
 $windowsJob = Get-JobText -Name "package-windows" -NextName "package-linux"
 $linuxJob = Get-JobText -Name "package-linux" -NextName "package-macos"
-$macosJob = Get-JobText -Name "package-macos" -NextName "publish-release"
+$macosNextJob = if ($workflow -match '(?m)^  smoke-linux-deb:\r?$') { "smoke-linux-deb" } else { "publish-release" }
+$macosJob = Get-JobText -Name "package-macos" -NextName $macosNextJob
+$cleanLinuxJob = Get-JobText -Name "smoke-linux-deb" -NextName "publish-release"
 $publishJob = Get-JobText -Name "publish-release" -NextName ""
 
+$resolveVersionStep = Get-StepText -JobText $resolveJob -Name "Resolve package version"
 $windowsPortableStep = Get-StepText -JobText $windowsJob -Name "Smoke-test package executable"
 $windowsInstallerStep = Get-StepText -JobText $windowsJob -Name "Smoke-test Windows installer"
 $linuxVersionGuardStep = Get-StepText -JobText $linuxJob -Name "Test Linux release version guard"
 $linuxDependenciesStep = Get-StepText -JobText $linuxJob -Name "Install Linux GUI build dependencies"
 $linuxSmokeStep = Get-StepText -JobText $linuxJob -Name "Smoke-test package executable"
 $macosSmokeStep = Get-StepText -JobText $macosJob -Name "Smoke-test package executable"
+$cleanLinuxSmokeStep = Get-StepText -JobText $cleanLinuxJob -Name "Install and smoke-test Debian package"
+$publishUpdateStep = Get-StepText -JobText $publishJob -Name "Write update channel metadata"
+$publishChecksumsStep = Get-StepText -JobText $publishJob -Name "Write checksums"
+$publishRevalidationStep = Get-StepText -JobText $publishJob -Name "Revalidate finalized update channel"
 
+$resolveJobHeader = Get-JobHeaderText -JobText $resolveJob -Name "resolve-version"
 $windowsJobHeader = Get-JobHeaderText -JobText $windowsJob -Name "package-windows"
 $linuxJobHeader = Get-JobHeaderText -JobText $linuxJob -Name "package-linux"
 $macosJobHeader = Get-JobHeaderText -JobText $macosJob -Name "package-macos"
+$cleanLinuxJobHeader = Get-JobHeaderText -JobText $cleanLinuxJob -Name "smoke-linux-deb"
 $publishJobHeader = Get-JobHeaderText -JobText $publishJob -Name "publish-release"
 
 $triggerSectionMatch = [regex]::Match(
@@ -208,8 +220,54 @@ $triggerSection = if ($triggerSectionMatch.Success) {
     ""
 }
 
+$permissionsSectionMatch = [regex]::Match(
+    $workflow,
+    '(?ms)^permissions:\r?\n(?<section>.*?)^jobs:'
+)
+$permissionsSection = if ($permissionsSectionMatch.Success) {
+    $permissionsSectionMatch.Groups['section'].Value
+} else {
+    Add-Failure "Release workflow permissions section could not be isolated."
+    ""
+}
+
 Require-Pattern $triggerSection '(?m)^  workflow_dispatch:\r?$' "Release workflow must support manual workflow_dispatch execution."
 Require-Pattern $triggerSection '(?ms)^  push:\r?\n    tags:\r?\n      - "v\*\.\*\.\*"\r?$' "Release publication must be triggered by version-tag pushes."
+
+Require-Pattern $permissionsSection '(?m)^  contents: read\r?$' "Release workflow must default every job to read-only repository contents."
+Reject-Pattern $permissionsSection '(?m)^  contents: write\r?$' "Release workflow must not grant contents: write at workflow scope."
+Require-Pattern $publishJobHeader '(?ms)^    permissions:\r?\n      contents: write\r?$' "Only the publish job may elevate repository contents permission to write."
+foreach ($jobHeader in @($resolveJobHeader, $windowsJobHeader, $linuxJobHeader, $macosJobHeader, $cleanLinuxJobHeader)) {
+    Reject-Pattern $jobHeader '(?m)^      contents: write\r?$' "Non-publish release jobs must not receive contents: write permission."
+}
+
+$checkoutUses = [regex]::Matches($workflow, '(?m)^        uses: actions/checkout@v6\r?$')
+$nonPersistingCheckouts = [regex]::Matches(
+    $workflow,
+    '(?ms)^      - name: Check out\r?\n        uses: actions/checkout@v6\r?\n        with:\r?\n          persist-credentials: false\r?$'
+)
+if ($checkoutUses.Count -eq 0 -or $nonPersistingCheckouts.Count -ne $checkoutUses.Count) {
+    Add-Failure "Every release checkout must disable persisted Git credentials."
+}
+
+Require-Pattern `
+    -Text $resolveVersionStep `
+    -Pattern '(?ms)if \[\[ "\$GITHUB_EVENT_NAME" == "schedule" \]\]; then\r?\n            version="\$workspace_version"\r?\n            is_nightly=true\r?\n            artifact_suffix="-nightly\.\$\{GITHUB_RUN_NUMBER\}"\r?\n          elif' `
+    -Description "Scheduled packages must retain the exact compiled workspace version."
+Reject-Pattern $resolveVersionStep 'version="\$\{workspace_version\}-nightly\.\$\{GITHUB_RUN_NUMBER\}"' "Scheduled runs must not claim an uncompiled nightly semantic version."
+Require-Pattern $resolveVersionStep 'if \[\[ "\$version" != "\$workspace_version" \]\]; then' "All package labels must equal the compiled workspace version."
+Require-Pattern $resolveVersionStep 'artifact_suffix="-nightly\.\$\{GITHUB_RUN_NUMBER\}"' "Scheduled run numbers may appear only in the Actions artifact label suffix."
+foreach ($packageJob in @($windowsJob, $linuxJob, $macosJob)) {
+    Require-Pattern `
+        -Text $packageJob `
+        -Pattern ([regex]::Escape('${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}')) `
+        -Description "Every uploaded package artifact label must include the non-semantic nightly run suffix."
+}
+
+$targetChecksumAssignment = [regex]::Escape('$ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS-$Target.txt"')
+Require-Pattern $windowsPackageScript $targetChecksumAssignment "Windows packaging must use a target-specific checksum filename."
+Reject-Pattern $windowsPackageScript ([regex]::Escape('$ChecksumsPath = Join-Path $OutDirPath "SHA256SUMS.txt"')) "Windows packaging must not reserve the combined release checksum filename."
+Require-Pattern $releaseArtifactValidator ([regex]::Escape('$artifact.name -eq "SHA256SUMS-$Target.txt"')) "Release artifact validation must require the target-specific Windows checksum filename."
 
 Require-PatternSet `
     -Text $windowsJobHeader `
@@ -289,6 +347,48 @@ if (
 ) {
     Add-Failure "Publish job must require a tag push explicitly so workflow_dispatch can never publish."
 }
+
+Require-PatternSet `
+    -Text $cleanLinuxJobHeader `
+    -Patterns @(
+        '(?ms)^    needs:\r?\n      - resolve-version\r?\n      - package-linux\r?$',
+        '(?m)^    runs-on: ubuntu-latest\r?$',
+        '(?ms)^    container:\r?\n      image: ubuntu:24\.04\r?$'
+    ) `
+    -Description "Debian runtime smoke must run in a clean Ubuntu 24.04 container after Linux packaging."
+Require-Pattern `
+    -Text $cleanLinuxJob `
+    -Pattern ([regex]::Escape('name: ricochet-${{ needs.resolve-version.outputs.version }}${{ needs.resolve-version.outputs.artifact_suffix }}-linux-x64')) `
+    -Description "Debian runtime smoke must download the exact Linux artifact from this run."
+Require-PatternSet `
+    -Text $cleanLinuxSmokeStep `
+    -Patterns @(
+        '(?m)^          apt-get update\r?$',
+        '(?m)^          apt-get install -y --no-install-recommends "\$deb"\r?$',
+        '(?m)^          for binary in /usr/bin/rco /usr/bin/rco-gui /usr/bin/ricochet; do\r?$',
+        '(?m)^            ldd "\$binary" > "\$ldd_report"\r?$',
+        '(?m)^            if grep -Fq ''not found'' "\$ldd_report"; then\r?$',
+        '(?m)^          rco run /usr/share/ricochet/examples/basic-oop\.rco\r?$',
+        '(?m)^          RICOCHET_GUI_EXPORT_HTML="\$webview_export" rco gui /usr/share/ricochet/examples/webview_ui\.rco\r?$',
+        '(?m)^          grep -Fq ''<title>Ricochet Desktop UI</title>'' "\$webview_export"\r?$'
+    ) `
+    -Description "Debian runtime smoke must install declared runtime dependencies, resolve every launcher, and exercise installed basic and WebView probes."
+Require-Pattern $publishJobHeader '(?m)^      - smoke-linux-deb\r?$' "Tag publication must depend on the clean Debian runtime smoke."
+
+$publishUpdateIndex = $publishJob.IndexOf("      - name: Write update channel metadata", [StringComparison]::Ordinal)
+$publishChecksumsIndex = $publishJob.IndexOf("      - name: Write checksums", [StringComparison]::Ordinal)
+$publishRevalidationIndex = $publishJob.IndexOf("      - name: Revalidate finalized update channel", [StringComparison]::Ordinal)
+$publishCreateIndex = $publishJob.IndexOf("      - name: Create GitHub release", [StringComparison]::Ordinal)
+if (
+    $publishUpdateIndex -lt 0 -or
+    $publishChecksumsIndex -le $publishUpdateIndex -or
+    $publishRevalidationIndex -le $publishChecksumsIndex -or
+    $publishCreateIndex -le $publishRevalidationIndex
+) {
+    Add-Failure "Publish must write the channel, finalize combined checksums, revalidate immutable channel hashes, then create the release."
+}
+Require-Pattern $publishChecksumsStep "! -name 'SHA256SUMS\.txt'" "Combined checksum generation must exclude only its own final output."
+Require-Pattern $publishRevalidationStep 'validate-update-channel\.ps1' "The finalized release set must revalidate update-channel hashes after combined checksums are written."
 
 $portableIndex = $windowsJob.IndexOf("      - name: Smoke-test package executable", [StringComparison]::Ordinal)
 $installerIndex = $windowsJob.IndexOf("      - name: Smoke-test Windows installer", [StringComparison]::Ordinal)
@@ -419,6 +519,12 @@ Require-Pattern $linuxSmokeStep '\$package_dir' "Linux smoke must compare notice
 Require-Pattern $linuxSmokeStep '\$tmp/deb-root/usr/share/doc/ricochet' "Linux smoke must compare notice hashes from the extracted Debian documentation directory."
 Require-Pattern $macosSmokeStep 'shasum -a 256' "macOS smoke must use shasum -a 256 for notice integrity."
 Require-Pattern $macosSmokeStep '\$package_dir' "macOS smoke must compare notice hashes from each matrix tar root."
+Require-Pattern $windowsPortableStep ([regex]::Escape("& .\docs\reference\validate.ps1 -Root (Join-Path `$packageDir 'docs\reference') -PackageMode")) "Windows portable smoke must validate packaged offline HTML links."
+Require-Pattern $windowsInstallerStep ([regex]::Escape("& .\docs\reference\validate.ps1 -Root (Join-Path `$installerSource 'docs\reference') -PackageMode")) "Windows installer source must validate packaged offline HTML links."
+Require-Pattern $windowsInstallerStep ([regex]::Escape("& .\docs\reference\validate.ps1 -Root (Join-Path `$installDir 'docs\reference') -PackageMode")) "Installed Windows docs must validate offline HTML links."
+Require-Pattern $linuxSmokeStep ([regex]::Escape('pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$package_dir/docs/reference" -PackageMode')) "Linux portable smoke must validate packaged offline HTML links."
+Require-Pattern $linuxSmokeStep ([regex]::Escape('pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$tmp/deb-root/usr/share/doc/ricochet/reference" -PackageMode')) "Debian smoke must validate installed-layout offline HTML links."
+Require-Pattern $macosSmokeStep ([regex]::Escape('pwsh -NoProfile -File ./docs/reference/validate.ps1 -Root "$package_dir/docs/reference" -PackageMode')) "macOS smoke must validate packaged offline HTML links."
 
 $installerRequirements = [ordered]@{
     'ricochet-v\$version-windows-x64-setup\.exe' = "Installer smoke must resolve the version-specific setup executable."
@@ -429,7 +535,7 @@ $installerRequirements = [ordered]@{
     'ricochet-installer-smoke-' = "Installer smoke must use a unique disposable root."
     'outside-checkout' = "Installer smoke must use an outside-checkout working directory."
     'NSIS smoke install path contains whitespace or quotes' = "Installer smoke must reject a /D path that needs quoting."
-    'Test-Path -LiteralPath \$installDir' = "Installer smoke must preflight its install directory."
+    'New-Item -ItemType Directory -Path \$installDir' = "Installer smoke must construct an owned upgrade fixture."
     'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Ricochet' = "Installer smoke must inspect the HKCU uninstall key."
     '\[Environment\+SpecialFolder\]::Programs' = "Installer smoke must resolve the current-user Programs folder."
     'Start-Process' = "Installer smoke must execute native installer and runtime processes with explicit waits."

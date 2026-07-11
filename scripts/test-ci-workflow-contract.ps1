@@ -53,6 +53,10 @@ $cargoAbout = Get-StepText "Install cargo-about"
 Require-Pattern $cargoAbout "(?m)^        if: matrix\.os == 'windows-latest'\r?$" "cargo-about must install only on the Windows acceptance job."
 Require-Pattern $cargoAbout '(?m)^          cargo install cargo-about --version 0\.9\.1 --locked --features cli\r?$' "CI must install the exact cargo-about 0.9.1 command required by acceptance."
 
+$learnValidation = Get-StepText "Validate public Learn manual"
+Require-Pattern $learnValidation "(?m)^        if: matrix\.os == 'windows-latest'\r?$" "Strict Learn validation must run once on the Windows matrix job."
+Require-Pattern $learnValidation '(?m)^        run: \.\\scripts\\validate-learn-manual\.ps1 -RequireWordCoverage -RequireJekyllRawBlocks\r?$' "CI must validate every live word mapping and canonical public Learn HTML."
+
 $linuxDependencyIndex = $workflow.IndexOf("      - name: Install Linux GUI build dependencies", [System.StringComparison]::Ordinal)
 $linuxVersionGuardIndex = $workflow.IndexOf("      - name: Test Linux release version guard", [System.StringComparison]::Ordinal)
 $formatIndex = $workflow.IndexOf("      - name: Check formatting", [System.StringComparison]::Ordinal)
@@ -62,8 +66,12 @@ if ($linuxVersionGuardIndex -lt 0 -or $linuxDependencyIndex -le $linuxVersionGua
 
 $cargoAboutIndex = $workflow.IndexOf("      - name: Install cargo-about", [System.StringComparison]::Ordinal)
 $acceptanceIndex = $workflow.IndexOf("      - name: Run acceptance suite", [System.StringComparison]::Ordinal)
+$learnValidationIndex = $workflow.IndexOf("      - name: Validate public Learn manual", [System.StringComparison]::Ordinal)
 if ($cargoAboutIndex -lt 0 -or $acceptanceIndex -le $cargoAboutIndex) {
     Add-Failure "Pinned cargo-about must be installed before the Windows acceptance suite."
+}
+if ($learnValidationIndex -le $acceptanceIndex) {
+    Add-Failure "Strict public Learn validation must run after the Windows acceptance suite."
 }
 
 if ($failures.Count -gt 0) {

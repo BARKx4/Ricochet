@@ -453,6 +453,7 @@ copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
 copy_release_directory "$repo_root/docs/reference" "$package_dir/docs/reference"
+copy_release_directory "$repo_root/docs/learn" "$package_dir/docs/learn"
 copy_release_directory "$repo_root/editors/vscode" "$package_dir/editors/vscode"
 write_linux_metadata "$package_dir" "$version"
 
@@ -543,7 +544,9 @@ ricochet ($debian_version)
 EOF
   copy_release_directory "$repo_root/examples" "$deb_root/usr/share/ricochet/examples"
   copy_release_directory "$repo_root/packages" "$deb_root/usr/share/ricochet/packages"
+  copy_release_directory "$repo_root/docs/assets" "$deb_root/usr/share/doc/ricochet/assets"
   copy_release_directory "$repo_root/docs/reference" "$deb_root/usr/share/doc/ricochet/reference"
+  copy_release_directory "$repo_root/docs/learn" "$deb_root/usr/share/doc/ricochet/learn"
   copy_release_directory "$repo_root/editors/vscode" "$deb_root/usr/share/ricochet/editors/vscode"
   write_linux_metadata "$deb_root/usr" "$version"
 

@@ -7,9 +7,19 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ExpectedVersion = "0.1.19-rc.5"
 $ExpectedTag = "v$ExpectedVersion"
 $StaleVersion = "0.1.19-rc." + "4"
-$HistoricalReleasePath = "docs/releases/v$StaleVersion.html"
-# Normalized UTF-8 SHA-256 of the historical page at cad7afee286ac2170464c1282a876aca0d587d55.
-$HistoricalReleaseSha256 = "c0b0fe0f86578efbd0a8a70b05302f590562f240ad2290f8438222abd860bad8"
+$StaleHistoricalReleasePath = "docs/releases/v$StaleVersion.html"
+$HistoricalReleases = @(
+    [pscustomobject]@{
+        Path = "docs/releases/v0.1.19-rc.3.html"
+        # Normalized UTF-8 SHA-256 of the immutable v0.1.19-rc.3 tag page.
+        Sha256 = "1e438d503b5f01245f260aac4ec1ca5575fe9f82bee0bc1e63bf7f686d687f96"
+    },
+    [pscustomobject]@{
+        Path = $StaleHistoricalReleasePath
+        # Normalized UTF-8 SHA-256 of the historical page at cad7afee286ac2170464c1282a876aca0d587d55.
+        Sha256 = "c0b0fe0f86578efbd0a8a70b05302f590562f240ad2290f8438222abd860bad8"
+    }
+)
 $Failures = [System.Collections.Generic.List[string]]::new()
 
 function Add-Failure {
@@ -122,14 +132,16 @@ if ($null -ne $lock) {
     }
 }
 
-$historicalReleaseFullPath = Get-RepoPath $HistoricalReleasePath
-if (-not (Test-Path -LiteralPath $historicalReleaseFullPath -PathType Leaf)) {
-    Add-Failure "Missing immutable historical release page: $HistoricalReleasePath"
-}
-else {
-    $actualHistoricalHash = Get-Sha256 (Normalize-Text ([System.IO.File]::ReadAllText($historicalReleaseFullPath)))
-    if ($actualHistoricalHash -cne $HistoricalReleaseSha256) {
-        Add-Failure "$HistoricalReleasePath must remain content-identical (expected normalized SHA-256 $HistoricalReleaseSha256; found $actualHistoricalHash)"
+foreach ($historicalRelease in $HistoricalReleases) {
+    $historicalReleaseFullPath = Get-RepoPath $historicalRelease.Path
+    if (-not (Test-Path -LiteralPath $historicalReleaseFullPath -PathType Leaf)) {
+        Add-Failure "Missing immutable historical release page: $($historicalRelease.Path)"
+    }
+    else {
+        $actualHistoricalHash = Get-Sha256 (Normalize-Text ([System.IO.File]::ReadAllText($historicalReleaseFullPath)))
+        if ($actualHistoricalHash -cne $historicalRelease.Sha256) {
+            Add-Failure "$($historicalRelease.Path) must remain content-identical (expected normalized SHA-256 $($historicalRelease.Sha256); found $actualHistoricalHash)"
+        }
     }
 }
 
@@ -206,7 +218,7 @@ else {
     $stalePattern = [regex]::Escape($StaleVersion)
     foreach ($relativePathValue in $trackedFiles) {
         $relativePath = ([string]$relativePathValue).Replace('\', '/')
-        if ($relativePath -ceq $HistoricalReleasePath) {
+        if ($relativePath -ceq $StaleHistoricalReleasePath) {
             continue
         }
 

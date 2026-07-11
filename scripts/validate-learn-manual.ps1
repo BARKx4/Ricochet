@@ -46,14 +46,14 @@ function Resolve-CoveragePath {
 
     $target = $PrimaryChapter.Trim()
     if ($target -eq "appendix") {
-        return Join-Path $LearnRoot "appendices/a-word-catalog.md"
+        return Join-Path $LearnRoot "appendices/a-word-catalog.html"
     }
 
     if ($target -match '^(chapters|appendices)[/\\]') {
         $relative = $target -replace '/', '\'
-        if (-not [System.IO.Path]::HasExtension($relative)) {
-            $relative = "$relative.md"
-        }
+        $relative = if ([System.IO.Path]::HasExtension($relative)) {
+            [System.IO.Path]::ChangeExtension($relative, ".html")
+        } else { "$relative.html" }
         return Join-Path $LearnRoot $relative
     }
 
@@ -62,15 +62,15 @@ function Resolve-CoveragePath {
         if (-not $slug) {
             $slug = "a-word-catalog"
         }
-        if (-not [System.IO.Path]::HasExtension($slug)) {
-            $slug = "$slug.md"
-        }
+        $slug = if ([System.IO.Path]::HasExtension($slug)) {
+            [System.IO.Path]::ChangeExtension($slug, ".html")
+        } else { "$slug.html" }
         return Join-Path (Join-Path $LearnRoot "appendices") $slug
     }
 
-    if (-not [System.IO.Path]::HasExtension($target)) {
-        $target = "$target.md"
-    }
+    $target = if ([System.IO.Path]::HasExtension($target)) {
+        [System.IO.Path]::ChangeExtension($target, ".html")
+    } else { "$target.html" }
     return Join-Path (Join-Path $LearnRoot "chapters") $target
 }
 
@@ -223,21 +223,20 @@ if (-not $coverageFileExists) {
 }
 
 $learnMarkdownFiles = @()
+$learnHtmlFiles = @()
 if (Test-Path -LiteralPath $learnRoot -PathType Container) {
     $learnMarkdownFiles = @(Get-ChildItem -LiteralPath $learnRoot -Recurse -Filter "*.md" -File -ErrorAction SilentlyContinue)
+    $learnHtmlFiles = @(Get-ChildItem -LiteralPath $learnRoot -Recurse -Filter "*.html" -File -ErrorAction SilentlyContinue)
 }
 
-if ($learnMarkdownFiles.Count -gt 0) {
-    foreach ($row in $coverageRows) {
-        if ([string]::IsNullOrWhiteSpace([string]$row.primary_chapter)) {
-            continue
-        }
+foreach ($row in $coverageRows) {
+    if ([string]::IsNullOrWhiteSpace([string]$row.primary_chapter)) {
+        continue
+    }
 
-        $targetPath = Resolve-CoveragePath -LearnRoot $learnRoot -PrimaryChapter ([string]$row.primary_chapter)
-        if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
-            $relativeTarget = Resolve-Path -LiteralPath (Split-Path -Parent $targetPath) -ErrorAction SilentlyContinue
-            Add-Failure $failures "Coverage row for '$($row.word)' points at missing manual file: $targetPath"
-        }
+    $targetPath = Resolve-CoveragePath -LearnRoot $learnRoot -PrimaryChapter ([string]$row.primary_chapter)
+    if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
+        Add-Failure $failures "Coverage row for '$($row.word)' points at missing public manual HTML: $targetPath"
     }
 }
 
@@ -276,6 +275,15 @@ foreach ($file in $learnMarkdownFiles) {
             if ($lines[$i] -match '(?i)\b(TODO|TBD|FIXME)\b') {
                 Add-Failure $failures "Completed manual file contains placeholder marker at $($file.FullName):$($i + 1)"
             }
+        }
+    }
+}
+
+if ($RequireJekyllRawBlocks) {
+    foreach ($file in $learnHtmlFiles) {
+        $content = Get-Content -LiteralPath $file.FullName -Raw
+        if ($content -match '(\{%|\{\{)') {
+            Add-Failure $failures "Learn HTML file contains an unrendered Liquid marker: $($file.FullName)"
         }
     }
 }

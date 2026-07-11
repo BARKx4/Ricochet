@@ -16,6 +16,14 @@
   !error "LICENSE_FILE must be defined"
 !endif
 
+!ifndef INSTALL_MANIFEST
+  !error "INSTALL_MANIFEST must be defined"
+!endif
+
+!ifndef LEGACY_CLEANUP_MANIFEST
+  !error "LEGACY_CLEANUP_MANIFEST must be defined"
+!endif
+
 Name "Ricochet ${VERSION}"
 OutFile "${OUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\Ricochet"
@@ -39,8 +47,32 @@ SetCompressor /SOLID lzma
 Section "Ricochet CLI" SEC_MAIN
   SectionIn RO
 
+  ; A non-empty destination is accepted only when the current user registry
+  ; binds it to Ricochet and it contains either the current marker or legacy
+  ; rco.exe. This permits a safe rc.4 upgrade without claiming foreign files.
+  IfFileExists "$INSTDIR\*.*" 0 destination_ready
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Ricochet" "InstallLocation"
+  StrCmp $0 "$INSTDIR" 0 destination_foreign
+  ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Ricochet" "DisplayName"
+  StrCmp $1 "Ricochet" 0 destination_foreign
+  IfFileExists "$INSTDIR\.ricochet-install-owner" destination_owned
+  IfFileExists "$INSTDIR\rco.exe" destination_owned destination_foreign
+
+destination_foreign:
+  MessageBox MB_ICONSTOP|MB_OK "The selected directory is not an owned Ricochet installation. Choose an empty directory or the registered Ricochet install location." /SD IDOK
+  SetErrorLevel 2
+  Abort
+
+destination_owned:
+  !include "${LEGACY_CLEANUP_MANIFEST}"
+
+destination_ready:
   SetOutPath "$INSTDIR"
   File /r "${INPUT_DIR}\*.*"
+
+  FileOpen $0 "$INSTDIR\.ricochet-install-owner" w
+  FileWrite $0 "Ricochet ${VERSION}$\r$\n"
+  FileClose $0
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
@@ -60,7 +92,17 @@ Section "Ricochet CLI" SEC_MAIN
 SectionEnd
 
 Section "Uninstall"
-  RMDir /r "$SMPROGRAMS\Ricochet"
+  IfFileExists "$INSTDIR\.ricochet-install-owner" uninstall_owned
+  MessageBox MB_ICONSTOP|MB_OK "Ricochet ownership marker is missing; uninstall stopped without removing files." /SD IDOK
+  SetErrorLevel 2
+  Abort
+
+uninstall_owned:
+  Delete "$SMPROGRAMS\Ricochet\Ricochet Shell.lnk"
+  Delete "$SMPROGRAMS\Ricochet\Reference Docs.lnk"
+  Delete "$SMPROGRAMS\Ricochet\Third-Party Licenses.lnk"
+  Delete "$SMPROGRAMS\Ricochet\Uninstall Ricochet.lnk"
+  RMDir "$SMPROGRAMS\Ricochet"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Ricochet"
-  RMDir /r "$INSTDIR"
+  !include "${INSTALL_MANIFEST}"
 SectionEnd

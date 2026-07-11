@@ -41,6 +41,14 @@ $releaseVersionContract = Join-Path $Root "scripts\test-release-version-contract
 Write-Host "==> release version contract tests"
 & $releaseVersionContract
 
+$learnValidatorContract = Join-Path $Root "scripts\test-learn-validator-contract.ps1"
+Write-Host "==> Learn validator contract tests"
+& $learnValidatorContract
+
+$windowsInstallerContract = Join-Path $Root "scripts\test-windows-installer-contract.ps1"
+Write-Host "==> Windows installer ownership contract tests"
+& $windowsInstallerContract
+
 $releaseVersionValidator = Join-Path $Root "scripts\validate-release-version.ps1"
 Write-Host "==> release version consistency validation"
 & $releaseVersionValidator
