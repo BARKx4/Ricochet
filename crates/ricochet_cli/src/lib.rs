@@ -13537,6 +13537,86 @@ fn collect_rco_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn debug_pause_with_task(frames: Vec<DebugTaskFrame>) -> DebugPause {
+        DebugPause {
+            reason: DebugPauseReason::Breakpoint,
+            frame: "<main>".to_string(),
+            source: "fixture.rco:18".to_string(),
+            opcode: "PushString(\"task\")".to_string(),
+            stack: Vec::new(),
+            globals: Vec::new(),
+            locals: Vec::new(),
+            current_self: None,
+            tasks: vec![DebugTask {
+                id: 0,
+                operation: "spawn".to_string(),
+                status: "running".to_string(),
+                pending: true,
+                running: true,
+                completed: false,
+                failed: false,
+                fault: None,
+                frames,
+            }],
+        }
+    }
+
+    #[test]
+    fn dap_task_variables_support_zero_frame_running_task() {
+        let pause = debug_pause_with_task(Vec::new());
+        let summary = dap_task_variable(&pause.tasks[0]);
+
+        assert_eq!(summary["variablesReference"], DAP_TASK_REFERENCE_BASE);
+        assert!(summary["value"]
+            .as_str()
+            .is_some_and(|value| value.contains("frames=0")));
+
+        let details = dap_task_detail_variables(&pause, 0);
+        let frame_count = details
+            .iter()
+            .find(|variable| variable["name"] == "frame_count")
+            .expect("task details should include frame_count");
+        assert_eq!(frame_count["value"], "0");
+        assert!(!details.iter().any(|variable| variable["name"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("frame "))));
+        assert!(dap_task_frame_variables(&pause, 0, 0).is_empty());
+    }
+
+    #[test]
+    fn dap_task_variables_expand_published_worker_frame() {
+        let pause = debug_pause_with_task(vec![DebugTaskFrame {
+            frame: "<task>".to_string(),
+            source: "fixture.rco:6".to_string(),
+            opcode: "CallWord(\"sleep\")".to_string(),
+            stack: vec![Value::Number(20)],
+            locals: vec![("release_attempts".to_string(), Value::Number(0))],
+            current_self: Some(Value::String("worker".to_string())),
+        }]);
+
+        let details = dap_task_detail_variables(&pause, 0);
+        let frame = details
+            .iter()
+            .find(|variable| variable["name"] == "frame 0")
+            .expect("task details should expose frame 0");
+        assert_eq!(frame["variablesReference"], DAP_TASK_FRAME_REFERENCE_BASE);
+
+        let variables = dap_task_frame_variables(&pause, 0, 0);
+        assert!(variables
+            .iter()
+            .any(|variable| variable["name"] == "opcode"
+                && variable["value"] == "CallWord(\"sleep\")"));
+        assert!(variables
+            .iter()
+            .any(|variable| variable["name"] == "stack[0]" && variable["value"] == "Number(20)"));
+        assert!(variables.iter().any(|variable| {
+            variable["name"] == "local release_attempts" && variable["value"] == "Number(0)"
+        }));
+        assert!(variables.iter().any(
+            |variable| variable["name"] == "self" && variable["value"] == "String(\"worker\")"
+        ));
+    }
+
     #[test]
     fn diagnostics_include_macro_body_lints_for_top_level_macro_declarations() {
         let source = r#"
