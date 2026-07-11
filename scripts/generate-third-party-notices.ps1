@@ -164,7 +164,7 @@ $aboutTemplate = Join-Path $Root "licenses/third-party-licenses.hbs"
 Push-Location $Root
 try {
     # Deliberately online-capable: authoritative generation must not use --offline or --frozen.
-    $aboutLog = @(& cargo about generate --locked --workspace --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
+    $aboutLog = @(& cargo about generate --locked --workspace --fail --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
     if ($LASTEXITCODE -ne 0) {
         throw "cargo-about generation failed with exit code $LASTEXITCODE`n$($aboutLog -join "`n")"
     }
