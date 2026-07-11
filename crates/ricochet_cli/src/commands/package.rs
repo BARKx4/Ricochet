@@ -545,9 +545,9 @@ fn mvc_bundle_dependency_files(
         })?;
         let dependency_root_relative =
             canonical_mvc_bundle_relative_path(project_root, &dependency_root, "dependency root")?;
-        if has_git_metadata_component(&dependency_root_relative) {
+        if has_repository_metadata_component(&dependency_root_relative) {
             bail!(
-                "dependency {name} root contains forbidden Git metadata: {}",
+                "dependency {name} root contains forbidden repository metadata: {}",
                 dependency_root.display()
             );
         }
@@ -642,10 +642,16 @@ fn mvc_metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
     false
 }
 
-fn has_git_metadata_component(path: &Path) -> bool {
+fn has_repository_metadata_component(path: &Path) -> bool {
     path.components().any(|component| {
-        matches!(component, Component::Normal(value) if value.to_string_lossy().eq_ignore_ascii_case(".git"))
+        matches!(component, Component::Normal(value) if is_repository_metadata_name(value.to_string_lossy().as_ref()))
     })
+}
+
+fn is_repository_metadata_name(name: &str) -> bool {
+    [".git", ".hg", ".svn"]
+        .iter()
+        .any(|metadata| name.eq_ignore_ascii_case(metadata))
 }
 
 fn validate_mvc_dependency_tree(dependency_name: &str, root: &Path) -> Result<()> {
@@ -667,12 +673,12 @@ fn validate_mvc_dependency_tree_entries(dependency_name: &str, current: &Path) -
             );
         }
         let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
-        if file_name.eq_ignore_ascii_case(".git") {
+        if is_repository_metadata_name(file_name) {
             if metadata.is_dir() && file_name == ".git" {
                 continue;
             }
             bail!(
-                "dependency {dependency_name} contains forbidden Git metadata: {}",
+                "dependency {dependency_name} contains forbidden repository metadata: {}",
                 path.display()
             );
         }
@@ -935,6 +941,9 @@ fn add_mvc_bundle_file(
 }
 
 fn omit_mvc_bundle_file(relative_path: &Path, policy: &MvcBundlePolicy) -> bool {
+    if has_repository_metadata_component(relative_path) {
+        return true;
+    }
     let Some(file_name) = relative_path.file_name().and_then(OsStr::to_str) else {
         return false;
     };
@@ -1016,11 +1025,10 @@ fn contains_private_key_pem(bytes: &[u8]) -> bool {
 }
 
 fn should_skip_mvc_bundle_directory(relative_path: &Path) -> bool {
-    relative_path.components().any(|component| {
-        matches!(component, Component::Normal(name) if name == ".git" || name == ".hg" || name == ".svn")
-    }) || relative_path.components().next().is_some_and(
-        |component| matches!(component, Component::Normal(name) if name == "target"),
-    )
+    has_repository_metadata_component(relative_path)
+        || relative_path.components().next().is_some_and(
+            |component| matches!(component, Component::Normal(name) if name == "target"),
+        )
 }
 
 fn same_package_output_file(path: &Path, output_path: &Path) -> bool {
@@ -2280,6 +2288,67 @@ url = "./data/state.db"
     }
 
     #[test]
+    fn mvc_bundle_omits_unignored_repository_metadata_from_git_selected_apps() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "git_metadata_boundary_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("assets/.HG")).expect("Mercurial metadata directory");
+        fs::create_dir_all(root.join("assets/.svn")).expect("Subversion metadata directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("assets/public.txt"), b"public").expect("public asset");
+        fs::write(root.join("assets/.HG/hgrc"), b"secret = fixture\n")
+            .expect("Mercurial metadata fixture");
+        fs::write(root.join("assets/.svn/entries"), b"private history")
+            .expect("Subversion metadata fixture");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the repository-metadata boundary test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "git-metadata-boundary-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let paths = bundle_paths(
+            &build_mvc_bundle(root, &output).expect("Git-selected MVC bundle should build"),
+        );
+        assert!(paths.contains("assets/public.txt"));
+        assert!(!paths.contains("assets/.HG/hgrc"));
+        assert!(!paths.contains("assets/.svn/entries"));
+    }
+
+    #[test]
+    fn mvc_bundle_omits_case_variant_repository_metadata_from_standalone_apps() {
+        let project = tempfile::tempdir().expect("temporary standalone MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "standalone_metadata_boundary_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("assets/.Hg")).expect("Mercurial metadata directory");
+        fs::create_dir_all(root.join("assets/.SVN")).expect("Subversion metadata directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("assets/public.txt"), b"public").expect("public asset");
+        fs::write(root.join("assets/.Hg/hgrc"), b"secret = fixture\n")
+            .expect("Mercurial metadata fixture");
+        fs::write(root.join("assets/.SVN/entries"), b"private history")
+            .expect("Subversion metadata fixture");
+
+        let output = root.join(format!(
+            "standalone-metadata-boundary-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let paths = bundle_paths(
+            &build_mvc_bundle(root, &output).expect("standalone MVC bundle should build"),
+        );
+        assert!(paths.contains("assets/public.txt"));
+        assert!(!paths.contains("assets/.Hg/hgrc"));
+        assert!(!paths.contains("assets/.SVN/entries"));
+    }
+
+    #[test]
     fn mvc_bundle_rejects_ignored_required_manifest() {
         let project = tempfile::tempdir().expect("temporary Git MVC project");
         let root = project.path();
@@ -2534,7 +2603,7 @@ integrity = "{integrity}"
         assert!(
             error
                 .to_string()
-                .contains("dependency greeter contains forbidden Git metadata"),
+                .contains("dependency greeter contains forbidden repository metadata"),
             "unexpected error: {error:#}"
         );
     }
@@ -2584,9 +2653,72 @@ integrity = "{integrity}"
         assert!(
             error
                 .to_string()
-                .contains("dependency greeter contains forbidden Git metadata"),
+                .contains("dependency greeter contains forbidden repository metadata"),
             "unexpected error: {error:#}"
         );
+    }
+
+    fn assert_dependency_repository_metadata_is_rejected(
+        metadata_directory: &str,
+        metadata_file: &str,
+    ) {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "repository_metadata_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        let dependency_path = root.join("packages/greeter");
+        let metadata_path = dependency_path.join(metadata_directory);
+        fs::create_dir_all(&metadata_path).expect("dependency repository metadata directory");
+        fs::write(metadata_path.join(metadata_file), b"secret = fixture\n")
+            .expect("dependency repository metadata fixture");
+        let integrity = package_tree_integrity(&dependency_path).expect("dependency integrity");
+        fs::write(
+            root.join("ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.greeter]
+source = "path+./packages/greeter"
+path = "./packages/greeter"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("updated dependency lockfile");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the repository-metadata test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "repository-metadata-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("dependency repository metadata must never be embedded");
+        assert!(
+            error
+                .to_string()
+                .contains("dependency greeter contains forbidden repository metadata"),
+            "unexpected error for {metadata_directory}: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_case_variant_dependency_mercurial_metadata() {
+        assert_dependency_repository_metadata_is_rejected(".HG", "hgrc");
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_dependency_subversion_metadata() {
+        assert_dependency_repository_metadata_is_rejected(".svn", "entries");
     }
 
     #[test]
