@@ -48,9 +48,34 @@ struct MvcBundleFile {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MvcBundlePolicy {
     sqlite_state_path: Option<PathBuf>,
+    manifest_path: PathBuf,
+    routes_path: PathBuf,
+    lock_path: Option<PathBuf>,
+    dependency_roots: Vec<PathBuf>,
+    dependency_files: Vec<MvcBundleDependencyFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MvcBundleDependencyFile {
+    dependency_name: String,
+    relative_path: PathBuf,
+}
+
+impl MvcBundlePolicy {
+    fn is_dependency_root(&self, relative_path: &Path) -> bool {
+        self.dependency_roots
+            .iter()
+            .any(|root| root == relative_path)
+    }
+
+    fn is_dependency_file(&self, relative_path: &Path) -> bool {
+        self.dependency_files
+            .iter()
+            .any(|file| file.relative_path == relative_path)
+    }
 }
 
 const MVC_DATA_HOME_ENV: &str = "RICOCHET_MVC_DATA_HOME";
@@ -256,6 +281,9 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
             project_root.display()
         );
     }
+    let project_root = project_root
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
     let manifest_path = project_root.join("ricochet.toml");
     if !manifest_path.is_file() {
         bail!(
@@ -263,10 +291,6 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
             project_root.display()
         );
     }
-
-    let project_root = project_root
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
     let policy = validate_mvc_bundle_manifest(&project_root, &manifest_path)?;
     let sqlite_migrations = if policy.sqlite_state_path.is_some() {
         let migrations = discover_migrations(&project_root)?;
@@ -283,6 +307,11 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
     let mut files = Vec::new();
     if let Some(relative_paths) = git_mvc_bundle_file_paths(&project_root)? {
         for relative_path in relative_paths {
+            if policy.is_dependency_root(&relative_path)
+                && project_root.join(&relative_path).is_dir()
+            {
+                continue;
+            }
             add_mvc_bundle_file(
                 &project_root,
                 &relative_path,
@@ -300,18 +329,53 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
             &mut files,
         )?;
     }
+    for dependency_file in &policy.dependency_files {
+        if !mvc_bundle_contains(&files, &dependency_file.relative_path) {
+            add_mvc_bundle_file(
+                &project_root,
+                &dependency_file.relative_path,
+                &output_path,
+                &policy,
+                &mut files,
+            )?;
+        }
+    }
+    if !mvc_bundle_contains(&files, &policy.manifest_path) {
+        bail!(
+            "required MVC manifest {} was excluded from the bundle",
+            path_to_bundle_string(&policy.manifest_path)?
+        );
+    }
+    if !mvc_bundle_contains(&files, &policy.routes_path) {
+        bail!(
+            "configured MVC routes file {} was excluded from the bundle",
+            path_to_bundle_string(&policy.routes_path)?
+        );
+    }
+    if let Some(lock_path) = &policy.lock_path {
+        if !mvc_bundle_contains(&files, lock_path) {
+            bail!(
+                "dependency lockfile {} was excluded from the bundle",
+                path_to_bundle_string(lock_path)?
+            );
+        }
+    }
+    for dependency_file in &policy.dependency_files {
+        if !mvc_bundle_contains(&files, &dependency_file.relative_path) {
+            bail!(
+                "declared dependency {} file {} was excluded from the bundle",
+                dependency_file.dependency_name,
+                path_to_bundle_string(&dependency_file.relative_path)?
+            );
+        }
+    }
     if let Some(migrations) = sqlite_migrations {
         for migration in migrations {
-            let relative_source = migration
-                .source
-                .path
-                .strip_prefix(&project_root)
-                .with_context(|| {
-                    format!(
-                        "failed to make migration {} project-relative",
-                        migration.source.path.display()
-                    )
-                })?;
+            let relative_source = canonical_mvc_bundle_file_path(
+                &project_root,
+                &migration.source.path,
+                "packaged file-backed SQLite migration",
+            )?;
             if !files
                 .iter()
                 .any(|file| file.relative_path == relative_source)
@@ -325,6 +389,10 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
     }
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(MvcBundle { files })
+}
+
+fn mvc_bundle_contains(files: &[MvcBundleFile], relative_path: &Path) -> bool {
+    files.iter().any(|file| file.relative_path == relative_path)
 }
 
 fn validate_mvc_bundle_manifest(
@@ -344,7 +412,7 @@ fn validate_mvc_bundle_manifest(
         .and_then(|web| web.get("capabilities"))
         .and_then(Item::as_table)
     else {
-        return mvc_bundle_policy_from_manifest(&manifest);
+        return mvc_bundle_policy_from_manifest(project_root, manifest_path, &manifest);
     };
 
     for key in ["fs_root", "process_root"] {
@@ -359,24 +427,66 @@ fn validate_mvc_bundle_manifest(
         ensure_contained_candidate(project_root, &candidate, &format!("web.capabilities.{key}"))?;
     }
 
-    mvc_bundle_policy_from_manifest(&manifest)
+    mvc_bundle_policy_from_manifest(project_root, manifest_path, &manifest)
 }
 
-fn mvc_bundle_policy_from_manifest(manifest: &DocumentMut) -> Result<MvcBundlePolicy> {
+fn mvc_bundle_policy_from_manifest(
+    project_root: &Path,
+    manifest_path: &Path,
+    manifest: &DocumentMut,
+) -> Result<MvcBundlePolicy> {
+    let manifest_path =
+        canonical_mvc_bundle_file_path(project_root, manifest_path, "required MVC manifest")?;
+    let routes = manifest
+        .get("web")
+        .and_then(Item::as_table)
+        .and_then(|web| web.get("routes"))
+        .and_then(Item::as_str)
+        .context("web.routes must be a string path")?;
+    validate_project_relative_path(routes, "web.routes")?;
+    let routes_path = canonical_mvc_bundle_file_path(
+        project_root,
+        &project_root.join(routes),
+        "configured MVC routes file",
+    )?;
+
+    let (dependency_roots, dependency_files) =
+        mvc_bundle_dependency_files(project_root, &manifest_path, manifest)?;
+    let lock_path = if dependency_roots.is_empty() {
+        None
+    } else {
+        Some(canonical_mvc_bundle_file_path(
+            project_root,
+            &project_root.join("ricochet.lock"),
+            "dependency lockfile",
+        )?)
+    };
+    let sqlite_state_path = mvc_bundle_sqlite_state_path(manifest)?;
+    Ok(MvcBundlePolicy {
+        sqlite_state_path,
+        manifest_path,
+        routes_path,
+        lock_path,
+        dependency_roots,
+        dependency_files,
+    })
+}
+
+fn mvc_bundle_sqlite_state_path(manifest: &DocumentMut) -> Result<Option<PathBuf>> {
     let Some(database) = manifest
         .get("database")
         .and_then(Item::as_table)
         .and_then(|database| database.get("default"))
         .and_then(Item::as_table)
     else {
-        return Ok(MvcBundlePolicy::default());
+        return Ok(None);
     };
     let adapter = database
         .get("adapter")
         .and_then(Item::as_str)
         .context("database.default.adapter must be a string")?;
     if !adapter.eq_ignore_ascii_case("sqlite") {
-        return Ok(MvcBundlePolicy::default());
+        return Ok(None);
     }
     let url = database
         .get("url")
@@ -384,7 +494,7 @@ fn mvc_bundle_policy_from_manifest(manifest: &DocumentMut) -> Result<MvcBundlePo
         .context("database.default.url must be a string")?
         .trim();
     if url == ":memory:" || url == "sqlite::memory:" {
-        return Ok(MvcBundlePolicy::default());
+        return Ok(None);
     }
     if url.contains("${") {
         bail!(
@@ -396,13 +506,195 @@ fn mvc_bundle_policy_from_manifest(manifest: &DocumentMut) -> Result<MvcBundlePo
         .or_else(|| url.strip_prefix("sqlite:"))
         .unwrap_or(url);
     if path == ":memory:" {
-        return Ok(MvcBundlePolicy::default());
+        return Ok(None);
     }
     validate_project_relative_path(path, "database.default.url")?;
     let path = normalized_mvc_bundle_relative_path(Path::new(path))?;
-    Ok(MvcBundlePolicy {
-        sqlite_state_path: Some(path),
+    Ok(Some(path))
+}
+
+fn mvc_bundle_dependency_files(
+    project_root: &Path,
+    manifest_path: &Path,
+    manifest: &DocumentMut,
+) -> Result<(Vec<PathBuf>, Vec<MvcBundleDependencyFile>)> {
+    let Some(dependencies) = manifest.get("dependencies").and_then(Item::as_table) else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+
+    let mut roots = Vec::new();
+    let mut required = Vec::new();
+    for (name, item) in dependencies.iter() {
+        let spec = dependency_spec_from_manifest_table(name, item, manifest_path)?;
+        validate_project_relative_path(&spec.path, &format!("packaged MVC dependency {name}"))?;
+        let dependency_root = if spec.git.is_some() || spec.registry.is_some() {
+            project_dependency_path(project_root, &spec.path, "package cache")?
+        } else {
+            resolve_local_dependency_dir(project_root, &spec.path)?
+        };
+        ensure_mvc_bundle_path_has_no_links(
+            project_root,
+            &dependency_root,
+            &format!("packaged MVC dependency {name} root"),
+        )?;
+        let dependency_root = dependency_root.canonicalize().with_context(|| {
+            format!(
+                "failed to resolve packaged MVC dependency {name} root {}",
+                dependency_root.display()
+            )
+        })?;
+        let dependency_root_relative =
+            canonical_mvc_bundle_relative_path(project_root, &dependency_root, "dependency root")?;
+        if has_git_metadata_component(&dependency_root_relative) {
+            bail!(
+                "dependency {name} root contains forbidden Git metadata: {}",
+                dependency_root.display()
+            );
+        }
+        roots.push(dependency_root_relative);
+        validate_mvc_dependency_tree(name, &dependency_root)?;
+        let mut integrity_files = Vec::new();
+        collect_package_integrity_files(&dependency_root, &dependency_root, &mut integrity_files)?;
+        for (_, path) in integrity_files {
+            let relative_path =
+                canonical_mvc_bundle_relative_path(project_root, &path, "dependency file")?;
+            required.push(MvcBundleDependencyFile {
+                dependency_name: name.to_string(),
+                relative_path,
+            });
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    required.sort_by(|left, right| {
+        left.dependency_name
+            .cmp(&right.dependency_name)
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
+    Ok((roots, required))
+}
+
+fn canonical_mvc_bundle_file_path(
+    project_root: &Path,
+    path: &Path,
+    description: &str,
+) -> Result<PathBuf> {
+    ensure_mvc_bundle_path_has_no_links(project_root, path, description)?;
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {description} {}", path.display()))?;
+    if !canonical.is_file() {
+        bail!("{description} is not a regular file: {}", path.display());
+    }
+    canonical_mvc_bundle_relative_path(project_root, &canonical, description)
+}
+
+fn ensure_mvc_bundle_path_has_no_links(
+    project_root: &Path,
+    path: &Path,
+    description: &str,
+) -> Result<()> {
+    let relative = path.strip_prefix(project_root).with_context(|| {
+        format!(
+            "{description} path is outside the MVC project: {}",
+            path.display()
+        )
+    })?;
+    let mut current = project_root.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Component::Normal(value) => current.push(value),
+            Component::CurDir => continue,
+            _ => bail!(
+                "{description} path must stay project-relative: {}",
+                path.display()
+            ),
+        }
+        let metadata = fs::symlink_metadata(&current).with_context(|| {
+            format!(
+                "failed to inspect {description} path component {}",
+                current.display()
+            )
+        })?;
+        if mvc_metadata_is_link_or_reparse(&metadata) {
+            bail!(
+                "{description} path contains a symbolic link or reparse point: {}",
+                current.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn mvc_metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_git_metadata_component(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(component, Component::Normal(value) if value.to_string_lossy().eq_ignore_ascii_case(".git"))
     })
+}
+
+fn validate_mvc_dependency_tree(dependency_name: &str, root: &Path) -> Result<()> {
+    validate_mvc_dependency_tree_entries(dependency_name, root)
+}
+
+fn validate_mvc_dependency_tree_entries(dependency_name: &str, current: &Path) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed to read {}", current.display()))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect dependency file {}", path.display()))?;
+        if mvc_metadata_is_link_or_reparse(&metadata) {
+            bail!(
+                "packaged MVC dependency {dependency_name} contains a symbolic link or reparse point: {}",
+                path.display()
+            );
+        }
+        let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+        if file_name.eq_ignore_ascii_case(".git") {
+            if metadata.is_dir() && file_name == ".git" {
+                continue;
+            }
+            bail!(
+                "dependency {dependency_name} contains forbidden Git metadata: {}",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            validate_mvc_dependency_tree_entries(dependency_name, &path)?;
+        }
+    }
+    Ok(())
+}
+
+fn canonical_mvc_bundle_relative_path(
+    project_root: &Path,
+    canonical_path: &Path,
+    description: &str,
+) -> Result<PathBuf> {
+    let relative_path = canonical_path.strip_prefix(project_root).with_context(|| {
+        format!(
+            "{description} resolves outside the MVC project: {}",
+            canonical_path.display()
+        )
+    })?;
+    normalized_mvc_bundle_relative_path(relative_path)
 }
 
 fn normalized_mvc_bundle_relative_path(path: &Path) -> Result<PathBuf> {
@@ -650,7 +942,8 @@ fn omit_mvc_bundle_file(relative_path: &Path, policy: &MvcBundlePolicy) -> bool 
     if matches!(
         file_name.as_str(),
         ".gitignore" | ".gitattributes" | ".gitmodules"
-    ) {
+    ) && !policy.is_dependency_file(relative_path)
+    {
         return true;
     }
     if file_name == ".env.example" || file_name == ".env.sample" || file_name == ".env.template" {
@@ -1693,12 +1986,163 @@ escape = "html"
         .expect("test MVC manifest should be written");
     }
 
+    fn write_test_mvc_path_dependency(root: &Path, dependency_name: &str) {
+        let dependency_path = root.join("packages").join(dependency_name);
+        fs::create_dir_all(&dependency_path).expect("test dependency directory");
+        fs::write(
+            dependency_path.join("ricochet.toml"),
+            format!(
+                r#"[package]
+name = "{dependency_name}"
+version = "0.1.0"
+"#
+            ),
+        )
+        .expect("test dependency manifest");
+        fs::write(dependency_path.join("main.rco"), b"42").expect("test dependency source");
+
+        let manifest_path = root.join("ricochet.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("MVC manifest source");
+        manifest.push_str(&format!(
+            r#"
+[dependencies.{dependency_name}]
+path = "./packages/{dependency_name}"
+version = "^0.1.0"
+"#
+        ));
+        fs::write(&manifest_path, manifest).expect("MVC dependency manifest");
+
+        let integrity = package_tree_integrity(&dependency_path).expect("dependency integrity");
+        fs::write(
+            root.join("ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.{dependency_name}]
+source = "path+./packages/{dependency_name}"
+path = "./packages/{dependency_name}"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("test dependency lockfile");
+    }
+
+    fn write_test_mvc_git_dependency(root: &Path, dependency_name: &str) {
+        let dependency_path = root
+            .join(".ricochet")
+            .join("packages")
+            .join(dependency_name);
+        fs::create_dir_all(&dependency_path).expect("test Git dependency directory");
+        fs::write(
+            dependency_path.join("ricochet.toml"),
+            format!(
+                r#"[package]
+name = "{dependency_name}"
+version = "0.1.0"
+"#
+            ),
+        )
+        .expect("test Git dependency manifest");
+        fs::write(dependency_path.join("main.rco"), b"42").expect("test Git dependency source");
+        fs::write(dependency_path.join(".gitignore"), b"target/\n")
+            .expect("test Git dependency ignore metadata");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(&dependency_path)
+            .output()
+            .expect("git should initialize the test dependency");
+        assert!(git.status.success());
+        let add = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dependency_path)
+            .args(["add", "--", "."])
+            .output()
+            .expect("git should stage the test dependency");
+        assert!(add.status.success());
+        let commit = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dependency_path)
+            .args([
+                "-c",
+                "user.name=Ricochet Tests",
+                "-c",
+                "user.email=tests@ricochet.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ])
+            .output()
+            .expect("git should commit the test dependency");
+        assert!(
+            commit.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+        let revision = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dependency_path)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("git should resolve the test dependency commit");
+        assert!(revision.status.success());
+        let revision = String::from_utf8(revision.stdout)
+            .expect("test dependency commit should be UTF-8")
+            .trim()
+            .to_string();
+
+        let manifest_path = root.join("ricochet.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("MVC manifest source");
+        manifest.push_str(&format!(
+            r#"
+[dependencies.{dependency_name}]
+git = "https://example.invalid/{dependency_name}.git"
+path = ".ricochet/packages/{dependency_name}"
+version = "^0.1.0"
+"#
+        ));
+        fs::write(&manifest_path, manifest).expect("MVC Git dependency manifest");
+
+        let integrity = package_tree_integrity(&dependency_path).expect("Git dependency integrity");
+        fs::write(
+            root.join("ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.{dependency_name}]
+source = "git+https://example.invalid/{dependency_name}.git"
+path = ".ricochet/packages/{dependency_name}"
+git = "https://example.invalid/{dependency_name}.git"
+commit = "{revision}"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("test Git dependency lockfile");
+    }
+
     fn bundle_paths(bundle: &MvcBundle) -> BTreeSet<String> {
         bundle
             .files
             .iter()
             .map(|file| path_to_bundle_string(&file.relative_path).expect("valid bundle path"))
             .collect()
+    }
+
+    #[cfg(unix)]
+    fn create_test_directory_link(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("test directory symlink");
+    }
+
+    #[cfg(windows)]
+    fn create_test_directory_link(target: &Path, link: &Path) {
+        std::os::windows::fs::symlink_dir(target, link).expect("test directory symlink");
     }
 
     #[test]
@@ -1833,6 +2277,439 @@ url = "./data/state.db"
 
         assert!(paths.contains("included.asset"));
         assert!(!paths.contains("ignored.asset"));
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_ignored_required_manifest() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "ignored_manifest_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join(".gitignore"), b"/ricochet.toml\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the ignored-manifest test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "ignored-manifest-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("Git-ignored MVC manifest must stop packaging");
+
+        assert!(
+            error
+                .to_string()
+                .contains("required MVC manifest ricochet.toml was excluded from the bundle"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_ignored_required_routes() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "ignored_routes_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join(".gitignore"), b"/config/routes.rco\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the ignored-routes test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "ignored-routes-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("Git-ignored configured routes must stop packaging");
+
+        assert!(
+            error.to_string().contains(
+                "configured MVC routes file config/routes.rco was excluded from the bundle"
+            ),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_ignored_required_dependency_lockfile() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "ignored_lock_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        fs::write(root.join(".gitignore"), b"/ricochet.lock\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the ignored-lockfile test");
+        assert!(git.status.success());
+
+        let output = root.join(format!("ignored-lock-app{}", std::env::consts::EXE_SUFFIX));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("Git-ignored dependency lockfile must stop packaging");
+
+        assert!(
+            error
+                .to_string()
+                .contains("dependency lockfile ricochet.lock was excluded from the bundle"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_includes_ignored_locked_dependency_tree() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "ignored_dependency_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        fs::write(root.join(".gitignore"), b"/packages/greeter/\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the ignored-dependency test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "ignored-dependency-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let bundle = build_mvc_bundle(root, &output)
+            .expect("locked dependency files should be included explicitly");
+        let paths = bundle_paths(&bundle);
+        assert!(paths.contains("packages/greeter/main.rco"));
+        assert!(paths.contains("packages/greeter/ricochet.toml"));
+    }
+
+    #[test]
+    fn mvc_bundle_preserves_the_complete_locked_dependency_tree() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "dependency_bundle_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the dependency-bundle test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "dependency-bundle-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let bundle = build_mvc_bundle(root, &output).expect("dependency bundle should build");
+        let paths = bundle_paths(&bundle);
+        for expected in [
+            "ricochet.toml",
+            "ricochet.lock",
+            "config/routes.rco",
+            "packages/greeter/main.rco",
+            "packages/greeter/ricochet.toml",
+        ] {
+            assert!(paths.contains(expected), "bundle should contain {expected}");
+        }
+
+        let extracted = tempfile::tempdir().expect("temporary extracted bundle");
+        bundle
+            .extract_to(extracted.path())
+            .expect("bundle extraction");
+        let manifest_path = extracted.path().join("ricochet.toml");
+        let manifest = fs::read_to_string(&manifest_path)
+            .expect("extracted manifest")
+            .parse::<DocumentMut>()
+            .expect("parsed extracted manifest");
+        assert_eq!(
+            verify_dependency_manifest(extracted.path(), &manifest_path, &manifest, false)
+                .expect("extracted dependency graph should retain locked integrity"),
+            1
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_expands_a_fetched_git_dependency_instead_of_its_nested_repo_placeholder() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "git_dependency_bundle_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_git_dependency(root, "greeter");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the nested-repository test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "git-dependency-bundle-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let bundle = build_mvc_bundle(root, &output)
+            .expect("fetched Git dependency should expand into regular locked files");
+        let paths = bundle_paths(&bundle);
+        assert!(paths.contains(".ricochet/packages/greeter/main.rco"));
+        assert!(paths.contains(".ricochet/packages/greeter/ricochet.toml"));
+        assert!(paths.contains(".ricochet/packages/greeter/.gitignore"));
+        assert!(
+            paths
+                .iter()
+                .all(|path| !path.split('/').any(|part| part == ".git")),
+            "bundle must not contain nested Git metadata: {paths:#?}"
+        );
+
+        let extracted = tempfile::tempdir().expect("temporary extracted bundle");
+        bundle
+            .extract_to(extracted.path())
+            .expect("bundle extraction");
+        verify_runtime_import_locks_for_parent(extracted.path())
+            .expect("runtime dependency integrity should survive without Git metadata");
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_dependency_git_metadata_files() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "linked_dependency_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        let dependency_path = root.join("packages/greeter");
+        fs::write(
+            dependency_path.join(".git"),
+            b"gitdir: C:/outside/worktrees/greeter\n",
+        )
+        .expect("linked-worktree metadata fixture");
+        let integrity = package_tree_integrity(&dependency_path).expect("dependency integrity");
+        fs::write(
+            root.join("ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.greeter]
+source = "path+./packages/greeter"
+path = "./packages/greeter"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("updated dependency lockfile");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the Git-metadata test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "linked-dependency-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("dependency .git metadata files must never be embedded");
+        assert!(
+            error
+                .to_string()
+                .contains("dependency greeter contains forbidden Git metadata"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_case_variant_dependency_git_metadata_directories() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "case_variant_git_metadata_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        write_test_mvc_path_dependency(root, "greeter");
+        let dependency_path = root.join("packages/greeter");
+        fs::create_dir_all(dependency_path.join(".GIT")).expect("case-variant Git metadata");
+        fs::write(dependency_path.join(".GIT/config"), b"external metadata")
+            .expect("case-variant Git metadata fixture");
+        let integrity = package_tree_integrity(&dependency_path).expect("dependency integrity");
+        fs::write(
+            root.join("ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.greeter]
+source = "path+./packages/greeter"
+path = "./packages/greeter"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("updated dependency lockfile");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the case-variant Git-metadata test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "case-variant-git-metadata-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("case-variant dependency Git metadata must never be embedded");
+        assert!(
+            error
+                .to_string()
+                .contains("dependency greeter contains forbidden Git metadata"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_a_required_route_with_a_symlink_ancestor() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "symlinked_routes_app");
+        fs::create_dir_all(root.join("actual-config")).expect("actual config directory");
+        fs::write(root.join("actual-config/routes.rco"), b"").expect("actual routes");
+        create_test_directory_link(&root.join("actual-config"), &root.join("config"));
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the symlink-ancestor test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "symlinked-routes-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("required logical paths must not traverse symlink ancestors");
+        assert!(
+            error.to_string().contains(
+                "configured MVC routes file path contains a symbolic link or reparse point"
+            ),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_required_paths_follow_host_filesystem_case_semantics() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        fs::create_dir_all(root.join("Config")).expect("config directory");
+        fs::create_dir_all(root.join("Packages/Greeter")).expect("dependency directory");
+        fs::create_dir_all(root.join("DB/Migrations")).expect("migration directory");
+        fs::write(
+            root.join("Ricochet.toml"),
+            r#"[package]
+name = "case_semantics_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[dependencies.greeter]
+path = "./packages/greeter"
+version = "^0.1.0"
+
+[database.default]
+adapter = "sqlite"
+url = "data/state.db"
+"#,
+        )
+        .expect("case-variant MVC manifest");
+        fs::write(root.join("Config/Routes.rco"), b"").expect("case-variant routes");
+        fs::write(
+            root.join("Packages/Greeter/Ricochet.toml"),
+            b"[package]\nname = \"greeter\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("case-variant dependency manifest");
+        fs::write(root.join("Packages/Greeter/Main.rco"), b"42")
+            .expect("case-variant dependency source");
+        fs::write(
+            root.join("DB/Migrations/0001_schema.sql"),
+            b"create table entries (id integer primary key);",
+        )
+        .expect("case-variant migration");
+        let integrity = package_tree_integrity(&root.join("Packages/Greeter"))
+            .expect("case-variant dependency integrity");
+        fs::write(
+            root.join("Ricochet.lock"),
+            format!(
+                r#"[package]
+
+[package.greeter]
+source = "path+./packages/greeter"
+path = "./packages/greeter"
+version_req = "^0.1.0"
+version = "0.1.0"
+integrity = "{integrity}"
+"#
+            ),
+        )
+        .expect("case-variant dependency lockfile");
+        let case_insensitive = root.join("ricochet.toml").is_file();
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the path-case test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "case-semantics-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let result = build_mvc_bundle(root, &output);
+        if case_insensitive {
+            let paths = bundle_paths(&result.expect("host-valid path casing should package"));
+            for expected in [
+                "Ricochet.toml",
+                "Ricochet.lock",
+                "Config/Routes.rco",
+                "Packages/Greeter/Main.rco",
+                "Packages/Greeter/Ricochet.toml",
+                "DB/Migrations/0001_schema.sql",
+            ] {
+                assert!(paths.contains(expected), "bundle should contain {expected}");
+            }
+        } else {
+            assert!(
+                result.is_err(),
+                "case-sensitive hosts must reject mismatched manifest casing"
+            );
+        }
     }
 
     #[test]
