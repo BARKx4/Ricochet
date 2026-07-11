@@ -124,6 +124,9 @@ $ptyRead "output" at "ricochet-pty" contains? println
 "pty running?" print
 $session "id" at pty_detail value "running" at println
 
+stopOptions map
+$session "id" at $stopOptions pty_stop value drop
+
 "pty released:" print
 $session "id" at pty_release value println
 
