@@ -37,6 +37,10 @@ function Write-Utf8File {
     [System.IO.File]::WriteAllText($Path, $Content, $Utf8NoBom)
 }
 
+$releaseVersionValidator = Join-Path $Root "scripts\validate-release-version.ps1"
+Write-Host "==> release version consistency validation"
+& $releaseVersionValidator
+
 $licenseGovernanceValidator = Join-Path $Root "scripts\validate-license-governance.ps1"
 Write-Host "==> license and governance validation"
 & $licenseGovernanceValidator

@@ -65,15 +65,15 @@
 <p>Run the store packaging validator after artifact manifest validation:</p>
 <pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 0.1.19-rc.4
+  -PackageVersion 0.1.19-rc.5
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 0.1.19-rc.4
+  -PackageVersion 0.1.19-rc.5
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 0.1.19-rc.4</code></pre>
+  -PackageVersion 0.1.19-rc.5</code></pre>
 <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
 <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects:</p>
 <ul>
