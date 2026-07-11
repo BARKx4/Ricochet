@@ -349,6 +349,20 @@ Require-Match $releaseWorkflowPath $releaseWorkflow '<project_license>Apache-2\.
 Require-Match $releaseWorkflowPath $releaseWorkflow 'cmp LICENSE "\$tmp/deb-root/usr/share/doc/ricochet/LICENSE"' 'compare the Debian license with the repository license'
 Require-Match $releaseWorkflowPath $releaseWorkflow 'Windows portable ZIP LICENSE did not match the repository license' 'compare the Windows archive license with the repository license'
 Require-Match $releaseWorkflowPath $releaseWorkflow 'ricochet-v\*-\$\{\{ matrix\.target \}\}\.tar\.gz[\s\S]+?cmp LICENSE "\$package_dir/LICENSE"' 'compare each macOS archive license with the repository license'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'Smoke-test Windows installer' 'execute the disposable Windows installer smoke after portable package testing'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'ricochet-installer-smoke-' 'use a unique RUNNER_TEMP root for Windows installer testing'
+Require-Match $releaseWorkflowPath $releaseWorkflow '"/S /D=\$installDir"' 'silently install NSIS into the generated unquoted destination'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'AddSeconds\(30\)' 'bound Windows uninstaller state polling to 30 seconds'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'sha256sum' 'hash-compare Linux tar and Debian notice copies'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'shasum -a 256' 'hash-compare both macOS notice copies'
+
+$releaseWorkflowContractPath = "scripts/test-release-workflow-contract.ps1"
+[void](Read-RequiredFile $releaseWorkflowContractPath)
+try {
+    & (Join-Path $Root $releaseWorkflowContractPath)
+} catch {
+    $Failures.Add("${releaseWorkflowContractPath}: $($_.Exception.Message)") | Out-Null
+}
 
 $windowsPackagerPath = "scripts/package-release.ps1"
 $windowsPackager = Read-RequiredFile $windowsPackagerPath
