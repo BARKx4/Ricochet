@@ -101,14 +101,178 @@ function Reject-Pattern {
     }
 }
 
+function Test-PatternSet {
+    param(
+        [string]$Text,
+        [string[]]$Patterns
+    )
+
+    foreach ($pattern in $Patterns) {
+        if (-not [regex]::IsMatch($Text, $pattern)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Require-PatternSet {
+    param(
+        [string]$Text,
+        [string[]]$Patterns,
+        [string]$Description
+    )
+
+    if (-not (Test-PatternSet -Text $Text -Patterns $Patterns)) {
+        Add-Failure $Description
+    }
+}
+
+function Get-IndentedBlockText {
+    param(
+        [string]$Text,
+        [string]$StartPattern,
+        [string]$EndPattern,
+        [string]$Description
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return ""
+    }
+
+    $startMatches = [regex]::Matches($Text, "(?m)^$StartPattern\r?$")
+    if ($startMatches.Count -ne 1) {
+        Add-Failure "Expected exactly one $Description start, found $($startMatches.Count)."
+        return ""
+    }
+
+    $startIndex = $startMatches[0].Index
+    $remainingStart = $startIndex + $startMatches[0].Length
+    $endMatch = [regex]::Match(
+        $Text.Substring($remainingStart),
+        "(?m)^$EndPattern\r?$"
+    )
+    if (-not $endMatch.Success) {
+        Add-Failure "Could not find the end of $Description."
+        return ""
+    }
+
+    $endIndex = $remainingStart + $endMatch.Index + $endMatch.Length
+    return $Text.Substring($startIndex, $endIndex - $startIndex)
+}
+
+function Get-JobHeaderText {
+    param(
+        [string]$JobText,
+        [string]$Name
+    )
+
+    if ([string]::IsNullOrEmpty($JobText)) {
+        return ""
+    }
+
+    $stepsMatch = [regex]::Match($JobText, '(?m)^    steps:\r?$')
+    if (-not $stepsMatch.Success) {
+        Add-Failure "Job '$Name' has no steps section."
+        return ""
+    }
+
+    return $JobText.Substring(0, $stepsMatch.Index)
+}
+
 $windowsJob = Get-JobText -Name "package-windows" -NextName "package-linux"
 $linuxJob = Get-JobText -Name "package-linux" -NextName "package-macos"
 $macosJob = Get-JobText -Name "package-macos" -NextName "publish-release"
+$publishJob = Get-JobText -Name "publish-release" -NextName ""
 
 $windowsPortableStep = Get-StepText -JobText $windowsJob -Name "Smoke-test package executable"
 $windowsInstallerStep = Get-StepText -JobText $windowsJob -Name "Smoke-test Windows installer"
 $linuxSmokeStep = Get-StepText -JobText $linuxJob -Name "Smoke-test package executable"
 $macosSmokeStep = Get-StepText -JobText $macosJob -Name "Smoke-test package executable"
+
+$windowsJobHeader = Get-JobHeaderText -JobText $windowsJob -Name "package-windows"
+$linuxJobHeader = Get-JobHeaderText -JobText $linuxJob -Name "package-linux"
+$macosJobHeader = Get-JobHeaderText -JobText $macosJob -Name "package-macos"
+$publishJobHeader = Get-JobHeaderText -JobText $publishJob -Name "publish-release"
+
+$triggerSectionMatch = [regex]::Match(
+    $workflow,
+    '(?ms)^on:\r?\n(?<section>.*?)^permissions:'
+)
+$triggerSection = if ($triggerSectionMatch.Success) {
+    $triggerSectionMatch.Groups['section'].Value
+} else {
+    Add-Failure "Release workflow trigger section could not be isolated."
+    ""
+}
+
+Require-Pattern $triggerSection '(?m)^  workflow_dispatch:\r?$' "Release workflow must support manual workflow_dispatch execution."
+Require-Pattern $triggerSection '(?ms)^  push:\r?\n    tags:\r?\n      - "v\*\.\*\.\*"\r?$' "Release publication must be triggered by version-tag pushes."
+
+Require-PatternSet `
+    -Text $windowsJobHeader `
+    -Patterns @(
+        '(?m)^    needs: resolve-version\r?$',
+        '(?m)^    runs-on: windows-latest\r?$'
+    ) `
+    -Description "Manual Windows packaging must run once on windows-latest after version resolution."
+Require-Pattern $windowsJob 'package-release\.ps1[^\r\n]*-Target windows-x64' "Windows package job must build the windows-x64 logical target."
+Reject-Pattern $windowsJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Windows package job."
+
+Require-PatternSet `
+    -Text $linuxJobHeader `
+    -Patterns @(
+        '(?m)^    needs: resolve-version\r?$',
+        '(?m)^    runs-on: ubuntu-latest\r?$'
+    ) `
+    -Description "Manual Linux packaging must run once on ubuntu-latest after version resolution."
+Require-Pattern $linuxJob 'args=\(--target linux-x64 ' "Linux package job must build the linux-x64 logical target."
+Reject-Pattern $linuxJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Linux package job."
+
+Require-PatternSet `
+    -Text $macosJobHeader `
+    -Patterns @(
+        '(?m)^    needs: resolve-version\r?$',
+        ([regex]::Escape('    runs-on: ${{ matrix.runner }}'))
+    ) `
+    -Description "Manual macOS packaging must run on each matrix runner after version resolution."
+Require-Pattern $macosJob ([regex]::Escape('--target ''${{ matrix.target }}''')) "macOS package job must build its declared matrix target."
+Require-Pattern $macosSmokeStep ([regex]::Escape('tar -xzf dist/ricochet-v*-${{ matrix.target }}.tar.gz -C "$tmp"')) "macOS smoke must inspect the package for its declared matrix target."
+Reject-Pattern $macosJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the macOS package matrix."
+
+$actualMacosTargets = @(
+    [regex]::Matches(
+        $macosJobHeader,
+        '(?m)^          - target: (?<target>[^\r\n]+)\r?$'
+    ) | ForEach-Object { $_.Groups['target'].Value.Trim() }
+)
+$expectedLogicalTargets = @(
+    "windows-x64",
+    "linux-x64",
+    "macos-x64",
+    "macos-arm64"
+)
+$actualLogicalTargets = @("windows-x64", "linux-x64") + $actualMacosTargets
+$logicalTargetDifferences = @(
+    Compare-Object `
+        -ReferenceObject $expectedLogicalTargets `
+        -DifferenceObject $actualLogicalTargets
+)
+if ($actualLogicalTargets.Count -ne 4 -or $logicalTargetDifferences.Count -ne 0) {
+    Add-Failure "Manual workflow execution must build exactly windows-x64, linux-x64, macos-x64, and macos-arm64; found $($actualLogicalTargets -join ', ')."
+}
+
+$publishConditionMatches = [regex]::Matches(
+    $publishJobHeader,
+    '(?m)^    if:\s*(?<condition>[^\r\n]+)\r?$'
+)
+$expectedPublishCondition = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')"
+if (
+    $publishConditionMatches.Count -ne 1 -or
+    $publishConditionMatches[0].Groups['condition'].Value.Trim() -cne $expectedPublishCondition
+) {
+    Add-Failure "Publish job must require a tag push explicitly so workflow_dispatch can never publish."
+}
 
 $portableIndex = $windowsJob.IndexOf("      - name: Smoke-test package executable", [StringComparison]::Ordinal)
 $installerIndex = $windowsJob.IndexOf("      - name: Smoke-test Windows installer", [StringComparison]::Ordinal)
@@ -117,15 +281,119 @@ if ($portableIndex -lt 0 -or $installerIndex -le $portableIndex -or $manifestInd
     Add-Failure "Windows installer smoke must follow portable smoke and precede artifact validation."
 }
 
-foreach ($noticeName in @(
-        "THIRD_PARTY_LICENSES.html",
-        "THIRD_PARTY_NOTICES.txt"
-    )) {
-    $escapedNoticeName = [regex]::Escape($noticeName)
-    Require-Pattern $windowsPortableStep $escapedNoticeName "Windows portable smoke must hash-check $noticeName."
-    Require-Pattern $windowsInstallerStep $escapedNoticeName "Windows installer smoke must hash-check source and installed $noticeName."
-    Require-Pattern $linuxSmokeStep $escapedNoticeName "Linux smoke must hash-check tar and Debian $noticeName."
-    Require-Pattern $macosSmokeStep $escapedNoticeName "macOS smoke must hash-check $noticeName in each matrix tarball."
+$windowsPortableNoticeBlock = Get-IndentedBlockText `
+    -Text $windowsPortableStep `
+    -StartPattern '          foreach \(\$noticeName in @\(' `
+    -EndPattern '          \}' `
+    -Description "Windows portable notice loop"
+$windowsInstallerSourceNoticeBlock = Get-IndentedBlockText `
+    -Text $windowsInstallerStep `
+    -StartPattern '          foreach \(\$noticeName in @\(' `
+    -EndPattern '          \}' `
+    -Description "Windows installer source notice loop"
+$windowsInstallerInstalledNoticeBlock = Get-IndentedBlockText `
+    -Text $windowsInstallerStep `
+    -StartPattern '          foreach \(\$trackedFile in @\(' `
+    -EndPattern '          \}' `
+    -Description "Windows installed-file hash loop"
+$windowsInstallerHashFunction = Get-IndentedBlockText `
+    -Text $windowsInstallerStep `
+    -StartPattern '          function Assert-Sha256Match \{' `
+    -EndPattern '          \}' `
+    -Description "Windows installer SHA-256 helper"
+$linuxNoticeBlock = Get-IndentedBlockText `
+    -Text $linuxSmokeStep `
+    -StartPattern '          for notice in THIRD_PARTY_LICENSES\.html THIRD_PARTY_NOTICES\.txt; do' `
+    -EndPattern '          done' `
+    -Description "Linux tar and Debian notice loop"
+$macosNoticeBlock = Get-IndentedBlockText `
+    -Text $macosSmokeStep `
+    -StartPattern '          for notice in THIRD_PARTY_LICENSES\.html THIRD_PARTY_NOTICES\.txt; do' `
+    -EndPattern '          done' `
+    -Description "macOS matrix notice loop"
+
+$noticeNameLoopHeaderPattern = '(?ms)^          foreach \(\$noticeName in @\(\r?\n            ''THIRD_PARTY_LICENSES\.html'',\r?\n            ''THIRD_PARTY_NOTICES\.txt''\r?\n          \)\) \{'
+$windowsPortableNoticePatterns = @(
+    $noticeNameLoopHeaderPattern,
+    '(?m)^            \$repositoryNotice = Join-Path \$env:GITHUB_WORKSPACE \$noticeName\r?$',
+    '(?m)^            \$packagedNotice = Join-Path \$packageDir \$noticeName\r?$',
+    '(?m)^            if \(\(Get-FileHash -LiteralPath \$packagedNotice -Algorithm SHA256\)\.Hash -cne \(Get-FileHash -LiteralPath \$repositoryNotice -Algorithm SHA256\)\.Hash\) \{\r?$'
+)
+$windowsInstallerSourceNoticePatterns = @(
+    $noticeNameLoopHeaderPattern,
+    '(?ms)^            Assert-Sha256Match `\r?\n              -Expected \(Join-Path \$repoRoot \$noticeName\) `\r?\n              -Actual \(Join-Path \$installerSource \$noticeName\) `\r?\n              -Label "Windows installer source \$noticeName"\r?$'
+)
+$windowsInstallerInstalledNoticePatterns = @(
+    '(?ms)^          foreach \(\$trackedFile in @\(\r?\n            ''LICENSE'',\r?\n            ''THIRD_PARTY_LICENSES\.html'',\r?\n            ''THIRD_PARTY_NOTICES\.txt''\r?\n          \)\) \{',
+    '(?ms)^            Assert-Sha256Match `\r?\n              -Expected \(Join-Path \$repoRoot \$trackedFile\) `\r?\n              -Actual \(Join-Path \$installDir \$trackedFile\) `\r?\n              -Label "Installed \$trackedFile"\r?$'
+)
+$windowsInstallerHashFunctionPatterns = @(
+    '(?m)^            \$expectedHash = \(Get-FileHash -LiteralPath \$Expected -Algorithm SHA256\)\.Hash\r?$',
+    '(?m)^            \$actualHash = \(Get-FileHash -LiteralPath \$Actual -Algorithm SHA256\)\.Hash\r?$',
+    '(?m)^            if \(\$actualHash -cne \$expectedHash\) \{\r?$'
+)
+$linuxNoticePatterns = @(
+    '(?m)^          for notice in THIRD_PARTY_LICENSES\.html THIRD_PARTY_NOTICES\.txt; do\r?$',
+    '(?m)^            tar_notice="\$package_dir/\$notice"\r?$',
+    '(?m)^            deb_notice="\$tmp/deb-root/usr/share/doc/ricochet/\$notice"\r?$',
+    '(?m)^            repository_hash="\$\(notice_hash "\$notice"\)"\r?$',
+    '(?m)^            tar_hash="\$\(notice_hash "\$tar_notice"\)"\r?$',
+    '(?m)^            deb_hash="\$\(notice_hash "\$deb_notice"\)"\r?$',
+    '(?m)^            if \[\[ "\$tar_hash" != "\$repository_hash" \]\]; then\r?$',
+    '(?m)^            if \[\[ "\$deb_hash" != "\$repository_hash" \]\]; then\r?$'
+)
+$macosNoticePatterns = @(
+    '(?m)^          for notice in THIRD_PARTY_LICENSES\.html THIRD_PARTY_NOTICES\.txt; do\r?$',
+    '(?m)^            packaged_notice="\$package_dir/\$notice"\r?$',
+    '(?m)^            repository_hash="\$\(notice_hash "\$notice"\)"\r?$',
+    '(?m)^            packaged_hash="\$\(notice_hash "\$packaged_notice"\)"\r?$',
+    '(?m)^            if \[\[ "\$packaged_hash" != "\$repository_hash" \]\]; then\r?$'
+)
+
+Require-PatternSet `
+    -Text $windowsPortableNoticeBlock `
+    -Patterns $windowsPortableNoticePatterns `
+    -Description "Windows portable smoke must compare each named packaged notice hash with that named repository notice hash in one loop."
+Require-PatternSet `
+    -Text $windowsInstallerSourceNoticeBlock `
+    -Patterns $windowsInstallerSourceNoticePatterns `
+    -Description "Windows installer smoke must compare each named staged notice hash with that named repository notice hash."
+Require-PatternSet `
+    -Text $windowsInstallerInstalledNoticeBlock `
+    -Patterns $windowsInstallerInstalledNoticePatterns `
+    -Description "Windows installer smoke must compare each named installed notice hash with that named repository notice hash."
+Require-PatternSet `
+    -Text $windowsInstallerHashFunction `
+    -Patterns $windowsInstallerHashFunctionPatterns `
+    -Description "Windows installer SHA-256 helper must compare the hashes of its Expected and Actual paths."
+Require-PatternSet `
+    -Text $linuxNoticeBlock `
+    -Patterns $linuxNoticePatterns `
+    -Description "Linux smoke must compare each named tar and Debian notice hash with that named repository notice hash in one loop."
+Require-PatternSet `
+    -Text $macosNoticeBlock `
+    -Patterns $macosNoticePatterns `
+    -Description "macOS smoke must compare each named packaged notice hash with that named repository notice hash in one matrix loop."
+
+$decoupledNoticeFixture = @'
+          foreach ($noticeName in @(
+            'THIRD_PARTY_LICENSES.html',
+            'THIRD_PARTY_NOTICES.txt'
+          )) {
+            $repositoryNotice = Join-Path $env:GITHUB_WORKSPACE $noticeName
+            $packagedNotice = Join-Path $packageDir $noticeName
+            $unrelatedHash = (Get-FileHash -LiteralPath $env:GITHUB_WORKSPACE -Algorithm SHA256).Hash
+          }
+'@
+$decoupledFixturePassedIndependentChecks =
+    [regex]::IsMatch($decoupledNoticeFixture, [regex]::Escape("THIRD_PARTY_LICENSES.html")) -and
+    [regex]::IsMatch($decoupledNoticeFixture, [regex]::Escape("THIRD_PARTY_NOTICES.txt")) -and
+    [regex]::IsMatch($decoupledNoticeFixture, "Get-FileHash")
+if (-not $decoupledFixturePassedIndependentChecks) {
+    Add-Failure "The deliberately decoupled notice mutation fixture no longer exercises the legacy independent checks."
+}
+if (Test-PatternSet -Text $decoupledNoticeFixture -Patterns $windowsPortableNoticePatterns) {
+    Add-Failure "Relationship-aware notice assertions accepted a deliberately unrelated hash mutation."
 }
 
 Require-Pattern $windowsPortableStep 'Get-FileHash' "Windows portable smoke must use SHA-256 file hashes."

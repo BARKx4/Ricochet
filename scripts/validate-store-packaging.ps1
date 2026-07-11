@@ -53,6 +53,24 @@ function Test-JsonProperty {
     return $Object.PSObject.Properties.Name -contains $Name
 }
 
+function ConvertTo-DebianVersion {
+    param([string] $Version)
+
+    $normalized = $Version.Trim().TrimStart("v")
+    $precedence = $normalized
+    $build = ""
+    $buildIndex = $precedence.IndexOf("+", [System.StringComparison]::Ordinal)
+    if ($buildIndex -ge 0) {
+        $build = $precedence.Substring($buildIndex)
+        $precedence = $precedence.Substring(0, $buildIndex)
+    }
+    $prereleaseIndex = $precedence.IndexOf("-", [System.StringComparison]::Ordinal)
+    if ($prereleaseIndex -lt 0) {
+        return "$precedence$build"
+    }
+    return "$($precedence.Substring(0, $prereleaseIndex))~$($precedence.Substring($prereleaseIndex + 1))$build"
+}
+
 function Get-Artifact {
     param(
         [object[]] $Artifacts,
@@ -361,6 +379,11 @@ switch ($Target) {
     "linux-x64" {
         $deb = Get-Artifact $artifacts { param($artifact) $artifact.kind -eq "debian-package" -and $artifact.name -like "*.deb" }
         $debPath = Assert-Artifact $errors $deb "Debian package"
+        $expectedDebianVersion = ConvertTo-DebianVersion ([string]$manifest.package_version)
+        $expectedDebianName = "ricochet_${expectedDebianVersion}_amd64.deb"
+        if ($deb -and [string]$deb.name -cne $expectedDebianName) {
+            Add-Error $errors "Debian package artifact must be '$expectedDebianName', found '$($deb.name)'."
+        }
         $requiredStatuses = @()
         if ($RequireProduction) {
             $requiredStatuses += "status = signed"
@@ -411,6 +434,7 @@ switch ($Target) {
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
                     foreach ($requiredField in @(
                             "Package: ricochet",
+                            "Version: $expectedDebianVersion",
                             "Section: devel",
                             "Architecture: amd64",
                             "Maintainer: Ricochet <noreply@ricochet.today>",

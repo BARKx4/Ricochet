@@ -621,6 +621,8 @@ fn validate_linux_package_version(version: &str) -> Result<()> {
     {
         bail!("Linux package version must not contain whitespace or path separators");
     }
+    Version::parse(version)
+        .with_context(|| format!("Linux package version must be valid SemVer: {version:?}"))?;
     Ok(())
 }
 
@@ -760,7 +762,8 @@ fn create_linux_deb(
         description,
         gui,
     } = *metadata;
-    let deb_path = artifact_dir.join(format!("{name}_{version}_amd64.deb"));
+    let debian_version = debian_package_version(version)?;
+    let deb_path = artifact_dir.join(format!("{name}_{debian_version}_amd64.deb"));
     assert_new_artifact(&deb_path)?;
 
     let deb_root = staging_root.join(format!("{name}-deb-root"));
@@ -784,7 +787,7 @@ fn create_linux_deb(
     .with_context(|| format!("failed to write {}", doc_dir.join("README.txt").display()))?;
     fs::write(
         doc_dir.join("changelog"),
-        format!("{name} ({version})\n\n  * Packaged Ricochet application release.\n"),
+        format!("{name} ({debian_version})\n\n  * Packaged Ricochet application release.\n"),
     )
     .with_context(|| format!("failed to write {}", doc_dir.join("changelog").display()))?;
     if gui {
@@ -799,7 +802,7 @@ fn create_linux_deb(
     fs::write(
         control_dir.join("control"),
         format!(
-            "Package: {name}\nVersion: {version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
+            "Package: {name}\nVersion: {debian_version}\nSection: devel\nPriority: optional\nArchitecture: amd64\n{}Maintainer: Ricochet Packager <noreply@ricochet.today>\nDescription: {description}\n",
             if gui {
                 "Depends: libgtk-3-0, libwebkit2gtk-4.1-0\n"
             } else {
@@ -820,6 +823,22 @@ fn create_linux_deb(
 
     println!("packaged {}", deb_path.display());
     Ok(())
+}
+
+fn debian_package_version(version: &str) -> Result<String> {
+    let parsed = Version::parse(version).with_context(|| {
+        format!("cannot convert invalid SemVer {version:?} to a Debian version")
+    })?;
+    let mut debian = format!("{}.{}.{}", parsed.major, parsed.minor, parsed.patch);
+    if !parsed.pre.is_empty() {
+        debian.push('~');
+        debian.push_str(parsed.pre.as_str());
+    }
+    if !parsed.build.is_empty() {
+        debian.push('+');
+        debian.push_str(parsed.build.as_str());
+    }
+    Ok(debian)
 }
 
 fn assert_new_artifact(path: &Path) -> Result<()> {
@@ -1200,5 +1219,33 @@ mod tests {
         assert!(metainfo.contains("<project_license>Apache-2.0</project_license>"));
         let stale_license = format!("<project_license>{}</project_license>", "MIT");
         assert!(!metainfo.contains(&stale_license));
+    }
+
+    #[test]
+    fn debian_package_versions_sort_semver_prereleases_before_stable() {
+        assert_eq!(
+            debian_package_version("0.1.19").expect("stable SemVer"),
+            "0.1.19"
+        );
+        assert_eq!(
+            debian_package_version("0.1.19-rc.5").expect("prerelease SemVer"),
+            "0.1.19~rc.5"
+        );
+        assert_eq!(
+            debian_package_version("0.1.19-rc.5+build.7").expect("SemVer with build metadata"),
+            "0.1.19~rc.5+build.7"
+        );
+    }
+
+    #[test]
+    fn linux_package_versions_must_be_semver() {
+        validate_linux_package_version("1.2.3-rc.4+build.7")
+            .expect("valid semantic versions are accepted");
+        for invalid in ["dev", "1.2", "01.2.3"] {
+            assert!(
+                validate_linux_package_version(invalid).is_err(),
+                "invalid semantic version {invalid:?} must be rejected"
+            );
+        }
     }
 }

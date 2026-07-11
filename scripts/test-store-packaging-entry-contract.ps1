@@ -57,7 +57,7 @@ foreach ($noticeName in @(
         $archivePattern = '^[^/]+/{0}$' -f [regex]::Escape($noticeName)
 
         foreach ($invalidEntry in @(
-                $noticeName.ToLowerInvariant(),
+                "package/$($noticeName.ToLowerInvariant())",
                 "outer/nested/$noticeName"
             )) {
             $archiveErrors = [System.Collections.Generic.List[string]]::new()

@@ -187,6 +187,46 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
+$approvedPublicMarkdownPaths = @(
+    "README.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "docs/reference/README.md",
+    "docs/wiki/README.md",
+    "editors/vscode/README.md",
+    "examples/learn/README.md",
+    "examples/showcase/README.md",
+    "packages/README.md",
+    "packages/ricochet_ai/README.md",
+    "packages/ricochet_auth/README.md",
+    "packages/ricochet_forms/README.md",
+    "packages/ricochet_python/README.md",
+    "packages/ricochet_test_helpers/README.md"
+)
+$approvedPublicMarkdownSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($approvedMarkdownPath in $approvedPublicMarkdownPaths) {
+    [void]$approvedPublicMarkdownSet.Add($approvedMarkdownPath)
+}
+$trackedMarkdownPaths = @(& git -C $Root ls-files --cached -- "*.md")
+if ($LASTEXITCODE -ne 0) {
+    Add-Failure "git ls-files failed while validating the public Markdown allowlist"
+} else {
+    $trackedMarkdownSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($trackedMarkdownPath in $trackedMarkdownPaths) {
+        [void]$trackedMarkdownSet.Add($trackedMarkdownPath)
+    }
+    foreach ($trackedMarkdownPath in $trackedMarkdownPaths) {
+        if (-not $approvedPublicMarkdownSet.Contains($trackedMarkdownPath)) {
+            Add-Failure "tracked Markdown path is outside the approved public allowlist: $trackedMarkdownPath"
+        }
+    }
+    foreach ($approvedMarkdownPath in $approvedPublicMarkdownPaths) {
+        if (-not $trackedMarkdownSet.Contains($approvedMarkdownPath)) {
+            Add-Failure "approved public Markdown path is not tracked: $approvedMarkdownPath"
+        }
+    }
+}
+
 $editorManifestPath = "editors/vscode/package.json"
 $editorManifest = Read-RequiredFile $editorManifestPath
 if ($null -ne $editorManifest) {
@@ -340,6 +380,14 @@ try {
     & (Join-Path $Root $storeEntryContractPath)
 } catch {
     $Failures.Add("${storeEntryContractPath}: $($_.Exception.Message)") | Out-Null
+}
+
+$debianVersionContractPath = "scripts/test-debian-version-contract.ps1"
+[void](Read-RequiredFile $debianVersionContractPath)
+try {
+    & (Join-Path $Root $debianVersionContractPath)
+} catch {
+    $Failures.Add("${debianVersionContractPath}: $($_.Exception.Message)") | Out-Null
 }
 
 $releaseWorkflowPath = ".github/workflows/release.yml"

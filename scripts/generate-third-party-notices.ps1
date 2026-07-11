@@ -44,6 +44,73 @@ function Normalize-Text {
     return $normalized + "`n"
 }
 
+function Select-ActiveCargoAboutHtml {
+    param(
+        [string]$Html,
+        [string[]]$DependencyIdentities
+    )
+
+    $activeIdentities = [System.Collections.Generic.HashSet[string]]::new($Ordinal)
+    foreach ($identity in $DependencyIdentities) {
+        if (-not $activeIdentities.Add([string]$identity)) {
+            throw "Duplicate active dependency identity: $identity"
+        }
+    }
+
+    $renderedIdentities = [System.Collections.Generic.HashSet[string]]::new($Ordinal)
+    $singleline = [System.Text.RegularExpressions.RegexOptions]::Singleline -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+    $componentRows = [regex]::new(
+        '\s*<tr>\s*<td><code>(?<name>[^<]+)</code></td>\s*<td><code>(?<version>[^<]+)</code></td>.*?</tr>',
+        $singleline
+    )
+    $filtered = $componentRows.Replace(
+        $Html,
+        [System.Text.RegularExpressions.MatchEvaluator]{
+            param($match)
+
+            $name = [System.Net.WebUtility]::HtmlDecode($match.Groups['name'].Value)
+            $version = [System.Net.WebUtility]::HtmlDecode($match.Groups['version'].Value)
+            $identity = "$name@$version"
+            if (-not $activeIdentities.Contains($identity)) {
+                return ""
+            }
+            if (-not $renderedIdentities.Add($identity)) {
+                throw "Cargo-about rendered duplicate component identity: $identity"
+            }
+            return $match.Value
+        }
+    )
+
+    $missingIdentities = @($DependencyIdentities | Where-Object { -not $renderedIdentities.Contains([string]$_) })
+    if ($missingIdentities.Count -gt 0) {
+        throw "Cargo-about did not render active dependency identities: $($missingIdentities -join ', ')"
+    }
+
+    $usedByItems = [regex]::new(
+        '\s*<li><code>(?<name>[^<\s]+)\s+(?<version>[^<\s]+)</code>.*?</li>',
+        $singleline
+    )
+    $filtered = $usedByItems.Replace(
+        $filtered,
+        [System.Text.RegularExpressions.MatchEvaluator]{
+            param($match)
+
+            $name = [System.Net.WebUtility]::HtmlDecode($match.Groups['name'].Value)
+            $version = [System.Net.WebUtility]::HtmlDecode($match.Groups['version'].Value)
+            if ($activeIdentities.Contains("$name@$version")) {
+                return $match.Value
+            }
+            return ""
+        }
+    )
+
+    $emptyLicenseSections = [regex]::new(
+        '\s*<section>\s*<h3>.*?</h3>\s*<p>Used by:</p>\s*<ul>\s*</ul>\s*<pre>.*?</pre>\s*</section>',
+        $singleline
+    )
+    return Normalize-Text ($emptyLicenseSections.Replace($filtered, ""))
+}
+
 function Get-TextSha256 {
     param([string]$Text)
 
@@ -163,14 +230,6 @@ $aboutTemplate = Join-Path $Root "licenses/third-party-licenses.hbs"
 
 Push-Location $Root
 try {
-    # Deliberately online-capable: authoritative generation must not use --offline or --frozen.
-    $aboutLog = @(& cargo about generate --locked --workspace --fail --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo-about generation failed with exit code $LASTEXITCODE`n$($aboutLog -join "`n")"
-    }
-    $normalizedLicenses = Normalize-Text ([System.IO.File]::ReadAllText($licensesOutput))
-    [System.IO.File]::WriteAllText($licensesOutput, $normalizedLicenses, $Utf8NoBom)
-
     $packageUnion = [System.Collections.Generic.Dictionary[string, object]]::new($Ordinal)
     $workspacePackageIds = [System.Collections.Generic.HashSet[string]]::new($Ordinal)
     $packagesByIdentity = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[object]]]::new($Ordinal)
@@ -214,8 +273,30 @@ foreach ($pair in $packageUnion.GetEnumerator()) {
     $dependencies[$sortKey] = $package
 }
 
+$dependencyIdentities = [string[]]@($dependencies.Values | ForEach-Object { "$($_.name)@$($_.version)" })
+Push-Location $Root
+try {
+    # Deliberately online-capable: authoritative generation must not use --offline or --frozen.
+    # cargo-about evaluates all configured targets simultaneously, which can
+    # cross-pollinate target-specific dependency edges. Filter its fully
+    # resolved report to the same per-target Cargo feature union used below.
+    $aboutLog = @(& cargo about generate --locked --workspace --fail --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo-about generation failed with exit code $LASTEXITCODE`n$($aboutLog -join "`n")"
+    }
+}
+finally {
+    Pop-Location
+}
+$normalizedLicenses = Normalize-Text ([System.IO.File]::ReadAllText($licensesOutput))
+$filteredLicenses = Select-ActiveCargoAboutHtml -Html $normalizedLicenses -DependencyIdentities $dependencyIdentities
+[System.IO.File]::WriteAllText($licensesOutput, $filteredLicenses, $Utf8NoBom)
+
 $noticeEntries = [System.Collections.Generic.SortedDictionary[string, object]]::new($Ordinal)
-$matchOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+$noticePatternOptions = [System.Management.Automation.WildcardOptions]::IgnoreCase -bor [System.Management.Automation.WildcardOptions]::CultureInvariant
+$noticeFileMatchers = @($NoticeFilePatterns | ForEach-Object {
+        [System.Management.Automation.WildcardPattern]::new($_, $noticePatternOptions)
+    })
 foreach ($package in $dependencies.Values) {
     $sourceRoot = [System.IO.Path]::GetDirectoryName([string]$package.manifest_path)
     if ([string]::IsNullOrWhiteSpace($sourceRoot) -or -not (Test-Path -LiteralPath $sourceRoot -PathType Container)) {
@@ -224,7 +305,14 @@ foreach ($package in $dependencies.Values) {
 
     foreach ($sourcePath in [System.IO.Directory]::EnumerateFiles($sourceRoot, "*", [System.IO.SearchOption]::AllDirectories)) {
         $fileName = [System.IO.Path]::GetFileName($sourcePath)
-        if (-not [regex]::IsMatch($fileName, '^(NOTICE|COPYRIGHT|AUTHORS|PATENTS).*$', $matchOptions)) {
+        $matchesNoticePattern = $false
+        foreach ($noticeFileMatcher in $noticeFileMatchers) {
+            if ($noticeFileMatcher.IsMatch($fileName)) {
+                $matchesNoticePattern = $true
+                break
+            }
+        }
+        if (-not $matchesNoticePattern) {
             continue
         }
 
@@ -280,7 +368,7 @@ $result = [pscustomobject]@{
     LicensesPath = $licensesOutput
     NoticesPath = $noticesOutput
     DependencyCount = $dependencies.Count
-    DependencyIdentities = [string[]]@($dependencies.Values | ForEach-Object { "$($_.name)@$($_.version)" })
+    DependencyIdentities = $dependencyIdentities
     NoticeFileCount = $noticeEntries.Count
 }
 

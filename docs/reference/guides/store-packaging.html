@@ -48,6 +48,7 @@
           <h2 id="supported-release-inputs">Supported Release Inputs</h2>
           <p>Windows releases provide a portable ZIP, an NSIS setup executable, Authenticode signing for production tags, an artifact manifest, a signing report, and checksums.</p>
           <p>Linux releases provide a portable tarball, a Debian package, desktop launcher metadata, SVG icon, AppStream metainfo, changelog, maintainer metadata, bundled docs/examples/packages, detached GPG signatures for production tags, a manifest, a signing report, and checksums.</p>
+          <p>Debian prerelease versions translate the SemVer prerelease separator to Debian's ordering separator. For example, Ricochet <code>0.1.19-rc.5</code> uses <code>0.1.19~rc.5</code> in the Debian filename and control metadata, ensuring it upgrades normally to stable <code>0.1.19</code>.</p>
           <p>macOS releases provide Apple Silicon and Intel tarballs, codesigned binaries, accepted notarization reports for production tags, manifests, signing reports, notary reports, and checksums.</p>
           <p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
 

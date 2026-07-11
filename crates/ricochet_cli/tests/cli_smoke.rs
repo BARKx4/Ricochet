@@ -7130,7 +7130,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         .arg("--package-name")
         .arg("linux-gui-app")
         .arg("--package-version")
-        .arg("1.2.3")
+        .arg("1.2.3-rc.4")
         .arg("--package-license")
         .arg("Apache-2.0")
         .arg("--package-description")
@@ -7144,7 +7144,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         &package_output,
     );
 
-    let tar_path = root.join("linux-gui-app-v1.2.3-linux-x64.tar.gz");
+    let tar_path = root.join("linux-gui-app-v1.2.3-rc.4-linux-x64.tar.gz");
     let tar_list = Command::new("tar")
         .arg("-tzf")
         .arg(&tar_path)
@@ -7153,9 +7153,9 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
     assert_run_success_for("tar -tzf", "linux-gui-app", &tar_list);
     let tar_stdout = String::from_utf8_lossy(&tar_list.stdout);
     for expected in [
-        "linux-gui-app-v1.2.3-linux-x64/share/applications/linux-gui-app.desktop",
-        "linux-gui-app-v1.2.3-linux-x64/share/metainfo/linux-gui-app.metainfo.xml",
-        "linux-gui-app-v1.2.3-linux-x64/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/applications/linux-gui-app.desktop",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/metainfo/linux-gui-app.metainfo.xml",
+        "linux-gui-app-v1.2.3-rc.4-linux-x64/share/icons/hicolor/scalable/apps/linux-gui-app.svg",
     ] {
         assert!(
             tar_stdout.contains(expected),
@@ -7175,7 +7175,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
     assert_run_success_for("tar -xzf", "linux-gui-app", &extract);
     let desktop = fs::read_to_string(
         extract_dir
-            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("linux-gui-app-v1.2.3-rc.4-linux-x64")
             .join("share/applications/linux-gui-app.desktop"),
     )
     .expect("desktop file should be readable");
@@ -7189,7 +7189,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
 
     let metainfo = fs::read_to_string(
         extract_dir
-            .join("linux-gui-app-v1.2.3-linux-x64")
+            .join("linux-gui-app-v1.2.3-rc.4-linux-x64")
             .join("share/metainfo/linux-gui-app.metainfo.xml"),
     )
     .expect("metainfo should be readable");
@@ -7198,11 +7198,37 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
             && metainfo.contains("<project_license>Apache-2.0</project_license>")
             && metainfo
                 .contains("<launchable type=\"desktop-id\">linux-gui-app.desktop</launchable>")
-            && metainfo.contains("<release version=\"1.2.3\" />"),
+            && metainfo.contains("<release version=\"1.2.3-rc.4\" />"),
         "AppStream metainfo should describe the packaged GUI app, got:\n{metainfo}"
     );
 
-    let deb_path = root.join("linux-gui-app_1.2.3_amd64.deb");
+    let deb_path = root.join("linux-gui-app_1.2.3~rc.4_amd64.deb");
+    let deb_version_output = Command::new("dpkg-deb")
+        .arg("--field")
+        .arg(&deb_path)
+        .arg("Version")
+        .output()
+        .expect("dpkg-deb should report the package version");
+    assert_run_success_for(
+        "dpkg-deb --field Version",
+        "linux-gui-app",
+        &deb_version_output,
+    );
+    let deb_version = String::from_utf8_lossy(&deb_version_output.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(deb_version, "1.2.3~rc.4");
+    let prerelease_order = Command::new("dpkg")
+        .arg("--compare-versions")
+        .arg(&deb_version)
+        .arg("lt")
+        .arg("1.2.3")
+        .status()
+        .expect("dpkg should compare Debian versions");
+    assert!(
+        prerelease_order.success(),
+        "Debian prerelease {deb_version} must sort before stable 1.2.3"
+    );
     let deb_contents = Command::new("dpkg-deb")
         .arg("--contents")
         .arg(&deb_path)

@@ -71,12 +71,13 @@
             <ul>
               <li>The CI workflow is configured with a disposable Windows installer smoke: it builds the NSIS installer, installs to a unique runner-temporary location, validates installed binaries and version output, checks documentation, examples, and notices, exercises WebView packaging and export outside the checkout, inspects per-user registration and shortcuts, then runs the normal silent uninstaller and checks cleanup.</li>
               <li>Package validation requires the third-party notice bundles at their exact portable, installer, Debian, and macOS package paths.</li>
+              <li>Debian prerelease filenames and control metadata use <code>0.1.19~rc.5</code> ordering while the Ricochet release identity remains <code>0.1.19-rc.5</code>, so the candidate upgrades normally to stable <code>0.1.19</code>.</li>
               <li>SemVer prerelease tags such as <code>v0.1.19-rc.5</code> remain GitHub prereleases, are not marked latest, use dry-run signing and notarization, and write <code>UPDATE-CHANNEL-candidate.json</code> with SHA-256 verification metadata.</li>
             </ul>
 
             <h2 id="current-boundaries">Current Boundaries</h2>
             <ul>
-              <li>This repository snapshot prepares a candidate identity only. It does not create a tag, push a branch, publish packages, or prove that a hosted workflow has run.</li>
+              <li>This repository snapshot prepares a candidate identity only. It does not itself create a tag or publish packages; promotion still requires the hosted release audit to pass against the exact commit selected for release.</li>
               <li>Stable production publishing still requires external credentials for Windows Authenticode, Linux GPG, and macOS signing and notarization. Those production signing paths are intentionally outside the candidate dry-run.</li>
               <li>The candidate channel remains separate from the stable channel. Promote only after the repository checks and native-platform artifact smokes complete against the exact commit selected for release.</li>
             </ul>

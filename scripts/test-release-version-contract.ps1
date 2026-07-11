@@ -4,6 +4,10 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ValidatorPath = Join-Path $Root "scripts\validate-release-version.ps1"
 $ReleasePagePath = Join-Path $Root "docs\releases\v0.1.19-rc.5.html"
+$HistoricalVersion = "0.1.19-rc." + "4"
+$HistoricalReleasePagePath = Join-Path $Root "docs\releases\v$HistoricalVersion.html"
+$HistoricalReleaseRef = "cad7afee286ac2170464c1282a876aca0d587d55"
+$TaggedHistoricalReleaseSha256 = "c0b0fe0f86578efbd0a8a70b05302f590562f240ad2290f8438222abd860bad8"
 $Failures = [System.Collections.Generic.List[string]]::new()
 
 function Add-Failure {
@@ -44,7 +48,59 @@ if ($parseErrors.Count -gt 0) {
     Add-Failure "Release version validator did not parse: $($parseErrors[0].Message)"
 }
 
+$normalizeDefinition = $validatorAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq "Normalize-Text"
+}, $true)
+$hashDefinition = $validatorAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq "Get-Sha256"
+}, $true)
+$historicalIntegrityGuard = $validatorAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and
+        $node.Extent.Text -match '\$actualHistoricalHash\s*-cne\s*\$HistoricalReleaseSha256'
+}, $true)
+
+$hashFunctionsLoaded = $null -ne $normalizeDefinition -and $null -ne $hashDefinition
+if (-not $hashFunctionsLoaded) {
+    Add-Failure "Release version validator is missing its historical-page normalization or SHA-256 function."
+}
+else {
+    . ([scriptblock]::Create($normalizeDefinition.Extent.Text))
+    . ([scriptblock]::Create($hashDefinition.Extent.Text))
+}
+if ($null -eq $historicalIntegrityGuard) {
+    Add-Failure "Release version validator does not reject a historical-page hash that differs from the protected hash."
+}
+
 $validatorSource = [System.IO.File]::ReadAllText($ValidatorPath)
+$historicalReleasePage = [System.IO.File]::ReadAllText($HistoricalReleasePagePath)
+if ($hashFunctionsLoaded) {
+    $actualHistoricalReleaseSha256 = Get-Sha256 (Normalize-Text $historicalReleasePage)
+    if ($actualHistoricalReleaseSha256 -cne $TaggedHistoricalReleaseSha256) {
+        Add-Failure "The immutable rc.4 page differs from tagged/base $HistoricalReleaseRef (expected normalized SHA-256 $TaggedHistoricalReleaseSha256; found $actualHistoricalReleaseSha256)."
+    }
+
+    $tamperedHistoricalReleaseSha256 = Get-Sha256 (Normalize-Text ($historicalReleasePage + "<!-- contract tamper -->"))
+    if ($tamperedHistoricalReleaseSha256 -ceq $TaggedHistoricalReleaseSha256) {
+        Add-Failure "Historical-page tampering did not change the protected normalized SHA-256."
+    }
+}
+
+$historicalHashAssignment = [regex]::Match(
+    $validatorSource,
+    '(?m)^\$HistoricalReleaseSha256\s*=\s*"([0-9a-f]{64})"\s*$'
+)
+if (-not $historicalHashAssignment.Success) {
+    Add-Failure "Release version validator does not declare the protected rc.4 normalized hash."
+}
+elseif ($historicalHashAssignment.Groups[1].Value -cne $TaggedHistoricalReleaseSha256) {
+    Add-Failure "Release version validator blesses rewritten rc.4 hash $($historicalHashAssignment.Groups[1].Value) instead of tagged/base $HistoricalReleaseRef hash $TaggedHistoricalReleaseSha256."
+}
+
 if ($validatorSource -match '(?i)textExtensions|GetExtension') {
     Add-Failure "Release version scanning must not guess text files from extensions."
 }

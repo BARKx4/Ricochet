@@ -8,7 +8,8 @@ $ExpectedVersion = "0.1.19-rc.5"
 $ExpectedTag = "v$ExpectedVersion"
 $StaleVersion = "0.1.19-rc." + "4"
 $HistoricalReleasePath = "docs/releases/v$StaleVersion.html"
-$HistoricalReleaseSha256 = "fec0e0a6fe2b7743ca354e7e781dede89f9b534ade0498e6baf6dee1cebf6b11"
+# Normalized UTF-8 SHA-256 of the historical page at cad7afee286ac2170464c1282a876aca0d587d55.
+$HistoricalReleaseSha256 = "c0b0fe0f86578efbd0a8a70b05302f590562f240ad2290f8438222abd860bad8"
 $Failures = [System.Collections.Generic.List[string]]::new()
 
 function Add-Failure {

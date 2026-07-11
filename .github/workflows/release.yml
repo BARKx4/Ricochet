@@ -583,6 +583,22 @@ jobs:
         shell: bash
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
+          semver_to_debian_version() {
+            local semver="$1"
+            local precedence="$semver"
+            local build=""
+            if [[ "$precedence" == *+* ]]; then
+              build="+${precedence#*+}"
+              precedence="${precedence%%+*}"
+            fi
+            if [[ "$precedence" == *-* ]]; then
+              printf '%s~%s%s\n' "${precedence%%-*}" "${precedence#*-}" "$build"
+            else
+              printf '%s%s\n' "$precedence" "$build"
+            fi
+          }
+          debian_version="$(semver_to_debian_version "$version")"
+          official_deb="dist/ricochet_${debian_version}_amd64.deb"
 
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
@@ -594,11 +610,17 @@ jobs:
           test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           grep -q '<project_license>Apache-2.0</project_license>' "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
-          dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" > "$tmp/ricochet-deb-contents.txt"
+          dpkg-deb --contents "$official_deb" > "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/applications/ricochet-repl.desktop' "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml' "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/doc/ricochet/LICENSE' "$tmp/ricochet-deb-contents.txt"
-          dpkg-deb --extract "dist/ricochet_${version}_amd64.deb" "$tmp/deb-root"
+          package_debian_version="$(dpkg-deb --field "$official_deb" Version)"
+          test "$package_debian_version" = "$debian_version"
+          if [[ "$version" == *-* ]]; then
+            stable_version="${version%%-*}"
+            dpkg --compare-versions "$package_debian_version" lt "$stable_version"
+          fi
+          dpkg-deb --extract "$official_deb" "$tmp/deb-root"
           cmp LICENSE "$tmp/deb-root/usr/share/doc/ricochet/LICENSE"
 
           notice_hash() {
@@ -631,8 +653,8 @@ jobs:
           "$tmp/basic-oop" > "$tmp/basic-oop.out"
           grep -q 'ada@example.com' "$tmp/basic-oop.out"
           test -f "$tmp/basic-oop-v${version}-linux-x64.tar.gz"
-          test -f "$tmp/basic-oop_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/basic-oop_${version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
+          test -f "$tmp/basic-oop_${debian_version}_amd64.deb"
+          dpkg-deb --info "$tmp/basic-oop_${debian_version}_amd64.deb" > "$tmp/basic-oop-deb-info.txt"
           grep -q 'Package: basic-oop' "$tmp/basic-oop-deb-info.txt"
 
           "$package_dir/rco" package examples/webview_ui.rco \
@@ -644,10 +666,10 @@ jobs:
             --package-license Apache-2.0
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
-          test -f "$tmp/webview-ui_${version}_amd64.deb"
-          dpkg-deb --info "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
+          test -f "$tmp/webview-ui_${debian_version}_amd64.deb"
+          dpkg-deb --info "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-info.txt"
           grep -q 'Depends: libgtk-3-0, libwebkit2gtk-4.1-0' "$tmp/webview-ui-deb-info.txt"
-          dpkg-deb --contents "$tmp/webview-ui_${version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
+          dpkg-deb --contents "$tmp/webview-ui_${debian_version}_amd64.deb" > "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/applications/webview-ui.desktop' "$tmp/webview-ui-deb-contents.txt"
           grep -q 'usr/share/metainfo/webview-ui.metainfo.xml' "$tmp/webview-ui-deb-contents.txt"
 
@@ -820,7 +842,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs:
       - resolve-version
       - package-windows

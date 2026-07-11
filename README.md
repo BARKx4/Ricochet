@@ -31,6 +31,11 @@ On Linux, install the Debian package with:
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
 
+Prerelease Debian artifacts use Debian ordering in the filename and package
+metadata; for example, Ricochet `0.1.19-rc.5` is
+`ricochet_0.1.19~rc.5_amd64.deb`. This keeps the candidate older than the
+eventual stable `0.1.19` package so normal upgrades work.
+
 Portable Linux tarballs are also available. Extract the tarball and run
 `./install.sh`, or add the extracted folder to your `PATH`.
 

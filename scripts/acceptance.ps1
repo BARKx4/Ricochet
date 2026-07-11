@@ -45,6 +45,10 @@ $releaseVersionValidator = Join-Path $Root "scripts\validate-release-version.ps1
 Write-Host "==> release version consistency validation"
 & $releaseVersionValidator
 
+$debianVersionContract = Join-Path $Root "scripts\test-debian-version-contract.ps1"
+Write-Host "==> Debian prerelease version contract tests"
+& $debianVersionContract
+
 $licenseGovernanceValidator = Join-Path $Root "scripts\validate-license-governance.ps1"
 Write-Host "==> license and governance validation"
 & $licenseGovernanceValidator

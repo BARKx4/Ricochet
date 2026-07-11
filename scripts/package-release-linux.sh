@@ -101,6 +101,25 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
+semver_to_debian_version() {
+  local semver="$1"
+  local precedence="$semver"
+  local build=""
+
+  if [[ "$precedence" == *+* ]]; then
+    build="+${precedence#*+}"
+    precedence="${precedence%%+*}"
+  fi
+
+  if [[ "$precedence" == *-* ]]; then
+    printf '%s~%s%s\n' "${precedence%%-*}" "${precedence#*-}" "$build"
+  else
+    printf '%s%s\n' "$precedence" "$build"
+  fi
+}
+
+debian_version="$(semver_to_debian_version "$version")"
+
 assert_new_path() {
   local path="$1"
   if [[ -e "$path" ]]; then
@@ -356,7 +375,7 @@ else
 fi
 package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
-deb_path="$out_dir_path/ricochet_${version}_amd64.deb"
+deb_path="$out_dir_path/ricochet_${debian_version}_amd64.deb"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
 signing_report_path="$out_dir_path/SIGNING-${target}.txt"
 manifest_path="$out_dir_path/ARTIFACTS-${target}.json"
@@ -494,7 +513,7 @@ if [[ "$build_deb" -eq 1 ]]; then
   cp "$repo_root/THIRD_PARTY_LICENSES.html" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_LICENSES.html"
   cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_NOTICES.txt"
   cat > "$deb_root/usr/share/doc/ricochet/changelog" <<EOF
-ricochet ($version)
+ricochet ($debian_version)
 
   * Ricochet release package for $target.
 EOF
@@ -507,7 +526,7 @@ EOF
   installed_size="$(du -sk "$deb_root/usr" | awk '{ print $1 }')"
   cat > "$deb_root/DEBIAN/control" <<EOF
 Package: ricochet
-Version: $version
+Version: $debian_version
 Section: devel
 Priority: optional
 Architecture: amd64

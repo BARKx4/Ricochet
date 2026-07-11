@@ -43,6 +43,40 @@ function Get-FileSha256 {
     }
 }
 
+function Get-HtmlDependencyIdentities {
+    param([string]$Path)
+
+    $html = [System.IO.File]::ReadAllText($Path)
+    $componentsMatch = [regex]::Match(
+        $html,
+        '<h2>Components</h2>\s*<table>.*?<tbody>(?<body>.*?)</tbody>',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+    )
+    if (-not $componentsMatch.Success) {
+        throw "Unable to locate the cargo-about component table in '$Path'"
+    }
+
+    $identities = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+    $rowMatches = [regex]::Matches(
+        $componentsMatch.Groups['body'].Value,
+        '<tr>\s*<td><code>(?<name>[^<]+)</code></td>\s*<td><code>(?<version>[^<]+)</code></td>',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+    )
+    foreach ($rowMatch in $rowMatches) {
+        $name = [System.Net.WebUtility]::HtmlDecode($rowMatch.Groups['name'].Value)
+        $version = [System.Net.WebUtility]::HtmlDecode($rowMatch.Groups['version'].Value)
+        $identity = "$name@$version"
+        if (-not $identities.Add($identity)) {
+            throw "Duplicate cargo-about component identity in '$Path': $identity"
+        }
+    }
+    if ($identities.Count -eq 0) {
+        throw "Cargo-about component table in '$Path' did not contain any dependency identities"
+    }
+
+    return [string[]]@($identities)
+}
+
 Assert-CargoAboutVersion
 $generated = & $Generator -PassThru
 if ($null -eq $generated -or [string]::IsNullOrWhiteSpace([string]$generated.OutputDirectory)) {
@@ -61,6 +95,25 @@ foreach ($disabledHttp3Crate in @("quinn", "quinn-proto", "quinn-udp", "lru-slab
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
+$htmlDependencyIdentities = @(Get-HtmlDependencyIdentities -Path ([string]$generated.LicensesPath))
+$activeIdentitySet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$htmlIdentitySet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($identity in $dependencyIdentities) {
+    [void]$activeIdentitySet.Add([string]$identity)
+}
+foreach ($identity in $htmlDependencyIdentities) {
+    [void]$htmlIdentitySet.Add([string]$identity)
+}
+$missingFromHtml = @($dependencyIdentities | Where-Object { -not $htmlIdentitySet.Contains([string]$_) })
+$extraInHtml = @($htmlDependencyIdentities | Where-Object { -not $activeIdentitySet.Contains([string]$_) })
+if ($missingFromHtml.Count -gt 0 -or $extraInHtml.Count -gt 0) {
+    $missingDetails = if ($missingFromHtml.Count -eq 0) { '<none>' } else { $missingFromHtml -join ', ' }
+    $extraDetails = if ($extraInHtml.Count -eq 0) { '<none>' } else { $extraInHtml -join ', ' }
+    [void]$failures.Add(
+        "THIRD_PARTY_LICENSES.html component identities differ from the active dependency union " +
+        "(active $($dependencyIdentities.Count); HTML $($htmlDependencyIdentities.Count); missing: $missingDetails; extra: $extraDetails)"
+    )
+}
 $snapshots = @(
     [pscustomobject]@{
         Name = "THIRD_PARTY_LICENSES.html"
