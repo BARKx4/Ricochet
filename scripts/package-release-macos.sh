@@ -417,6 +417,8 @@ install -m 755 "${binaries[2]}" "$package_dir/ricochet"
 sign_macos_binaries "$package_dir/rco" "$package_dir/rco-gui" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
+cp "$repo_root/THIRD_PARTY_LICENSES.html" "$package_dir/THIRD_PARTY_LICENSES.html"
+cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$package_dir/THIRD_PARTY_NOTICES.txt"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
@@ -455,6 +457,13 @@ cp "$script_dir/rco" "$bin_dir/rco"
 cp "$script_dir/rco-gui" "$bin_dir/rco-gui"
 cp "$script_dir/ricochet" "$bin_dir/ricochet"
 chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
+
+share_dir="$prefix/share"
+doc_dir="$share_dir/doc/ricochet"
+mkdir -p "$doc_dir"
+cp "$script_dir/LICENSE" "$doc_dir/LICENSE"
+cp "$script_dir/THIRD_PARTY_LICENSES.html" "$doc_dir/THIRD_PARTY_LICENSES.html"
+cp "$script_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/THIRD_PARTY_NOTICES.txt"
 
 if command -v xattr >/dev/null 2>&1; then
   xattr -d com.apple.quarantine "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet" 2>/dev/null || true

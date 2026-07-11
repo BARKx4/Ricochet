@@ -404,6 +404,8 @@ install -m 755 "${binaries[1]}" "$package_dir/rco-gui"
 install -m 755 "${binaries[2]}" "$package_dir/ricochet"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
+cp "$repo_root/THIRD_PARTY_LICENSES.html" "$package_dir/THIRD_PARTY_LICENSES.html"
+cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$package_dir/THIRD_PARTY_NOTICES.txt"
 copy_release_directory "$repo_root/examples" "$package_dir/examples"
 copy_release_directory "$repo_root/packages" "$package_dir/packages"
 copy_release_directory "$repo_root/docs/assets" "$package_dir/docs/assets"
@@ -447,6 +449,11 @@ cp "$script_dir/ricochet" "$bin_dir/ricochet"
 chmod 755 "$bin_dir/rco" "$bin_dir/rco-gui" "$bin_dir/ricochet"
 
 share_dir="$prefix/share"
+doc_dir="$share_dir/doc/ricochet"
+mkdir -p "$doc_dir"
+cp "$script_dir/LICENSE" "$doc_dir/LICENSE"
+cp "$script_dir/THIRD_PARTY_LICENSES.html" "$doc_dir/THIRD_PARTY_LICENSES.html"
+cp "$script_dir/THIRD_PARTY_NOTICES.txt" "$doc_dir/THIRD_PARTY_NOTICES.txt"
 if [ -d "$script_dir/share/applications" ]; then
   mkdir -p "$share_dir/applications"
   cp "$script_dir/share/applications/"*.desktop "$share_dir/applications/"
@@ -484,6 +491,8 @@ if [[ "$build_deb" -eq 1 ]]; then
   install -m 755 "${binaries[2]}" "$deb_root/usr/bin/ricochet"
   cp "$repo_root/README.md" "$deb_root/usr/share/doc/ricochet/README.md"
   cp "$repo_root/LICENSE" "$deb_root/usr/share/doc/ricochet/LICENSE"
+  cp "$repo_root/THIRD_PARTY_LICENSES.html" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_LICENSES.html"
+  cp "$repo_root/THIRD_PARTY_NOTICES.txt" "$deb_root/usr/share/doc/ricochet/THIRD_PARTY_NOTICES.txt"
   cat > "$deb_root/usr/share/doc/ricochet/changelog" <<EOF
 ricochet ($version)
 

@@ -114,7 +114,8 @@ docs, LSP completions, editor grammar, validators, and examples stay in sync.
 
 Ricochet's first-party source, documentation, and assets are available under the
 [Apache License 2.0](LICENSE). Third-party components remain subject to their
-own licenses.
+own licenses; see the [third-party license report](THIRD_PARTY_LICENSES.html)
+and [supplemental notices](THIRD_PARTY_NOTICES.txt).
 
 Report suspected vulnerabilities privately through the
 [security policy](https://github.com/BARKx4/Ricochet/security/policy). For usage

@@ -416,6 +416,8 @@ $SigningReport += Invoke-WindowsSigning -Paths $PackageBinaries -Stage "staged e
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot "README.md") -Destination $PackageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot "LICENSE") -Destination $PackageDir
+Copy-Item -LiteralPath (Join-Path $RepoRoot "THIRD_PARTY_LICENSES.html") -Destination $PackageDir
+Copy-Item -LiteralPath (Join-Path $RepoRoot "THIRD_PARTY_NOTICES.txt") -Destination $PackageDir
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "examples") -Destination (Join-Path $PackageDir "examples")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "packages") -Destination (Join-Path $PackageDir "packages")
 Copy-ReleaseDirectory -Source (Join-Path $RepoRoot "docs\assets") -Destination (Join-Path $PackageDir "docs\assets")

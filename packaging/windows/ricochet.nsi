@@ -47,6 +47,7 @@ Section "Ricochet CLI" SEC_MAIN
   CreateDirectory "$SMPROGRAMS\Ricochet"
   CreateShortCut "$SMPROGRAMS\Ricochet\Ricochet Shell.lnk" "$INSTDIR\Ricochet Shell.cmd"
   CreateShortCut "$SMPROGRAMS\Ricochet\Reference Docs.lnk" "$INSTDIR\docs\reference\index.html"
+  CreateShortCut "$SMPROGRAMS\Ricochet\Third-Party Licenses.lnk" "$INSTDIR\THIRD_PARTY_LICENSES.html"
   CreateShortCut "$SMPROGRAMS\Ricochet\Uninstall Ricochet.lnk" "$INSTDIR\Uninstall.exe"
 
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Ricochet" "DisplayName" "Ricochet"

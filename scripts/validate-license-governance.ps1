@@ -239,6 +239,8 @@ Require-Match $supportPath $support '(?i)best-effort' 'state the prerelease supp
 $readme = Read-RequiredFile "README.md"
 Require-Match "README.md" $readme '\[Apache License 2\.0\]\(LICENSE\)' 'link the repository license'
 Require-Match "README.md" $readme '(?is)Third-party components remain subject to their\s+own licenses' 'preserve third-party license boundaries'
+Require-Match "README.md" $readme '\[third-party license report\]\(THIRD_PARTY_LICENSES\.html\)' 'link the tracked third-party license report'
+Require-Match "README.md" $readme '\[supplemental notices\]\(THIRD_PARTY_NOTICES\.txt\)' 'link the tracked supplemental notices'
 Require-Match "README.md" $readme '\[security policy\]\(https://github\.com/BARKx4/Ricochet/security/policy\)' 'link the security policy from both source and packaged copies'
 Require-Match "README.md" $readme '\[support guide\]\(https://github\.com/BARKx4/Ricochet/blob/main/SUPPORT\.md\)' 'link the support guide from both source and packaged copies'
 
@@ -323,6 +325,11 @@ $storeValidatorPath = "scripts/validate-store-packaging.ps1"
 $storeValidator = Read-RequiredFile $storeValidatorPath
 Require-Match $storeValidatorPath $storeValidator '"\*/LICENSE"' 'require LICENSE in portable Unix archives'
 Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/LICENSE\$' 'require LICENSE in Debian packages'
+Require-Match $storeValidatorPath $storeValidator '(?s)"windows-x64".*?"THIRD_PARTY_LICENSES\.html".*?"THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in Windows ZIP roots'
+Require-Match $storeValidatorPath $storeValidator '(?s)"linux-x64".*?"\*/THIRD_PARTY_LICENSES\.html".*?"\*/THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in Linux tar roots'
+Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/THIRD_PARTY_LICENSES\\\.html\$' 'require the third-party license report in Debian packages'
+Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/THIRD_PARTY_NOTICES\\\.txt\$' 'require supplemental notices in Debian packages'
+Require-Match $storeValidatorPath $storeValidator '(?s)macos-arm64.*?macos-x64.*?"\*/THIRD_PARTY_LICENSES\.html".*?"\*/THIRD_PARTY_NOTICES\.txt"' 'require both third-party snapshots in macOS tar roots'
 
 $releaseWorkflowPath = ".github/workflows/release.yml"
 $releaseWorkflow = Read-RequiredFile $releaseWorkflowPath
@@ -335,13 +342,41 @@ Require-Match $releaseWorkflowPath $releaseWorkflow 'ricochet-v\*-\$\{\{ matrix\
 $windowsPackagerPath = "scripts/package-release.ps1"
 $windowsPackager = Read-RequiredFile $windowsPackagerPath
 Require-Match $windowsPackagerPath $windowsPackager 'Copy-Item[^\r\n]+"LICENSE"' 'copy the repository license into Windows packages'
+Require-Match $windowsPackagerPath $windowsPackager 'Copy-Item[^\r\n]+"THIRD_PARTY_LICENSES\.html"[^\r\n]+\$PackageDir' 'copy the third-party license report into Windows packages'
+Require-Match $windowsPackagerPath $windowsPackager 'Copy-Item[^\r\n]+"THIRD_PARTY_NOTICES\.txt"[^\r\n]+\$PackageDir' 'copy supplemental notices into Windows packages'
+
+$windowsInstallerPath = "packaging/windows/ricochet.nsi"
+$windowsInstaller = Read-RequiredFile $windowsInstallerPath
+Require-Match $windowsInstallerPath $windowsInstaller 'Third-Party Licenses\.lnk" "\$INSTDIR\\THIRD_PARTY_LICENSES\.html"' 'create one Start Menu shortcut to the installed third-party license report'
 
 $macosPackagerPath = "scripts/package-release-macos.sh"
 $macosPackager = Read-RequiredFile $macosPackagerPath
 Require-Match $macosPackagerPath $macosPackager 'cp "\$repo_root/LICENSE" "\$package_dir/LICENSE"' 'copy the repository license into macOS packages'
+Require-Match $macosPackagerPath $macosPackager 'cp "\$repo_root/THIRD_PARTY_LICENSES\.html" "\$package_dir/THIRD_PARTY_LICENSES\.html"' 'copy the third-party license report into macOS archives'
+Require-Match $macosPackagerPath $macosPackager 'cp "\$repo_root/THIRD_PARTY_NOTICES\.txt" "\$package_dir/THIRD_PARTY_NOTICES\.txt"' 'copy supplemental notices into macOS archives'
+Require-Match $macosPackagerPath $macosPackager 'cp "\$script_dir/LICENSE" "\$doc_dir/LICENSE"' 'install the repository license under the macOS prefix documentation directory'
+Require-Match $macosPackagerPath $macosPackager 'cp "\$script_dir/THIRD_PARTY_LICENSES\.html" "\$doc_dir/THIRD_PARTY_LICENSES\.html"' 'install the third-party license report under the macOS prefix documentation directory'
+Require-Match $macosPackagerPath $macosPackager 'cp "\$script_dir/THIRD_PARTY_NOTICES\.txt" "\$doc_dir/THIRD_PARTY_NOTICES\.txt"' 'install supplemental notices under the macOS prefix documentation directory'
 
 Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/LICENSE" "\$package_dir/LICENSE"' 'copy the repository license into Linux archives'
 Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/LICENSE" "\$deb_root/usr/share/doc/ricochet/LICENSE"' 'copy the repository license into Debian packages'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/THIRD_PARTY_LICENSES\.html" "\$package_dir/THIRD_PARTY_LICENSES\.html"' 'copy the third-party license report into Linux archives'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/THIRD_PARTY_NOTICES\.txt" "\$package_dir/THIRD_PARTY_NOTICES\.txt"' 'copy supplemental notices into Linux archives'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/THIRD_PARTY_LICENSES\.html" "\$deb_root/usr/share/doc/ricochet/THIRD_PARTY_LICENSES\.html"' 'copy the third-party license report into Debian packages'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/THIRD_PARTY_NOTICES\.txt" "\$deb_root/usr/share/doc/ricochet/THIRD_PARTY_NOTICES\.txt"' 'copy supplemental notices into Debian packages'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$script_dir/LICENSE" "\$doc_dir/LICENSE"' 'install the repository license under the Linux prefix documentation directory'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$script_dir/THIRD_PARTY_LICENSES\.html" "\$doc_dir/THIRD_PARTY_LICENSES\.html"' 'install the third-party license report under the Linux prefix documentation directory'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$script_dir/THIRD_PARTY_NOTICES\.txt" "\$doc_dir/THIRD_PARTY_NOTICES\.txt"' 'install supplemental notices under the Linux prefix documentation directory'
+
+foreach ($publicStoreGuidePath in @(
+    "docs/reference/guides/store-packaging.html",
+    "docs/wiki/store-packaging.html"
+)) {
+    $publicStoreGuide = Read-RequiredFile $publicStoreGuidePath
+    Require-Match $publicStoreGuidePath $publicStoreGuide 'THIRD_PARTY_LICENSES\.html' 'name the bundled third-party license report'
+    Require-Match $publicStoreGuidePath $publicStoreGuide 'THIRD_PARTY_NOTICES\.txt' 'name the bundled supplemental notices'
+    Require-Match $publicStoreGuidePath $publicStoreGuide 'share/doc/ricochet' 'document the installed Unix disclosure path'
+}
 
 if ($Failures.Count -gt 0) {
     $details = $Failures | ForEach-Object { " - $_" }

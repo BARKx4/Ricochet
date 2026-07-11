@@ -322,6 +322,8 @@ switch ($Target) {
                     "ricochet.exe",
                     "README.md",
                     "LICENSE",
+                    "THIRD_PARTY_LICENSES.html",
+                    "THIRD_PARTY_NOTICES.txt",
                     "RELEASE.txt",
                     "Ricochet Shell.cmd",
                     "docs/reference/index.html",
@@ -353,6 +355,8 @@ switch ($Target) {
                         "*/ricochet",
                         "*/install.sh",
                         "*/LICENSE",
+                        "*/THIRD_PARTY_LICENSES.html",
+                        "*/THIRD_PARTY_NOTICES.txt",
                         "*/share/applications/ricochet-repl.desktop",
                         "*/share/icons/hicolor/scalable/apps/ricochet.svg",
                         "*/share/metainfo/today.ricochet.rco.metainfo.xml",
@@ -376,6 +380,8 @@ switch ($Target) {
                     Assert-DebContains $errors $contents "usr/share/metainfo/today\.ricochet\.rco\.metainfo\.xml$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/changelog$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/LICENSE$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_LICENSES\.html$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/THIRD_PARTY_NOTICES\.txt$"
                     Assert-DebExcludes $errors $contents $forbiddenDebPatterns
 
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
@@ -430,6 +436,8 @@ switch ($Target) {
                     "*/install.sh",
                     "*/README.md",
                     "*/LICENSE",
+                    "*/THIRD_PARTY_LICENSES.html",
+                    "*/THIRD_PARTY_NOTICES.txt",
                     "*/RELEASE.txt",
                     "*/docs/reference/index.html",
                     "*/examples/basic-oop.rco",

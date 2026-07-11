@@ -60,6 +60,7 @@
 <li>codesigned binaries and accepted Apple notarization reports on production tags.</li>
 <li><code>ARTIFACTS-&lt;target&gt;.json</code>, <code>SIGNING-&lt;target&gt;.txt</code>, <code>NOTARY-&lt;target&gt;.json</code>, and target checksum files.</li>
 </ul>
+<p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
 <h2 id="store-readiness-gate">Store Readiness Gate</h2>
 <p>Run the store packaging validator after artifact manifest validation:</p>
 <pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
@@ -79,6 +80,7 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
 <li>Windows ZIP contents and installer presence.</li>
 <li>Linux tarball metadata and Debian package control/filesystem metadata.</li>
 <li>macOS tarball contents and, for production tags, accepted notarization reports.</li>
+<li>Required first-party and third-party license and notice files in every package.</li>
 </ul>
 <h2 id="marketplace-submission">Marketplace Submission</h2>
 <p>Marketplace submission starts from the validated GitHub release artifacts:</p>
