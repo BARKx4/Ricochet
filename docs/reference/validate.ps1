@@ -11,13 +11,17 @@ $docsRootFull = [System.IO.Path]::GetFullPath($docsRoot)
 function Get-DocsRelativePath {
     param([string]$Path)
 
+    $target = [System.IO.Path]::GetFullPath($Path)
+    if ([System.IO.Path].GetMethods().Name -contains "GetRelativePath") {
+        return [System.IO.Path]::GetRelativePath($docsRootFull, $target).Replace("\", "/")
+    }
+
     $base = $docsRootFull
     if (-not $base.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
         $base = $base + [System.IO.Path]::DirectorySeparatorChar
     }
-
     $baseUri = [System.Uri]$base
-    $targetUri = [System.Uri]([System.IO.Path]::GetFullPath($Path))
+    $targetUri = [System.Uri]$target
     return [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace("\", "/")
 }
 
