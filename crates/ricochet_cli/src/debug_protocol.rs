@@ -325,3 +325,56 @@ fn debug_value_json(value: &Value) -> serde_json::Value {
         "debug": format!("{value:?}"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ricochet_vm::{DebugTask, DebugTaskFrame, Value};
+
+    fn running_task(frames: Vec<DebugTaskFrame>) -> DebugTask {
+        DebugTask {
+            id: 0,
+            operation: "spawn".to_string(),
+            status: "running".to_string(),
+            pending: true,
+            running: true,
+            completed: false,
+            failed: false,
+            fault: None,
+            frames,
+        }
+    }
+
+    #[test]
+    fn debug_tasks_json_preserves_zero_frame_running_task() {
+        let tasks = debug_tasks_json(&[running_task(Vec::new())]);
+
+        assert_eq!(tasks[0]["status"], "running");
+        assert_eq!(tasks[0]["pending"], true);
+        assert!(tasks[0]["frames"]
+            .as_array()
+            .expect("frames should be an array")
+            .is_empty());
+    }
+
+    #[test]
+    fn debug_tasks_json_serializes_published_worker_frame() {
+        let tasks = debug_tasks_json(&[running_task(vec![DebugTaskFrame {
+            frame: "<task>".to_string(),
+            source: "fixture.rco:6".to_string(),
+            opcode: "CallWord(\"sleep\")".to_string(),
+            stack: vec![Value::Number(20)],
+            locals: vec![("release_attempts".to_string(), Value::Number(0))],
+            current_self: Some(Value::String("worker".to_string())),
+        }])]);
+        let frame = &tasks[0]["frames"][0];
+
+        assert_eq!(frame["frame"], "<task>");
+        assert_eq!(frame["source"], "fixture.rco:6");
+        assert_eq!(frame["opcode"], "CallWord(\"sleep\")");
+        assert_eq!(frame["stack"][0]["debug"], "Number(20)");
+        assert_eq!(frame["locals"][0]["name"], "release_attempts");
+        assert_eq!(frame["locals"][0]["value"]["debug"], "Number(0)");
+        assert_eq!(frame["self"]["debug"], "String(\"worker\")");
+    }
+}

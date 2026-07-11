@@ -1560,7 +1560,8 @@ fn rename_edits(source: &str, old_name: &str, new_name: &str) -> Vec<Value> {
                 TokenKind::Symbol(name) | TokenKind::DotWord(name) => {
                     if name == old_name {
                         token.span
-                    } else if let Some(selector_suffix) = name.strip_prefix(old_name) {
+                    } else {
+                        let selector_suffix = name.strip_prefix(old_name)?;
                         if selector_suffix.starts_with('.') {
                             Span {
                                 start: token.span.start,
@@ -1569,8 +1570,6 @@ fn rename_edits(source: &str, old_name: &str, new_name: &str) -> Vec<Value> {
                         } else {
                             return None;
                         }
-                    } else {
-                        return None;
                     }
                 }
                 _ => return None,
