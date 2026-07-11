@@ -521,29 +521,22 @@ fn create_linux_package_artifacts(
     let description = linux_package_description(package_description);
     let staging_root = linux_package_staging_root(&name, package_version)?;
     let unique_formats: BTreeSet<_> = formats.iter().copied().collect();
+    let metadata = LinuxPackageMetadata {
+        name: &name,
+        version: package_version,
+        project_license,
+        description: &description,
+        gui,
+    };
 
     for format in unique_formats {
         match format {
-            LinuxPackageFormat::Tar => create_linux_tarball(
-                executable,
-                &artifact_dir,
-                &staging_root,
-                &name,
-                package_version,
-                project_license,
-                &description,
-                gui,
-            )?,
-            LinuxPackageFormat::Deb => create_linux_deb(
-                executable,
-                &artifact_dir,
-                &staging_root,
-                &name,
-                package_version,
-                project_license,
-                &description,
-                gui,
-            )?,
+            LinuxPackageFormat::Tar => {
+                create_linux_tarball(executable, &artifact_dir, &staging_root, &metadata)?
+            }
+            LinuxPackageFormat::Deb => {
+                create_linux_deb(executable, &artifact_dir, &staging_root, &metadata)?
+            }
         }
     }
 
@@ -677,16 +670,28 @@ fn linux_package_staging_root(name: &str, version: &str) -> Result<PathBuf> {
     Ok(root)
 }
 
+#[derive(Clone, Copy)]
+struct LinuxPackageMetadata<'a> {
+    name: &'a str,
+    version: &'a str,
+    project_license: Option<&'a str>,
+    description: &'a str,
+    gui: bool,
+}
+
 fn create_linux_tarball(
     executable: &Path,
     artifact_dir: &Path,
     staging_root: &Path,
-    name: &str,
-    version: &str,
-    project_license: Option<&str>,
-    description: &str,
-    gui: bool,
+    metadata: &LinuxPackageMetadata<'_>,
 ) -> Result<()> {
+    let LinuxPackageMetadata {
+        name,
+        version,
+        project_license,
+        description,
+        gui,
+    } = *metadata;
     let package_dir_name = format!("{name}-v{version}-linux-x64");
     let package_dir = staging_root.join(&package_dir_name);
     let archive = artifact_dir.join(format!("{package_dir_name}.tar.gz"));
@@ -746,12 +751,15 @@ fn create_linux_deb(
     executable: &Path,
     artifact_dir: &Path,
     staging_root: &Path,
-    name: &str,
-    version: &str,
-    project_license: Option<&str>,
-    description: &str,
-    gui: bool,
+    metadata: &LinuxPackageMetadata<'_>,
 ) -> Result<()> {
+    let LinuxPackageMetadata {
+        name,
+        version,
+        project_license,
+        description,
+        gui,
+    } = *metadata;
     let deb_path = artifact_dir.join(format!("{name}_{version}_amd64.deb"));
     assert_new_artifact(&deb_path)?;
 
