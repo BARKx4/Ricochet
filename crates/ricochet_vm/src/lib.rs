@@ -20,6 +20,7 @@ pub mod vm;
 pub mod word_registry;
 
 pub use approval_runtime::ApprovalRegistry;
+pub use builtins::{is_safe_external_web_url, open_external_url};
 pub use capability::Capability;
 pub use class::{BytecodeCallable, Class, NativeMethod};
 pub use collection::{ArrayValue, ListValue, MapValue, SetValue};

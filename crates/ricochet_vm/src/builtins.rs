@@ -4771,6 +4771,14 @@ impl Vm {
         require_capability(receiver, Capability::Webview, method)?;
         let href = self.pop_string(method, "link href string")?;
         let label = self.pop_string(method, "link label string")?;
+        if !is_safe_webview_link_href(&href) {
+            return Err(VmError::InvalidArgument {
+                word: method.to_string(),
+                message:
+                    "link href must be a fragment or an absolute http/https URL without credentials"
+                        .to_string(),
+            });
+        }
         Ok(Value::String(format!(
             r#"<a href="{}">{}</a>"#,
             escape_html_attribute(&href),
@@ -5395,7 +5403,34 @@ fn web_tab_active(value: &Value) -> bool {
     )
 }
 
-fn open_external_url(url: &str) -> Result<(), String> {
+fn is_safe_webview_link_href(href: &str) -> bool {
+    href.strip_prefix('#').is_some_and(|fragment| {
+        !fragment
+            .chars()
+            .any(|character| character.is_ascii_control())
+    }) || is_safe_external_web_url(href)
+}
+
+pub fn is_safe_external_web_url(url: &str) -> bool {
+    if url.trim() != url {
+        return false;
+    }
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    matches!(parsed.scheme(), "http" | "https")
+        && parsed.host_str().is_some()
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+}
+
+pub fn open_external_url(url: &str) -> Result<(), String> {
+    if !is_safe_external_web_url(url) {
+        return Err(
+            "external URL must be an absolute http/https URL without credentials".to_string(),
+        );
+    }
+
     #[cfg(windows)]
     let mut command = {
         let mut command = Command::new("rundll32.exe");
@@ -9700,6 +9735,54 @@ mod tests {
         assert!(html.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)"));
         assert!(html.contains("\\u2028"));
         assert!(html.contains("\\u2029"));
+    }
+
+    #[test]
+    fn webview_links_accept_fragments_and_absolute_web_urls() {
+        for (href, expected) in [
+            ("#details", r##"<a href="#details">Details</a>"##),
+            (
+                "https://try.ricochet.today/docs?q=webview#links",
+                r#"<a href="https://try.ricochet.today/docs?q=webview#links">Details</a>"#,
+            ),
+        ] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::String("Details".to_string()));
+            vm.stack.push(Value::String(href.to_string()));
+
+            let rendered = vm
+                .method_webview_link(Value::Capability(Capability::Webview), "webview_link")
+                .expect("safe webview link should render");
+
+            assert_eq!(rendered, Value::String(expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn webview_links_reject_active_and_privileged_schemes() {
+        for href in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///etc/passwd",
+            "vbscript:msgbox(1)",
+            "//example.com/protocol-relative",
+            "relative/page.html",
+            " https://example.com/leading-space",
+            "https://user:secret@example.com/",
+        ] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::String("Unsafe".to_string()));
+            vm.stack.push(Value::String(href.to_string()));
+
+            let error = vm
+                .method_webview_link(Value::Capability(Capability::Webview), "webview_link")
+                .expect_err("unsafe webview link should be rejected");
+
+            assert!(
+                matches!(error, VmError::InvalidArgument { .. }),
+                "unexpected error for {href:?}: {error:?}"
+            );
+        }
     }
 
     #[test]

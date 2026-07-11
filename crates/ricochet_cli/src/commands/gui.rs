@@ -690,6 +690,111 @@ mod tests {
             "cannot encode cyclic collection as WebView JSON at $.state.self"
         );
     }
+
+    #[test]
+    fn callback_webview_navigation_stays_on_its_trusted_document() {
+        assert_eq!(
+            callback_webview_navigation_decision("ricochet://localhost/"),
+            NativeWebviewNavigationDecision::Allow
+        );
+        assert_eq!(
+            callback_webview_navigation_decision("http://ricochet.localhost/#details"),
+            NativeWebviewNavigationDecision::Allow
+        );
+        assert_eq!(
+            callback_webview_navigation_decision("https://try.ricochet.today/docs"),
+            NativeWebviewNavigationDecision::OpenExternal
+        );
+        assert_eq!(
+            callback_webview_navigation_decision("http://ricochet.localhost.evil.example/"),
+            NativeWebviewNavigationDecision::OpenExternal
+        );
+
+        for target in [
+            "about:blank",
+            "javascript:window.ipc.postMessage('{}')",
+            "data:text/html,<script>window.ipc.postMessage('{}')</script>",
+            "file:///etc/passwd",
+            "ricochet://attacker/",
+        ] {
+            assert_eq!(
+                callback_webview_navigation_decision(target),
+                NativeWebviewNavigationDecision::Block,
+                "callback webview navigation should block {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn callback_webview_ipc_requires_the_trusted_document_uri() {
+        for trusted in ["ricochet://localhost/", "ricochet://localhost/#details"] {
+            assert!(
+                callback_webview_ipc_is_trusted(trusted),
+                "callback IPC should accept {trusted:?}"
+            );
+        }
+
+        #[cfg(windows)]
+        for trusted in [
+            "http://ricochet.localhost/",
+            "http://ricochet.localhost/#details",
+        ] {
+            assert!(
+                callback_webview_ipc_is_trusted(trusted),
+                "Windows callback IPC should accept Wry's protocol URL {trusted:?}"
+            );
+        }
+
+        for untrusted in [
+            "about:blank",
+            "https://example.com/",
+            "ricochet://localhost/other",
+            "ricochet://localhost/?document=other",
+            "ricochet://user@localhost/",
+            "http://ricochet.localhost:81/",
+        ] {
+            assert!(
+                !callback_webview_ipc_is_trusted(untrusted),
+                "callback IPC should reject {untrusted:?}"
+            );
+        }
+
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert!(
+            !callback_webview_ipc_is_trusted("http://ricochet.localhost/"),
+            "non-Windows hosts must not trust a local HTTP origin"
+        );
+    }
+
+    #[test]
+    fn mvc_webview_navigation_keeps_local_routes_and_externalizes_web_links() {
+        let app_url = "http://127.0.0.1:4312/";
+
+        assert_eq!(
+            mvc_webview_navigation_decision(app_url, "http://127.0.0.1:4312/accounts/1"),
+            NativeWebviewNavigationDecision::Allow
+        );
+        assert_eq!(
+            mvc_webview_navigation_decision(app_url, "https://example.com/help"),
+            NativeWebviewNavigationDecision::OpenExternal
+        );
+        assert_eq!(
+            mvc_webview_navigation_decision(app_url, "http://127.0.0.1:4313/"),
+            NativeWebviewNavigationDecision::OpenExternal
+        );
+
+        for target in [
+            "javascript:alert(1)",
+            "data:text/html,untrusted",
+            "file:///tmp/untrusted",
+        ] {
+            assert_eq!(
+                mvc_webview_navigation_decision(app_url, target),
+                NativeWebviewNavigationDecision::Block,
+                "MVC webview navigation should block {target:?}"
+            );
+        }
+    }
 }
 
 fn js_json_literal(json: &str) -> String {
@@ -756,10 +861,74 @@ enum NativeWebviewSource {
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+const RICOCHET_CALLBACK_WEBVIEW_SCHEME: &str = "ricochet";
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+const RICOCHET_CALLBACK_WEBVIEW_URL: &str = "ricochet://localhost/";
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeWebviewNavigationDecision {
+    Allow,
+    OpenExternal,
+    Block,
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_navigation_decision(target: &str) -> NativeWebviewNavigationDecision {
+    if callback_webview_ipc_is_trusted(target) {
+        NativeWebviewNavigationDecision::Allow
+    } else if ricochet_vm::is_safe_external_web_url(target) {
+        NativeWebviewNavigationDecision::OpenExternal
+    } else {
+        NativeWebviewNavigationDecision::Block
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_ipc_is_trusted(uri: &str) -> bool {
+    let Ok(uri) = reqwest::Url::parse(uri) else {
+        return false;
+    };
+    let trusted_origin =
+        uri.scheme() == RICOCHET_CALLBACK_WEBVIEW_SCHEME && uri.host_str() == Some("localhost");
+    #[cfg(windows)]
+    let trusted_origin =
+        trusted_origin || (uri.scheme() == "http" && uri.host_str() == Some("ricochet.localhost"));
+    trusted_origin
+        && uri.username().is_empty()
+        && uri.password().is_none()
+        && uri.port().is_none()
+        && uri.path() == "/"
+        && uri.query().is_none()
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn mvc_webview_navigation_decision(app_url: &str, target: &str) -> NativeWebviewNavigationDecision {
+    let same_origin = reqwest::Url::parse(app_url)
+        .ok()
+        .zip(reqwest::Url::parse(target).ok())
+        .is_some_and(|(app_url, target)| {
+            app_url.scheme() == target.scheme()
+                && app_url.host_str() == target.host_str()
+                && app_url.port_or_known_default() == target.port_or_known_default()
+                && target.username().is_empty()
+                && target.password().is_none()
+        });
+    if same_origin {
+        NativeWebviewNavigationDecision::Allow
+    } else if ricochet_vm::is_safe_external_web_url(target) {
+        NativeWebviewNavigationDecision::OpenExternal
+    } else {
+        NativeWebviewNavigationDecision::Block
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[derive(Debug, Clone)]
 enum NativeGuiEvent {
     Ipc(String),
     Menu(String),
+    OpenExternal(String),
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -808,14 +977,71 @@ fn open_platform_webview(
         .context("failed to create native GUI window")?;
     attach_native_menu(&native_menu, &window)?;
 
-    let ipc_proxy = event_loop.create_proxy();
     let builder = match source {
-        NativeWebviewSource::Html(html) => WebViewBuilder::new().with_html(html),
-        NativeWebviewSource::Url(url) => WebViewBuilder::new().with_url(url),
-    }
-    .with_ipc_handler(move |request| {
-        let _ = ipc_proxy.send_event(NativeGuiEvent::Ipc(request.body().to_string()));
-    });
+        NativeWebviewSource::Html(html) => {
+            let document = html.into_bytes();
+            let navigation_proxy = event_loop.create_proxy();
+            let ipc_proxy = event_loop.create_proxy();
+            WebViewBuilder::new()
+                .with_custom_protocol(
+                    RICOCHET_CALLBACK_WEBVIEW_SCHEME.to_string(),
+                    move |_webview_id, request| {
+                        use std::borrow::Cow;
+                        use wry::http::{header::CONTENT_TYPE, Method, Response, StatusCode};
+
+                        let is_document = request.method() == Method::GET
+                            && callback_webview_ipc_is_trusted(&request.uri().to_string());
+                        let status = if is_document {
+                            StatusCode::OK
+                        } else {
+                            StatusCode::NOT_FOUND
+                        };
+                        let body = if is_document {
+                            document.clone()
+                        } else {
+                            Vec::new()
+                        };
+                        Response::builder()
+                            .status(status)
+                            .header(CONTENT_TYPE, "text/html; charset=utf-8")
+                            .body(Cow::Owned(body))
+                            .expect("static callback WebView response should be valid")
+                    },
+                )
+                .with_url(RICOCHET_CALLBACK_WEBVIEW_URL)
+                .with_navigation_handler(move |target| {
+                    apply_native_navigation_decision(
+                        &navigation_proxy,
+                        &target,
+                        callback_webview_navigation_decision(&target),
+                    )
+                })
+                .with_ipc_handler(move |request| {
+                    let uri = request.uri().to_string();
+                    if callback_webview_ipc_is_trusted(&uri) {
+                        let _ =
+                            ipc_proxy.send_event(NativeGuiEvent::Ipc(request.body().to_string()));
+                    } else {
+                        eprintln!(
+                            "Ricochet GUI rejected callback IPC from untrusted document {uri:?}"
+                        );
+                    }
+                })
+        }
+        NativeWebviewSource::Url(url) => {
+            let app_url = url.clone();
+            let navigation_proxy = event_loop.create_proxy();
+            WebViewBuilder::new()
+                .with_url(url)
+                .with_navigation_handler(move |target| {
+                    apply_native_navigation_decision(
+                        &navigation_proxy,
+                        &target,
+                        mvc_webview_navigation_decision(&app_url, &target),
+                    )
+                })
+        }
+    };
 
     let webview = build_platform_webview(builder, &window)?;
     let mut session = session;
@@ -845,9 +1071,33 @@ fn open_platform_webview(
                     }
                 }
             }
+            Event::UserEvent(NativeGuiEvent::OpenExternal(url)) => {
+                if let Err(error) = ricochet_vm::open_external_url(&url) {
+                    eprintln!("Ricochet GUI could not open external URL {url:?}: {error}");
+                }
+            }
             _ => {}
         }
     });
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn apply_native_navigation_decision(
+    proxy: &tao::event_loop::EventLoopProxy<NativeGuiEvent>,
+    target: &str,
+    decision: NativeWebviewNavigationDecision,
+) -> bool {
+    match decision {
+        NativeWebviewNavigationDecision::Allow => true,
+        NativeWebviewNavigationDecision::OpenExternal => {
+            let _ = proxy.send_event(NativeGuiEvent::OpenExternal(target.to_string()));
+            false
+        }
+        NativeWebviewNavigationDecision::Block => {
+            eprintln!("Ricochet GUI blocked unsafe WebView navigation to {target:?}");
+            false
+        }
+    }
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
