@@ -97,6 +97,7 @@ foreach ($markdownFile in $publicMarkdownFiles) {
 
 $publicDocsMarkdownPattern = [regex]"docs/(?:wiki|learn|benchmarks|releases|feature-map|adding-words|debugger-integrations|reference/README|superpowers/[^<`"\s]+)\.md"
 $htmlLinkPattern = [regex]'(?i)\b(?:href|src)="([^"]+)"'
+$candidateProductionValidationPattern = [regex]'(?is)validate-update-channel\.ps1(?:(?!</code>).)*-Channel\s+candidate(?:(?!</code>).)*-RequireProduction'
 
 foreach ($htmlFile in Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.html" -File -ErrorAction SilentlyContinue) {
     $relativeHtml = Get-DocsRelativePath -Path $htmlFile.FullName
@@ -105,6 +106,10 @@ foreach ($htmlFile in Get-ChildItem -LiteralPath $docsRoot -Recurse -Filter "*.h
     $markdownPathMatch = $publicDocsMarkdownPattern.Match($htmlText)
     if ($markdownPathMatch.Success) {
         $failures.Add("Public HTML references a docs Markdown path in ${relativeHtml}: $($markdownPathMatch.Value)")
+    }
+
+    if ($candidateProductionValidationPattern.IsMatch($htmlText)) {
+        $failures.Add("Candidate update-channel command incorrectly requires production signatures in ${relativeHtml}")
     }
 
     foreach ($match in $htmlLinkPattern.Matches($htmlText)) {
