@@ -698,8 +698,28 @@ mod tests {
             NativeWebviewNavigationDecision::Allow
         );
         assert_eq!(
+            callback_webview_navigation_decision_for_platform(
+                "http://ricochet.localhost/#details",
+                true,
+            ),
+            NativeWebviewNavigationDecision::Allow
+        );
+        assert_eq!(
+            callback_webview_navigation_decision_for_platform(
+                "http://ricochet.localhost/#details",
+                false,
+            ),
+            NativeWebviewNavigationDecision::Block
+        );
+        #[cfg(windows)]
+        assert_eq!(
             callback_webview_navigation_decision("http://ricochet.localhost/#details"),
             NativeWebviewNavigationDecision::Allow
+        );
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert_eq!(
+            callback_webview_navigation_decision("http://ricochet.localhost/#details"),
+            NativeWebviewNavigationDecision::Block
         );
         assert_eq!(
             callback_webview_navigation_decision("https://try.ricochet.today/docs"),
@@ -744,6 +764,15 @@ mod tests {
                 "Windows callback IPC should accept Wry's protocol URL {trusted:?}"
             );
         }
+
+        assert!(callback_webview_ipc_is_trusted_for_platform(
+            "http://ricochet.localhost/",
+            true,
+        ));
+        assert!(!callback_webview_ipc_is_trusted_for_platform(
+            "http://ricochet.localhost/",
+            false,
+        ));
 
         for untrusted in [
             "about:blank",
@@ -875,8 +904,18 @@ enum NativeWebviewNavigationDecision {
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn callback_webview_navigation_decision(target: &str) -> NativeWebviewNavigationDecision {
-    if callback_webview_ipc_is_trusted(target) {
+    callback_webview_navigation_decision_for_platform(target, cfg!(windows))
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_navigation_decision_for_platform(
+    target: &str,
+    trust_windows_protocol_alias: bool,
+) -> NativeWebviewNavigationDecision {
+    if callback_webview_ipc_is_trusted_for_platform(target, trust_windows_protocol_alias) {
         NativeWebviewNavigationDecision::Allow
+    } else if callback_webview_is_windows_protocol_origin(target) {
+        NativeWebviewNavigationDecision::Block
     } else if ricochet_vm::is_safe_external_web_url(target) {
         NativeWebviewNavigationDecision::OpenExternal
     } else {
@@ -886,20 +925,39 @@ fn callback_webview_navigation_decision(target: &str) -> NativeWebviewNavigation
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn callback_webview_ipc_is_trusted(uri: &str) -> bool {
+    callback_webview_ipc_is_trusted_for_platform(uri, cfg!(windows))
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_ipc_is_trusted_for_platform(
+    uri: &str,
+    trust_windows_protocol_alias: bool,
+) -> bool {
     let Ok(uri) = reqwest::Url::parse(uri) else {
         return false;
     };
-    let trusted_origin =
-        uri.scheme() == RICOCHET_CALLBACK_WEBVIEW_SCHEME && uri.host_str() == Some("localhost");
-    #[cfg(windows)]
-    let trusted_origin =
-        trusted_origin || (uri.scheme() == "http" && uri.host_str() == Some("ricochet.localhost"));
+    let trusted_origin = (uri.scheme() == RICOCHET_CALLBACK_WEBVIEW_SCHEME
+        && uri.host_str() == Some("localhost"))
+        || (trust_windows_protocol_alias
+            && uri.scheme() == "http"
+            && uri.host_str() == Some("ricochet.localhost"));
     trusted_origin
         && uri.username().is_empty()
         && uri.password().is_none()
         && uri.port().is_none()
         && uri.path() == "/"
         && uri.query().is_none()
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_is_windows_protocol_origin(uri: &str) -> bool {
+    reqwest::Url::parse(uri).is_ok_and(|uri| {
+        uri.scheme() == "http"
+            && uri.host_str() == Some("ricochet.localhost")
+            && uri.username().is_empty()
+            && uri.password().is_none()
+            && uri.port().is_none()
+    })
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
