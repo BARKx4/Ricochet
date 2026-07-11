@@ -67,6 +67,13 @@ pub(crate) fn package(path: &str, output: &Path, options: PackageOptions<'_>) ->
     if options.gui && !native_gui_packaging_supported() {
         bail!("rco package --gui is currently available from Windows, Linux, and macOS builds");
     }
+    if options.package_license.is_some() && (options.linux_packages.is_empty() || !options.gui) {
+        bail!("--package-license requires --gui with --linux-package");
+    }
+    let linux_project_license = linux_package_project_license(
+        options.gui && !options.linux_packages.is_empty(),
+        options.package_license,
+    )?;
     if !options.linux_packages.is_empty() {
         ensure_linux_package_host()?;
     }
@@ -107,6 +114,7 @@ pub(crate) fn package(path: &str, output: &Path, options: PackageOptions<'_>) ->
             options.linux_packages,
             options.package_name,
             options.package_version,
+            linux_project_license,
             options.package_description,
             options.gui,
         )?;
@@ -123,6 +131,7 @@ pub(crate) struct PackageOptions<'a> {
     pub(crate) linux_packages: &'a [LinuxPackageFormat],
     pub(crate) package_name: Option<&'a str>,
     pub(crate) package_version: &'a str,
+    pub(crate) package_license: Option<&'a str>,
     pub(crate) package_description: &'a str,
 }
 
@@ -495,6 +504,7 @@ fn create_linux_package_artifacts(
     formats: &[LinuxPackageFormat],
     package_name: Option<&str>,
     package_version: &str,
+    project_license: Option<&str>,
     package_description: &str,
     gui: bool,
 ) -> Result<()> {
@@ -520,6 +530,7 @@ fn create_linux_package_artifacts(
                 &staging_root,
                 &name,
                 package_version,
+                project_license,
                 &description,
                 gui,
             )?,
@@ -529,6 +540,7 @@ fn create_linux_package_artifacts(
                 &staging_root,
                 &name,
                 package_version,
+                project_license,
                 &description,
                 gui,
             )?,
@@ -619,6 +631,27 @@ fn validate_linux_package_version(version: &str) -> Result<()> {
     Ok(())
 }
 
+fn linux_package_project_license(
+    writes_appstream_metadata: bool,
+    project_license: Option<&str>,
+) -> Result<Option<&str>> {
+    if !writes_appstream_metadata {
+        return Ok(None);
+    }
+
+    let project_license = project_license
+        .map(str::trim)
+        .filter(|license| !license.is_empty())
+        .context(
+            "--package-license SPDX is required with --gui when creating Linux package artifacts",
+        )?;
+    if let Err(error) = spdx::Expression::parse(project_license) {
+        bail!("--package-license must be a valid SPDX expression: {error}");
+    }
+
+    Ok(Some(project_license))
+}
+
 fn linux_package_description(description: &str) -> String {
     let description = description
         .lines()
@@ -650,6 +683,7 @@ fn create_linux_tarball(
     staging_root: &Path,
     name: &str,
     version: &str,
+    project_license: Option<&str>,
     description: &str,
     gui: bool,
 ) -> Result<()> {
@@ -684,7 +718,13 @@ fn create_linux_tarball(
         )
     })?;
     if gui {
-        write_linux_gui_metadata(&package_dir.join("share"), name, version, description)?;
+        write_linux_gui_metadata(
+            &package_dir.join("share"),
+            name,
+            version,
+            description,
+            project_license.expect("GUI package license was validated before staging"),
+        )?;
     }
     write_linux_install_script(&package_dir.join("install.sh"), name, gui)?;
 
@@ -708,6 +748,7 @@ fn create_linux_deb(
     staging_root: &Path,
     name: &str,
     version: &str,
+    project_license: Option<&str>,
     description: &str,
     gui: bool,
 ) -> Result<()> {
@@ -739,7 +780,13 @@ fn create_linux_deb(
     )
     .with_context(|| format!("failed to write {}", doc_dir.join("changelog").display()))?;
     if gui {
-        write_linux_gui_metadata(&share_dir, name, version, description)?;
+        write_linux_gui_metadata(
+            &share_dir,
+            name,
+            version,
+            description,
+            project_license.expect("GUI package license was validated before staging"),
+        )?;
     }
     fs::write(
         control_dir.join("control"),
@@ -812,6 +859,7 @@ fn write_linux_gui_metadata(
     name: &str,
     version: &str,
     description: &str,
+    project_license: &str,
 ) -> Result<()> {
     let applications_dir = share_dir.join("applications");
     let icons_dir = share_dir.join("icons/hicolor/scalable/apps");
@@ -845,7 +893,7 @@ fn write_linux_gui_metadata(
     })?;
     fs::write(
         metainfo_dir.join(format!("{name}.metainfo.xml")),
-        linux_app_metainfo(name, version, description),
+        linux_app_metainfo(name, version, description, project_license),
     )
     .with_context(|| {
         format!(
@@ -867,12 +915,18 @@ fn linux_desktop_entry(name: &str, description: &str) -> String {
     )
 }
 
-fn linux_app_metainfo(name: &str, version: &str, description: &str) -> String {
+fn linux_app_metainfo(
+    name: &str,
+    version: &str,
+    description: &str,
+    project_license: &str,
+) -> String {
     let component_id = appstream_component_id(name);
     let display_name = linux_app_display_name(name);
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<component type=\"desktop-application\">\n  <id>{}</id>\n  <metadata_license>CC0-1.0</metadata_license>\n  <project_license>Apache-2.0</project_license>\n  <name>{}</name>\n  <summary>{}</summary>\n  <description>\n    <p>{}</p>\n  </description>\n  <launchable type=\"desktop-id\">{}.desktop</launchable>\n  <provides>\n    <binary>{}</binary>\n  </provides>\n  <releases>\n    <release version=\"{}\" />\n  </releases>\n</component>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<component type=\"desktop-application\">\n  <id>{}</id>\n  <metadata_license>CC0-1.0</metadata_license>\n  <project_license>{}</project_license>\n  <name>{}</name>\n  <summary>{}</summary>\n  <description>\n    <p>{}</p>\n  </description>\n  <launchable type=\"desktop-id\">{}.desktop</launchable>\n  <provides>\n    <binary>{}</binary>\n  </provides>\n  <releases>\n    <release version=\"{}\" />\n  </releases>\n</component>\n",
         xml_escape(&component_id),
+        xml_escape(project_license),
         xml_escape(&display_name),
         xml_escape(description),
         xml_escape(description),
@@ -1078,4 +1132,65 @@ fn embedded_app_from_bytes_with_marker(
         }
     };
     Ok(Some(EmbeddedApp { kind, payload }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_gui_packages_require_an_explicit_project_license() {
+        let error = linux_package_project_license(true, None)
+            .expect_err("GUI package metadata must not invent a project license");
+        assert_eq!(
+            error.to_string(),
+            "--package-license SPDX is required with --gui when creating Linux package artifacts"
+        );
+
+        assert_eq!(
+            linux_package_project_license(false, None)
+                .expect("non-GUI Linux packages do not write AppStream project metadata"),
+            None
+        );
+        assert_eq!(
+            linux_package_project_license(true, Some("Apache-2.0"))
+                .expect("valid explicit SPDX identifier"),
+            Some("Apache-2.0")
+        );
+        assert_eq!(
+            linux_package_project_license(true, Some("Apache-2.0 OR BSD-3-Clause"))
+                .expect("valid compound SPDX expression"),
+            Some("Apache-2.0 OR BSD-3-Clause")
+        );
+    }
+
+    #[test]
+    fn linux_package_project_license_rejects_invalid_spdx_syntax() {
+        for invalid in [
+            "OR",
+            "Apache-2.0 OR",
+            "()",
+            "Apache-2.0 MIT",
+            "MIT\n</project_license>",
+        ] {
+            let error = linux_package_project_license(true, Some(invalid))
+                .expect_err("invalid SPDX syntax must be rejected");
+            assert!(
+                error
+                    .to_string()
+                    .starts_with("--package-license must be a valid SPDX expression:"),
+                "unexpected error for {invalid:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn linux_app_metainfo_uses_the_callers_project_license() {
+        let metainfo =
+            linux_app_metainfo("example-app", "1.2.3", "Example application", "Apache-2.0");
+
+        assert!(metainfo.contains("<project_license>Apache-2.0</project_license>"));
+        let stale_license = format!("<project_license>{}</project_license>", "MIT");
+        assert!(!metainfo.contains(&stale_license));
+    }
 }

@@ -286,6 +286,12 @@ enum Command {
         #[arg(long = "package-version", default_value = "0.1.0")]
         package_version: String,
         #[arg(
+            long = "package-license",
+            value_name = "SPDX",
+            help = "Set the AppStream project license for GUI Linux packages; required with --gui and --linux-package"
+        )]
+        package_license: Option<String>,
+        #[arg(
             long = "package-description",
             default_value = "Packaged Ricochet application"
         )]
@@ -998,6 +1004,7 @@ pub async fn run_cli() -> Result<()> {
             linux_packages,
             package_name,
             package_version,
+            package_license,
             package_description,
         } => commands::package::package(
             path.as_deref().unwrap_or(DEFAULT_BUILD_SOURCE),
@@ -1010,6 +1017,7 @@ pub async fn run_cli() -> Result<()> {
                 linux_packages: &linux_packages,
                 package_name: package_name.as_deref(),
                 package_version: &package_version,
+                package_license: package_license.as_deref(),
                 package_description: &package_description,
             },
         )?,

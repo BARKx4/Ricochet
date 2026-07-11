@@ -3268,6 +3268,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "spdx",
  "tao",
  "tar",
  "tempfile",
@@ -3759,6 +3760,15 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "spdx"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8da593e30beb790fc9424502eb898320b44e5eb30367dbda1c1edde8e2f32d7"
+dependencies = [
+ "smallvec",
 ]
 
 [[package]]

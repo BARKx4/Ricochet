@@ -109,7 +109,7 @@ operator-facing release metadata.</li>
 <h2>Vocabulary and commands</h2>
 <p>Primary coverage: <code>rco package</code>, <code>--output</code>, <code>--tui</code>, <code>--gui</code>, <code>--mvc</code>,
 <code>--linux-package tar</code>, <code>--linux-package deb</code>, <code>--package-name</code>,
-<code>--package-version</code>, <code>--package-description</code>, release scripts, store packaging
+<code>--package-version</code>, <code>--package-license</code>, <code>--package-description</code>, release scripts, store packaging
 validation, signature verification, and updater channel metadata.</p>
 <h2>Guided example</h2>
 <p>Open <code>examples/learn/34-packaging-release-and-updates/run-lab.ps1</code>:</p>
@@ -161,6 +161,10 @@ desktop webview app, combine <code>--gui --mvc</code>. On Linux, <code>--linux-p
 </code></pre>
 <p>Treat that metadata as release-facing user information. It should match the
 artifact you intend to distribute.</p>
+<p>GUI Linux tarballs and Debian packages also require
+<code>--package-license SPDX</code>. Pass the application author's actual SPDX
+expression; Ricochet does not default user-authored applications to MIT or to
+the Ricochet project license.</p>
 <h2>How to read the example</h2>
 <p>Read artifact examples by separating source from output. Source files are what you edit. Bytecode, images, packages, and update metadata are generated artifacts with their own verification steps.</p>
 <h2>Try it</h2>

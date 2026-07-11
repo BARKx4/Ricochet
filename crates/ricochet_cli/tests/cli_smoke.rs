@@ -7065,6 +7065,46 @@ fn package_rejects_linux_package_artifacts_on_non_linux_hosts() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn package_gui_linux_requires_explicit_project_license_before_writing_output() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    write_source_at(
+        root,
+        "main.rco",
+        "\"License Gate\" \"<main><p>license</p></main>\" webview_window value drop\n",
+    );
+    let output_path = root.join("license-gate-app");
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg("main.rco")
+        .arg("--gui")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--linux-package")
+        .arg("tar")
+        .current_dir(root)
+        .output()
+        .expect("rco package should launch");
+
+    assert!(!package_output.status.success());
+    let stderr = String::from_utf8_lossy(&package_output.stderr);
+    assert!(
+        stderr.contains(
+            "--package-license SPDX is required with --gui when creating Linux package artifacts"
+        ),
+        "stderr should explain the explicit license requirement, got:\n{stderr}"
+    );
+    assert!(
+        !output_path.exists(),
+        "license validation must happen before writing the packaged executable"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn package_gui_linux_artifacts_include_desktop_metadata() {
     let main_path = temp_source_path();
     let root = main_path.parent().expect("source path has parent");
@@ -7091,6 +7131,8 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
         .arg("linux-gui-app")
         .arg("--package-version")
         .arg("1.2.3")
+        .arg("--package-license")
+        .arg("Apache-2.0")
         .arg("--package-description")
         .arg("Linux GUI package test")
         .current_dir(root)
@@ -7153,6 +7195,7 @@ fn package_gui_linux_artifacts_include_desktop_metadata() {
     .expect("metainfo should be readable");
     assert!(
         metainfo.contains("<id>today.ricochet.linux-gui-app</id>")
+            && metainfo.contains("<project_license>Apache-2.0</project_license>")
             && metainfo
                 .contains("<launchable type=\"desktop-id\">linux-gui-app.desktop</launchable>")
             && metainfo.contains("<release version=\"1.2.3\" />"),

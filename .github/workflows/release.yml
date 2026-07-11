@@ -318,7 +318,8 @@ jobs:
             --output "$tmp/webview-ui" \
             --linux-package deb \
             --package-name webview-ui \
-            --package-version "$version"
+            --package-version "$version" \
+            --package-license Apache-2.0
           RICOCHET_GUI_EXPORT_HTML="$tmp/webview-ui.html" "$tmp/webview-ui"
           grep -q '<title>Ricochet Desktop UI</title>' "$tmp/webview-ui.html"
           test -f "$tmp/webview-ui_${version}_amd64.deb"
