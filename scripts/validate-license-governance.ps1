@@ -1,0 +1,276 @@
+param()
+
+$ErrorActionPreference = "Stop"
+
+$Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$Failures = [System.Collections.Generic.List[string]]::new()
+
+function Add-Failure {
+    param([string]$Message)
+
+    [void]$script:Failures.Add($Message)
+}
+
+function Get-RepoPath {
+    param([string]$RelativePath)
+
+    return Join-Path $Root ($RelativePath -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+}
+
+function Read-RequiredFile {
+    param([string]$RelativePath)
+
+    $path = Get-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        Add-Failure "Missing required file: $RelativePath"
+        return $null
+    }
+
+    return [System.IO.File]::ReadAllText($path)
+}
+
+function Normalize-Text {
+    param([string]$Text)
+
+    $normalized = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
+    while ($normalized.EndsWith("`n", [System.StringComparison]::Ordinal)) {
+        $normalized = $normalized.Substring(0, $normalized.Length - 1)
+    }
+    return $normalized + "`n"
+}
+
+function Get-Sha256 {
+    param([string]$Text)
+
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Text)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha.ComputeHash($bytes)
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return -join ($hash | ForEach-Object { $_.ToString("x2") })
+}
+
+function Require-Match {
+    param(
+        [string]$RelativePath,
+        [AllowNull()]$Contents,
+        [string]$Pattern,
+        [string]$Description
+    )
+
+    if ($null -ne $Contents -and $Contents -notmatch $Pattern) {
+        Add-Failure "$RelativePath must $Description"
+    }
+}
+
+function Require-ApacheManifestLicense {
+    param([string]$RelativePath)
+
+    $contents = Read-RequiredFile $RelativePath
+    if ($null -eq $contents) {
+        return
+    }
+
+    $packageSection = [regex]::Match(
+        $contents,
+        '(?ms)^\[package\]\s*(.*?)(?=^\[|\z)'
+    )
+    if (-not $packageSection.Success) {
+        Add-Failure "$RelativePath must contain a [package] section"
+        return
+    }
+
+    $matches = [regex]::Matches(
+        $packageSection.Groups[1].Value,
+        '(?m)^\s*license\s*=\s*"([^"]+)"\s*$'
+    )
+    if ($matches.Count -ne 1) {
+        Add-Failure "$RelativePath must contain exactly one package license declaration"
+        return
+    }
+
+    if ($matches[0].Groups[1].Value -cne "Apache-2.0") {
+        Add-Failure "$RelativePath package license must be Apache-2.0"
+    }
+}
+
+$license = Read-RequiredFile "LICENSE"
+if ($null -ne $license) {
+    # Official source: https://www.apache.org/licenses/LICENSE-2.0.txt
+    $expectedLicenseSha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    $actualLicenseSha256 = Get-Sha256 (Normalize-Text $license)
+    if ($actualLicenseSha256 -cne $expectedLicenseSha256) {
+        Add-Failure "LICENSE must be the canonical Apache License 2.0 text (normalized SHA-256 $expectedLicenseSha256; found $actualLicenseSha256)"
+    }
+}
+
+$workspaceManifest = Read-RequiredFile "Cargo.toml"
+$workspacePackageSection = if ($null -ne $workspaceManifest) {
+    [regex]::Match($workspaceManifest, '(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\z)')
+} else {
+    $null
+}
+if ($null -ne $workspacePackageSection -and -not $workspacePackageSection.Success) {
+    Add-Failure "Cargo.toml must contain a [workspace.package] section"
+} elseif ($null -ne $workspacePackageSection) {
+    Require-Match "Cargo.toml [workspace.package]" $workspacePackageSection.Groups[1].Value '(?m)^license\s*=\s*"Apache-2\.0"\s*$' 'set license to Apache-2.0'
+}
+if ($null -ne $workspaceManifest -and $workspaceManifest -match 'MIT\s+OR\s+Apache-2\.0') {
+    Add-Failure "Cargo.toml must not retain the former MIT OR Apache-2.0 declaration"
+}
+
+$crateManifests = @(
+    "crates/ricochet_bytecode/Cargo.toml",
+    "crates/ricochet_cli/Cargo.toml",
+    "crates/ricochet_compiler/Cargo.toml",
+    "crates/ricochet_syntax/Cargo.toml",
+    "crates/ricochet_vm/Cargo.toml",
+    "crates/ricochet_web/Cargo.toml"
+)
+foreach ($manifest in $crateManifests) {
+    $contents = Read-RequiredFile $manifest
+    if ($null -ne $contents) {
+        $packageSection = [regex]::Match($contents, '(?ms)^\[package\]\s*(.*?)(?=^\[|\z)')
+        if (-not $packageSection.Success) {
+            Add-Failure "$manifest must contain a [package] section"
+        } else {
+            Require-Match "$manifest [package]" $packageSection.Groups[1].Value '(?m)^license\.workspace\s*=\s*true\s*$' 'inherit the workspace Apache-2.0 license'
+        }
+    }
+}
+
+$firstPartyPackageManifests = @(
+    "packages/ricochet_ai/ricochet.toml",
+    "packages/ricochet_auth/ricochet.toml",
+    "packages/ricochet_forms/ricochet.toml",
+    "packages/ricochet_python/ricochet.toml",
+    "packages/ricochet_test_helpers/ricochet.toml",
+    "examples/learn/27-auth-forms/login_flow/.ricochet/packages/auth/ricochet.toml",
+    "examples/learn/27-auth-forms/login_flow/.ricochet/packages/forms/ricochet.toml",
+    "examples/learn/28-ai/fake_provider_chat/.ricochet/packages/ai/ricochet.toml",
+    "examples/showcase/ai_provider_probe/.ricochet/packages/ai/ricochet.toml",
+    "examples/showcase/package_auth_forms/.ricochet/packages/auth/ricochet.toml",
+    "examples/showcase/package_auth_forms/.ricochet/packages/forms/ricochet.toml"
+)
+foreach ($manifest in $firstPartyPackageManifests) {
+    Require-ApacheManifestLicense $manifest
+}
+
+$trackedFiles = @(& git -C $Root ls-files --cached --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) {
+    Add-Failure "git ls-files failed while scanning for stale license declarations"
+} else {
+    $textExtensions = @(".html", ".json", ".md", ".ps1", ".rs", ".sh", ".toml", ".txt", ".yaml", ".yml")
+    foreach ($relativePath in $trackedFiles) {
+        $normalizedPath = $relativePath.Replace("\", "/")
+        if ($normalizedPath -eq "scripts/validate-license-governance.ps1" -or
+            $normalizedPath -like "THIRD_PARTY_*" -or
+            $normalizedPath.StartsWith("vendor/", [System.StringComparison]::Ordinal)) {
+            continue
+        }
+
+        $extension = [System.IO.Path]::GetExtension($normalizedPath).ToLowerInvariant()
+        if ($textExtensions -notcontains $extension -and [System.IO.Path]::GetFileName($normalizedPath) -ne "LICENSE") {
+            continue
+        }
+
+        $contents = [System.IO.File]::ReadAllText((Get-RepoPath $normalizedPath))
+        if ($contents -match 'GPL-3\.0|MIT\s+OR\s+Apache-2\.0') {
+            Add-Failure "$normalizedPath contains a stale GPL-3.0 or MIT OR Apache-2.0 declaration"
+        }
+        if ($normalizedPath -ne "crates/ricochet_cli/src/lib.rs" -and $contents -match '<project_license>MIT</project_license>') {
+            Add-Failure "$normalizedPath identifies a first-party AppStream project as MIT"
+        }
+    }
+}
+
+$editorManifestPath = "editors/vscode/package.json"
+$editorManifest = Read-RequiredFile $editorManifestPath
+if ($null -ne $editorManifest) {
+    try {
+        $editorMetadata = $editorManifest | ConvertFrom-Json
+        if ([string]$editorMetadata.license -cne "Apache-2.0") {
+            Add-Failure "$editorManifestPath license must be Apache-2.0"
+        }
+    }
+    catch {
+        Add-Failure "$editorManifestPath must contain valid JSON: $($_.Exception.Message)"
+    }
+}
+
+$linuxPackagerPath = "scripts/package-release-linux.sh"
+$linuxPackager = Read-RequiredFile $linuxPackagerPath
+Require-Match $linuxPackagerPath $linuxPackager '<metadata_license>CC0-1\.0</metadata_license>' 'retain the AppStream metadata license CC0-1.0'
+Require-Match $linuxPackagerPath $linuxPackager '<project_license>Apache-2\.0</project_license>' 'identify official Ricochet packages as Apache-2.0'
+if ($null -ne $linuxPackager -and $linuxPackager -match '<project_license>MIT</project_license>') {
+    Add-Failure "$linuxPackagerPath must not identify official Ricochet packages as MIT"
+}
+
+$gitignore = Read-RequiredFile ".gitignore"
+Require-Match ".gitignore" $gitignore '(?m)^!SECURITY\.md\s*$' 'allow the root security policy to be tracked'
+Require-Match ".gitignore" $gitignore '(?m)^!SUPPORT\.md\s*$' 'allow the root support policy to be tracked'
+
+$securityPath = "SECURITY.md"
+$security = Read-RequiredFile $securityPath
+Require-Match $securityPath $security 'https://github\.com/BARKx4/Ricochet/security/advisories/new' 'link the enabled private vulnerability-reporting form'
+Require-Match $securityPath $security '(?i)do not.*public GitHub issue' 'tell reporters not to disclose suspected vulnerabilities publicly'
+Require-Match $securityPath $security '(?i)newest published release candidate' 'state the supported prerelease line'
+Require-Match $securityPath $security '(?i)best-effort' 'avoid implying a response or remediation SLA'
+Require-Match $securityPath $security '(?i)sandboxed' 'describe the opt-in untrusted-code capability boundary'
+
+$supportPath = "SUPPORT.md"
+$support = Read-RequiredFile $supportPath
+Require-Match $supportPath $support 'https://github\.com/BARKx4/Ricochet/issues' 'route public questions and bugs to the enabled issue tracker'
+Require-Match $supportPath $support '\[SECURITY\.md\]\(SECURITY\.md\)' 'route suspected vulnerabilities to the private security policy'
+Require-Match $supportPath $support '(?i)Windows x64' 'name the official Windows artifact target'
+Require-Match $supportPath $support '(?i)Linux x64' 'name the official Linux artifact target'
+Require-Match $supportPath $support '(?i)macOS arm64 and x64' 'name both official macOS artifact targets'
+Require-Match $supportPath $support '(?i)best-effort' 'state the prerelease support boundary without an SLA'
+
+$readme = Read-RequiredFile "README.md"
+Require-Match "README.md" $readme '\[Apache License 2\.0\]\(LICENSE\)' 'link the repository license'
+Require-Match "README.md" $readme '(?is)Third-party components remain subject to their\s+own licenses' 'preserve third-party license boundaries'
+Require-Match "README.md" $readme '\[security policy\]\(https://github\.com/BARKx4/Ricochet/security/policy\)' 'link the security policy from both source and packaged copies'
+Require-Match "README.md" $readme '\[support guide\]\(https://github\.com/BARKx4/Ricochet/blob/main/SUPPORT\.md\)' 'link the support guide from both source and packaged copies'
+
+$acceptancePath = "scripts/acceptance.ps1"
+$acceptance = Read-RequiredFile $acceptancePath
+Require-Match $acceptancePath $acceptance 'validate-license-governance\.ps1' 'run this validator in the acceptance suite'
+
+$editorValidatorPath = "scripts/validate-editor-assets.ps1"
+$editorValidator = Read-RequiredFile $editorValidatorPath
+Require-Match $editorValidatorPath $editorValidator 'package\.license\s+-cne\s+"Apache-2\.0"' 'enforce the VS Code extension license independently'
+
+$storeValidatorPath = "scripts/validate-store-packaging.ps1"
+$storeValidator = Read-RequiredFile $storeValidatorPath
+Require-Match $storeValidatorPath $storeValidator '"\*/LICENSE"' 'require LICENSE in portable Unix archives'
+Require-Match $storeValidatorPath $storeValidator 'usr/share/doc/ricochet/LICENSE\$' 'require LICENSE in Debian packages'
+
+$releaseWorkflowPath = ".github/workflows/release.yml"
+$releaseWorkflow = Read-RequiredFile $releaseWorkflowPath
+Require-Match $releaseWorkflowPath $releaseWorkflow 'cmp LICENSE "\$package_dir/LICENSE"' 'compare the Linux archive license with the repository license'
+Require-Match $releaseWorkflowPath $releaseWorkflow '<project_license>Apache-2\.0</project_license>' 'verify Ricochet AppStream license metadata'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'cmp LICENSE "\$tmp/deb-root/usr/share/doc/ricochet/LICENSE"' 'compare the Debian license with the repository license'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'Windows portable ZIP LICENSE did not match the repository license' 'compare the Windows archive license with the repository license'
+Require-Match $releaseWorkflowPath $releaseWorkflow 'ricochet-v\*-\$\{\{ matrix\.target \}\}\.tar\.gz[\s\S]+?cmp LICENSE "\$package_dir/LICENSE"' 'compare each macOS archive license with the repository license'
+
+$windowsPackagerPath = "scripts/package-release.ps1"
+$windowsPackager = Read-RequiredFile $windowsPackagerPath
+Require-Match $windowsPackagerPath $windowsPackager 'Copy-Item[^\r\n]+"LICENSE"' 'copy the repository license into Windows packages'
+
+$macosPackagerPath = "scripts/package-release-macos.sh"
+$macosPackager = Read-RequiredFile $macosPackagerPath
+Require-Match $macosPackagerPath $macosPackager 'cp "\$repo_root/LICENSE" "\$package_dir/LICENSE"' 'copy the repository license into macOS packages'
+
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/LICENSE" "\$package_dir/LICENSE"' 'copy the repository license into Linux archives'
+Require-Match $linuxPackagerPath $linuxPackager 'cp "\$repo_root/LICENSE" "\$deb_root/usr/share/doc/ricochet/LICENSE"' 'copy the repository license into Debian packages'
+
+if ($Failures.Count -gt 0) {
+    $details = $Failures | ForEach-Object { " - $_" }
+    throw "License and governance validation failed:`n$($details -join "`n")"
+}
+
+Write-Host "License and governance validation passed."

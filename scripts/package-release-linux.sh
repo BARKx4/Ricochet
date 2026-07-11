@@ -317,7 +317,7 @@ EOF
 <component type="console-application">
   <id>today.ricochet.rco</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>Apache-2.0</project_license>
   <name>Ricochet</name>
   <summary>Pure-postfix language, MVC web framework, and desktop app toolkit</summary>
   <description>

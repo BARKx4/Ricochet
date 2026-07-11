@@ -301,6 +301,7 @@ switch ($Target) {
                         "*/rco-gui",
                         "*/ricochet",
                         "*/install.sh",
+                        "*/LICENSE",
                         "*/share/applications/ricochet-repl.desktop",
                         "*/share/icons/hicolor/scalable/apps/ricochet.svg",
                         "*/share/metainfo/today.ricochet.rco.metainfo.xml",
@@ -322,6 +323,7 @@ switch ($Target) {
                     Assert-DebContains $errors $contents "usr/share/icons/hicolor/scalable/apps/ricochet\.svg$"
                     Assert-DebContains $errors $contents "usr/share/metainfo/today\.ricochet\.rco\.metainfo\.xml$"
                     Assert-DebContains $errors $contents "usr/share/doc/ricochet/changelog$"
+                    Assert-DebContains $errors $contents "usr/share/doc/ricochet/LICENSE$"
 
                     $fields = (Get-DpkgOutput $debPath @("--field")) -join "`n"
                     foreach ($requiredField in @(

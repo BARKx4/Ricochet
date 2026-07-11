@@ -169,6 +169,14 @@ jobs:
           }
           $rco = $rcoCandidates[0].FullName
           $packageDir = Split-Path -Parent $rco
+          $packagedLicense = Join-Path $packageDir 'LICENSE'
+          $repositoryLicense = Join-Path $env:GITHUB_WORKSPACE 'LICENSE'
+          if (-not (Test-Path -LiteralPath $packagedLicense -PathType Leaf)) {
+            throw "Windows portable ZIP did not contain LICENSE."
+          }
+          if ((Get-FileHash -LiteralPath $packagedLicense -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $repositoryLicense -Algorithm SHA256).Hash) {
+            throw "Windows portable ZIP LICENSE did not match the repository license."
+          }
 
           $basic = Join-Path $tmp 'basic-oop.exe'
           $basicSource = Join-Path $packageDir 'examples\basic-oop.rco'
@@ -279,13 +287,19 @@ jobs:
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -f "$package_dir/LICENSE"
+          cmp LICENSE "$package_dir/LICENSE"
           test -f "$package_dir/share/applications/ricochet-repl.desktop"
           grep -q 'Exec=rco repl' "$package_dir/share/applications/ricochet-repl.desktop"
           test -f "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
+          grep -q '<project_license>Apache-2.0</project_license>' "$package_dir/share/metainfo/today.ricochet.rco.metainfo.xml"
           test -f "$package_dir/share/icons/hicolor/scalable/apps/ricochet.svg"
           dpkg-deb --contents "dist/ricochet_${version}_amd64.deb" > "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/applications/ricochet-repl.desktop' "$tmp/ricochet-deb-contents.txt"
           grep -q 'usr/share/metainfo/today.ricochet.rco.metainfo.xml' "$tmp/ricochet-deb-contents.txt"
+          grep -q 'usr/share/doc/ricochet/LICENSE' "$tmp/ricochet-deb-contents.txt"
+          dpkg-deb --extract "dist/ricochet_${version}_amd64.deb" "$tmp/deb-root"
+          cmp LICENSE "$tmp/deb-root/usr/share/doc/ricochet/LICENSE"
           "$package_dir/rco" package examples/basic-oop.rco \
             --output "$tmp/basic-oop" \
             --linux-package tar \
@@ -424,6 +438,7 @@ jobs:
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-${{ matrix.target }}.tar.gz -C "$tmp"
           package_dir="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          cmp LICENSE "$package_dir/LICENSE"
           "$package_dir/rco" package examples/basic-oop.rco --output "$tmp/basic-oop"
           "$tmp/basic-oop" | grep -q 'ada@example.com'
           "$package_dir/rco" package examples/webview_ui.rco --gui --output "$tmp/webview-ui"

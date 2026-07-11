@@ -21,3 +21,5 @@ __pycache__/
 **/*.md
 !README.md
 !**/README.md
+!SECURITY.md
+!SUPPORT.md

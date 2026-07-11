@@ -109,3 +109,14 @@ cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
 When adding or renaming public words, follow
 [docs/adding-words.html](docs/adding-words.html) so VM dispatch, tests, reference
 docs, LSP completions, editor grammar, validators, and examples stay in sync.
+
+## License and project policies
+
+Ricochet's first-party source, documentation, and assets are available under the
+[Apache License 2.0](LICENSE). Third-party components remain subject to their
+own licenses.
+
+Report suspected vulnerabilities privately through the
+[security policy](https://github.com/BARKx4/Ricochet/security/policy). For usage
+questions, bug reports, and supported build information, see the
+[support guide](https://github.com/BARKx4/Ricochet/blob/main/SUPPORT.md).

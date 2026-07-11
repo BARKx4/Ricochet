@@ -20,6 +20,9 @@ $languageConfiguration = Get-Content -LiteralPath $LanguageConfigurationPath -Ra
 $grammar = Get-Content -LiteralPath $GrammarPath -Raw | ConvertFrom-Json
 $docsSource = Get-Content -LiteralPath $DocsAppPath -Raw
 
+if ($package.license -cne "Apache-2.0") {
+    throw "VS Code package license must be Apache-2.0"
+}
 if ($package.contributes.languages[0].id -ne "ricochet") {
     throw "VS Code package must contribute the ricochet language id"
 }
