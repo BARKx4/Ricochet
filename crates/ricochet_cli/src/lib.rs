@@ -92,6 +92,7 @@ const CLI_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
 #[derive(Debug, Parser)]
 #[command(name = "rco")]
 #[command(about = "Ricochet language toolchain")]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

@@ -49,6 +49,7 @@ use crate::socket_runtime::{
     WebSocketListenRequest, WebSocketListenerSnapshot, WebSocketRead, WebSocketSnapshot,
 };
 use crate::upload_runtime::{UploadStreamRead, UploadStreamRuntimeError, UploadStreamSnapshot};
+use crate::vm::numeric_ordering;
 use crate::vm::{
     arithmetic_overflow, display_float, finite_float_result, value_kind, NumericValue,
 };
@@ -5658,11 +5659,20 @@ fn numeric_clamp(
             Ok(Value::Number(value.clamp(minimum, maximum)))
         }
         _ => {
-            if minimum.as_f64() > maximum.as_f64() {
-                return Err(VmError::InvalidArgument {
-                    word: word.to_string(),
-                    message: "minimum cannot exceed maximum".to_string(),
-                });
+            match numeric_ordering(minimum, maximum) {
+                Some(std::cmp::Ordering::Greater) => {
+                    return Err(VmError::InvalidArgument {
+                        word: word.to_string(),
+                        message: "minimum cannot exceed maximum".to_string(),
+                    });
+                }
+                None => {
+                    return Err(VmError::InvalidArgument {
+                        word: word.to_string(),
+                        message: "minimum and maximum must be ordered numbers".to_string(),
+                    });
+                }
+                Some(_) => {}
             }
             finite_float_result(
                 word,
@@ -9620,6 +9630,39 @@ mod tests {
             result,
             Err(VmError::InvalidArgument { message, .. })
                 if message == "minimum cannot exceed maximum"
+        ));
+    }
+
+    #[test]
+    fn mixed_clamp_rejects_minimum_above_rounded_float_maximum() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let result = numeric_clamp(
+            "clamp",
+            NumericValue::Integer(0),
+            NumericValue::Integer(TWO_TO_53 + 1),
+            NumericValue::Float(TWO_TO_53 as f64),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::InvalidArgument { message, .. })
+                if message == "minimum cannot exceed maximum"
+        ));
+    }
+
+    #[test]
+    fn mixed_clamp_rejects_unordered_nan_bounds_without_panicking() {
+        let result = numeric_clamp(
+            "clamp",
+            NumericValue::Integer(0),
+            NumericValue::Float(f64::NAN),
+            NumericValue::Integer(1),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::InvalidArgument { message, .. })
+                if message == "minimum and maximum must be ordered numbers"
         ));
     }
 

@@ -9,7 +9,7 @@
 "README.md" fs_read_text value length println
 
 resolveOptions map
-"docs/learn/index.md" $resolveOptions workspace_resolve value resolved var
+"docs/learn/index.html" $resolveOptions workspace_resolve value resolved var
 
 "inside root?" print
 $resolved "inside_root" at println
@@ -18,7 +18,7 @@ $resolved "inside_root" at println
 $resolved "exists" at println
 
 "metadata kind:" print
-"docs/learn/index.md" workspace_metadata value "kind" at println
+"docs/learn/index.html" workspace_metadata value "kind" at println
 
 listOptions map
 $listOptions "max_entries" 64 put drop

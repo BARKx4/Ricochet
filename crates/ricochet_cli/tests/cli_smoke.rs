@@ -1925,6 +1925,30 @@ fn repl_debug_streams_instruction_events() {
 }
 
 #[test]
+fn root_version_flags_report_package_version() {
+    let expected = format!("rco {}\n", env!("CARGO_PKG_VERSION"));
+
+    for flag in ["--version", "-V"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg(flag)
+            .output()
+            .unwrap_or_else(|error| panic!("rco {flag} should launch: {error}"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "rco {flag} failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert_eq!(
+            stdout, expected,
+            "rco {flag} should report its Cargo version"
+        );
+        assert!(stderr.is_empty(), "rco {flag} wrote stderr:\n{stderr}");
+    }
+}
+
+#[test]
 fn root_help_lists_persistent_image_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("--help")

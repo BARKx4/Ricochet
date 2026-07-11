@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::cmp::Ordering as NumericOrdering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1788,14 +1789,18 @@ impl Vm {
             "assert_ok" => self.call_assert_ok(word),
             "assert_error" => self.call_assert_error(word),
             "assert_equals" => self.call_assert_equals(word),
-            "less_than?" | "<" => self.call_number_comparison(word, |left, right| left < right),
-            "greater_than?" | ">" => self.call_number_comparison(word, |left, right| left > right),
-            "less_or_equals?" | "<=" => {
-                self.call_number_comparison(word, |left, right| left <= right)
+            "less_than?" | "<" => {
+                self.call_number_comparison(word, |ordering| ordering == NumericOrdering::Less)
             }
-            "greater_or_equals?" | ">=" => {
-                self.call_number_comparison(word, |left, right| left >= right)
+            "greater_than?" | ">" => {
+                self.call_number_comparison(word, |ordering| ordering == NumericOrdering::Greater)
             }
+            "less_or_equals?" | "<=" => self.call_number_comparison(word, |ordering| {
+                matches!(ordering, NumericOrdering::Less | NumericOrdering::Equal)
+            }),
+            "greater_or_equals?" | ">=" => self.call_number_comparison(word, |ordering| {
+                matches!(ordering, NumericOrdering::Greater | NumericOrdering::Equal)
+            }),
             "self" => self.call_self(word),
             "get" => self.call_get(word),
             "set" => self.call_set(word),
@@ -4343,15 +4348,15 @@ impl Vm {
     fn call_number_comparison(
         &mut self,
         word: &str,
-        compare: impl FnOnce(f64, f64) -> bool,
+        compare: impl FnOnce(NumericOrdering) -> bool,
     ) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
         let stack_before = self.stack.clone();
         let right = self.pop_numeric_or_restore(word, &stack_before)?;
         let left = self.pop_numeric_or_restore(word, &stack_before)?;
 
-        self.stack
-            .push(Value::Bool(compare(left.as_f64(), right.as_f64())));
+        let ordering = numeric_ordering(left, right);
+        self.stack.push(Value::Bool(ordering.is_some_and(compare)));
 
         Ok(())
     }
@@ -4675,7 +4680,44 @@ pub(super) fn numeric_value(value: &Value) -> Option<NumericValue> {
 }
 
 pub(super) fn numeric_values_equal(left: &Value, right: &Value) -> Option<bool> {
-    Some(numeric_value(left)?.as_f64() == numeric_value(right)?.as_f64())
+    let left = numeric_value(left)?;
+    let right = numeric_value(right)?;
+    Some(numeric_ordering(left, right) == Some(NumericOrdering::Equal))
+}
+
+pub(super) fn numeric_ordering(left: NumericValue, right: NumericValue) -> Option<NumericOrdering> {
+    match (left, right) {
+        (NumericValue::Integer(left), NumericValue::Integer(right)) => Some(left.cmp(&right)),
+        (NumericValue::Float(left), NumericValue::Float(right)) => left.partial_cmp(&right),
+        (NumericValue::Integer(left), NumericValue::Float(right)) => {
+            compare_integer_float(left, right)
+        }
+        (NumericValue::Float(left), NumericValue::Integer(right)) => {
+            compare_integer_float(right, left).map(NumericOrdering::reverse)
+        }
+    }
+}
+
+fn compare_integer_float(integer: i64, float: f64) -> Option<NumericOrdering> {
+    const I64_LOWER_BOUND: f64 = -9_223_372_036_854_775_808.0;
+    const I64_UPPER_BOUND: f64 = 9_223_372_036_854_775_808.0;
+
+    if float.is_nan() {
+        return None;
+    }
+    if float < I64_LOWER_BOUND {
+        return Some(NumericOrdering::Greater);
+    }
+    if float >= I64_UPPER_BOUND {
+        return Some(NumericOrdering::Less);
+    }
+
+    let truncated = float.trunc();
+    match integer.cmp(&(truncated as i64)) {
+        NumericOrdering::Equal if float > truncated => Some(NumericOrdering::Less),
+        NumericOrdering::Equal if float < truncated => Some(NumericOrdering::Greater),
+        ordering => Some(ordering),
+    }
 }
 
 pub(super) fn numeric_add(
@@ -4923,6 +4965,19 @@ mod tests {
             end: 0,
             line: 1,
             column: 1,
+        }
+    }
+
+    fn call_boolean_word(left: Value, right: Value, word: &str) -> bool {
+        let mut vm = Vm::default();
+        vm.stack.push(left);
+        vm.stack.push(right);
+        vm.call_word(word)
+            .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+        match vm.stack() {
+            [Value::Bool(value)] => *value,
+            stack => panic!("{word} should leave one boolean, got {stack:?}"),
         }
     }
 
@@ -5607,6 +5662,72 @@ mod tests {
     }
 
     #[test]
+    fn large_integer_equality_preserves_i64_precision() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+
+        for (word, expected) in [("=", false), ("!=", true)] {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::Number(TWO_TO_53));
+            vm.stack.push(Value::Number(TWO_TO_53 + 1));
+
+            vm.call_word(word)
+                .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+            assert_eq!(
+                vm.stack(),
+                &[Value::Bool(expected)],
+                "{word} must not round distinct i64 values through f64"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_numeric_equality_requires_exact_representability() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        const TWO_TO_63: f64 = 9_223_372_036_854_775_808.0;
+        let cases = [
+            (
+                Value::Number(TWO_TO_53 + 1),
+                Value::Float(TWO_TO_53 as f64),
+                false,
+            ),
+            (
+                Value::Float(TWO_TO_53 as f64),
+                Value::Number(TWO_TO_53 + 1),
+                false,
+            ),
+            (
+                Value::Number(TWO_TO_53),
+                Value::Float(TWO_TO_53 as f64),
+                true,
+            ),
+            (Value::Number(i64::MIN), Value::Float(i64::MIN as f64), true),
+            (
+                Value::Number(i64::MAX - 1023),
+                Value::Float((i64::MAX - 1023) as f64),
+                true,
+            ),
+            (Value::Number(i64::MAX), Value::Float(TWO_TO_63), false),
+            (Value::Number(0), Value::Float(-0.0), true),
+            (Value::Number(0), Value::Float(f64::NAN), false),
+        ];
+
+        for (left, right, expected) in cases {
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), "="),
+                expected,
+                "{left:?} = {right:?} should be {expected}"
+            );
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), "!="),
+                !expected,
+                "{left:?} != {right:?} should be {}",
+                !expected
+            );
+        }
+    }
+
+    #[test]
     fn assert_equals_consumes_matching_values() {
         let mut chunk = Chunk::new("test.rco");
         chunk.push(Op::PushString("Ada".to_string()), span());
@@ -5642,6 +5763,26 @@ mod tests {
     }
 
     #[test]
+    fn assert_equals_rejects_large_integer_precision_mismatch_and_preserves_stack() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let mut vm = Vm::default();
+        vm.stack.push(Value::Number(TWO_TO_53));
+        vm.stack.push(Value::Number(TWO_TO_53 + 1));
+
+        assert_eq!(
+            vm.call_word("assert_equals"),
+            Err(VmError::AssertionFailed {
+                expected: format!("Number({})", TWO_TO_53 + 1),
+                actual: format!("Number({TWO_TO_53})"),
+            })
+        );
+        assert_eq!(
+            vm.stack(),
+            &[Value::Number(TWO_TO_53), Value::Number(TWO_TO_53 + 1)]
+        );
+    }
+
+    #[test]
     fn executes_comparison_words() {
         let cases = [
             (2, 3, "less_than?", true),
@@ -5669,6 +5810,93 @@ mod tests {
                 vm.stack(),
                 &[Value::Bool(expected)],
                 "{left} {right} {word} should be {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_integer_ordering_preserves_i64_precision() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        let cases = [
+            (TWO_TO_53, TWO_TO_53 + 1, "<", true),
+            (TWO_TO_53, TWO_TO_53 + 1, ">", false),
+            (TWO_TO_53, TWO_TO_53 + 1, "<=", true),
+            (TWO_TO_53, TWO_TO_53 + 1, ">=", false),
+            (TWO_TO_53 + 1, TWO_TO_53, "<", false),
+            (TWO_TO_53 + 1, TWO_TO_53, ">", true),
+        ];
+
+        for (left, right, word, expected) in cases {
+            let mut vm = Vm::default();
+            vm.stack.push(Value::Number(left));
+            vm.stack.push(Value::Number(right));
+
+            vm.call_word(word)
+                .unwrap_or_else(|error| panic!("{word} should succeed: {error}"));
+
+            assert_eq!(
+                vm.stack(),
+                &[Value::Bool(expected)],
+                "{left} {right} {word} must not round i64 operands through f64"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_numeric_relations_handle_boundaries_fractions_infinities_and_nan() {
+        const TWO_TO_53: i64 = 9_007_199_254_740_992;
+        const TWO_TO_63: f64 = 9_223_372_036_854_775_808.0;
+        let cases = [
+            (
+                Value::Number(TWO_TO_53 + 1),
+                Value::Float(TWO_TO_53 as f64),
+                ">",
+                true,
+            ),
+            (
+                Value::Float(TWO_TO_53 as f64),
+                Value::Number(TWO_TO_53 + 1),
+                "<",
+                true,
+            ),
+            (Value::Number(i64::MAX), Value::Float(TWO_TO_63), "<", true),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(i64::MIN as f64),
+                "<=",
+                true,
+            ),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(-9_223_372_036_854_777_856.0),
+                ">",
+                true,
+            ),
+            (Value::Number(1), Value::Float(1.5), "<", true),
+            (Value::Number(-1), Value::Float(-1.5), ">", true),
+            (Value::Number(0), Value::Float(f64::from_bits(1)), "<", true),
+            (Value::Float(-0.0), Value::Number(0), ">=", true),
+            (
+                Value::Number(i64::MAX),
+                Value::Float(f64::INFINITY),
+                "<",
+                true,
+            ),
+            (
+                Value::Number(i64::MIN),
+                Value::Float(f64::NEG_INFINITY),
+                ">",
+                true,
+            ),
+            (Value::Number(0), Value::Float(f64::NAN), "<", false),
+            (Value::Float(f64::NAN), Value::Number(0), ">=", false),
+        ];
+
+        for (left, right, word, expected) in cases {
+            assert_eq!(
+                call_boolean_word(left.clone(), right.clone(), word),
+                expected,
+                "{left:?} {right:?} {word} should be {expected}"
             );
         }
     }
