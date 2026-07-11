@@ -48,6 +48,13 @@ struct MvcBundleFile {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MvcBundlePolicy {
+    sqlite_state_path: Option<PathBuf>,
+}
+
+const MVC_DATA_HOME_ENV: &str = "RICOCHET_MVC_DATA_HOME";
+
 pub(crate) fn package(path: &str, output: &Path, options: PackageOptions<'_>) -> Result<()> {
     if output.is_dir() {
         bail!("package output is a directory: {}", output.display());
@@ -260,15 +267,70 @@ fn build_mvc_bundle(project_root: &Path, output: &Path) -> Result<MvcBundle> {
     let project_root = project_root
         .canonicalize()
         .with_context(|| format!("failed to canonicalize {}", project_root.display()))?;
-    validate_mvc_bundle_manifest(&project_root, &manifest_path)?;
+    let policy = validate_mvc_bundle_manifest(&project_root, &manifest_path)?;
+    let sqlite_migrations = if policy.sqlite_state_path.is_some() {
+        let migrations = discover_migrations(&project_root)?;
+        if migrations.is_empty() {
+            bail!(
+                "packaged file-backed SQLite requires at least one db/migrations migration; development database files are private runtime state and are never embedded"
+            );
+        }
+        Some(migrations)
+    } else {
+        None
+    };
     let output_path = absolute_package_output_path(output)?;
     let mut files = Vec::new();
-    collect_mvc_bundle_files(&project_root, &project_root, &output_path, &mut files)?;
+    if let Some(relative_paths) = git_mvc_bundle_file_paths(&project_root)? {
+        for relative_path in relative_paths {
+            add_mvc_bundle_file(
+                &project_root,
+                &relative_path,
+                &output_path,
+                &policy,
+                &mut files,
+            )?;
+        }
+    } else {
+        collect_non_git_mvc_bundle_files(
+            &project_root,
+            &project_root,
+            &output_path,
+            &policy,
+            &mut files,
+        )?;
+    }
+    if let Some(migrations) = sqlite_migrations {
+        for migration in migrations {
+            let relative_source = migration
+                .source
+                .path
+                .strip_prefix(&project_root)
+                .with_context(|| {
+                    format!(
+                        "failed to make migration {} project-relative",
+                        migration.source.path.display()
+                    )
+                })?;
+            if !files
+                .iter()
+                .any(|file| file.relative_path == relative_source)
+            {
+                bail!(
+                    "packaged file-backed SQLite migration {} was excluded from the bundle; keep every apply migration eligible under the Git ignore boundary",
+                    relative_source.display()
+                );
+            }
+        }
+    }
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(MvcBundle { files })
 }
 
-fn validate_mvc_bundle_manifest(project_root: &Path, manifest_path: &Path) -> Result<()> {
+fn validate_mvc_bundle_manifest(
+    project_root: &Path,
+    manifest_path: &Path,
+) -> Result<MvcBundlePolicy> {
     let source = fs::read_to_string(manifest_path)
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
     let manifest = source
@@ -282,7 +344,7 @@ fn validate_mvc_bundle_manifest(project_root: &Path, manifest_path: &Path) -> Re
         .and_then(|web| web.get("capabilities"))
         .and_then(Item::as_table)
     else {
-        return Ok(());
+        return mvc_bundle_policy_from_manifest(&manifest);
     };
 
     for key in ["fs_root", "process_root"] {
@@ -297,7 +359,66 @@ fn validate_mvc_bundle_manifest(project_root: &Path, manifest_path: &Path) -> Re
         ensure_contained_candidate(project_root, &candidate, &format!("web.capabilities.{key}"))?;
     }
 
-    Ok(())
+    mvc_bundle_policy_from_manifest(&manifest)
+}
+
+fn mvc_bundle_policy_from_manifest(manifest: &DocumentMut) -> Result<MvcBundlePolicy> {
+    let Some(database) = manifest
+        .get("database")
+        .and_then(Item::as_table)
+        .and_then(|database| database.get("default"))
+        .and_then(Item::as_table)
+    else {
+        return Ok(MvcBundlePolicy::default());
+    };
+    let adapter = database
+        .get("adapter")
+        .and_then(Item::as_str)
+        .context("database.default.adapter must be a string")?;
+    if !adapter.eq_ignore_ascii_case("sqlite") {
+        return Ok(MvcBundlePolicy::default());
+    }
+    let url = database
+        .get("url")
+        .and_then(Item::as_str)
+        .context("database.default.url must be a string")?
+        .trim();
+    if url == ":memory:" || url == "sqlite::memory:" {
+        return Ok(MvcBundlePolicy::default());
+    }
+    if url.contains("${") {
+        bail!(
+            "packaged MVC SQLite database.default.url must be a literal project-relative path or :memory: so its persistent data location is deterministic"
+        );
+    }
+    let path = url
+        .strip_prefix("sqlite://")
+        .or_else(|| url.strip_prefix("sqlite:"))
+        .unwrap_or(url);
+    if path == ":memory:" {
+        return Ok(MvcBundlePolicy::default());
+    }
+    validate_project_relative_path(path, "database.default.url")?;
+    let path = normalized_mvc_bundle_relative_path(Path::new(path))?;
+    Ok(MvcBundlePolicy {
+        sqlite_state_path: Some(path),
+    })
+}
+
+fn normalized_mvc_bundle_relative_path(path: &Path) -> Result<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) => normalized.push(value),
+            Component::CurDir => {}
+            _ => bail!(
+                "MVC bundle path must stay project-relative: {}",
+                path.display()
+            ),
+        }
+    }
+    validate_bundle_relative_path(&normalized)?;
+    Ok(normalized)
 }
 
 fn absolute_package_output_path(output: &Path) -> Result<PathBuf> {
@@ -310,10 +431,11 @@ fn absolute_package_output_path(output: &Path) -> Result<PathBuf> {
     }
 }
 
-fn collect_mvc_bundle_files(
+fn collect_non_git_mvc_bundle_files(
     project_root: &Path,
     current: &Path,
     output_path: &Path,
+    policy: &MvcBundlePolicy,
     files: &mut Vec<MvcBundleFile>,
 ) -> Result<()> {
     for entry in
@@ -331,30 +453,281 @@ fn collect_mvc_bundle_files(
             if should_skip_mvc_bundle_directory(relative_path) {
                 continue;
             }
-            collect_mvc_bundle_files(project_root, &path, output_path, files)?;
+            collect_non_git_mvc_bundle_files(project_root, &path, output_path, policy, files)?;
         } else if file_type.is_file() {
-            if same_package_output_file(&path, output_path) {
-                continue;
-            }
-            validate_bundle_relative_path(relative_path)?;
-            let bytes =
-                fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
-            files.push(MvcBundleFile {
-                relative_path: relative_path.to_path_buf(),
-                bytes,
-            });
+            add_mvc_bundle_file(project_root, relative_path, output_path, policy, files)?;
+        } else if file_type.is_symlink() {
+            bail!(
+                "refusing to package symbolic link {}; MVC bundles contain regular project files only",
+                relative_path.display()
+            );
         }
     }
     Ok(())
 }
 
-fn should_skip_mvc_bundle_directory(relative_path: &Path) -> bool {
-    relative_path.components().next().is_some_and(|component| {
-        matches!(
-            component,
-            Component::Normal(name) if name == ".git" || name == "target"
-        )
+fn git_mvc_bundle_file_paths(project_root: &Path) -> Result<Option<Vec<PathBuf>>> {
+    let has_git_marker = project_root
+        .ancestors()
+        .any(|ancestor| ancestor.join(".git").exists());
+    let discovery = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output();
+    let discovery = match discovery {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !has_git_marker => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error).context(
+                "failed to inspect Git state for MVC packaging; refusing to guess which ignored files are private",
+            );
+        }
+    };
+    if !discovery.status.success() {
+        if !has_git_marker {
+            return Ok(None);
+        }
+        bail!(
+            "failed to inspect Git worktree for MVC packaging (status {}): {}",
+            discovery.status,
+            String::from_utf8_lossy(&discovery.stderr).trim()
+        );
+    }
+    if String::from_utf8_lossy(&discovery.stdout).trim() != "true" {
+        bail!(
+            "MVC project is associated with Git but is not inside a worktree; refusing to guess which ignored files are private"
+        );
+    }
+
+    let worktree_root = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("failed to locate the MVC project's Git worktree root")?;
+    if !worktree_root.status.success() {
+        bail!(
+            "failed to locate the MVC project's Git worktree root (status {}): {}",
+            worktree_root.status,
+            String::from_utf8_lossy(&worktree_root.stderr).trim()
+        );
+    }
+    let worktree_root = PathBuf::from(
+        String::from_utf8(worktree_root.stdout)
+            .context("Git returned a non-UTF-8 worktree root")?
+            .trim(),
+    )
+    .canonicalize()
+    .context("failed to resolve the MVC project's Git worktree root")?;
+
+    if worktree_root != project_root {
+        let ignored_root = std::process::Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .args(["check-ignore", "--quiet", "--no-index", "--"])
+            .arg(project_root)
+            .output()
+            .context("failed to determine whether the MVC project root is Git-ignored")?;
+        match ignored_root.status.code() {
+            Some(0) => {
+                let tracked = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(project_root)
+                    .args(["ls-files", "--cached", "-z", "--", "."])
+                    .output()
+                    .context(
+                        "failed to inspect tracked files under the ignored MVC project root",
+                    )?;
+                if !tracked.status.success() {
+                    bail!(
+                        "failed to inspect tracked files under the ignored MVC project root (status {}): {}",
+                        tracked.status,
+                        String::from_utf8_lossy(&tracked.stderr).trim()
+                    );
+                }
+                if tracked.stdout.is_empty() {
+                    return Ok(None);
+                }
+            }
+            Some(1) => {}
+            _ => {
+                bail!(
+                    "failed to determine whether the MVC project root is Git-ignored (status {}): {}",
+                    ignored_root.status,
+                    String::from_utf8_lossy(&ignored_root.stderr).trim()
+                );
+            }
+        }
+    }
+
+    let listing = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--deduplicate",
+            "-z",
+            "--",
+            ".",
+        ])
+        .output()
+        .context("failed to list Git-selected MVC package files")?;
+    if !listing.status.success() {
+        bail!(
+            "failed to list Git-selected MVC package files (status {}): {}",
+            listing.status,
+            String::from_utf8_lossy(&listing.stderr).trim()
+        );
+    }
+    let listing = String::from_utf8(listing.stdout)
+        .context("Git returned a non-UTF-8 MVC package path; bundle paths must be UTF-8")?;
+    let mut paths = Vec::new();
+    for path in listing.split('\0').filter(|path| !path.is_empty()) {
+        let path = PathBuf::from(path);
+        validate_bundle_relative_path(&path)?;
+        paths.push(path);
+    }
+    Ok(Some(paths))
+}
+
+fn add_mvc_bundle_file(
+    project_root: &Path,
+    relative_path: &Path,
+    output_path: &Path,
+    policy: &MvcBundlePolicy,
+    files: &mut Vec<MvcBundleFile>,
+) -> Result<()> {
+    validate_bundle_relative_path(relative_path)?;
+    let path = project_root.join(relative_path);
+    if same_package_output_file(&path, output_path) || omit_mvc_bundle_file(relative_path, policy) {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(&path)
+        .with_context(|| format!("failed to inspect MVC package file {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "refusing to package symbolic link {}; MVC bundles contain regular project files only",
+            relative_path.display()
+        );
+    }
+    if !metadata.is_file() {
+        bail!(
+            "Git selected non-file MVC package path {}; initialize submodules and package regular files only",
+            relative_path.display()
+        );
+    }
+    if private_credential_path(relative_path) {
+        bail!(
+            "refusing to package private key or credential file {}; remove it from the MVC project or add it to Git ignore rules",
+            relative_path.display()
+        );
+    }
+    let bytes = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if contains_private_key_pem(&bytes) {
+        bail!(
+            "refusing to package private key or credential file {}; PEM private keys must never be embedded",
+            relative_path.display()
+        );
+    }
+    files.push(MvcBundleFile {
+        relative_path: relative_path.to_path_buf(),
+        bytes,
+    });
+    Ok(())
+}
+
+fn omit_mvc_bundle_file(relative_path: &Path, policy: &MvcBundlePolicy) -> bool {
+    let Some(file_name) = relative_path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+    let file_name = file_name.to_ascii_lowercase();
+    if matches!(
+        file_name.as_str(),
+        ".gitignore" | ".gitattributes" | ".gitmodules"
+    ) {
+        return true;
+    }
+    if file_name == ".env.example" || file_name == ".env.sample" || file_name == ".env.template" {
+        return false;
+    }
+    if file_name == ".env" || file_name.starts_with(".env.") {
+        return true;
+    }
+
+    let sqlite_base_name = file_name
+        .strip_suffix("-wal")
+        .or_else(|| file_name.strip_suffix("-shm"))
+        .or_else(|| file_name.strip_suffix("-journal"))
+        .unwrap_or(&file_name);
+    if sqlite_base_name.ends_with(".sqlite")
+        || sqlite_base_name.ends_with(".sqlite3")
+        || sqlite_base_name.ends_with(".db")
+    {
+        return true;
+    }
+    if let Some(configured_path) = &policy.sqlite_state_path {
+        let candidate = path_to_bundle_string(relative_path)
+            .unwrap_or_else(|_| relative_path.to_string_lossy().replace('\\', "/"))
+            .to_ascii_lowercase();
+        let configured = path_to_bundle_string(configured_path)
+            .unwrap_or_else(|_| configured_path.to_string_lossy().replace('\\', "/"))
+            .to_ascii_lowercase();
+        if candidate == configured
+            || candidate == format!("{configured}-wal")
+            || candidate == format!("{configured}-shm")
+            || candidate == format!("{configured}-journal")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn private_credential_path(relative_path: &Path) -> bool {
+    let Some(file_name) = relative_path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+    let file_name = file_name.to_ascii_lowercase();
+    matches!(
+        file_name.as_str(),
+        "id_rsa"
+            | "id_dsa"
+            | "id_ecdsa"
+            | "id_ed25519"
+            | "credentials.json"
+            | "secrets.json"
+            | "secrets.toml"
+            | "secrets.yaml"
+            | "secrets.yml"
+    ) || [".key", ".p12", ".pfx", ".jks", ".keystore"]
+        .iter()
+        .any(|extension| file_name.ends_with(extension))
+}
+
+fn contains_private_key_pem(bytes: &[u8]) -> bool {
+    bytes.split(|byte| *byte == b'\n').any(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        line.len() <= 160
+            && line.starts_with(b"-----BEGIN ")
+            && line.ends_with(b"-----")
+            && line
+                .windows(b"PRIVATE KEY".len())
+                .any(|window| window == b"PRIVATE KEY")
     })
+}
+
+fn should_skip_mvc_bundle_directory(relative_path: &Path) -> bool {
+    relative_path.components().any(|component| {
+        matches!(component, Component::Normal(name) if name == ".git" || name == ".hg" || name == ".svn")
+    }) || relative_path.components().next().is_some_and(
+        |component| matches!(component, Component::Normal(name) if name == "target"),
+    )
 }
 
 fn same_package_output_file(path: &Path, output_path: &Path) -> bool {
@@ -429,6 +802,152 @@ pub(crate) fn extract_embedded_mvc_bundle(bundle: &MvcBundle) -> Result<PathBuf>
     let root = unique_mvc_extract_dir()?;
     bundle.extract_to(&root)?;
     Ok(root)
+}
+
+pub(crate) fn packaged_mvc_data_root(project_root: &Path) -> Result<PathBuf> {
+    let manifest_path = project_root.join("ricochet.toml");
+    let source = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest = source
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let package_name = manifest
+        .get("package")
+        .and_then(Item::as_table)
+        .and_then(|package| package.get("name"))
+        .and_then(Item::as_str)
+        .context("packaged MVC manifest package.name must be a string")?;
+    let executable = std::env::current_exe()
+        .context("failed to locate packaged MVC executable for its user data identity")?
+        .canonicalize()
+        .context("failed to resolve packaged MVC executable for its user data identity")?;
+    let storage_key = mvc_app_storage_key(package_name, &executable)?;
+    let data_root = mvc_data_home_base()?.join(storage_key);
+    fs::create_dir_all(&data_root).with_context(|| {
+        format!(
+            "failed to create MVC user data directory {}",
+            data_root.display()
+        )
+    })?;
+    restrict_mvc_data_directory_permissions(&data_root)?;
+    data_root.canonicalize().with_context(|| {
+        format!(
+            "failed to resolve MVC user data directory {}",
+            data_root.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn restrict_mvc_data_directory_permissions(data_root: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(data_root, fs::Permissions::from_mode(0o700)).with_context(|| {
+        format!(
+            "failed to restrict packaged MVC user data permissions on {}",
+            data_root.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_mvc_data_directory_permissions(_data_root: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn mvc_data_home_base() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os(MVC_DATA_HOME_ENV) {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            bail!("{MVC_DATA_HOME_ENV} must be an absolute path");
+        }
+        return Ok(path);
+    }
+    default_mvc_data_home()
+}
+
+#[cfg(windows)]
+fn default_mvc_data_home() -> Result<PathBuf> {
+    let local_app_data = absolute_mvc_data_env_path("LOCALAPPDATA")?;
+    Ok(local_app_data.join("Ricochet/MvcApps"))
+}
+
+#[cfg(target_os = "macos")]
+fn default_mvc_data_home() -> Result<PathBuf> {
+    let home = absolute_mvc_data_env_path("HOME")?;
+    Ok(home.join("Library/Application Support/Ricochet/MvcApps"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn default_mvc_data_home() -> Result<PathBuf> {
+    if let Some(data_home) = std::env::var_os("XDG_DATA_HOME") {
+        let data_home = PathBuf::from(data_home);
+        if !data_home.is_absolute() {
+            bail!("XDG_DATA_HOME must be an absolute path for packaged MVC user data");
+        }
+        return Ok(data_home.join("ricochet/mvc-apps"));
+    }
+    let home = absolute_mvc_data_env_path("HOME")?;
+    Ok(home.join(".local/share/ricochet/mvc-apps"))
+}
+
+#[cfg(not(any(windows, unix)))]
+fn default_mvc_data_home() -> Result<PathBuf> {
+    bail!("packaged MVC user data is not supported on this platform")
+}
+
+fn absolute_mvc_data_env_path(name: &str) -> Result<PathBuf> {
+    let path = std::env::var_os(name)
+        .map(PathBuf::from)
+        .with_context(|| format!("{name} is not set; cannot locate packaged MVC user data"))?;
+    if !path.is_absolute() {
+        bail!("{name} must be an absolute path for packaged MVC user data");
+    }
+    Ok(path)
+}
+
+fn mvc_app_storage_key(package_name: &str, executable: &Path) -> Result<String> {
+    if package_name.is_empty() {
+        bail!("packaged MVC manifest package.name must not be empty");
+    }
+    if package_name.trim() != package_name {
+        bail!("packaged MVC manifest package.name must not have leading or trailing whitespace");
+    }
+    if package_name.len() > 256 {
+        bail!("packaged MVC manifest package.name must not exceed 256 bytes");
+    }
+    let mut slug = String::new();
+    let mut previous_separator = false;
+    for character in package_name.chars() {
+        let normalized = character.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() || matches!(normalized, '-' | '_') {
+            slug.push(normalized);
+            previous_separator = false;
+        } else if !previous_separator && !slug.is_empty() {
+            slug.push('-');
+            previous_separator = true;
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('-');
+    let slug = if slug.is_empty() { "app" } else { slug };
+    let executable = executable
+        .to_str()
+        .context("packaged MVC executable path must be UTF-8 for stable user data identity")?;
+    #[cfg(windows)]
+    let executable = executable.to_ascii_lowercase();
+    let mut identity = Sha256::new();
+    identity.update(package_name.as_bytes());
+    identity.update([0]);
+    identity.update(executable.as_bytes());
+    let digest = identity.finalize();
+    let hash = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok(format!("{slug}-{hash}"))
 }
 
 fn unique_mvc_extract_dir() -> Result<PathBuf> {
@@ -1154,6 +1673,428 @@ fn embedded_app_from_bytes_with_marker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_test_mvc_manifest(root: &Path, package_name: &str) {
+        fs::write(
+            root.join("ricochet.toml"),
+            format!(
+                r#"[package]
+name = "{package_name}"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#
+            ),
+        )
+        .expect("test MVC manifest should be written");
+    }
+
+    fn bundle_paths(bundle: &MvcBundle) -> BTreeSet<String> {
+        bundle
+            .files
+            .iter()
+            .map(|file| path_to_bundle_string(&file.relative_path).expect("valid bundle path"))
+            .collect()
+    }
+
+    #[test]
+    fn mvc_bundle_honors_git_ignores_and_never_embeds_local_secrets_or_database_state() {
+        let repository = tempfile::tempdir().expect("temporary Git repository");
+        let root = repository.path().join("apps/bundle-policy-app");
+        fs::create_dir_all(&root).expect("nested MVC project");
+        let root = root.as_path();
+        write_test_mvc_manifest(root, "bundle_policy_app");
+        let manifest_path = root.join("ricochet.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("manifest source");
+        manifest.push_str(
+            r#"
+[database.default]
+adapter = "sqlite"
+url = "./data/state.db"
+"#,
+        );
+        fs::write(&manifest_path, manifest).expect("SQLite manifest");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("app/Controllers")).expect("controller directory");
+        fs::create_dir_all(root.join("custom-assets")).expect("custom asset directory");
+        fs::create_dir_all(root.join("db/migrations")).expect("migration directory");
+        fs::create_dir_all(root.join("data")).expect("database directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("app/Controllers/HomeController.rco"), b"source")
+            .expect("controller source");
+        fs::write(root.join("custom-assets/theme.bin"), b"asset").expect("custom asset");
+        fs::write(root.join("ignored-local.txt"), b"ignored").expect("ignored file");
+        fs::write(root.join(".env"), b"TOKEN=secret").expect("environment file");
+        fs::write(root.join(".env.production"), b"TOKEN=production-secret")
+            .expect("production environment file");
+        fs::write(root.join(".env.example"), b"TOKEN=replace-me").expect("environment template");
+        fs::write(root.join("db/development.sqlite3"), b"private database")
+            .expect("development database");
+        fs::write(root.join("db/development.sqlite3-wal"), b"private WAL").expect("database WAL");
+        fs::write(root.join("db/development.sqlite3-shm"), b"private SHM").expect("database SHM");
+        fs::write(root.join("db/unconfigured.db"), b"private database").expect("private DB");
+        fs::write(root.join("db/unconfigured.db-journal"), b"private journal")
+            .expect("private DB journal");
+        fs::write(
+            root.join("db/migrations/0001_schema.sql"),
+            b"create table entries (id integer primary key);",
+        )
+        .expect("migration");
+        fs::write(root.join("data/state.db"), b"private configured database")
+            .expect("configured database");
+        fs::write(root.join("data/state.db-wal"), b"private configured WAL")
+            .expect("configured WAL");
+        fs::write(root.join("data/state.db-shm"), b"private configured SHM")
+            .expect("configured SHM");
+        fs::write(
+            root.join(".gitignore"),
+            b"ignored-local.txt\n.env\n.env.*\n!.env.example\n",
+        )
+        .expect("gitignore");
+        fs::write(
+            repository.path().join(".gitignore"),
+            b"apps/bundle-policy-app/ignored-from-parent.txt\n",
+        )
+        .expect("repository gitignore");
+        fs::write(root.join("ignored-from-parent.txt"), b"ignored").expect("parent-ignored file");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(repository.path())
+            .output()
+            .expect("git should be available for the Git packaging policy test");
+        assert!(
+            git.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&git.stderr)
+        );
+
+        let output = root.join(format!("bundle-policy{}", std::env::consts::EXE_SUFFIX));
+        let bundle = build_mvc_bundle(root, &output).expect("MVC bundle should build");
+        let paths = bundle_paths(&bundle);
+
+        for expected in [
+            "ricochet.toml",
+            "config/routes.rco",
+            "app/Controllers/HomeController.rco",
+            "custom-assets/theme.bin",
+            "db/migrations/0001_schema.sql",
+            ".env.example",
+        ] {
+            assert!(paths.contains(expected), "bundle should contain {expected}");
+        }
+        for forbidden in [
+            ".gitignore",
+            "ignored-local.txt",
+            "ignored-from-parent.txt",
+            ".env",
+            ".env.production",
+            "db/development.sqlite3",
+            "db/development.sqlite3-wal",
+            "db/development.sqlite3-shm",
+            "db/unconfigured.db",
+            "db/unconfigured.db-journal",
+            "data/state.db",
+            "data/state.db-wal",
+            "data/state.db-shm",
+        ] {
+            assert!(
+                !paths.contains(forbidden),
+                "bundle must not contain {forbidden}; got {paths:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mvc_bundle_uses_git_ignores_when_the_project_is_the_worktree_root() {
+        let project = tempfile::tempdir().expect("temporary Git MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "worktree_root_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("included.asset"), b"included").expect("included asset");
+        fs::write(root.join("ignored.asset"), b"ignored").expect("ignored asset");
+        fs::write(root.join(".gitignore"), b"ignored.asset\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(root)
+            .output()
+            .expect("git should be available for the worktree-root packaging test");
+        assert!(git.status.success());
+
+        let output = root.join(format!("worktree-root{}", std::env::consts::EXE_SUFFIX));
+        let bundle = build_mvc_bundle(root, &output).expect("worktree-root MVC bundle");
+        let paths = bundle_paths(&bundle);
+
+        assert!(paths.contains("included.asset"));
+        assert!(!paths.contains("ignored.asset"));
+    }
+
+    #[test]
+    fn mvc_bundle_preserves_arbitrary_non_git_sources_and_assets_inside_the_project() {
+        let project = tempfile::tempdir().expect("temporary MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "non_git_bundle_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("unconventional/runtime/templates"))
+            .expect("custom source directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(
+            root.join("unconventional/runtime/feature.rco"),
+            b"custom source",
+        )
+        .expect("custom source");
+        fs::write(
+            root.join("unconventional/runtime/templates/splash.dat"),
+            b"custom asset",
+        )
+        .expect("custom asset");
+
+        let output = root.join(format!("non-git-bundle{}", std::env::consts::EXE_SUFFIX));
+        let bundle = build_mvc_bundle(root, &output).expect("MVC bundle should build");
+        let paths = bundle_paths(&bundle);
+
+        assert!(paths.contains("unconventional/runtime/feature.rco"));
+        assert!(paths.contains("unconventional/runtime/templates/splash.dat"));
+    }
+
+    #[test]
+    fn mvc_bundle_treats_an_enclosing_worktree_ignored_project_as_standalone() {
+        let repository = tempfile::tempdir().expect("temporary Git repository");
+        let root = repository.path().join("apps/ignored-app");
+        fs::create_dir_all(root.join("config")).expect("nested ignored MVC project");
+        write_test_mvc_manifest(&root, "ignored_root_app");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("custom.asset"), b"standalone asset").expect("custom asset");
+        fs::write(root.join(".env"), b"TOKEN=private").expect("private environment");
+        fs::write(repository.path().join(".gitignore"), b"apps/ignored-app/\n")
+            .expect("repository gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(repository.path())
+            .output()
+            .expect("git should be available for the ignored-root packaging test");
+        assert!(git.status.success());
+
+        let output = root.join(format!("ignored-root{}", std::env::consts::EXE_SUFFIX));
+        let bundle =
+            build_mvc_bundle(&root, &output).expect("ignored root should package standalone");
+        let paths = bundle_paths(&bundle);
+
+        assert!(paths.contains("custom.asset"));
+        assert!(!paths.contains(".env"));
+    }
+
+    #[test]
+    fn mvc_bundle_keeps_git_selection_for_tracked_files_under_an_ignored_parent() {
+        let repository = tempfile::tempdir().expect("temporary Git repository");
+        let root = repository.path().join("apps/tracked-ignored-app");
+        fs::create_dir_all(root.join("config")).expect("nested ignored MVC project");
+        write_test_mvc_manifest(&root, "tracked_ignored_root_app");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("included.asset"), b"tracked").expect("tracked asset");
+        fs::write(root.join("untracked-private.txt"), b"private")
+            .expect("untracked private fixture");
+        fs::write(
+            repository.path().join(".gitignore"),
+            b"apps/tracked-ignored-app/\n",
+        )
+        .expect("repository gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(repository.path())
+            .output()
+            .expect("git should be available for the tracked ignored-root test");
+        assert!(git.status.success());
+        let add = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repository.path())
+            .args([
+                "add",
+                "--force",
+                "--",
+                "apps/tracked-ignored-app/ricochet.toml",
+                "apps/tracked-ignored-app/config/routes.rco",
+                "apps/tracked-ignored-app/included.asset",
+            ])
+            .output()
+            .expect("git add should launch");
+        assert!(
+            add.status.success(),
+            "git add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
+
+        let output = root.join(format!(
+            "tracked-ignored-root{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let bundle =
+            build_mvc_bundle(&root, &output).expect("tracked ignored-root MVC bundle should build");
+        let paths = bundle_paths(&bundle);
+
+        assert!(paths.contains("included.asset"));
+        assert!(!paths.contains("untracked-private.txt"));
+    }
+
+    #[test]
+    fn mvc_bundle_fails_loudly_for_private_key_material() {
+        let project = tempfile::tempdir().expect("temporary MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "private_key_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(
+            root.join("production.key"),
+            b"-----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----\n",
+        )
+        .expect("private key fixture");
+
+        let output = root.join(format!("private-key-app{}", std::env::consts::EXE_SUFFIX));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("private key material must stop MVC packaging");
+
+        assert!(
+            error
+                .to_string()
+                .contains("refusing to package private key or credential file production.key"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_detects_legacy_private_key_headers_in_arbitrary_files() {
+        let project = tempfile::tempdir().expect("temporary MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "legacy_private_key_app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(
+            root.join("certificate.pem"),
+            b"-----BEGIN DSA PRIVATE KEY-----\nprivate\n-----END DSA PRIVATE KEY-----\n",
+        )
+        .expect("legacy private key fixture");
+
+        let output = root.join(format!(
+            "legacy-private-key-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("legacy private key material must stop MVC packaging");
+
+        assert!(
+            error
+                .to_string()
+                .contains("PEM private keys must never be embedded"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_file_backed_sqlite_without_migrations() {
+        let project = tempfile::tempdir().expect("temporary MVC project");
+        let root = project.path();
+        write_test_mvc_manifest(root, "missing_migrations_app");
+        let manifest_path = root.join("ricochet.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("manifest source");
+        manifest.push_str(
+            r#"
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+        );
+        fs::write(&manifest_path, manifest).expect("SQLite manifest");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("db")).expect("database directory");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(root.join("db/development.sqlite3"), b"development state")
+            .expect("development database");
+
+        let output = root.join(format!(
+            "missing-migrations-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(root, &output)
+            .expect_err("file-backed packaged SQLite requires migrations");
+
+        assert!(
+            error
+                .to_string()
+                .contains("requires at least one db/migrations migration"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_bundle_rejects_gitignored_sqlite_migrations() {
+        let repository = tempfile::tempdir().expect("temporary Git repository");
+        let root = repository.path().join("apps/ignored-migration-app");
+        fs::create_dir_all(root.join("config")).expect("config directory");
+        fs::create_dir_all(root.join("db/migrations")).expect("migrations directory");
+        write_test_mvc_manifest(&root, "ignored_migration_app");
+        let manifest_path = root.join("ricochet.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("manifest source");
+        manifest.push_str(
+            r#"
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+        );
+        fs::write(&manifest_path, manifest).expect("SQLite manifest");
+        fs::write(root.join("config/routes.rco"), b"").expect("routes");
+        fs::write(
+            root.join("db/migrations/0001_schema.sql"),
+            b"create table entries (id integer primary key);",
+        )
+        .expect("migration");
+        fs::write(root.join(".gitignore"), b"/db/migrations/\n").expect("gitignore");
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(repository.path())
+            .output()
+            .expect("git should be available for the ignored-migration test");
+        assert!(git.status.success());
+
+        let output = root.join(format!(
+            "ignored-migration-app{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let error = build_mvc_bundle(&root, &output)
+            .expect_err("Git-ignored migrations cannot satisfy packaged SQLite");
+
+        assert!(
+            error.to_string().contains("was excluded from the bundle"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn mvc_user_data_identity_is_stable_and_distinguishes_package_names() {
+        let first_path = Path::new("/installed/acme-notes");
+        let second_path = Path::new("/copied/acme-notes");
+        let first = mvc_app_storage_key("Acme Notes", first_path).expect("first package identity");
+        let same = mvc_app_storage_key("Acme Notes", first_path).expect("stable package identity");
+        let renamed =
+            mvc_app_storage_key("Acme/Notes", first_path).expect("renamed package identity");
+        let copied =
+            mvc_app_storage_key("Acme Notes", second_path).expect("copied package identity");
+
+        assert_eq!(first, same);
+        assert_ne!(first, renamed);
+        assert_ne!(first, copied);
+        assert!(first.starts_with("acme-notes-"));
+        assert_eq!(first.len() - "acme-notes-".len(), 64);
+    }
 
     #[test]
     fn linux_gui_packages_require_an_explicit_project_license() {

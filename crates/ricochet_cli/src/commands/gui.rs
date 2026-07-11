@@ -1,4 +1,4 @@
-use crate::commands::package::{extract_embedded_mvc_bundle, MvcBundle};
+use crate::commands::package::{extract_embedded_mvc_bundle, packaged_mvc_data_root, MvcBundle};
 use crate::*;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,6 +98,8 @@ pub(crate) fn run_embedded_gui_app(chunk: &Chunk, args: Vec<String>) -> Result<(
 
 pub(crate) async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<String>) -> Result<()> {
     let project_root = extract_embedded_mvc_bundle(&bundle)?;
+    let data_root = packaged_mvc_data_root(&project_root)?;
+    prepare_packaged_mvc_sqlite(&project_root, &data_root)?;
     std::env::set_current_dir(&project_root).with_context(|| {
         format!(
             "failed to use embedded MVC project directory {}",
@@ -105,7 +107,7 @@ pub(crate) async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<Strin
         )
     })?;
 
-    let serve_options = embedded_mvc_serve_options(&project_root)?;
+    let serve_options = embedded_mvc_serve_options(&project_root, &data_root)?;
     let app = ricochet_web::build_served_app_from_dir(&project_root, false, false, &serve_options)
         .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -145,7 +147,10 @@ pub(crate) async fn run_embedded_mvc_gui_app(bundle: MvcBundle, _args: Vec<Strin
     result
 }
 
-fn embedded_mvc_serve_options(project_root: &Path) -> Result<ricochet_web::ServeOptions> {
+fn embedded_mvc_serve_options(
+    project_root: &Path,
+    data_root: &Path,
+) -> Result<ricochet_web::ServeOptions> {
     let manifest = load_embedded_mvc_manifest(project_root)?;
     let capabilities = &manifest.web.capabilities;
     let process_root_requested =
@@ -162,6 +167,7 @@ fn embedded_mvc_serve_options(project_root: &Path) -> Result<ricochet_web::Serve
         allow_process: capabilities.allow_process,
         process_root: process_root_requested.then(|| project_root.to_path_buf()),
         allow_pty: capabilities.allow_pty,
+        sqlite_data_root: Some(data_root.to_path_buf()),
         http_allow_hosts: capabilities.http_allow_hosts.clone(),
         ..Default::default()
     })

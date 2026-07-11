@@ -334,6 +334,7 @@ pub struct ServeOptions {
     pub allow_pty: bool,
     pub fs_root: Option<PathBuf>,
     pub fs_readonly: bool,
+    pub sqlite_data_root: Option<PathBuf>,
     pub http_allow_hosts: Vec<String>,
     pub ai_allow_hosts: Vec<String>,
     pub database_allow_hosts: Vec<String>,
@@ -353,6 +354,7 @@ impl Default for ServeOptions {
             allow_pty: false,
             fs_root: None,
             fs_readonly: false,
+            sqlite_data_root: None,
             http_allow_hosts: Vec::new(),
             ai_allow_hosts: Vec::new(),
             database_allow_hosts: Vec::new(),
@@ -368,6 +370,13 @@ impl ServeOptions {
     pub fn validate(&self) -> Result<()> {
         if self.fs_readonly && self.fs_root.is_none() {
             bail!("--fs-readonly requires --fs-root");
+        }
+        if self
+            .sqlite_data_root
+            .as_ref()
+            .is_some_and(|root| !root.is_absolute())
+        {
+            bail!("SQLite data root must be an absolute path");
         }
         Ok(())
     }
@@ -3027,7 +3036,9 @@ fn resolve_served_database_url(
             ensure_database_endpoint_allowed(&url, &options.database_allow_hosts)?;
             Ok(url)
         }
-        "sqlite" => resolve_served_sqlite_url(project_root, &url),
+        "sqlite" => {
+            resolve_served_sqlite_url(project_root, &url, options.sqlite_data_root.as_deref())
+        }
         _ => bail!(
             "unsupported database adapter {}; expected postgres, sqlite, or mysql",
             database.adapter
@@ -3035,7 +3046,11 @@ fn resolve_served_database_url(
     }
 }
 
-fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
+fn resolve_served_sqlite_url(
+    project_root: &Path,
+    url: &str,
+    data_root: Option<&Path>,
+) -> Result<String> {
     let path = sqlite_path_from_url_text(url)?;
     if path == ":memory:" {
         return Ok(path);
@@ -3053,10 +3068,15 @@ fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
             }
         }
     }
-    let resolved = project_root.join(path);
+    let containment_root = data_root.unwrap_or(project_root);
+    let resolved = containment_root.join(path);
     let existing = nearest_existing_ancestor(&resolved);
-    let canonical_root = fs::canonicalize(project_root)
-        .with_context(|| format!("failed to resolve project root {}", project_root.display()))?;
+    let canonical_root = fs::canonicalize(containment_root).with_context(|| {
+        format!(
+            "failed to resolve SQLite containment root {}",
+            containment_root.display()
+        )
+    })?;
     let canonical_existing = fs::canonicalize(existing).with_context(|| {
         format!(
             "failed to resolve SQLite database path {}",
@@ -3065,7 +3085,7 @@ fn resolve_served_sqlite_url(project_root: &Path, url: &str) -> Result<String> {
     })?;
     if !canonical_existing.starts_with(canonical_root) {
         bail!(
-            "SQLite database path is outside the project root: {}",
+            "SQLite database path is outside its containment root: {}",
             resolved.display()
         );
     }
@@ -3446,11 +3466,12 @@ end
     fn served_sqlite_urls_must_stay_under_project_root() {
         let project_root = std::env::current_dir().expect("test cwd should exist");
 
-        let relative = resolve_served_sqlite_url(&project_root, "sqlite:db/development.sqlite3")
-            .expect("relative SQLite URL should resolve under project root");
+        let relative =
+            resolve_served_sqlite_url(&project_root, "sqlite:db/development.sqlite3", None)
+                .expect("relative SQLite URL should resolve under project root");
         assert!(Path::new(&relative).starts_with(&project_root));
 
-        let parent_error = resolve_served_sqlite_url(&project_root, "../outside.sqlite3")
+        let parent_error = resolve_served_sqlite_url(&project_root, "../outside.sqlite3", None)
             .expect_err("parent traversal should be rejected");
         assert!(
             parent_error.to_string().contains("must not contain .."),
@@ -3462,12 +3483,33 @@ end
             &std::env::temp_dir()
                 .join("outside.sqlite3")
                 .to_string_lossy(),
+            None,
         )
         .expect_err("absolute SQLite path should be rejected");
         assert!(
             absolute_error.to_string().contains("must be relative"),
             "absolute path error was: {absolute_error:#}"
         );
+    }
+
+    #[test]
+    fn served_sqlite_urls_can_use_a_separate_persistent_data_root() {
+        let roots = tempfile::tempdir().expect("temporary SQLite roots");
+        let project_root = roots.path().join("code");
+        let data_root = roots.path().join("data");
+        fs::create_dir_all(&project_root).expect("code root");
+        fs::create_dir_all(&data_root).expect("data root");
+
+        let resolved =
+            resolve_served_sqlite_url(&project_root, "db/development.sqlite3", Some(&data_root))
+                .expect("relative SQLite URL should resolve under persistent data root");
+
+        assert!(Path::new(&resolved).starts_with(&data_root));
+        assert!(!Path::new(&resolved).starts_with(&project_root));
+        let escaped =
+            resolve_served_sqlite_url(&project_root, "../outside.sqlite3", Some(&data_root))
+                .expect_err("persistent SQLite root must still reject parent traversal");
+        assert!(escaped.to_string().contains("must not contain .."));
     }
 
     #[test]

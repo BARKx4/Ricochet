@@ -1152,6 +1152,7 @@ pub async fn run_cli() -> Result<()> {
                 allow_pty,
                 fs_root,
                 fs_readonly,
+                sqlite_data_root: None,
                 http_allow_hosts,
                 ai_allow_hosts,
                 database_allow_hosts,
@@ -3376,6 +3377,130 @@ fn migrate_apply_sqlite(
 
     print_migration_apply_summary(applied_count);
     Ok(())
+}
+
+fn migrate_apply_packaged_sqlite_at_path(
+    database_path: &Path,
+    database: &MigrationDatabase,
+    migrations: Vec<MigrationFile>,
+) -> Result<()> {
+    if let Some(parent) = database_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    ensure_private_packaged_sqlite_file(database_path)?;
+    let mut connection = rusqlite::Connection::open(database_path)
+        .with_context(|| format!("failed to open {}", database_path.display()))?;
+    connection
+        .busy_timeout(Duration::from_secs(30))
+        .with_context(|| {
+            format!(
+                "failed to configure SQLite locking for {}",
+                database_path.display()
+            )
+        })?;
+    ensure_schema_migrations_table(&connection)?;
+    for migration in migrations {
+        let sql = migration_sql(&migration.source, database)
+            .with_context(|| format!("failed to prepare migration {}", migration.version))?;
+        let tx = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .with_context(|| format!("failed to start migration {}", migration.version))?;
+        let already_applied: bool = tx
+            .query_row(
+                "select exists(select 1 from schema_migrations where version = ?1)",
+                [&migration.version],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("failed to check migration {}", migration.version))?;
+        if already_applied {
+            tx.commit().with_context(|| {
+                format!("failed to finish migration check {}", migration.version)
+            })?;
+            continue;
+        }
+        tx.execute_batch(&sql)
+            .with_context(|| format!("failed to apply migration {}", migration.version))?;
+        tx.execute(
+            "insert into schema_migrations (version, applied_at) values (?1, ?2)",
+            (&migration.version, migration_timestamp()),
+        )
+        .with_context(|| format!("failed to record migration {}", migration.version))?;
+        tx.commit()
+            .with_context(|| format!("failed to commit migration {}", migration.version))?;
+    }
+    restrict_packaged_sqlite_file_permissions(database_path)
+}
+
+fn ensure_private_packaged_sqlite_file(database_path: &Path) -> Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    match options.open(database_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to create {}", database_path.display()));
+        }
+    }
+    restrict_packaged_sqlite_file_permissions(database_path)
+}
+
+#[cfg(unix)]
+fn restrict_packaged_sqlite_file_permissions(database_path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(database_path, fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "failed to restrict packaged SQLite permissions on {}",
+            database_path.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_packaged_sqlite_file_permissions(_database_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+pub(crate) fn prepare_packaged_mvc_sqlite(project_root: &Path, data_root: &Path) -> Result<()> {
+    let Some(database) = project_database_config(project_root)? else {
+        return Ok(());
+    };
+    if !database.adapter.eq_ignore_ascii_case("sqlite") {
+        return Ok(());
+    }
+    let url = database.url.trim();
+    if url == ":memory:" || url == "sqlite::memory:" {
+        return Ok(());
+    }
+    if url.contains("${") {
+        bail!(
+            "packaged MVC SQLite database.default.url must be a literal project-relative path or :memory: so its persistent data location is deterministic"
+        );
+    }
+    let path = url
+        .strip_prefix("sqlite://")
+        .or_else(|| url.strip_prefix("sqlite:"))
+        .unwrap_or(url);
+    if path == ":memory:" {
+        return Ok(());
+    }
+    validate_project_relative_path(path, "database.default.url")?;
+    let database_path = data_root.join(path);
+    ensure_contained_candidate(data_root, &database_path, "packaged SQLite database")?;
+    let migrations = discover_migrations(project_root)?;
+    if migrations.is_empty() {
+        bail!(
+            "packaged file-backed SQLite requires at least one db/migrations migration; the development database is not a package schema source"
+        );
+    }
+    migrate_apply_packaged_sqlite_at_path(&database_path, &database, migrations)
 }
 
 fn migrate_rollback_sqlite(
@@ -11177,5 +11302,97 @@ end
         };
 
         assert_eq!(module_id_for_path(path), "macro_test.rco");
+    }
+
+    #[test]
+    fn packaged_sqlite_migrations_serialize_concurrent_first_launches() {
+        let project = tempfile::tempdir().expect("temporary packaged MVC project");
+        let migrations_dir = project.path().join("db/migrations");
+        fs::create_dir_all(&migrations_dir).expect("migrations directory");
+        fs::write(
+            migrations_dir.join("0001_create_launches.sql"),
+            "create table launches (id integer primary key, label text not null);\n",
+        )
+        .expect("migration fixture");
+        let migrations = discover_migrations(project.path()).expect("migration discovery");
+        let database = MigrationDatabase {
+            adapter: "sqlite".to_string(),
+            url: "db/development.sqlite3".to_string(),
+        };
+        let database_path = project.path().join("data/db/development.sqlite3");
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let barrier = barrier.clone();
+            let database_path = database_path.clone();
+            let database = database.clone();
+            let migrations = migrations.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                migrate_apply_packaged_sqlite_at_path(&database_path, &database, migrations)
+            }));
+        }
+        for handle in handles {
+            handle
+                .join()
+                .expect("migration thread should not panic")
+                .expect("concurrent packaged migration should succeed");
+        }
+
+        let connection =
+            rusqlite::Connection::open(&database_path).expect("persistent SQLite database");
+        let applied: i64 = connection
+            .query_row("select count(*) from schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("migration count");
+        let tables: i64 = connection
+            .query_row(
+                "select count(*) from sqlite_schema where type = 'table' and name = 'launches'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("launches table count");
+        assert_eq!(applied, 1);
+        assert_eq!(tables, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_sqlite_rejects_data_root_symlink_escape_before_migrating() {
+        let roots = tempfile::tempdir().expect("temporary packaged MVC roots");
+        let project_root = roots.path().join("project");
+        let data_root = roots.path().join("data");
+        let outside = roots.path().join("outside");
+        fs::create_dir_all(project_root.join("db/migrations")).expect("migrations directory");
+        fs::create_dir_all(&data_root).expect("data root");
+        fs::create_dir_all(&outside).expect("outside directory");
+        fs::write(
+            project_root.join("ricochet.toml"),
+            r#"[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+        )
+        .expect("SQLite manifest");
+        fs::write(
+            project_root.join("db/migrations/0001_schema.sql"),
+            "create table entries (id integer primary key);\n",
+        )
+        .expect("migration");
+        std::os::unix::fs::symlink(&outside, data_root.join("db"))
+            .expect("database directory symlink");
+
+        let error = prepare_packaged_mvc_sqlite(&project_root, &data_root)
+            .expect_err("SQLite data-root symlink escape must be rejected");
+
+        assert!(
+            error.to_string().contains("resolves outside"),
+            "unexpected containment error: {error:#}"
+        );
+        assert!(
+            !outside.join("development.sqlite3").exists(),
+            "containment must be checked before the database is created"
+        );
     }
 }

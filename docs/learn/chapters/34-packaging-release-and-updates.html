@@ -154,6 +154,8 @@ but the output path and nonzero size are the important checks.</p>
 For desktop webview apps, use <code>--gui</code>. For an MVC project packaged as a local
 desktop webview app, combine <code>--gui --mvc</code>. On Linux, <code>--linux-package tar</code> and
 <code>--linux-package deb</code> add portable tarball or Debian package outputs.</p>
+<p>MVC bundles use Git ignore rules when the project is selectable from a worktree. Standalone or enclosing-worktree-ignored project roots preserve custom layouts by recursively including ordinary files, so audit those trees before packaging. Ricochet always omits environment files, SQLite runtime databases and sidecars, Git metadata, and the output executable; private-key/credential shapes and symbolic links fail loudly.</p>
+<p>File-backed packaged SQLite requires migrations in <code>db/migrations</code>. Development rows are never embedded. Pending migrations run against per-user data before the local server starts, without automatically running seeds. The persistence identity combines the manifest <code>package.name</code> with the canonical executable path: an in-place upgrade keeps data, while a copied, moved, or renamed executable receives an isolated data directory.</p>
 <p>Package metadata is separate from program behavior:</p>
 <pre><code>--package-name learn-task-dashboard `
 --package-version 0.1.0 `

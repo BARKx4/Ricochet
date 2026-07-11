@@ -44,6 +44,21 @@ $signals "release" push drop
 $task await drop
 "#;
 
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            for entry in fs::read_dir(&path).expect("test directory should be readable") {
+                pending.push(entry.expect("test directory entry").path());
+            }
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    files
+}
+
 fn debug_task_frame_breakpoint_line() -> usize {
     DEBUG_TASK_FRAME_FIXTURE_SOURCE
         .lines()
@@ -6939,6 +6954,219 @@ end
             caps_json.contains(expected),
             "packaged MVC caps route should contain {expected}, got:\n{caps_json}"
         );
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[test]
+fn packaged_mvc_sqlite_uses_persistent_user_data_without_embedding_development_rows() {
+    let main_path = temp_source_path();
+    let root = main_path.parent().expect("source path has parent");
+    let project_path = root.join("persistent_mvc_app");
+    let output_path = root.join(format!(
+        "persistent-mvc-app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let copied_output_path = root.join(format!(
+        "persistent-mvc-app-copy{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let data_home = root.join("packaged-user-data");
+    let first_export = root.join("persistent-first.txt");
+    let second_export = root.join("persistent-second.txt");
+    let copied_export = root.join("persistent-copy.txt");
+    fs::create_dir_all(project_path.join("config")).expect("config directory");
+    fs::create_dir_all(project_path.join("app/Controllers")).expect("controllers directory");
+    fs::create_dir_all(project_path.join("app/Models")).expect("models directory");
+    fs::create_dir_all(project_path.join("db/migrations")).expect("migrations directory");
+    fs::write(
+        project_path.join("ricochet.toml"),
+        r#"[package]
+name = "persistent_mvc_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+
+[database.default]
+adapter = "sqlite"
+url = "db/development.sqlite3"
+"#,
+    )
+    .expect("manifest");
+    fs::write(
+        project_path.join("config/routes.rco"),
+        "GET \"/\" LaunchController \"index\" route\n",
+    )
+    .expect("routes");
+    fs::write(
+        project_path.join("app/Models/Launch.rco"),
+        r#"Launch Model Subclass
+  "launches" Table
+  "id" Accessor
+  "label" Accessor
+end
+"#,
+    )
+    .expect("model");
+    fs::write(
+        project_path.join("app/Controllers/LaunchController.rco"),
+        r#"LaunchController Controller Subclass
+  [
+    row map
+    $row "label" "packaged-launch" put drop
+    $row Launch insert value drop
+    Launch count_records value to_string text
+  ] "index" Method
+end
+"#,
+    )
+    .expect("controller");
+    fs::write(
+        project_path.join("db/migrations/0001_create_launches.sql"),
+        "create table launches (id integer primary key, label text not null);\n",
+    )
+    .expect("migration");
+
+    let development_database = project_path.join("db/development.sqlite3");
+    let development =
+        rusqlite::Connection::open(&development_database).expect("development database");
+    development
+        .execute_batch(
+            "create table launches (id integer primary key, label text not null);\
+             insert into launches (label) values ('PRIVATE-DEV-DATA');",
+        )
+        .expect("private development fixture");
+    drop(development);
+
+    let package_output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("package")
+        .arg(&project_path)
+        .arg("--gui")
+        .arg("--mvc")
+        .arg("--gui-launcher")
+        .arg(env!("CARGO_BIN_EXE_rco-gui"))
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("rco package --gui --mvc should launch");
+    assert_run_success_for(
+        "rco package --gui --mvc",
+        "persistent_mvc_app",
+        &package_output,
+    );
+
+    let package_bytes = fs::read(&output_path).expect("packaged executable should be readable");
+    assert!(
+        !package_bytes
+            .windows(b"PRIVATE-DEV-DATA".len())
+            .any(|window| window == b"PRIVATE-DEV-DATA"),
+        "packaged MVC executable must not embed development database rows"
+    );
+
+    for (export, expected_count) in [(&first_export, "1"), (&second_export, "2")] {
+        let output = Command::new(&output_path)
+            .env("RICOCHET_GUI_EXPORT_HTML", export)
+            .env("RICOCHET_MVC_DATA_HOME", &data_home)
+            .output()
+            .expect("packaged persistent MVC executable should launch");
+        assert_run_success_for(
+            "packaged persistent MVC executable",
+            "persistent-mvc-app",
+            &output,
+        );
+        let body = fs::read_to_string(export).expect("MVC export should exist");
+        assert_eq!(body.trim(), expected_count);
+    }
+
+    fs::copy(&output_path, &copied_output_path).expect("packaged executable copy");
+    let copied = Command::new(&copied_output_path)
+        .env("RICOCHET_GUI_EXPORT_HTML", &copied_export)
+        .env("RICOCHET_MVC_DATA_HOME", &data_home)
+        .output()
+        .expect("copied packaged MVC executable should launch");
+    assert_run_success_for(
+        "copied packaged persistent MVC executable",
+        "persistent-mvc-app-copy",
+        &copied,
+    );
+    let copied_body = fs::read_to_string(&copied_export).expect("copied MVC export should exist");
+    assert_eq!(
+        copied_body.trim(),
+        "1",
+        "a copied executable path must receive isolated user data"
+    );
+
+    let databases = walk_files(&data_home)
+        .into_iter()
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("sqlite3"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        databases.len(),
+        2,
+        "original and copied executable paths should have isolated SQLite databases: {databases:#?}"
+    );
+    let mut packaged_row_counts = Vec::new();
+    for database in &databases {
+        let persistent =
+            rusqlite::Connection::open(database).expect("persistent database should open");
+        let private_rows: i64 = persistent
+            .query_row(
+                "select count(*) from launches where label = 'PRIVATE-DEV-DATA'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("private row count");
+        let packaged_rows: i64 = persistent
+            .query_row(
+                "select count(*) from launches where label = 'packaged-launch'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("packaged row count");
+        assert_eq!(private_rows, 0, "development rows must not seed user data");
+        packaged_row_counts.push(packaged_rows);
+    }
+    packaged_row_counts.sort_unstable();
+    assert_eq!(
+        packaged_row_counts,
+        vec![1, 2],
+        "the original path must persist rows while the copied path stays isolated"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        for entry in fs::read_dir(&data_home).expect("MVC data home") {
+            let entry = entry.expect("MVC app data entry");
+            if entry.path().is_dir() {
+                assert_eq!(
+                    entry
+                        .metadata()
+                        .expect("MVC app data metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o700,
+                    "app-specific MVC data directories must be private"
+                );
+            }
+        }
+        for database in &databases {
+            assert_eq!(
+                fs::metadata(database)
+                    .expect("SQLite metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600,
+                "packaged SQLite databases must be private"
+            );
+        }
     }
 }
 
