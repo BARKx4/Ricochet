@@ -1106,10 +1106,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $releaseJson = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-draft.json"
-          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | Set-Content -LiteralPath $releaseJson -Encoding utf8
+          $releaseListJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
           if ($LASTEXITCODE -ne 0) {
-            throw "Could not query the draft GitHub release."
+            throw "Could not list draft GitHub releases."
           }
+          $releaseCandidates = @($releaseListJson | ConvertFrom-Json | ForEach-Object { $_ })
+          $releaseMatches = @(
+            $releaseCandidates | Where-Object {
+              [string]$_.tag_name -ceq $env:GITHUB_REF_NAME -and [bool]$_.draft
+            }
+          )
+          if ($releaseMatches.Count -ne 1) {
+            throw "Expected exactly one draft for $env:GITHUB_REF_NAME; found $($releaseMatches.Count)."
+          }
+          $release = $releaseMatches[0]
+          $release | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $releaseJson -Encoding utf8
           ./scripts/validate-published-release-assets.ps1 `
             -ReleaseJsonPath $releaseJson `
             -AssetDir dist `
@@ -1120,9 +1131,19 @@ jobs:
 
           $downloadDir = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-download"
           New-Item -ItemType Directory -Path $downloadDir | Out-Null
-          gh release download $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --dir $downloadDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not download the draft GitHub release assets."
+          $ProgressPreference = "SilentlyContinue"
+          $headers = @{
+            Accept = "application/octet-stream"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          foreach ($asset in @($release.assets)) {
+            $destination = Join-Path $downloadDir ([string]$asset.name)
+            Invoke-WebRequest `
+              -Uri ([string]$asset.url) `
+              -Headers $headers `
+              -OutFile $destination `
+              -MaximumRedirection 5
           }
           ./scripts/validate-published-release-assets.ps1 `
             -ReleaseJsonPath $releaseJson `

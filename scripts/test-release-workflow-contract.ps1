@@ -421,13 +421,20 @@ Require-PatternSet `
     -Text $publishDraftAuditStep `
     -Patterns @(
         'gh api',
-        'gh release download',
+        'releases\?per_page=100',
+        'tag_name',
+        'Invoke-WebRequest',
+        'application/octet-stream',
+        '\$asset\.url',
         'validate-published-release-assets\.ps1',
         '-RequireDraft',
         '-RequireStable',
         'validate-update-channel\.ps1'
     ) `
     -Description "Draft audit must compare GitHub API/downloaded assets and revalidate the candidate channel before publication."
+if ($publishDraftAuditStep -match 'releases/tags/') {
+    Add-Failure "Draft audit must not use the by-tag release endpoint because GitHub returns 404 for drafts."
+}
 Require-PatternSet `
     -Text $publishAuditedReleaseStep `
     -Patterns @(
