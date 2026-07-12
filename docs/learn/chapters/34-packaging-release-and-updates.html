@@ -226,8 +226,8 @@ per-target JSON manifests. The release workflow then validates store-ready
 packaging and verifies production signatures when a production tag requires
 them.</p>
 <p>Update-channel files are release metadata:</p>
-<pre><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.5 -ReleaseTag v0.1.19-rc.5 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.5
-pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.5
+<pre><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.6 -ReleaseTag v0.1.19-rc.6 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v0.1.19-rc.6
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel candidate -Version 0.1.19-rc.6
 </code></pre>
 <p>Stable channel metadata requires production signature or notarization evidence.
 Candidate channel metadata can record SHA-256 verification for dry-run signed

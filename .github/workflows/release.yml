@@ -407,7 +407,7 @@ jobs:
           }
           foreach ($relativePath in $legacyRc4Paths) {
             if (Test-Path -LiteralPath (Join-Path $installDir $relativePath)) {
-              throw "Seeded legacy path survived the rc.5 upgrade: $relativePath"
+              throw "Seeded legacy path survived the legacy cleanup upgrade: $relativePath"
             }
           }
 
@@ -711,8 +711,13 @@ jobs:
               printf '%s%s\n' "$precedence" "$build"
             fi
           }
+          debian_version_to_release_asset_version() {
+            local debian_version="$1"
+            printf '%s\n' "$debian_version" | LC_ALL=C sed -E 's/[^A-Za-z0-9._-]/./g'
+          }
           debian_version="$(semver_to_debian_version "$version")"
-          official_deb="dist/ricochet_${debian_version}_amd64.deb"
+          release_asset_version="$(debian_version_to_release_asset_version "$debian_version")"
+          official_deb="dist/ricochet_${release_asset_version}_amd64.deb"
 
           tmp="$(mktemp -d)"
           tar -xzf dist/ricochet-v*-linux-x64.tar.gz -C "$tmp"
@@ -1070,18 +1075,105 @@ jobs:
             -Version '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
 
-      - name: Create GitHub release
+      - name: Create draft GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -t assets < <(find dist -maxdepth 1 -type f | sort)
-          release_flags=()
+          release_flags=(--draft)
           if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' == 'true' ]]; then
             release_flags+=(--prerelease --latest=false)
           fi
+          remote_tag_commit="$(
+            git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" \
+              | awk 'NR == 1 { print $1 }'
+          )"
+          if [[ "$remote_tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Remote tag $GITHUB_REF_NAME peels to ${remote_tag_commit:-<missing>}, expected workflow commit $GITHUB_SHA." >&2
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
             --title "Ricochet $GITHUB_REF_NAME" \
             "${release_flags[@]}" \
             --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum, signing-status, artifact manifest, and update-channel reports."
+
+      - name: Audit draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseJson = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-draft.json"
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | Set-Content -LiteralPath $releaseJson -Encoding utf8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not query the draft GitHub release."
+          }
+          ./scripts/validate-published-release-assets.ps1 `
+            -ReleaseJsonPath $releaseJson `
+            -AssetDir dist `
+            -ExpectedTag $env:GITHUB_REF_NAME `
+            -RequireDraft `
+            -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+
+          $downloadDir = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-download"
+          New-Item -ItemType Directory -Path $downloadDir | Out-Null
+          gh release download $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --dir $downloadDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not download the draft GitHub release assets."
+          }
+          ./scripts/validate-published-release-assets.ps1 `
+            -ReleaseJsonPath $releaseJson `
+            -AssetDir $downloadDir `
+            -ExpectedTag $env:GITHUB_REF_NAME `
+            -RequireDraft `
+            -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+          ./scripts/validate-update-channel.ps1 `
+            -DistDir $downloadDir `
+            -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
+            -Version '${{ needs.resolve-version.outputs.version }}' `
+            -RequireProduction:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+
+      - name: Publish audited GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_flags=(--draft=false)
+          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' == 'true' ]]; then
+            release_flags+=(--prerelease --latest=false)
+          else
+            release_flags+=(--latest)
+          fi
+          remote_tag_commit="$(
+            git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" \
+              | awk 'NR == 1 { print $1 }'
+          )"
+          if [[ "$remote_tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Remote tag $GITHUB_REF_NAME peels to ${remote_tag_commit:-<missing>}, expected workflow commit $GITHUB_SHA." >&2
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            "${release_flags[@]}"
+
+      - name: Verify published GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseJson = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-published.json"
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | Set-Content -LiteralPath $releaseJson -Encoding utf8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not query the published GitHub release."
+          }
+          ./scripts/validate-published-release-assets.ps1 `
+            -ReleaseJsonPath $releaseJson `
+            -AssetDir dist `
+            -ExpectedTag $env:GITHUB_REF_NAME `
+            -RequirePublished `
+            -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')

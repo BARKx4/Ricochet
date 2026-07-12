@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ValidatorPath = Join-Path $Root "scripts\validate-release-version.ps1"
-$ReleasePagePath = Join-Path $Root "docs\releases\v0.1.19-rc.5.html"
+$ReleasePagePath = Join-Path $Root "docs\releases\v0.1.19-rc.6.html"
 $HistoricalReleases = @(
     [pscustomobject]@{
         Version = "0.1.19-rc.3"
@@ -16,6 +16,12 @@ $HistoricalReleases = @(
         PagePath = Join-Path $Root ("docs\releases\v0.1.19-rc." + "4.html")
         Ref = "cad7afee286ac2170464c1282a876aca0d587d55"
         Sha256 = "c0b0fe0f86578efbd0a8a70b05302f590562f240ad2290f8438222abd860bad8"
+    },
+    [pscustomobject]@{
+        Version = "0.1.19-rc." + "5"
+        PagePath = Join-Path $Root ("docs\releases\v0.1.19-rc." + "5.html")
+        Ref = "ab779a732d44cee32bf98f74764342da090cc576"
+        Sha256 = "b495f9bdb591ca35c0d66837fcbbd0215b0d91a7e8eeec06828fd0a7a4c7cc8c"
     }
 )
 $Failures = [System.Collections.Generic.List[string]]::new()
@@ -31,20 +37,20 @@ $releaseLines = @($releasePage -split "`r?`n")
 
 $packageCommands = @($releaseLines | Where-Object { $_ -match 'package-release\.ps1' })
 if ($packageCommands.Count -ne 1 -or $packageCommands[0] -notmatch '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The rc.5 package-release command must retain -RequireInstaller."
+    Add-Failure "The rc.6 package-release command must retain -RequireInstaller."
 }
 
 $artifactCommands = @($releaseLines | Where-Object { $_ -match 'validate-release-artifacts\.ps1' })
 if ($artifactCommands.Count -ne 1 -or $artifactCommands[0] -notmatch '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The rc.5 artifact-validator command must retain -RequireInstaller."
+    Add-Failure "The rc.6 artifact-validator command must retain -RequireInstaller."
 }
 
 $storeCommands = @($releaseLines | Where-Object { $_ -match 'validate-store-packaging\.ps1' })
 if ($storeCommands.Count -ne 1) {
-    Add-Failure "The rc.5 checklist must contain exactly one store-packaging validator command."
+    Add-Failure "The rc.6 checklist must contain exactly one store-packaging validator command."
 }
 elseif ($storeCommands[0] -match '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The rc.5 store-packaging command passes unsupported -RequireInstaller."
+    Add-Failure "The rc.6 store-packaging command passes unsupported -RequireInstaller."
 }
 
 $tokens = $null
@@ -104,7 +110,7 @@ if ($hashFunctionsLoaded) {
 
 foreach ($historicalRelease in $HistoricalReleases) {
     $relativePath = "docs/releases/v$($historicalRelease.Version).html"
-    $pathExpression = if ($historicalRelease.Version -ceq ("0.1.19-rc." + "4")) {
+    $pathExpression = if ($historicalRelease.Version -ceq ("0.1.19-rc." + "5")) {
         '\$StaleHistoricalReleasePath'
     } else {
         '"' + [regex]::Escape($relativePath) + '"'
@@ -134,7 +140,7 @@ else {
     . ([scriptblock]::Create($decoderDefinition.Extent.Text))
 
     $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
-    $staleVersion = "0.1.19-rc." + "4"
+    $staleVersion = "0.1.19-rc." + "5"
     foreach ($extension in @(".nsi", ".hbs", ".js")) {
         $expected = "fixture$extension=$staleVersion"
         $decoded = ConvertFrom-ReleaseTextBytes -Bytes $utf8.GetBytes($expected)

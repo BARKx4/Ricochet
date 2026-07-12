@@ -3168,12 +3168,12 @@ url = "db/development.sqlite3"
             "0.1.19"
         );
         assert_eq!(
-            debian_package_version("0.1.19-rc.5").expect("prerelease SemVer"),
-            "0.1.19~rc.5"
+            debian_package_version("1.2.3-rc.7").expect("prerelease SemVer"),
+            "1.2.3~rc.7"
         );
         assert_eq!(
-            debian_package_version("0.1.19-rc.5+build.7").expect("SemVer with build metadata"),
-            "0.1.19~rc.5+build.7"
+            debian_package_version("1.2.3-rc.7+build.9").expect("SemVer with build metadata"),
+            "1.2.3~rc.7+build.9"
         );
     }
 

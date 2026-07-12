@@ -201,6 +201,10 @@ $cleanLinuxSmokeStep = Get-StepText -JobText $cleanLinuxJob -Name "Install and s
 $publishUpdateStep = Get-StepText -JobText $publishJob -Name "Write update channel metadata"
 $publishChecksumsStep = Get-StepText -JobText $publishJob -Name "Write checksums"
 $publishRevalidationStep = Get-StepText -JobText $publishJob -Name "Revalidate finalized update channel"
+$publishDraftCreateStep = Get-StepText -JobText $publishJob -Name "Create draft GitHub release"
+$publishDraftAuditStep = Get-StepText -JobText $publishJob -Name "Audit draft GitHub release"
+$publishAuditedReleaseStep = Get-StepText -JobText $publishJob -Name "Publish audited GitHub release"
+$publishFinalVerificationStep = Get-StepText -JobText $publishJob -Name "Verify published GitHub release"
 
 $resolveJobHeader = Get-JobHeaderText -JobText $resolveJob -Name "resolve-version"
 $windowsJobHeader = Get-JobHeaderText -JobText $windowsJob -Name "package-windows"
@@ -378,17 +382,78 @@ Require-Pattern $publishJobHeader '(?m)^      - smoke-linux-deb\r?$' "Tag public
 $publishUpdateIndex = $publishJob.IndexOf("      - name: Write update channel metadata", [StringComparison]::Ordinal)
 $publishChecksumsIndex = $publishJob.IndexOf("      - name: Write checksums", [StringComparison]::Ordinal)
 $publishRevalidationIndex = $publishJob.IndexOf("      - name: Revalidate finalized update channel", [StringComparison]::Ordinal)
-$publishCreateIndex = $publishJob.IndexOf("      - name: Create GitHub release", [StringComparison]::Ordinal)
+$publishCreateIndex = $publishJob.IndexOf("      - name: Create draft GitHub release", [StringComparison]::Ordinal)
+$publishAuditIndex = $publishJob.IndexOf("      - name: Audit draft GitHub release", [StringComparison]::Ordinal)
+$publishPromoteIndex = $publishJob.IndexOf("      - name: Publish audited GitHub release", [StringComparison]::Ordinal)
+$publishVerifyIndex = $publishJob.IndexOf("      - name: Verify published GitHub release", [StringComparison]::Ordinal)
 if (
     $publishUpdateIndex -lt 0 -or
     $publishChecksumsIndex -le $publishUpdateIndex -or
     $publishRevalidationIndex -le $publishChecksumsIndex -or
-    $publishCreateIndex -le $publishRevalidationIndex
+    $publishCreateIndex -le $publishRevalidationIndex -or
+    $publishAuditIndex -le $publishCreateIndex -or
+    $publishPromoteIndex -le $publishAuditIndex -or
+    $publishVerifyIndex -le $publishPromoteIndex
 ) {
-    Add-Failure "Publish must write the channel, finalize combined checksums, revalidate immutable channel hashes, then create the release."
+    Add-Failure "Publish must write the channel, finalize checksums, revalidate, create a draft, audit it, promote it, then verify public state."
 }
 Require-Pattern $publishChecksumsStep "! -name 'SHA256SUMS\.txt'" "Combined checksum generation must exclude only its own final output."
 Require-Pattern $publishRevalidationStep 'validate-update-channel\.ps1' "The finalized release set must revalidate update-channel hashes after combined checksums are written."
+Require-PatternSet `
+    -Text $publishDraftCreateStep `
+    -Patterns @(
+        'gh release create',
+        'git ls-remote',
+        'refs/tags/\$GITHUB_REF_NAME\^\{\}',
+        '\$GITHUB_SHA',
+        '--verify-tag',
+        '--draft',
+        '--prerelease',
+        '--latest=false'
+    ) `
+    -Description "Tag publication must stage an unpublished draft prerelease before auditing GitHub assets."
+$remoteTagVerificationIndex = $publishDraftCreateStep.IndexOf('git ls-remote', [StringComparison]::Ordinal)
+$draftCreationCommandIndex = $publishDraftCreateStep.IndexOf('gh release create', [StringComparison]::Ordinal)
+if ($remoteTagVerificationIndex -lt 0 -or $draftCreationCommandIndex -le $remoteTagVerificationIndex) {
+    Add-Failure "The remote tag must peel to the workflow SHA immediately before draft creation."
+}
+Require-PatternSet `
+    -Text $publishDraftAuditStep `
+    -Patterns @(
+        'gh api',
+        'gh release download',
+        'validate-published-release-assets\.ps1',
+        '-RequireDraft',
+        '-RequireStable',
+        'validate-update-channel\.ps1'
+    ) `
+    -Description "Draft audit must compare GitHub API/downloaded assets and revalidate the candidate channel before publication."
+Require-PatternSet `
+    -Text $publishAuditedReleaseStep `
+    -Patterns @(
+        'gh release edit',
+        'git ls-remote',
+        'refs/tags/\$GITHUB_REF_NAME\^\{\}',
+        '\$GITHUB_SHA',
+        '--draft=false',
+        '--prerelease',
+        '--latest=false'
+    ) `
+    -Description "Only an audited draft may be promoted to the public RC release."
+$promotionTagVerificationIndex = $publishAuditedReleaseStep.IndexOf('git ls-remote', [StringComparison]::Ordinal)
+$promotionCommandIndex = $publishAuditedReleaseStep.IndexOf('gh release edit', [StringComparison]::Ordinal)
+if ($promotionTagVerificationIndex -lt 0 -or $promotionCommandIndex -le $promotionTagVerificationIndex) {
+    Add-Failure "The remote tag must still peel to the workflow SHA immediately before draft promotion."
+}
+Require-PatternSet `
+    -Text $publishFinalVerificationStep `
+    -Patterns @(
+        'gh api',
+        'validate-published-release-assets\.ps1',
+        '-RequirePublished',
+        '-RequireStable'
+    ) `
+    -Description "Published release state must be re-queried and verified after promotion."
 
 $portableIndex = $windowsJob.IndexOf("      - name: Smoke-test package executable", [StringComparison]::Ordinal)
 $installerIndex = $windowsJob.IndexOf("      - name: Smoke-test Windows installer", [StringComparison]::Ordinal)

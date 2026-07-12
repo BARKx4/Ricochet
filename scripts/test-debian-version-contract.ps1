@@ -7,6 +7,7 @@ $packageCommand = Get-Content -LiteralPath (Join-Path $repoRoot "crates/ricochet
 $cliSmoke = Get-Content -LiteralPath (Join-Path $repoRoot "crates/ricochet_cli/tests/cli_smoke.rs") -Raw
 $releaseWorkflow = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/release.yml") -Raw
 $ciWorkflow = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/ci.yml") -Raw
+$storeValidator = Get-Content -LiteralPath (Join-Path $PSScriptRoot "validate-store-packaging.ps1") -Raw
 $linuxVersionGuardPath = Join-Path $PSScriptRoot "test-linux-release-version.sh"
 $linuxVersionGuard = if (Test-Path -LiteralPath $linuxVersionGuardPath -PathType Leaf) {
     Get-Content -LiteralPath $linuxVersionGuardPath -Raw
@@ -33,7 +34,9 @@ Assert-ContractText $linuxPackager '\^\(0\|\[1-9\]\[0-9\]\*\)\\\.\(0\|\[1-9\]\[0
 Assert-ContractText $linuxPackager 'numeric prerelease identifiers must not contain leading zeroes' "Official Linux packaging does not reject invalid numeric prerelease identifiers."
 Assert-ContractText $linuxPackager 'semver_to_debian_version\(\)' "Official Linux packaging does not define SemVer-to-Debian conversion."
 Assert-ContractText $linuxPackager 'debian_version="\$\(semver_to_debian_version "\$version"\)"' "Official Linux packaging does not derive a Debian version from the Ricochet SemVer."
-Assert-ContractText $linuxPackager 'deb_path="\$out_dir_path/ricochet_\$\{debian_version\}_amd64\.deb"' "Official Debian artifact naming does not use the Debian version."
+Assert-ContractText $linuxPackager 'debian_version_to_release_asset_version\(\)' "Official Linux packaging does not define a GitHub-safe Debian asset version."
+Assert-ContractText $linuxPackager 'release_asset_version="\$\(debian_version_to_release_asset_version "\$debian_version"\)"' "Official Linux packaging does not derive the public asset version separately from Debian metadata."
+Assert-ContractText $linuxPackager 'deb_path="\$out_dir_path/ricochet_\$\{release_asset_version\}_amd64\.deb"' "Official Debian artifact naming does not use the GitHub-safe release asset version."
 Assert-ContractText $linuxPackager 'Version: \$debian_version' "Official Debian control metadata does not use the Debian version."
 Assert-ContractText $linuxPackager 'Depends: libgtk-3-0, libwebkit2gtk-4\.1-0, libxdo3' "Official Debian metadata does not declare every direct Linux GUI runtime package."
 
@@ -48,8 +51,16 @@ Assert-ContractText $cliSmoke '(?s)Command::new\("dpkg"\).*?\.arg\("--compare-ve
 Assert-ContractText $cliSmoke 'Shared library: \[libxdo\.so\.3\]' "Linux CLI smoke does not prove the packaged binary links libxdo."
 Assert-ContractText $cliSmoke 'libgtk-3-0, libwebkit2gtk-4\.1-0, libxdo3' "Linux CLI smoke does not verify the matching Debian runtime dependencies."
 
+Assert-ContractText $storeValidator 'function ConvertTo-ReleaseAssetVersion' "Store packaging validation does not distinguish public asset names from Debian metadata versions."
+Assert-ContractText $storeValidator '\$expectedReleaseAssetVersion\s*=\s*ConvertTo-ReleaseAssetVersion\s+\$expectedDebianVersion' "Store packaging validation does not derive the public Debian asset version."
+Assert-ContractText $storeValidator 'ricochet_\$\{expectedReleaseAssetVersion\}_amd64\.deb' "Store packaging validation does not require the GitHub-safe official Debian filename."
+Assert-ContractText $storeValidator 'Version: \$expectedDebianVersion' "Store packaging validation no longer requires the Debian-native control version."
+
+Assert-ContractText $releaseWorkflow 'debian_version_to_release_asset_version\(\)' "Release workflow does not derive the GitHub-safe Debian asset version."
+Assert-ContractText $releaseWorkflow 'release_asset_version="\$\(debian_version_to_release_asset_version "\$debian_version"\)"' "Release workflow does not separate the public Debian filename from control metadata."
+Assert-ContractText $releaseWorkflow 'official_deb="dist/ricochet_\$\{release_asset_version\}_amd64\.deb"' "Release workflow does not smoke-test the GitHub-safe official Debian filename."
 Assert-ContractText $releaseWorkflow 'dpkg-deb --field.*Version' "Release workflow does not inspect the generated Debian Version field."
-Assert-ContractText $releaseWorkflow 'dpkg --compare-versions' "Release workflow does not prove rc.5 sorts before the corresponding stable Debian version."
+Assert-ContractText $releaseWorkflow 'dpkg --compare-versions' "Release workflow does not prove the prerelease sorts before the corresponding stable Debian version."
 Assert-ContractText $releaseWorkflow ([regex]::Escape('Shared library: \[libxdo\.so\.3\]')) "Release workflow does not prove official Linux binaries link libxdo."
 Assert-ContractText $releaseWorkflow 'Depends: libgtk-3-0, libwebkit2gtk-4\.1-0, libxdo3' "Release workflow does not verify Debian metadata covers the direct Linux runtime dependencies."
 
@@ -57,7 +68,7 @@ $validateIndex = $linuxPackager.IndexOf('validate_semver "$version"', [System.St
 $firstDerivedPathIndex = @(
     $linuxPackager.IndexOf('package_name="ricochet-v${version}-${target}"', [System.StringComparison]::Ordinal),
     $linuxPackager.IndexOf('package_dir="$out_dir_path/$package_name"', [System.StringComparison]::Ordinal),
-    $linuxPackager.IndexOf('deb_path="$out_dir_path/ricochet_${debian_version}_amd64.deb"', [System.StringComparison]::Ordinal)
+    $linuxPackager.IndexOf('deb_path="$out_dir_path/ricochet_${release_asset_version}_amd64.deb"', [System.StringComparison]::Ordinal)
 ) | Where-Object { $_ -ge 0 } | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum
 if ($validateIndex -lt 0 -or $null -eq $firstDerivedPathIndex -or $validateIndex -ge $firstDerivedPathIndex) {
     $failures.Add("Official Linux SemVer validation must execute before every version-derived artifact path.") | Out-Null

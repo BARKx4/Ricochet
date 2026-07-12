@@ -141,8 +141,14 @@ semver_to_debian_version() {
   fi
 }
 
+debian_version_to_release_asset_version() {
+  local debian_version="$1"
+  printf '%s\n' "$debian_version" | LC_ALL=C sed -E 's/[^A-Za-z0-9._-]/./g'
+}
+
 validate_semver "$version"
 debian_version="$(semver_to_debian_version "$version")"
+release_asset_version="$(debian_version_to_release_asset_version "$debian_version")"
 
 assert_new_path() {
   local path="$1"
@@ -399,7 +405,7 @@ else
 fi
 package_dir="$out_dir_path/$package_name"
 archive_path="$out_dir_path/${package_name}.tar.gz"
-deb_path="$out_dir_path/ricochet_${debian_version}_amd64.deb"
+deb_path="$out_dir_path/ricochet_${release_asset_version}_amd64.deb"
 checksums_path="$out_dir_path/SHA256SUMS-${target}.txt"
 signing_report_path="$out_dir_path/SIGNING-${target}.txt"
 manifest_path="$out_dir_path/ARTIFACTS-${target}.json"

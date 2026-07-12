@@ -71,6 +71,12 @@ function ConvertTo-DebianVersion {
     return "$($precedence.Substring(0, $prereleaseIndex))~$($precedence.Substring($prereleaseIndex + 1))$build"
 }
 
+function ConvertTo-ReleaseAssetVersion {
+    param([string] $DebianVersion)
+
+    return [regex]::Replace($DebianVersion, "[^A-Za-z0-9._-]", ".")
+}
+
 function Get-Artifact {
     param(
         [object[]] $Artifacts,
@@ -381,7 +387,8 @@ switch ($Target) {
         $deb = Get-Artifact $artifacts { param($artifact) $artifact.kind -eq "debian-package" -and $artifact.name -like "*.deb" }
         $debPath = Assert-Artifact $errors $deb "Debian package"
         $expectedDebianVersion = ConvertTo-DebianVersion ([string]$manifest.package_version)
-        $expectedDebianName = "ricochet_${expectedDebianVersion}_amd64.deb"
+        $expectedReleaseAssetVersion = ConvertTo-ReleaseAssetVersion $expectedDebianVersion
+        $expectedDebianName = "ricochet_${expectedReleaseAssetVersion}_amd64.deb"
         if ($deb -and [string]$deb.name -cne $expectedDebianName) {
             Add-Error $errors "Debian package artifact must be '$expectedDebianName', found '$($deb.name)'."
         }

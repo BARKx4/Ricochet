@@ -104,7 +104,7 @@ foreach ($workflowNeedle in @(
         'Expected installer rejection for a foreign non-empty destination',
         'user-owned-sentinel.txt',
         'legacyRc4Paths',
-        'Seeded legacy path survived the rc.5 upgrade',
+        'Seeded legacy path survived the legacy cleanup upgrade',
         'User-owned sentinel was removed or changed',
         'Installer-owned path survived uninstall'
     )) {
