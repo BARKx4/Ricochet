@@ -2004,7 +2004,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "path:string contents:string options:map -> result(map)",
-    "body": "Writes UTF-8 text through the workspace bounds when filesystem writes are enabled. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false.",
+    "body": "Writes UTF-8 text through the workspace bounds when filesystem writes are enabled. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false. With overwrite false, creation atomically claims an absent path and returns AlreadyExists to a losing creator. The file may be visible before the winning write finishes; this is not atomic content publication or a durability guarantee.",
     "example": "options map\n\"out.txt\" \"hello\" $options workspace_write_text value"
   },
   {
@@ -2028,7 +2028,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "source:string destination:string options:map -> result(map)",
-    "body": "Copies a file inside workspace bounds. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false.",
+    "body": "Copies a file inside workspace bounds. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false. No-overwrite behavior remains best-effort under concurrent destination creation.",
     "example": "options map\n\"README.md\" \"tmp/README.md\" $options workspace_copy value"
   },
   {
@@ -2036,7 +2036,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "source:string destination:string options:map -> result(map)",
-    "body": "Renames a file or directory inside workspace bounds. Existing destinations are rejected.",
+    "body": "Renames a file or directory inside workspace bounds. Existing destinations are rejected. No-overwrite behavior remains best-effort under concurrent destination creation.",
     "example": "options map\n\"tmp/a.txt\" \"tmp/b.txt\" $options workspace_move value"
   },
   {

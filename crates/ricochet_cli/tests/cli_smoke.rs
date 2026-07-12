@@ -11703,6 +11703,45 @@ runtime_capabilities "workspace" at "enabled" at
 }
 
 #[test]
+fn run_workspace_write_text_accepts_trusted_absolute_path() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(base).expect("temp source directory should be created");
+    let target_path = base.join("trusted-absolute").join("output.txt");
+    let target = escape_ricochet_string(&target_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+writeOptions map
+$writeOptions "overwrite" false put drop
+$writeOptions "create_parent_dirs" true put drop
+"{target}" "trusted absolute write" $writeOptions workspace_write_text value written var
+$written "kind" at
+"#
+        ),
+    )
+    .expect("temp source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("String(\"file\")"),
+        "stdout should report written metadata kind file, got:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read(&target_path).expect("trusted absolute target should be readable"),
+        b"trusted absolute write"
+    );
+}
+
+#[test]
 fn run_sandboxed_capability_profile_allows_bounded_filesystem() {
     let source_path = temp_source_path();
     let base = source_path.parent().expect("source path has parent");

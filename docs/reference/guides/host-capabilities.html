@@ -49,6 +49,7 @@
           <p>Ricochet keeps powerful host behavior behind explicit capability controls.</p>
           <h2 id="workspace-filesystem-helpers">Workspace Filesystem Helpers</h2>
           <p>Workspace helpers provide structured filesystem access for local apps while preserving the same <code>--fs-root</code> and <code>--fs-readonly</code> bounds as the lower-level <code>fs_*</code> words. <code>fs_delete</code> removes a file, symlink, or empty directory; <code>workspace_delete</code> adds explicit <code>recursive</code> and <code>missing_ok</code> options and refuses to delete the configured filesystem root:</p>
+          <p>With overwrite false, creation atomically claims an absent path and returns AlreadyExists to a losing creator. The file may be visible before the winning write finishes; this is not atomic content publication or a durability guarantee. The workspace_copy and workspace_move no-overwrite behavior remains best-effort under concurrent destination creation.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>options map
 writeOptions map
 $writeOptions &quot;create_parent_dirs&quot; true put drop

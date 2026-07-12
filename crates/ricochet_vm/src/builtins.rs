@@ -8927,6 +8927,28 @@ fn workspace_read_text_result(path: &Path, max_bytes: usize) -> Value {
     }
 }
 
+fn workspace_write_text_file_with_hook(
+    path: &Path,
+    contents: &str,
+    overwrite: bool,
+    before_open: impl FnOnce(),
+) -> io::Result<()> {
+    before_open();
+    let mut file = if overwrite {
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?
+    } else {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?
+    };
+    file.write_all(contents.as_bytes())
+}
+
 fn workspace_write_text_result(
     source: &str,
     path: &Path,
@@ -8934,12 +8956,6 @@ fn workspace_write_text_result(
     root: Option<&Path>,
     options: &WorkspaceWriteOptions,
 ) -> Value {
-    if path.exists() && !options.overwrite {
-        return Value::result_err(
-            "AlreadyExists",
-            format!("workspace path already exists: {}", path.display()),
-        );
-    }
     if options.create_parent_dirs {
         if let Some(parent) = path.parent() {
             if let Err(error) = fs::create_dir_all(parent) {
@@ -8947,8 +8963,11 @@ fn workspace_write_text_result(
             }
         }
     }
-    match fs::write(path, contents) {
+    match workspace_write_text_file_with_hook(path, contents, options.overwrite, || {}) {
         Ok(()) => workspace_metadata_result(source, path, root),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            Value::result_err("AlreadyExists", error.to_string())
+        }
         Err(error) => Value::result_err("IoError", error.to_string()),
     }
 }
@@ -9608,6 +9627,182 @@ fn next_random() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
+
+    fn workspace_write_text_test_path(name: &str) -> std::path::PathBuf {
+        static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let sequence = NEXT_TEST_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "ricochet-workspace-write-test-{}-{nanos}-{sequence}-{name}",
+            std::process::id(),
+        ))
+    }
+
+    #[test]
+    fn workspace_write_text_non_overwrite_preserves_existing_file() {
+        let path = workspace_write_text_test_path("preserve-existing.txt");
+        fs::write(&path, "existing").expect("existing workspace file should be written");
+        let options = WorkspaceWriteOptions {
+            overwrite: false,
+            create_parent_dirs: false,
+        };
+
+        let result =
+            workspace_write_text_result("preserve-existing.txt", &path, "new", None, &options);
+
+        assert!(matches!(
+            result,
+            Value::Result(RicochetResult::Err(error)) if error.kind == "AlreadyExists"
+        ));
+        assert_eq!(
+            fs::read(&path).expect("existing workspace file should remain readable"),
+            b"existing"
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_non_overwrite_allows_exactly_one_concurrent_creator() {
+        let path = workspace_write_text_test_path("concurrent-create.txt");
+        let barrier = Arc::new(Barrier::new(2));
+        let creators = ["first", "second"].map(|payload| {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let result = workspace_write_text_file_with_hook(&path, payload, false, || {
+                    barrier.wait();
+                });
+                (payload, result)
+            })
+        });
+        let outcomes = creators.map(|creator| creator.join().expect("creator should not panic"));
+
+        let successful_payloads = outcomes
+            .iter()
+            .filter_map(|(payload, result)| result.is_ok().then_some(*payload))
+            .collect::<Vec<_>>();
+        let already_exists_count = outcomes
+            .iter()
+            .filter(|(_, result)| {
+                matches!(result, Err(error) if error.kind() == io::ErrorKind::AlreadyExists)
+            })
+            .count();
+        assert_eq!(successful_payloads.len(), 1);
+        assert_eq!(already_exists_count, 1);
+        assert_eq!(
+            fs::read(&path).expect("winning workspace file should be readable"),
+            successful_payloads[0].as_bytes()
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_overwrite_replaces_existing_file() {
+        let path = workspace_write_text_test_path("overwrite-existing.txt");
+        fs::write(&path, "existing").expect("existing workspace file should be written");
+        let options = WorkspaceWriteOptions {
+            overwrite: true,
+            create_parent_dirs: false,
+        };
+
+        let result = workspace_write_text_result(
+            "overwrite-existing.txt",
+            &path,
+            "replacement",
+            None,
+            &options,
+        );
+
+        assert!(matches!(result, Value::Result(RicochetResult::Ok(_))));
+        assert_eq!(
+            fs::read(&path).expect("overwritten workspace file should be readable"),
+            b"replacement"
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_create_parent_dirs_controls_missing_parents() {
+        let without_parent_creation = workspace_write_text_test_path("missing-parent-fails")
+            .join("nested")
+            .join("output.txt");
+        let with_parent_creation = workspace_write_text_test_path("missing-parent-succeeds")
+            .join("nested")
+            .join("output.txt");
+
+        let result = workspace_write_text_result(
+            "nested/output.txt",
+            &without_parent_creation,
+            "blocked",
+            None,
+            &WorkspaceWriteOptions {
+                overwrite: false,
+                create_parent_dirs: false,
+            },
+        );
+        assert!(matches!(
+            result,
+            Value::Result(RicochetResult::Err(error)) if error.kind == "IoError"
+        ));
+        assert!(!without_parent_creation.exists());
+
+        let result = workspace_write_text_result(
+            "nested/output.txt",
+            &with_parent_creation,
+            "created",
+            None,
+            &WorkspaceWriteOptions {
+                overwrite: false,
+                create_parent_dirs: true,
+            },
+        );
+        assert!(matches!(result, Value::Result(RicochetResult::Ok(_))));
+        assert_eq!(
+            fs::read(&with_parent_creation)
+                .expect("workspace file with created parents should be readable"),
+            b"created"
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_success_returns_file_metadata() {
+        let root = workspace_write_text_test_path("metadata-root");
+        fs::create_dir_all(&root).expect("workspace metadata root should be created");
+        let source = "nested/output.txt";
+        let path = root.join("nested").join("output.txt");
+        let options = WorkspaceWriteOptions {
+            overwrite: false,
+            create_parent_dirs: true,
+        };
+
+        let result = workspace_write_text_result(source, &path, "metadata", Some(&root), &options);
+        let Value::Result(RicochetResult::Ok(value)) = result else {
+            panic!("successful workspace write should return metadata");
+        };
+        let Value::Map(metadata) = *value else {
+            panic!("successful workspace write metadata should be a map");
+        };
+
+        assert_eq!(metadata.get("exists"), Some(Value::Bool(true)));
+        assert_eq!(
+            metadata.get("kind"),
+            Some(Value::String("file".to_string()))
+        );
+        assert_eq!(metadata.get("is_file"), Some(Value::Bool(true)));
+        assert_eq!(
+            metadata.get("requested_path"),
+            Some(Value::String(source.to_string()))
+        );
+        assert_eq!(
+            metadata.get("path"),
+            Some(Value::String(path.to_string_lossy().into_owned()))
+        );
+        assert_eq!(
+            metadata.get("relative_path"),
+            Some(Value::String(source.to_string()))
+        );
+    }
 
     #[test]
     fn terminal_key_events_are_ricochet_maps() {
