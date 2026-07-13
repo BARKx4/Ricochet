@@ -24,7 +24,7 @@ use ricochet_compiler::{
 };
 use ricochet_vm::{
     ApprovalRegistry, Capability, DynamicModuleSource, ProcessRegistry, PtyRegistry,
-    UploadStreamMetadata, UploadStreamRegistry, Value, Vm,
+    UploadStreamMetadata, UploadStreamRegistry, Value, Vm, WorkspaceWriteRegistry,
 };
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -387,6 +387,7 @@ struct ServeCapabilityState {
     process_registry: ProcessRegistry,
     pty_registry: PtyRegistry,
     approval_registry: ApprovalRegistry,
+    workspace_write_registry: WorkspaceWriteRegistry,
 }
 
 pub fn build_test_app() -> Result<Router> {
@@ -2946,6 +2947,7 @@ fn compose_serve_capability_vm_setup_with_state(
             None => BTreeMap::new(),
         };
         vm.set_approval_registry(capability_state.approval_registry.clone());
+        vm.set_workspace_write_registry(capability_state.workspace_write_registry.clone());
         vm.set_environment_enabled(allow_env);
         if allow_all_env || env_allow.is_empty() {
             vm.clear_environment_allowed_names();
@@ -3172,6 +3174,28 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use axum::http::Request;
     use tower::ServiceExt;
+
+    #[test]
+    fn workspace_write_registry_is_shared_across_web_requests() {
+        let capability_state = Arc::new(ServeCapabilityState::default());
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            None,
+            &ServeOptions::default(),
+            capability_state,
+        )
+        .expect("serve capability setup should compose")
+        .expect("serve capability setup should exist");
+
+        let mut first_vm = Vm::default();
+        vm_setup(&mut first_vm).expect("first request VM should configure");
+        let mut second_vm = Vm::default();
+        vm_setup(&mut second_vm).expect("second request VM should configure");
+
+        assert!(first_vm
+            .workspace_write_registry()
+            .shares_state_with(second_vm.workspace_write_registry()));
+    }
 
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {

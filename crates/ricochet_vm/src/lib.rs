@@ -18,6 +18,7 @@ pub mod upload_runtime;
 pub mod value;
 pub mod vm;
 pub mod word_registry;
+pub mod workspace_runtime;
 
 pub use approval_runtime::ApprovalRegistry;
 pub use builtins::{is_safe_external_web_url, open_external_url};
@@ -43,6 +44,7 @@ pub use vm::{DynamicModuleSource, Vm, VmError};
 pub use word_registry::{
     builtin_word, builtin_words, CapabilityRequirement, WordCategory, WordMetadata,
 };
+pub use workspace_runtime::WorkspaceWriteRegistry;
 
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -34,6 +34,7 @@ use crate::socket_runtime::{
 use crate::strictness::{StrictnessConfig, StrictnessDiagnostic, StrictnessDiagnosticKind};
 use crate::upload_runtime::UploadStreamRegistry;
 use crate::value::Value;
+use crate::workspace_runtime::WorkspaceWriteRegistry;
 
 const DEFAULT_MAX_RUNNING_TASKS: usize = 64;
 static GLOBAL_RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
@@ -234,6 +235,7 @@ pub struct Vm {
     pty_enabled: bool,
     pty_registry: PtyRegistry,
     approval_registry: ApprovalRegistry,
+    workspace_write_registry: WorkspaceWriteRegistry,
     terminal_enabled: bool,
     webview_enabled: bool,
     pub(super) environment_enabled: bool,
@@ -301,6 +303,7 @@ impl Default for Vm {
             pty_enabled: false,
             pty_registry: PtyRegistry::default(),
             approval_registry: ApprovalRegistry::default(),
+            workspace_write_registry: WorkspaceWriteRegistry::default(),
             terminal_enabled: false,
             webview_enabled: false,
             environment_enabled: false,
@@ -599,6 +602,7 @@ fn run_task_to_completion(
         pty_enabled: host_runtime.pty_enabled,
         pty_registry: shared_runtime.pty_registry,
         approval_registry: shared_runtime.approval_registry,
+        workspace_write_registry: shared_runtime.workspace_write_registry,
         terminal_enabled: host_runtime.terminal_enabled,
         webview_enabled: host_runtime.webview_enabled,
         environment_enabled: host_runtime.environment_enabled,
@@ -920,6 +924,14 @@ impl Vm {
 
     pub fn set_approval_registry(&mut self, registry: ApprovalRegistry) {
         self.approval_registry = registry;
+    }
+
+    pub fn set_workspace_write_registry(&mut self, registry: WorkspaceWriteRegistry) {
+        self.workspace_write_registry = registry;
+    }
+
+    pub fn workspace_write_registry(&self) -> &WorkspaceWriteRegistry {
+        &self.workspace_write_registry
     }
 
     pub fn set_terminal_enabled(&mut self, enabled: bool) {
@@ -3673,6 +3685,7 @@ impl Vm {
             process_registry: self.process_registry.clone(),
             pty_registry: self.pty_registry.clone(),
             approval_registry: self.approval_registry.clone(),
+            workspace_write_registry: self.workspace_write_registry.clone(),
         }
     }
 
@@ -4955,7 +4968,7 @@ mod tests {
     use super::*;
     use crate::{
         approval_runtime::ApprovalCreateRequest, debug::DebugEvent, result::RicochetResult,
-        value::Value,
+        value::Value, workspace_runtime::WorkspaceWriteRegistry,
     };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 
@@ -7312,6 +7325,15 @@ mod tests {
             panic!("expected environment capability map, got {capabilities:?}");
         };
         assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn workspace_write_registry_is_shared_with_spawned_tasks() {
+        let registry = WorkspaceWriteRegistry::default();
+        let mut vm = Vm::default();
+        vm.set_workspace_write_registry(registry.clone());
+        let shared = vm.shared_runtime_state();
+        assert!(registry.shares_state_with(&shared.workspace_write_registry));
     }
 
     #[test]
