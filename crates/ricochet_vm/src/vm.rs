@@ -1868,6 +1868,7 @@ impl Vm {
             "workspace_metadata" => self.call_workspace_metadata(word),
             "workspace_list" => self.call_workspace_list(word),
             "workspace_read_text" => self.call_workspace_read_text(word),
+            "workspace_read_text_snapshot" => self.call_workspace_read_text_snapshot(word),
             "workspace_write_text" => self.call_workspace_write_text(word),
             "workspace_mkdir" => self.call_workspace_mkdir(word),
             "workspace_delete" => self.call_workspace_delete(word),

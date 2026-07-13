@@ -30,6 +30,7 @@ use crossterm::{
 use regex::Match as RegexMatch;
 use ricochet_bytecode::Chunk;
 use serde_json::Value as JsonValue;
+use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
 
 use super::*;
@@ -4216,6 +4217,37 @@ impl Vm {
         };
         let result = match self.resolve_filesystem_path(word, &source) {
             Ok(path) => workspace_read_text_result(&path, max_bytes),
+            Err(error) => Value::result_err("PermissionError", error.to_string()),
+        };
+        self.stack.push(result);
+        Ok(())
+    }
+
+    pub(super) fn call_workspace_read_text_snapshot(&mut self, word: &str) -> Result<(), VmError> {
+        self.ensure_workspace_enabled(word)?;
+        let stack_before = self.stack.clone();
+        let options = self.pop(word)?;
+        let source = match self.pop_string(word, "workspace file path string") {
+            Ok(source) => source,
+            Err(error) => {
+                self.stack = stack_before;
+                return Err(error);
+            }
+        };
+        let max_bytes = match workspace_read_max_bytes(options) {
+            Ok(max_bytes) => max_bytes,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let result = match self.resolve_filesystem_path(word, &source) {
+            Ok(path) => workspace_read_text_snapshot_result(
+                &source,
+                &path,
+                self.filesystem_root_path(),
+                max_bytes,
+            ),
             Err(error) => Value::result_err("PermissionError", error.to_string()),
         };
         self.stack.push(result);
@@ -8902,29 +8934,65 @@ fn workspace_collect_entries(
     Ok(())
 }
 
-fn workspace_read_text_result(path: &Path, max_bytes: usize) -> Value {
-    let mut file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) => return Value::result_err("IoError", error.to_string()),
-    };
+fn workspace_read_text_bytes(path: &Path, max_bytes: usize) -> Result<Vec<u8>, Value> {
+    let mut file =
+        fs::File::open(path).map_err(|error| Value::result_err("IoError", error.to_string()))?;
     let mut bytes = Vec::new();
-    let read_limit = max_bytes as u64 + 1;
-    if let Err(error) = Read::by_ref(&mut file)
-        .take(read_limit)
+    Read::by_ref(&mut file)
+        .take(max_bytes as u64 + 1)
         .read_to_end(&mut bytes)
-    {
-        return Value::result_err("IoError", error.to_string());
-    }
+        .map_err(|error| Value::result_err("IoError", error.to_string()))?;
     if bytes.len() > max_bytes {
-        return Value::result_err(
+        return Err(Value::result_err(
             "FileTooLarge",
             format!("workspace read exceeded max_bytes {max_bytes}"),
-        );
+        ));
     }
+    Ok(bytes)
+}
+
+fn workspace_sha256_integrity(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut hex, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    format!("sha256:{hex}")
+}
+
+fn workspace_read_text_result(path: &Path, max_bytes: usize) -> Value {
+    let bytes = match workspace_read_text_bytes(path, max_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => return error,
+    };
     match String::from_utf8(bytes) {
         Ok(contents) => Value::result_ok(Value::String(contents)),
         Err(error) => Value::result_err("Utf8Error", error.to_string()),
     }
+}
+
+fn workspace_read_text_snapshot_result(
+    source: &str,
+    path: &Path,
+    root: Option<&Path>,
+    max_bytes: usize,
+) -> Value {
+    let bytes = match workspace_read_text_bytes(path, max_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => return error,
+    };
+    let len = bytes.len();
+    let sha256 = workspace_sha256_integrity(&bytes);
+    let text = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => return Value::result_err("Utf8Error", error.to_string()),
+    };
+    let mut fields = workspace_path_fields(source, path, root);
+    fields.insert("text".to_string(), Value::String(text));
+    fields.insert("sha256".to_string(), Value::String(sha256));
+    fields.insert("len".to_string(), Value::Number(len as i64));
+    Value::result_ok(Value::Map(fields.into()))
 }
 
 fn workspace_write_text_file_with_hook(
@@ -9628,6 +9696,63 @@ fn next_random() -> u64 {
 mod tests {
     use super::*;
     use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn workspace_read_text_snapshot_hashes_the_returned_bytes() {
+        let root = tempfile::tempdir().expect("snapshot root");
+        let path = root.path().join("source.rco");
+        fs::write(&path, "alpha β\n").expect("snapshot fixture");
+
+        let result = workspace_read_text_snapshot_result(
+            "source.rco",
+            &path,
+            Some(root.path()),
+            WORKSPACE_DEFAULT_MAX_READ_BYTES,
+        );
+        let Value::Result(RicochetResult::Ok(value)) = result else {
+            panic!("snapshot read should succeed");
+        };
+        let Value::Map(snapshot) = *value else {
+            panic!("snapshot result should be a map");
+        };
+        assert_eq!(
+            snapshot.get("text"),
+            Some(Value::String("alpha β\n".to_string()))
+        );
+        assert_eq!(
+            snapshot.get("len"),
+            Some(Value::Number("alpha β\n".len() as i64))
+        );
+        assert_eq!(
+            snapshot.get("sha256"),
+            Some(Value::String(workspace_sha256_integrity(
+                "alpha β\n".as_bytes()
+            )))
+        );
+        assert_eq!(
+            snapshot.get("requested_path"),
+            Some(Value::String("source.rco".to_string()))
+        );
+        assert_eq!(snapshot.get("inside_root"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn workspace_read_text_snapshot_preserves_max_bytes_and_utf8_errors() {
+        let root = tempfile::tempdir().expect("snapshot root");
+        let large = root.path().join("large.txt");
+        fs::write(&large, b"12345").expect("large fixture");
+        assert!(matches!(
+            workspace_read_text_snapshot_result("large.txt", &large, Some(root.path()), 4),
+            Value::Result(RicochetResult::Err(error)) if error.kind == "FileTooLarge"
+        ));
+
+        let invalid = root.path().join("invalid.txt");
+        fs::write(&invalid, [0xff, 0xfe]).expect("invalid fixture");
+        assert!(matches!(
+            workspace_read_text_snapshot_result("invalid.txt", &invalid, Some(root.path()), 4),
+            Value::Result(RicochetResult::Err(error)) if error.kind == "Utf8Error"
+        ));
+    }
 
     fn workspace_write_text_test_path(name: &str) -> std::path::PathBuf {
         static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(0);
