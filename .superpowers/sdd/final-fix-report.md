@@ -107,3 +107,36 @@ All commands ran from `E:\LLM Projects\Ricochet-atomic-workspace-replace` unless
 
 - No unresolved design concern.
 - The full Task 5 release/acceptance/audit/release-build gate was intentionally not run per the controller instruction.
+
+## Follow-up re-review: final ordering and deterministic contention
+
+This section records the narrow follow-up after commit `6740907d9190923d5f64bde3c0803b30b161dd51`. It supersedes the earlier self-review statement about the immediate pre-persist ordering: the replacement-payload hash is now explicitly completed before the final destination check/hash, so no unbounded replacement-payload hashing remains after the final `expected_sha256` comparison.
+
+### Replacement hash ordering RED/GREEN
+
+- Added `workspace_write_text_hashes_replacement_before_final_destination_check` with a deterministic `after_payload_hash` observer whose state must already be visible at `before_final_check`.
+- RED command: `rtk cargo test -p ricochet_vm builtins::tests::workspace_write_text_hashes_replacement_before_final_destination_check -- --exact`.
+  - Result: compile error `E0407`; `after_payload_hash` was not a `WorkspaceWriteIo` member.
+- GREEN after adding the no-op production seam and moving `sha256_after` ahead of `before_final_check` and the final destination hash.
+  - Same command: exit 0; 1 passed.
+- Preserved regression: `rtk cargo test -p ricochet_vm builtins::tests::workspace_write_text_post_hash_unsafe_swap_retains_exact_staging -- --exact` — exit 0; 1 passed.
+- Final ordering is: stage/write/permissions/sync; replacement-payload hash; final-check seam/type inspection; optional final destination hash and comparison; immediate before-persist unsafe-swap seam/type inspection; persist. Taxonomy and exact staging retention remain unchanged.
+
+### Same-precondition held-lock proof and mutation RED
+
+- Replaced writer start readiness/barrier coordination with an externally held `WorkspaceWriteRegistry` lock.
+- The holder enters first and waits. Both writer clones then emit `observe_synchronize_attempts` signals while the holder still owns the mutex. The test confirms the destination remains `initial`, releases the holder, and asserts one success plus one `PreconditionFailed`.
+- `recv_timeout(Duration::from_secs(5))` is used only as a failure bound for a missing attempt signal; blocking is proven by holder ownership plus unchanged destination bytes, not elapsed time.
+- Mutation RED: temporarily bypassed `registry.synchronize` inside `workspace_write_text_synchronized_result`, then ran `rtk cargo test -p ricochet_vm builtins::tests::workspace_write_text_same_precondition_allows_exactly_one_concurrent_writer -- --exact`.
+  - Result: 0 passed, 1 failed at `first writer should attempt registry synchronization: Timeout`, proving the test fails when write-path synchronization/attempt observation is removed.
+- Restored synchronization and reran the same command: exit 0; 1 passed.
+
+### Follow-up verification
+
+- `rtk cargo test -p ricochet_vm workspace_write_text` — exit 0; 26 passed.
+- `rtk cargo test -p ricochet_vm workspace_write_registry` — exit 0; 2 passed.
+- Both focused tests above plus the preserved unsafe-swap test — exit 0; 1 passed each.
+- `rtk cargo clippy --workspace --all-targets -- -D warnings` — exit 0; no issues.
+- `rtk cargo fmt --all -- --check` — exit 0.
+- `rtk git diff --check` — exit 0.
+- The full Task 5 release/acceptance gate was not run, as instructed.

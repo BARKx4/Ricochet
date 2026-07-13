@@ -9085,6 +9085,9 @@ trait WorkspaceWriteIo {
     fn after_stage(&self, _staging_path: &Path) -> io::Result<()> {
         Ok(())
     }
+    fn after_payload_hash(&self) -> io::Result<()> {
+        Ok(())
+    }
     fn before_final_check(&self, _destination: &Path) -> io::Result<()> {
         Ok(())
     }
@@ -9311,6 +9314,14 @@ fn workspace_write_text_atomic_overwrite(
             staging,
         );
     }
+    let sha256_after = workspace_sha256_integrity(contents.as_bytes());
+    if let Err(error) = workspace_io.after_payload_hash() {
+        return workspace_retained_staging_error(
+            "IoError",
+            format!("workspace payload-hash hook failed: {error}"),
+            staging,
+        );
+    }
     if let Err(error) = workspace_io.before_final_check(path) {
         return workspace_retained_staging_error(
             "IoError",
@@ -9363,7 +9374,6 @@ fn workspace_write_text_atomic_overwrite(
         }
     }
 
-    let sha256_after = workspace_sha256_integrity(contents.as_bytes());
     if let Err(error) = workspace_io.before_persist(path) {
         return workspace_retained_staging_error(
             "IoError",
@@ -10277,6 +10287,43 @@ mod tests {
         }
     }
 
+    struct PayloadHashBeforeFinalCheckWorkspaceWriteIo {
+        payload_hash_complete: AtomicBool,
+    }
+
+    impl WorkspaceWriteIo for PayloadHashBeforeFinalCheckWorkspaceWriteIo {
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
+        }
+
+        fn after_payload_hash(&self) -> io::Result<()> {
+            self.payload_hash_complete.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn before_final_check(&self, _destination: &Path) -> io::Result<()> {
+            if self.payload_hash_complete.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(io::Error::other(
+                    "replacement payload hash did not precede final destination check",
+                ))
+            }
+        }
+
+        fn persist(
+            &self,
+            staging: tempfile::NamedTempFile,
+            destination: &Path,
+        ) -> WorkspacePersistResult {
+            RealWorkspaceWriteIo.persist(staging, destination)
+        }
+    }
+
     struct FailPersistWorkspaceWriteIo;
 
     impl WorkspaceWriteIo for FailPersistWorkspaceWriteIo {
@@ -10959,24 +11006,66 @@ mod tests {
     }
 
     #[test]
+    fn workspace_write_text_hashes_replacement_before_final_destination_check() {
+        let path = workspace_write_text_test_path("payload-hash-before-final-check.txt");
+        fs::write(&path, "original").expect("write payload hash ordering fixture");
+
+        let result = workspace_write_text_result_with_io(
+            "payload-hash-before-final-check.txt",
+            &path,
+            "replacement",
+            None,
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: Some(workspace_sha256_integrity(b"original")),
+            },
+            &PayloadHashBeforeFinalCheckWorkspaceWriteIo {
+                payload_hash_complete: AtomicBool::new(false),
+            },
+        );
+
+        assert!(matches!(result, Value::Result(RicochetResult::Ok(_))));
+        assert_eq!(
+            fs::read(&path).expect("read payload hash ordering destination"),
+            b"replacement"
+        );
+    }
+
+    #[test]
     fn workspace_write_text_same_precondition_allows_exactly_one_concurrent_writer() {
         let root = workspace_write_text_test_path("same-precondition-root");
         fs::create_dir_all(&root).expect("create concurrent writer root");
         let path = root.join("destination.txt");
         fs::write(&path, "initial").expect("write concurrent writer fixture");
         let expected = workspace_sha256_integrity(b"initial");
-        let registry = WorkspaceWriteRegistry::default();
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let release = Arc::new(Barrier::new(3));
+        let mut registry = WorkspaceWriteRegistry::default();
+        let holder_registry = registry.clone();
+        let (holder_entered_tx, holder_entered_rx) = mpsc::channel();
+        let (release_holder_tx, release_holder_rx) = mpsc::channel();
+        let holder = thread::spawn(move || {
+            holder_registry
+                .synchronize(|| {
+                    holder_entered_tx
+                        .send(())
+                        .expect("signal registry holder entry");
+                    release_holder_rx
+                        .recv()
+                        .expect("wait to release registry holder");
+                })
+                .expect("hold workspace write registry");
+        });
+        holder_entered_rx
+            .recv()
+            .expect("registry holder should enter");
+
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        registry.observe_synchronize_attempts(attempt_tx);
         let writers = ["first payload", "second payload"].map(|payload| {
             let path = path.clone();
             let expected = expected.clone();
             let registry = registry.clone();
-            let ready_tx = ready_tx.clone();
-            let release = Arc::clone(&release);
             thread::spawn(move || {
-                ready_tx.send(()).expect("signal precondition writer ready");
-                release.wait();
                 let result = workspace_write_text_synchronized_result(
                     &registry,
                     "destination.txt",
@@ -10993,13 +11082,19 @@ mod tests {
                 (payload, result)
             })
         });
-        ready_rx
-            .recv()
-            .expect("first precondition writer should be ready");
-        ready_rx
-            .recv()
-            .expect("second precondition writer should be ready");
-        release.wait();
+        attempt_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("first writer should attempt registry synchronization");
+        attempt_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("second writer should attempt registry synchronization");
+        assert_eq!(
+            fs::read(&path).expect("read destination while holder owns registry"),
+            b"initial"
+        );
+
+        release_holder_tx.send(()).expect("release registry holder");
+        holder.join().expect("registry holder should finish");
         let outcomes = writers.map(|writer| writer.join().expect("writer should finish"));
 
         let successful_payloads = outcomes
