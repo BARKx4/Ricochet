@@ -1,12 +1,21 @@
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use std::sync::mpsc;
+
 #[derive(Clone, Default)]
 pub struct WorkspaceWriteRegistry {
     inner: Arc<Mutex<()>>,
+    #[cfg(test)]
+    attempt_observer: Option<mpsc::Sender<()>>,
 }
 
 impl WorkspaceWriteRegistry {
     pub(crate) fn synchronize<T>(&self, operation: impl FnOnce() -> T) -> Result<T, String> {
+        #[cfg(test)]
+        if let Some(observer) = &self.attempt_observer {
+            let _ = observer.send(());
+        }
         let _guard = self
             .inner
             .lock()
@@ -16,6 +25,11 @@ impl WorkspaceWriteRegistry {
 
     pub fn shares_state_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_synchronize_attempts(&mut self, observer: mpsc::Sender<()>) {
+        self.attempt_observer = Some(observer);
     }
 }
 

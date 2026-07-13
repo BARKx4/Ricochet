@@ -4963,7 +4963,7 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+    use std::{cell::RefCell, collections::BTreeMap, fs, rc::Rc, sync::mpsc, time::Duration};
 
     use super::*;
     use crate::{
@@ -7329,11 +7329,73 @@ mod tests {
 
     #[test]
     fn workspace_write_registry_is_shared_with_spawned_tasks() {
-        let registry = WorkspaceWriteRegistry::default();
+        let root = tempfile::tempdir().expect("spawned workspace write root");
+        let mut registry = WorkspaceWriteRegistry::default();
+        let lock_holder_registry = registry.clone();
+        let (lock_held_tx, lock_held_rx) = mpsc::channel();
+        let (release_lock_tx, release_lock_rx) = mpsc::channel();
+        let lock_holder = thread::spawn(move || {
+            lock_holder_registry
+                .synchronize(|| {
+                    lock_held_tx.send(()).expect("signal held workspace lock");
+                    release_lock_rx
+                        .recv()
+                        .expect("wait to release workspace lock");
+                })
+                .expect("hold workspace write registry lock");
+        });
+        lock_held_rx.recv().expect("workspace lock should be held");
+
+        let (attempted_tx, attempted_rx) = mpsc::channel();
+        registry.observe_synchronize_attempts(attempted_tx);
         let mut vm = Vm::default();
-        vm.set_workspace_write_registry(registry.clone());
-        let shared = vm.shared_runtime_state();
-        assert!(registry.shares_state_with(&shared.workspace_write_registry));
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(root.path());
+        vm.set_filesystem_writes_enabled(true);
+        vm.set_workspace_write_registry(registry);
+
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("map".to_string()), span());
+        task.push(Op::PushString("child.txt".to_string()), span());
+        task.push(Op::CallWord("swap".to_string()), span());
+        task.push(Op::PushString("child bytes".to_string()), span());
+        task.push(Op::CallWord("swap".to_string()), span());
+        task.push(Op::CallWord("workspace_write_text".to_string()), span());
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("spawn workspace writer");
+        if let Err(error) = attempted_rx.recv_timeout(Duration::from_secs(5)) {
+            release_lock_tx.send(()).expect("release workspace lock");
+            lock_holder
+                .join()
+                .expect("workspace lock holder should finish");
+            vm.call_word("await")
+                .expect("inspect spawned workspace writer failure");
+            panic!(
+                "spawned writer did not reach the shared registry: {error}; task stack: {:?}",
+                vm.stack()
+            );
+        }
+        assert!(
+            !root.path().join("child.txt").exists(),
+            "the spawned write entered while the parent registry was locked"
+        );
+
+        release_lock_tx.send(()).expect("release workspace lock");
+        lock_holder
+            .join()
+            .expect("workspace lock holder should finish");
+        vm.call_word("await")
+            .expect("await spawned workspace writer");
+
+        assert!(matches!(vm.stack(), [Value::Result(RicochetResult::Ok(_))]));
+        assert_eq!(
+            fs::read(root.path().join("child.txt")).expect("read spawned workspace write"),
+            b"child bytes"
+        );
     }
 
     #[test]

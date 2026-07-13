@@ -4403,7 +4403,7 @@ impl Vm {
                 return Err(error);
             }
         };
-        let options = match workspace_write_options(options) {
+        let options = match workspace_copy_or_move_options(options) {
             Ok(options) => options,
             Err(error) => {
                 self.stack.push(error);
@@ -8565,6 +8565,15 @@ fn workspace_write_options(value: Value) -> Result<WorkspaceWriteOptions, Value>
     })
 }
 
+fn workspace_copy_or_move_options(value: Value) -> Result<WorkspaceWriteOptions, Value> {
+    let mut options = workspace_options_map(value, &["overwrite", "create_parent_dirs"])?;
+    Ok(WorkspaceWriteOptions {
+        overwrite: workspace_bool_option(&mut options, "overwrite", false)?,
+        create_parent_dirs: workspace_bool_option(&mut options, "create_parent_dirs", false)?,
+        expected_sha256: None,
+    })
+}
+
 fn workspace_expected_sha256_option(
     options: &mut BTreeMap<String, Value>,
 ) -> Result<Option<String>, Value> {
@@ -9068,11 +9077,18 @@ enum WorkspacePersistResult {
 }
 
 trait WorkspaceWriteIo {
-    fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile>;
+    fn create_staging(
+        &self,
+        parent: &Path,
+        destination_exists: bool,
+    ) -> io::Result<tempfile::NamedTempFile>;
     fn after_stage(&self, _staging_path: &Path) -> io::Result<()> {
         Ok(())
     }
     fn before_final_check(&self, _destination: &Path) -> io::Result<()> {
+        Ok(())
+    }
+    fn before_persist(&self, _destination: &Path) -> io::Result<()> {
         Ok(())
     }
     fn persist(
@@ -9088,12 +9104,24 @@ trait WorkspaceWriteIo {
 struct RealWorkspaceWriteIo;
 
 impl WorkspaceWriteIo for RealWorkspaceWriteIo {
-    fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
+    fn create_staging(
+        &self,
+        parent: &Path,
+        destination_exists: bool,
+    ) -> io::Result<tempfile::NamedTempFile> {
         let mut builder = tempfile::Builder::new();
         builder
             .prefix(".ricochet-workspace-")
             .suffix(".stage")
             .disable_cleanup(true);
+        #[cfg(unix)]
+        if !destination_exists {
+            use std::os::unix::fs::PermissionsExt;
+
+            builder.permissions(fs::Permissions::from_mode(0o666));
+        }
+        #[cfg(not(unix))]
+        let _ = destination_exists;
         builder.tempfile_in(parent)
     }
 
@@ -9110,29 +9138,6 @@ impl WorkspaceWriteIo for RealWorkspaceWriteIo {
             },
         }
     }
-}
-
-#[cfg(test)]
-fn workspace_write_text_file_with_hook(
-    path: &Path,
-    contents: &str,
-    overwrite: bool,
-    before_open: impl FnOnce(),
-) -> io::Result<()> {
-    before_open();
-    let mut file = if overwrite {
-        fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)?
-    } else {
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?
-    };
-    file.write_all(contents.as_bytes())
 }
 
 #[cfg(test)]
@@ -9264,7 +9269,7 @@ fn workspace_write_text_atomic_overwrite(
             format!("workspace destination has no parent: {}", path.display()),
         );
     };
-    let mut staging = match workspace_io.create_staging(parent) {
+    let mut staging = match workspace_io.create_staging(parent, original_metadata.is_some()) {
         Ok(staging) => staging,
         Err(error) => return Value::result_err("IoError", error.to_string()),
     };
@@ -9359,6 +9364,34 @@ fn workspace_write_text_atomic_overwrite(
     }
 
     let sha256_after = workspace_sha256_integrity(contents.as_bytes());
+    if let Err(error) = workspace_io.before_persist(path) {
+        return workspace_retained_staging_error(
+            "IoError",
+            format!("workspace before-persist hook failed: {error}"),
+            staging,
+        );
+    }
+    match workspace_safe_overwrite_metadata(path) {
+        Ok(WorkspaceOverwriteDestinationInspection::Missing)
+        | Ok(WorkspaceOverwriteDestinationInspection::Safe(_)) => {}
+        Ok(WorkspaceOverwriteDestinationInspection::Unsafe(reason)) => {
+            return workspace_retained_staging_error(
+                "PermissionError",
+                format!(
+                    "workspace immediate pre-persist destination check failed: {}",
+                    reason.message(path)
+                ),
+                staging,
+            );
+        }
+        Err(error) => {
+            return workspace_retained_staging_error(
+                "IoError",
+                format!("workspace immediate pre-persist destination check failed: {error}"),
+                staging,
+            );
+        }
+    }
     let persisted = match workspace_io.persist(staging, path) {
         WorkspacePersistResult::Committed(file) => file,
         WorkspacePersistResult::Failed { error, staging } => {
@@ -10208,7 +10241,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
-    use std::sync::{mpsc, Arc, Barrier, Condvar, Mutex};
+    use std::sync::{mpsc, Arc, Barrier, Mutex};
 
     struct PauseAfterStageWorkspaceWriteIo {
         staged: mpsc::Sender<PathBuf>,
@@ -10216,8 +10249,12 @@ mod tests {
     }
 
     impl WorkspaceWriteIo for PauseAfterStageWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
         }
 
         fn after_stage(&self, staging_path: &Path) -> io::Result<()> {
@@ -10243,8 +10280,12 @@ mod tests {
     struct FailPersistWorkspaceWriteIo;
 
     impl WorkspaceWriteIo for FailPersistWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
         }
 
         fn persist(
@@ -10265,8 +10306,12 @@ mod tests {
     }
 
     impl WorkspaceWriteIo for ReplaceBeforeFinalCheckWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
         }
 
         fn before_final_check(&self, destination: &Path) -> io::Result<()> {
@@ -10290,8 +10335,12 @@ mod tests {
     }
 
     impl WorkspaceWriteIo for MakeDirectoryBeforeFinalCheckWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
         }
 
         fn after_stage(&self, staging_path: &Path) -> io::Result<()> {
@@ -10318,11 +10367,52 @@ mod tests {
         }
     }
 
+    struct MakeDirectoryAfterFinalHashWorkspaceWriteIo {
+        staged_path: Arc<Mutex<Option<PathBuf>>>,
+    }
+
+    impl WorkspaceWriteIo for MakeDirectoryAfterFinalHashWorkspaceWriteIo {
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
+        }
+
+        fn after_stage(&self, staging_path: &Path) -> io::Result<()> {
+            *self
+                .staged_path
+                .lock()
+                .map_err(|_| io::Error::other("staging path lock poisoned"))? =
+                Some(staging_path.to_path_buf());
+            Ok(())
+        }
+
+        fn before_persist(&self, destination: &Path) -> io::Result<()> {
+            let original = destination.with_extension("safe-after-final-hash");
+            fs::rename(destination, original)?;
+            fs::create_dir(destination)
+        }
+
+        fn persist(
+            &self,
+            staging: tempfile::NamedTempFile,
+            destination: &Path,
+        ) -> WorkspacePersistResult {
+            RealWorkspaceWriteIo.persist(staging, destination)
+        }
+    }
+
     struct FailPostCommitMetadataWorkspaceWriteIo;
 
     impl WorkspaceWriteIo for FailPostCommitMetadataWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
+        fn create_staging(
+            &self,
+            parent: &Path,
+            destination_exists: bool,
+        ) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent, destination_exists)
         }
 
         fn persist(
@@ -10335,41 +10425,6 @@ mod tests {
 
         fn metadata(&self, _persisted: &fs::File) -> io::Result<fs::Metadata> {
             Err(io::Error::other("injected post-commit metadata failure"))
-        }
-    }
-
-    #[derive(Clone)]
-    struct RendezvousBeforeFinalCheckWorkspaceWriteIo {
-        state: Arc<(Mutex<usize>, Condvar)>,
-    }
-
-    impl WorkspaceWriteIo for RendezvousBeforeFinalCheckWorkspaceWriteIo {
-        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
-            RealWorkspaceWriteIo.create_staging(parent)
-        }
-
-        fn before_final_check(&self, _destination: &Path) -> io::Result<()> {
-            let (arrivals, changed) = &*self.state;
-            let mut arrivals = arrivals
-                .lock()
-                .map_err(|_| io::Error::other("rendezvous lock poisoned"))?;
-            *arrivals += 1;
-            if *arrivals == 1 {
-                let _ = changed
-                    .wait_timeout(arrivals, Duration::from_millis(500))
-                    .map_err(|_| io::Error::other("rendezvous wait poisoned"))?;
-            } else {
-                changed.notify_all();
-            }
-            Ok(())
-        }
-
-        fn persist(
-            &self,
-            staging: tempfile::NamedTempFile,
-            destination: &Path,
-        ) -> WorkspacePersistResult {
-            RealWorkspaceWriteIo.persist(staging, destination)
         }
     }
 
@@ -10497,6 +10552,59 @@ mod tests {
                     if error.kind == "WorkspaceRequestError"
             ));
         }
+    }
+
+    #[test]
+    fn workspace_copy_rejects_expected_sha256_option() {
+        let root = tempfile::tempdir().expect("workspace copy root");
+        fs::write(root.path().join("source.txt"), "source").expect("workspace copy source");
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(root.path());
+        vm.set_filesystem_writes_enabled(true);
+        vm.push_value(Value::String("source.txt".to_string()));
+        vm.push_value(Value::String("copy.txt".to_string()));
+        vm.push_value(workspace_write_options_value(
+            true,
+            Value::String(workspace_sha256_integrity(b"source")),
+        ));
+
+        vm.call_workspace_copy("workspace_copy")
+            .expect("workspace_copy should return a structured result");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Err(error))]
+                if error.kind == "WorkspaceRequestError"
+        ));
+        assert!(!root.path().join("copy.txt").exists());
+    }
+
+    #[test]
+    fn workspace_move_rejects_expected_sha256_option() {
+        let root = tempfile::tempdir().expect("workspace move root");
+        fs::write(root.path().join("source.txt"), "source").expect("workspace move source");
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(root.path());
+        vm.set_filesystem_writes_enabled(true);
+        vm.push_value(Value::String("source.txt".to_string()));
+        vm.push_value(Value::String("moved.txt".to_string()));
+        vm.push_value(workspace_write_options_value(
+            true,
+            Value::String(workspace_sha256_integrity(b"source")),
+        ));
+
+        vm.call_workspace_move("workspace_move")
+            .expect("workspace_move should return a structured result");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Err(error))]
+                if error.kind == "WorkspaceRequestError"
+        ));
+        assert!(root.path().join("source.txt").exists());
+        assert!(!root.path().join("moved.txt").exists());
     }
 
     #[test]
@@ -10707,6 +10815,46 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn workspace_write_text_atomic_overwrite_missing_destination_uses_normal_creation_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().expect("missing destination mode root");
+        let control = root.path().join("open-options-control.txt");
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&control)
+            .expect("create normal OpenOptions control file");
+        let path = root.path().join("workspace-destination.txt");
+
+        let result = workspace_write_text_result(
+            "workspace-destination.txt",
+            &path,
+            "new",
+            Some(root.path()),
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: None,
+            },
+        );
+
+        assert!(matches!(result, Value::Result(RicochetResult::Ok(_))));
+        let control_mode = fs::metadata(&control)
+            .expect("read control file mode")
+            .permissions()
+            .mode()
+            & 0o777;
+        let destination_mode = fs::metadata(&path)
+            .expect("read committed destination mode")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(destination_mode, control_mode);
+    }
+
     #[test]
     fn workspace_write_text_atomic_overwrite_failure_preserves_destination() {
         let path = workspace_write_text_test_path("persist-failure-preserves.txt");
@@ -10818,18 +10966,17 @@ mod tests {
         fs::write(&path, "initial").expect("write concurrent writer fixture");
         let expected = workspace_sha256_integrity(b"initial");
         let registry = WorkspaceWriteRegistry::default();
-        let start = Arc::new(Barrier::new(2));
-        let rendezvous = RendezvousBeforeFinalCheckWorkspaceWriteIo {
-            state: Arc::new((Mutex::new(0), Condvar::new())),
-        };
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let release = Arc::new(Barrier::new(3));
         let writers = ["first payload", "second payload"].map(|payload| {
             let path = path.clone();
             let expected = expected.clone();
             let registry = registry.clone();
-            let start = Arc::clone(&start);
-            let rendezvous = rendezvous.clone();
+            let ready_tx = ready_tx.clone();
+            let release = Arc::clone(&release);
             thread::spawn(move || {
-                start.wait();
+                ready_tx.send(()).expect("signal precondition writer ready");
+                release.wait();
                 let result = workspace_write_text_synchronized_result(
                     &registry,
                     "destination.txt",
@@ -10841,11 +10988,18 @@ mod tests {
                         create_parent_dirs: false,
                         expected_sha256: Some(expected),
                     },
-                    &rendezvous,
+                    &RealWorkspaceWriteIo,
                 );
                 (payload, result)
             })
         });
+        ready_rx
+            .recv()
+            .expect("first precondition writer should be ready");
+        ready_rx
+            .recv()
+            .expect("second precondition writer should be ready");
+        release.wait();
         let outcomes = writers.map(|writer| writer.join().expect("writer should finish"));
 
         let successful_payloads = outcomes
@@ -10869,6 +11023,48 @@ mod tests {
         assert_eq!(
             fs::read(&path).expect("read winning complete payload"),
             successful_payloads[0].as_bytes()
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_post_hash_unsafe_swap_retains_exact_staging() {
+        let root = workspace_write_text_test_path("post-hash-unsafe-root");
+        fs::create_dir_all(&root).expect("create post-hash unsafe root");
+        let path = root.join("destination.txt");
+        fs::write(&path, "original").expect("write post-hash unsafe fixture");
+        let staged_path = Arc::new(Mutex::new(None));
+
+        let error = workspace_write_error(workspace_write_text_result_with_io(
+            "destination.txt",
+            &path,
+            "attempted replacement",
+            None,
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: Some(workspace_sha256_integrity(b"original")),
+            },
+            &MakeDirectoryAfterFinalHashWorkspaceWriteIo {
+                staged_path: Arc::clone(&staged_path),
+            },
+        ));
+
+        let captured = staged_path
+            .lock()
+            .expect("staging path lock")
+            .clone()
+            .expect("capture staging path");
+        assert_eq!(error.kind, "PermissionError");
+        assert_eq!(retained_staging_path(&error.message), captured);
+        assert_eq!(
+            fs::read(&captured).expect("read retained post-hash staging"),
+            b"attempted replacement"
+        );
+        assert!(path.is_dir());
+        assert_eq!(
+            fs::read(path.with_extension("safe-after-final-hash"))
+                .expect("read externally moved destination"),
+            b"original"
         );
     }
 
@@ -11182,27 +11378,47 @@ mod tests {
     #[test]
     fn workspace_write_text_non_overwrite_allows_exactly_one_concurrent_creator() {
         let path = workspace_write_text_test_path("concurrent-create.txt");
-        let barrier = Arc::new(Barrier::new(2));
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let release = Arc::new(Barrier::new(3));
         let creators = ["first", "second"].map(|payload| {
             let path = path.clone();
-            let barrier = Arc::clone(&barrier);
+            let ready_tx = ready_tx.clone();
+            let release = Arc::clone(&release);
             thread::spawn(move || {
-                let result = workspace_write_text_file_with_hook(&path, payload, false, || {
-                    barrier.wait();
-                });
+                ready_tx.send(()).expect("signal creator ready");
+                release.wait();
+                let result = workspace_write_text_result(
+                    "concurrent-create.txt",
+                    &path,
+                    payload,
+                    None,
+                    &WorkspaceWriteOptions {
+                        overwrite: false,
+                        create_parent_dirs: false,
+                        expected_sha256: None,
+                    },
+                );
                 (payload, result)
             })
         });
+        ready_rx.recv().expect("first creator should be ready");
+        ready_rx.recv().expect("second creator should be ready");
+        release.wait();
         let outcomes = creators.map(|creator| creator.join().expect("creator should not panic"));
 
         let successful_payloads = outcomes
             .iter()
-            .filter_map(|(payload, result)| result.is_ok().then_some(*payload))
+            .filter_map(|(payload, result)| {
+                matches!(result, Value::Result(RicochetResult::Ok(_))).then_some(*payload)
+            })
             .collect::<Vec<_>>();
         let already_exists_count = outcomes
             .iter()
             .filter(|(_, result)| {
-                matches!(result, Err(error) if error.kind() == io::ErrorKind::AlreadyExists)
+                matches!(
+                    result,
+                    Value::Result(RicochetResult::Err(error)) if error.kind == "AlreadyExists"
+                )
             })
             .count();
         assert_eq!(successful_payloads.len(), 1);
