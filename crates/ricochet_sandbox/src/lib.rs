@@ -1,0 +1,22 @@
+mod destination;
+mod error;
+mod identity;
+mod version;
+
+pub use destination::DestinationGrant;
+pub use error::{
+    DiagnosticMetadata, FailedGuarantee, Remediation, ResourceLimitKind, SandboxError,
+    SandboxErrorCode, SandboxPhase, TerminationReason,
+};
+pub use identity::{
+    BackendFeatureId, BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId,
+    PtyId, RequestId, ScratchId, SessionId, Sha256Digest, ToolId, UnixMillis,
+};
+pub use version::{
+    CATALOG_SCHEMA_V1, FRAME_MAC_BYTES, MAX_FRAME_BYTES, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1,
+    PROTOCOL_V1,
+};
+
+pub fn crate_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}

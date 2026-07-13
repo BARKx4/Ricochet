@@ -3295,6 +3295,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_sandbox"
+version = "0.1.19-rc.6"
+dependencies = [
+ "base64",
+ "hmac 0.12.1",
+ "idna",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
 name = "ricochet_syntax"
 version = "0.1.19-rc.6"
 dependencies = [
