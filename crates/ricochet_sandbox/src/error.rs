@@ -74,7 +74,6 @@ pub enum TerminationReason {
     SessionClosed,
 }
 
-#[derive(Debug)]
 pub struct DiagnosticMetadata {
     tool_id: Option<ToolId>,
     destination: Option<DestinationGrant>,
@@ -130,6 +129,20 @@ impl DiagnosticMetadata {
 impl Default for DiagnosticMetadata {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl fmt::Debug for DiagnosticMetadata {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DiagnosticMetadata")
+            .field("tool_id", &self.tool_id)
+            .field("destination_present", &self.destination.is_some())
+            .field("resource_limit", &self.resource_limit)
+            .field("protocol_version", &self.protocol_version)
+            .field("session_id", &self.session_id)
+            .field("backend_feature", &self.backend_feature)
+            .finish()
     }
 }
 
