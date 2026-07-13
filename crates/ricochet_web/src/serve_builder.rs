@@ -7,12 +7,17 @@ use axum::Router;
 use crate::database_capability::DatabaseBackend;
 use crate::server::{self, RequestFaultSink, ServeOptions, WatchTraceSink};
 
+#[cfg(test)]
+pub(crate) type RequestVmObserver = Arc<dyn Fn(&ricochet_vm::Vm) + Send + Sync>;
+
 pub struct ServeBuilder {
     project_root: PathBuf,
     options: Option<ServeOptions>,
     database_backend: Option<Arc<dyn DatabaseBackend>>,
     trace_sink: Option<WatchTraceSink>,
     request_fault_sink: Option<RequestFaultSink>,
+    #[cfg(test)]
+    request_vm_observer: Option<RequestVmObserver>,
     watched: bool,
 }
 
@@ -22,6 +27,8 @@ pub(crate) struct ServeBuilderParts {
     pub(crate) database_backend: Option<Arc<dyn DatabaseBackend>>,
     pub(crate) trace_sink: Option<WatchTraceSink>,
     pub(crate) request_fault_sink: Option<RequestFaultSink>,
+    #[cfg(test)]
+    pub(crate) request_vm_observer: Option<RequestVmObserver>,
     pub(crate) watched: bool,
 }
 
@@ -33,6 +40,8 @@ impl ServeBuilder {
             database_backend: None,
             trace_sink: None,
             request_fault_sink: None,
+            #[cfg(test)]
+            request_vm_observer: None,
             watched: false,
         }
     }
@@ -71,6 +80,12 @@ impl ServeBuilder {
         self
     }
 
+    #[cfg(test)]
+    pub(crate) fn request_vm_observer(mut self, observer: RequestVmObserver) -> Self {
+        self.request_vm_observer = Some(observer);
+        self
+    }
+
     pub(crate) fn into_parts(self) -> ServeBuilderParts {
         ServeBuilderParts {
             project_root: self.project_root,
@@ -78,6 +93,8 @@ impl ServeBuilder {
             database_backend: self.database_backend,
             trace_sink: self.trace_sink,
             request_fault_sink: self.request_fault_sink,
+            #[cfg(test)]
+            request_vm_observer: self.request_vm_observer,
             watched: self.watched,
         }
     }

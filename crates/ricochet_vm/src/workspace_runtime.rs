@@ -21,7 +21,7 @@ impl WorkspaceWriteRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
+    use std::sync::{mpsc, TryLockError};
     use std::thread;
 
     use super::WorkspaceWriteRegistry;
@@ -47,6 +47,13 @@ mod tests {
         first_entered_rx
             .recv()
             .expect("first operation should enter");
+        assert!(
+            matches!(
+                second_registry.inner.try_lock(),
+                Err(TryLockError::WouldBlock)
+            ),
+            "the second clone's mutex was not locked by the first clone"
+        );
 
         let second = thread::spawn(move || {
             second_started_tx.send(()).expect("signal second start");
