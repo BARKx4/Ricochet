@@ -11269,15 +11269,17 @@ mod tests {
     fn workspace_write_text_rejects_non_regular_destination() {
         use std::os::unix::net::UnixListener;
 
-        let root = workspace_write_text_test_path("non-regular-destination-root");
-        fs::create_dir_all(&root).expect("create non-regular destination root");
-        let non_regular = root.join("destination-socket");
+        let root = tempfile::Builder::new()
+            .prefix("rco-sock-")
+            .tempdir()
+            .expect("create short non-regular destination root");
+        let non_regular = root.path().join("s");
         let _listener = UnixListener::bind(&non_regular).expect("create socket destination");
         let non_regular_error = workspace_write_error(workspace_write_text_result(
-            "destination-socket",
+            "s",
             &non_regular,
             "replacement",
-            Some(&root),
+            Some(root.path()),
             &WorkspaceWriteOptions {
                 overwrite: true,
                 create_parent_dirs: false,

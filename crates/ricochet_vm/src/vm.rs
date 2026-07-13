@@ -7330,6 +7330,10 @@ mod tests {
     #[test]
     fn workspace_write_registry_is_shared_with_spawned_tasks() {
         let root = tempfile::tempdir().expect("spawned workspace write root");
+        let canonical_root = root
+            .path()
+            .canonicalize()
+            .expect("canonical spawned workspace write root");
         let mut registry = WorkspaceWriteRegistry::default();
         let lock_holder_registry = registry.clone();
         let (lock_held_tx, lock_held_rx) = mpsc::channel();
@@ -7350,7 +7354,7 @@ mod tests {
         registry.observe_synchronize_attempts(attempted_tx);
         let mut vm = Vm::default();
         vm.set_host_capabilities(true, false);
-        vm.set_filesystem_root(root.path());
+        vm.set_filesystem_root(&canonical_root);
         vm.set_filesystem_writes_enabled(true);
         vm.set_workspace_write_registry(registry);
 
@@ -7380,7 +7384,7 @@ mod tests {
             );
         }
         assert!(
-            !root.path().join("child.txt").exists(),
+            !canonical_root.join("child.txt").exists(),
             "the spawned write entered while the parent registry was locked"
         );
 
@@ -7393,7 +7397,7 @@ mod tests {
 
         assert!(matches!(vm.stack(), [Value::Result(RicochetResult::Ok(_))]));
         assert_eq!(
-            fs::read(root.path().join("child.txt")).expect("read spawned workspace write"),
+            fs::read(canonical_root.join("child.txt")).expect("read spawned workspace write"),
             b"child bytes"
         );
     }
