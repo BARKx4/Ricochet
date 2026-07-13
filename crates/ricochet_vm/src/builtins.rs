@@ -9238,7 +9238,11 @@ fn workspace_write_text_atomic_overwrite(
     workspace_io: &dyn WorkspaceWriteIo,
 ) -> Value {
     let original_metadata = match workspace_safe_overwrite_metadata(path) {
-        Ok(metadata) => metadata,
+        Ok(WorkspaceOverwriteDestinationInspection::Missing) => None,
+        Ok(WorkspaceOverwriteDestinationInspection::Safe(metadata)) => Some(metadata),
+        Ok(WorkspaceOverwriteDestinationInspection::Unsafe(reason)) => {
+            return Value::result_err("PermissionError", reason.message(path));
+        }
         Err(error) => return Value::result_err("IoError", error.to_string()),
     };
     let sha256_before = match original_metadata.as_ref() {
@@ -9311,7 +9315,18 @@ fn workspace_write_text_atomic_overwrite(
     }
 
     let final_metadata = match workspace_safe_overwrite_metadata(path) {
-        Ok(metadata) => metadata,
+        Ok(WorkspaceOverwriteDestinationInspection::Missing) => None,
+        Ok(WorkspaceOverwriteDestinationInspection::Safe(metadata)) => Some(metadata),
+        Ok(WorkspaceOverwriteDestinationInspection::Unsafe(reason)) => {
+            return workspace_retained_staging_error(
+                "PermissionError",
+                format!(
+                    "workspace final destination check failed: {}",
+                    reason.message(path)
+                ),
+                staging,
+            );
+        }
         Err(error) => {
             return workspace_retained_staging_error(
                 "IoError",
@@ -9382,41 +9397,78 @@ fn workspace_write_text_atomic_overwrite(
     )
 }
 
-fn workspace_safe_overwrite_metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
+enum WorkspaceOverwriteDestinationInspection {
+    Missing,
+    Safe(fs::Metadata),
+    Unsafe(WorkspaceUnsafeOverwriteDestination),
+}
+
+enum WorkspaceUnsafeOverwriteDestination {
+    Directory,
+    NonRegular,
+    Readonly,
+    SymbolicLink,
+    #[cfg(windows)]
+    WindowsReparsePoint,
+}
+
+impl WorkspaceUnsafeOverwriteDestination {
+    fn message(&self, path: &Path) -> String {
+        let description = match self {
+            Self::Directory => "a directory",
+            Self::NonRegular => "not a regular file",
+            Self::Readonly => "readonly",
+            Self::SymbolicLink => "a symbolic link",
+            #[cfg(windows)]
+            Self::WindowsReparsePoint => "a Windows reparse point",
+        };
+        format!(
+            "workspace overwrite destination is {description}: {}",
+            path.display()
+        )
+    }
+}
+
+fn workspace_safe_overwrite_metadata(
+    path: &Path,
+) -> io::Result<WorkspaceOverwriteDestinationInspection> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(WorkspaceOverwriteDestinationInspection::Missing);
+        }
         Err(error) => return Err(error),
     };
-    if metadata.file_type().is_symlink() {
-        return Err(io::Error::other(format!(
-            "workspace overwrite destination is a symbolic link: {}",
-            path.display()
-        )));
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
         if metadata.file_attributes() & 0x400 != 0 {
-            return Err(io::Error::other(format!(
-                "workspace overwrite destination is a Windows reparse point: {}",
-                path.display()
-            )));
+            return Ok(WorkspaceOverwriteDestinationInspection::Unsafe(
+                WorkspaceUnsafeOverwriteDestination::WindowsReparsePoint,
+            ));
         }
     }
+    if metadata.file_type().is_symlink() {
+        return Ok(WorkspaceOverwriteDestinationInspection::Unsafe(
+            WorkspaceUnsafeOverwriteDestination::SymbolicLink,
+        ));
+    }
+    if metadata.is_dir() {
+        return Ok(WorkspaceOverwriteDestinationInspection::Unsafe(
+            WorkspaceUnsafeOverwriteDestination::Directory,
+        ));
+    }
     if !metadata.is_file() {
-        return Err(io::Error::other(format!(
-            "workspace overwrite destination is not a regular file: {}",
-            path.display()
-        )));
+        return Ok(WorkspaceOverwriteDestinationInspection::Unsafe(
+            WorkspaceUnsafeOverwriteDestination::NonRegular,
+        ));
     }
     if metadata.permissions().readonly() {
-        return Err(io::Error::other(format!(
-            "workspace overwrite destination is readonly: {}",
-            path.display()
-        )));
+        return Ok(WorkspaceOverwriteDestinationInspection::Unsafe(
+            WorkspaceUnsafeOverwriteDestination::Readonly,
+        ));
     }
-    Ok(Some(metadata))
+    Ok(WorkspaceOverwriteDestinationInspection::Safe(metadata))
 }
 
 fn workspace_precondition_error(
@@ -10233,6 +10285,39 @@ mod tests {
         }
     }
 
+    struct MakeDirectoryBeforeFinalCheckWorkspaceWriteIo {
+        staged_path: Arc<Mutex<Option<PathBuf>>>,
+    }
+
+    impl WorkspaceWriteIo for MakeDirectoryBeforeFinalCheckWorkspaceWriteIo {
+        fn create_staging(&self, parent: &Path) -> io::Result<tempfile::NamedTempFile> {
+            RealWorkspaceWriteIo.create_staging(parent)
+        }
+
+        fn after_stage(&self, staging_path: &Path) -> io::Result<()> {
+            *self
+                .staged_path
+                .lock()
+                .map_err(|_| io::Error::other("staging path lock poisoned"))? =
+                Some(staging_path.to_path_buf());
+            Ok(())
+        }
+
+        fn before_final_check(&self, destination: &Path) -> io::Result<()> {
+            let original = destination.with_extension("safe-before-final-check");
+            fs::rename(destination, original)?;
+            fs::create_dir(destination)
+        }
+
+        fn persist(
+            &self,
+            staging: tempfile::NamedTempFile,
+            destination: &Path,
+        ) -> WorkspacePersistResult {
+            RealWorkspaceWriteIo.persist(staging, destination)
+        }
+    }
+
     struct FailPostCommitMetadataWorkspaceWriteIo;
 
     impl WorkspaceWriteIo for FailPostCommitMetadataWorkspaceWriteIo {
@@ -10861,12 +10946,17 @@ mod tests {
                 expected_sha256: None,
             },
         ));
-        assert_eq!(link_error.kind, "IoError");
+        assert_eq!(link_error.kind, "PermissionError");
         assert_eq!(
             fs::read(&target).expect("read unchanged symlink target"),
             b"target bytes"
         );
+    }
 
+    #[test]
+    fn workspace_write_text_rejects_directory_destination() {
+        let root = workspace_write_text_test_path("directory-destination-root");
+        fs::create_dir_all(&root).expect("create directory destination root");
         let directory = root.join("destination-directory");
         fs::create_dir(&directory).expect("create directory destination");
         let directory_error = workspace_write_error(workspace_write_text_result(
@@ -10880,8 +10970,36 @@ mod tests {
                 expected_sha256: None,
             },
         ));
-        assert_eq!(directory_error.kind, "IoError");
+        assert_eq!(directory_error.kind, "PermissionError");
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn workspace_write_text_rejects_non_regular_destination() {
+        use std::os::unix::net::UnixListener;
+
+        let root = workspace_write_text_test_path("non-regular-destination-root");
+        fs::create_dir_all(&root).expect("create non-regular destination root");
+        let non_regular = root.join("destination-socket");
+        let _listener = UnixListener::bind(&non_regular).expect("create socket destination");
+        let non_regular_error = workspace_write_error(workspace_write_text_result(
+            "destination-socket",
+            &non_regular,
+            "replacement",
+            Some(&root),
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: None,
+            },
+        ));
+        assert_eq!(non_regular_error.kind, "PermissionError");
+    }
+
+    #[test]
+    fn workspace_write_text_rejects_readonly_destination() {
+        let root = workspace_write_text_test_path("readonly-destination-root");
+        fs::create_dir_all(&root).expect("create readonly destination root");
         let readonly = root.join("destination-readonly.txt");
         fs::write(&readonly, "readonly bytes").expect("write readonly destination");
         let mut permissions = fs::metadata(&readonly)
@@ -10900,10 +11018,78 @@ mod tests {
                 expected_sha256: None,
             },
         ));
-        assert_eq!(readonly_error.kind, "IoError");
+        assert_eq!(readonly_error.kind, "PermissionError");
         assert_eq!(
             fs::read(&readonly).expect("read readonly destination"),
             b"readonly bytes"
+        );
+    }
+
+    #[test]
+    fn workspace_write_text_destination_inspection_io_error_remains_io_error() {
+        let mut invalid_path =
+            workspace_write_text_test_path("inspection-io-error").into_os_string();
+        invalid_path.push("\0destination.txt");
+
+        let error = workspace_write_error(workspace_write_text_result(
+            "invalid-destination",
+            &PathBuf::from(invalid_path),
+            "replacement",
+            None,
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: None,
+            },
+        ));
+
+        assert_eq!(error.kind, "IoError");
+    }
+
+    #[test]
+    fn workspace_write_text_final_unsafe_destination_retains_exact_staging_path() {
+        let root = workspace_write_text_test_path("final-unsafe-destination-root");
+        fs::create_dir_all(&root).expect("create final unsafe destination root");
+        let path = root.join("destination.txt");
+        fs::write(&path, "original").expect("write final unsafe destination fixture");
+        let attempted = "retained after unsafe final destination";
+        let staged_path = Arc::new(Mutex::new(None));
+
+        let error = workspace_write_error(workspace_write_text_result_with_io(
+            "destination.txt",
+            &path,
+            attempted,
+            Some(&root),
+            &WorkspaceWriteOptions {
+                overwrite: true,
+                create_parent_dirs: false,
+                expected_sha256: None,
+            },
+            &MakeDirectoryBeforeFinalCheckWorkspaceWriteIo {
+                staged_path: Arc::clone(&staged_path),
+            },
+        ));
+
+        assert_eq!(error.kind, "PermissionError");
+        let retained = retained_staging_path(&error.message);
+        assert_eq!(
+            Some(&retained),
+            staged_path
+                .lock()
+                .expect("staging path lock should remain healthy")
+                .as_ref(),
+            "the final unsafe-destination error must report the exact staged path"
+        );
+        assert!(retained.exists());
+        assert_eq!(
+            fs::read(&retained).expect("read retained unsafe-destination staging"),
+            attempted.as_bytes()
+        );
+        assert!(path.is_dir());
+        assert_eq!(
+            fs::read(path.with_extension("safe-before-final-check"))
+                .expect("read externally preserved original destination"),
+            b"original"
         );
     }
 
