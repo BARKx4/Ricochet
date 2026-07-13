@@ -1500,6 +1500,12 @@
     "status": "drafted"
   },
   {
+    "word": "workspace_read_text_snapshot",
+    "detail": "system",
+    "primary_chapter": "17-files-workspaces-env-and-secrets",
+    "status": "drafted"
+  },
+  {
     "word": "workspace_write_text",
     "detail": "system",
     "primary_chapter": "17-files-workspaces-env-and-secrets",

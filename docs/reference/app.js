@@ -2000,11 +2000,19 @@ const WORDS = [
     "example": "options map\n\"README.md\" $options workspace_read_text value"
   },
   {
+    "word": "workspace_read_text_snapshot",
+    "aliases": [],
+    "group": "system",
+    "stack": "path:string options:map -> result(map)",
+    "body": "Reads one bounded UTF-8 byte buffer and returns `text`, its `sha256` integrity string, and byte `len` together with workspace path fields. Option `max_bytes` defaults to 1 MiB.",
+    "example": "options map\n\"README.md\" $options workspace_read_text_snapshot value snapshot var\n$snapshot \"sha256\" at println"
+  },
+  {
     "word": "workspace_write_text",
     "aliases": [],
     "group": "system",
     "stack": "path:string contents:string options:map -> result(map)",
-    "body": "Writes UTF-8 text through the workspace bounds when filesystem writes are enabled. Options include `overwrite` and `create_parent_dirs`; overwrite defaults to false. With overwrite false, creation atomically claims an absent path and returns AlreadyExists to a losing creator. The file may be visible before the winning write finishes; this is not atomic content publication or a durability guarantee.",
+    "body": "Writes UTF-8 text through the workspace bounds when filesystem writes are enabled. Options are `overwrite`, `create_parent_dirs`, and `expected_sha256`; overwrite defaults to false and expected_sha256 requires overwrite true. Success extends workspace metadata with `atomic`, `bytes_written`, `sha256_before`, and `sha256_after`. With overwrite false, creation exclusively claims an absent path and returns AlreadyExists to a losing creator, but the winning file may be visible before its contents finish writing. With overwrite true, Ricochet synchronizes a same-directory staging file and atomically replaces the path; the containing directory is not synchronized, so this is not a complete storage-durability guarantee. `expected_sha256` coordinates competing calls that share one host registry and returns PreconditionFailed when the destination no longer matches; external mutations remain outside that guarantee. Failures after staging begins and before replacement retain the staging file and report its path. PostCommitMetadataError means replacement committed but metadata inspection failed, so do not retry blindly.",
     "example": "options map\n\"out.txt\" \"hello\" $options workspace_write_text value"
   },
   {
