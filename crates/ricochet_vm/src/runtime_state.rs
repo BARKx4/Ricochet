@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::{
     ApprovalRegistry, HttpStreamRegistry, ProcessRegistry, PtyRegistry, TcpListenerRegistry,
     TcpSocketRegistry, UploadStreamRegistry, WebSocketListenerRegistry, WebSocketRegistry,
+    WorkspaceWriteRegistry,
 };
 
 #[derive(Clone)]
@@ -36,4 +37,5 @@ pub(crate) struct SharedRuntimeState {
     pub(crate) process_registry: ProcessRegistry,
     pub(crate) pty_registry: PtyRegistry,
     pub(crate) approval_registry: ApprovalRegistry,
+    pub(crate) workspace_write_registry: WorkspaceWriteRegistry,
 }

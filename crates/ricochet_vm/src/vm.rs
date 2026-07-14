@@ -34,6 +34,7 @@ use crate::socket_runtime::{
 use crate::strictness::{StrictnessConfig, StrictnessDiagnostic, StrictnessDiagnosticKind};
 use crate::upload_runtime::UploadStreamRegistry;
 use crate::value::Value;
+use crate::workspace_runtime::WorkspaceWriteRegistry;
 
 const DEFAULT_MAX_RUNNING_TASKS: usize = 64;
 static GLOBAL_RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
@@ -234,6 +235,7 @@ pub struct Vm {
     pty_enabled: bool,
     pty_registry: PtyRegistry,
     approval_registry: ApprovalRegistry,
+    workspace_write_registry: WorkspaceWriteRegistry,
     terminal_enabled: bool,
     webview_enabled: bool,
     pub(super) environment_enabled: bool,
@@ -301,6 +303,7 @@ impl Default for Vm {
             pty_enabled: false,
             pty_registry: PtyRegistry::default(),
             approval_registry: ApprovalRegistry::default(),
+            workspace_write_registry: WorkspaceWriteRegistry::default(),
             terminal_enabled: false,
             webview_enabled: false,
             environment_enabled: false,
@@ -599,6 +602,7 @@ fn run_task_to_completion(
         pty_enabled: host_runtime.pty_enabled,
         pty_registry: shared_runtime.pty_registry,
         approval_registry: shared_runtime.approval_registry,
+        workspace_write_registry: shared_runtime.workspace_write_registry,
         terminal_enabled: host_runtime.terminal_enabled,
         webview_enabled: host_runtime.webview_enabled,
         environment_enabled: host_runtime.environment_enabled,
@@ -920,6 +924,14 @@ impl Vm {
 
     pub fn set_approval_registry(&mut self, registry: ApprovalRegistry) {
         self.approval_registry = registry;
+    }
+
+    pub fn set_workspace_write_registry(&mut self, registry: WorkspaceWriteRegistry) {
+        self.workspace_write_registry = registry;
+    }
+
+    pub fn workspace_write_registry(&self) -> &WorkspaceWriteRegistry {
+        &self.workspace_write_registry
     }
 
     pub fn set_terminal_enabled(&mut self, enabled: bool) {
@@ -1868,6 +1880,7 @@ impl Vm {
             "workspace_metadata" => self.call_workspace_metadata(word),
             "workspace_list" => self.call_workspace_list(word),
             "workspace_read_text" => self.call_workspace_read_text(word),
+            "workspace_read_text_snapshot" => self.call_workspace_read_text_snapshot(word),
             "workspace_write_text" => self.call_workspace_write_text(word),
             "workspace_mkdir" => self.call_workspace_mkdir(word),
             "workspace_delete" => self.call_workspace_delete(word),
@@ -3672,6 +3685,7 @@ impl Vm {
             process_registry: self.process_registry.clone(),
             pty_registry: self.pty_registry.clone(),
             approval_registry: self.approval_registry.clone(),
+            workspace_write_registry: self.workspace_write_registry.clone(),
         }
     }
 
@@ -4949,12 +4963,12 @@ fn predicate_expected_receiver(name: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+    use std::{cell::RefCell, collections::BTreeMap, fs, rc::Rc, sync::mpsc, time::Duration};
 
     use super::*;
     use crate::{
         approval_runtime::ApprovalCreateRequest, debug::DebugEvent, result::RicochetResult,
-        value::Value,
+        value::Value, workspace_runtime::WorkspaceWriteRegistry,
     };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 
@@ -7311,6 +7325,81 @@ mod tests {
             panic!("expected environment capability map, got {capabilities:?}");
         };
         assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn workspace_write_registry_is_shared_with_spawned_tasks() {
+        let root = tempfile::tempdir().expect("spawned workspace write root");
+        let canonical_root = root
+            .path()
+            .canonicalize()
+            .expect("canonical spawned workspace write root");
+        let mut registry = WorkspaceWriteRegistry::default();
+        let lock_holder_registry = registry.clone();
+        let (lock_held_tx, lock_held_rx) = mpsc::channel();
+        let (release_lock_tx, release_lock_rx) = mpsc::channel();
+        let lock_holder = thread::spawn(move || {
+            lock_holder_registry
+                .synchronize(|| {
+                    lock_held_tx.send(()).expect("signal held workspace lock");
+                    release_lock_rx
+                        .recv()
+                        .expect("wait to release workspace lock");
+                })
+                .expect("hold workspace write registry lock");
+        });
+        lock_held_rx.recv().expect("workspace lock should be held");
+
+        let (attempted_tx, attempted_rx) = mpsc::channel();
+        registry.observe_synchronize_attempts(attempted_tx);
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(&canonical_root);
+        vm.set_filesystem_writes_enabled(true);
+        vm.set_workspace_write_registry(registry);
+
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("map".to_string()), span());
+        task.push(Op::PushString("child.txt".to_string()), span());
+        task.push(Op::CallWord("swap".to_string()), span());
+        task.push(Op::PushString("child bytes".to_string()), span());
+        task.push(Op::CallWord("swap".to_string()), span());
+        task.push(Op::CallWord("workspace_write_text".to_string()), span());
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        vm.run_chunk(&chunk).expect("spawn workspace writer");
+        if let Err(error) = attempted_rx.recv_timeout(Duration::from_secs(5)) {
+            release_lock_tx.send(()).expect("release workspace lock");
+            lock_holder
+                .join()
+                .expect("workspace lock holder should finish");
+            vm.call_word("await")
+                .expect("inspect spawned workspace writer failure");
+            panic!(
+                "spawned writer did not reach the shared registry: {error}; task stack: {:?}",
+                vm.stack()
+            );
+        }
+        assert!(
+            !canonical_root.join("child.txt").exists(),
+            "the spawned write entered while the parent registry was locked"
+        );
+
+        release_lock_tx.send(()).expect("release workspace lock");
+        lock_holder
+            .join()
+            .expect("workspace lock holder should finish");
+        vm.call_word("await")
+            .expect("await spawned workspace writer");
+
+        assert!(matches!(vm.stack(), [Value::Result(RicochetResult::Ok(_))]));
+        assert_eq!(
+            fs::read(canonical_root.join("child.txt")).expect("read spawned workspace write"),
+            b"child bytes"
+        );
     }
 
     #[test]

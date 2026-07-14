@@ -24,7 +24,7 @@ use ricochet_compiler::{
 };
 use ricochet_vm::{
     ApprovalRegistry, Capability, DynamicModuleSource, ProcessRegistry, PtyRegistry,
-    UploadStreamMetadata, UploadStreamRegistry, Value, Vm,
+    UploadStreamMetadata, UploadStreamRegistry, Value, Vm, WorkspaceWriteRegistry,
 };
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -250,6 +250,25 @@ enum RenderedAction {
 
 type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
 
+#[cfg(test)]
+fn compose_request_vm_observer(
+    vm_setup: Option<VmSetup>,
+    observer: Option<crate::serve_builder::RequestVmObserver>,
+) -> Option<VmSetup> {
+    let Some(observer) = observer else {
+        return vm_setup;
+    };
+
+    Some(Arc::new(move |vm| {
+        let capabilities = match &vm_setup {
+            Some(setup) => setup(vm)?,
+            None => BTreeMap::new(),
+        };
+        observer(vm);
+        Ok(capabilities)
+    }))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProjectSignature {
     files: BTreeMap<PathBuf, FileSignature>,
@@ -387,6 +406,7 @@ struct ServeCapabilityState {
     process_registry: ProcessRegistry,
     pty_registry: PtyRegistry,
     approval_registry: ApprovalRegistry,
+    workspace_write_registry: WorkspaceWriteRegistry,
 }
 
 pub fn build_test_app() -> Result<Router> {
@@ -536,18 +556,13 @@ pub fn build_app_from_serve_builder(builder: crate::ServeBuilder) -> Result<Rout
 
     let vm_setup = match parts.database_backend {
         Some(backend) => Some(database_vm_setup(&parts.project_root, backend)?),
-        None => {
-            if parts.options.is_some() {
-                model_vm_setup(&parts.project_root)?
-            } else {
-                None
-            }
-        }
+        None => model_vm_setup(&parts.project_root)?,
     };
-    let vm_setup = match &parts.options {
-        Some(options) => compose_serve_capability_vm_setup(&parts.project_root, vm_setup, options)?,
-        None => vm_setup,
-    };
+    let capability_options = parts.options.clone().unwrap_or_default();
+    let vm_setup =
+        compose_serve_capability_vm_setup(&parts.project_root, vm_setup, &capability_options)?;
+    #[cfg(test)]
+    let vm_setup = compose_request_vm_observer(vm_setup, parts.request_vm_observer);
     build_app_from_dir_internal_with_options_and_request_fault_sink(
         &parts.project_root,
         vm_setup,
@@ -2946,6 +2961,7 @@ fn compose_serve_capability_vm_setup_with_state(
             None => BTreeMap::new(),
         };
         vm.set_approval_registry(capability_state.approval_registry.clone());
+        vm.set_workspace_write_registry(capability_state.workspace_write_registry.clone());
         vm.set_environment_enabled(allow_env);
         if allow_all_env || env_allow.is_empty() {
             vm.clear_environment_allowed_names();
@@ -3173,6 +3189,28 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
+    #[test]
+    fn workspace_write_registry_is_shared_across_web_requests() {
+        let capability_state = Arc::new(ServeCapabilityState::default());
+        let vm_setup = compose_serve_capability_vm_setup_with_state(
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            None,
+            &ServeOptions::default(),
+            capability_state,
+        )
+        .expect("serve capability setup should compose")
+        .expect("serve capability setup should exist");
+
+        let mut first_vm = Vm::default();
+        vm_setup(&mut first_vm).expect("first request VM should configure");
+        let mut second_vm = Vm::default();
+        vm_setup(&mut second_vm).expect("second request VM should configure");
+
+        assert!(first_vm
+            .workspace_write_registry()
+            .shares_state_with(second_vm.workspace_write_registry()));
+    }
+
     #[tokio::test]
     async fn server_build_test_app_returns_ok() {
         let _ = build_test_app().expect("server test app should build");
@@ -3186,6 +3224,43 @@ mod tests {
         let _ = crate::ServeBuilder::new(fixture_root)
             .build()
             .expect("ServeBuilder should build a static router");
+    }
+
+    #[tokio::test]
+    async fn workspace_write_registry_is_shared_across_no_options_builder_requests() {
+        let fixture_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/web_minimal");
+        let registries = Arc::new(Mutex::new(Vec::new()));
+        let observed_registries = registries.clone();
+        let app = crate::ServeBuilder::new(fixture_root)
+            .request_vm_observer(Arc::new(move |vm| {
+                observed_registries
+                    .lock()
+                    .expect("request VM registry observations should lock")
+                    .push(vm.workspace_write_registry().clone());
+            }))
+            .build()
+            .expect("no-options ServeBuilder should build a static router");
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/")
+                        .body(Body::empty())
+                        .expect("request should build"),
+                )
+                .await
+                .expect("request should complete");
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let registries = registries
+            .lock()
+            .expect("request VM registry observations should lock");
+        assert_eq!(registries.len(), 2);
+        assert!(registries[0].shares_state_with(&registries[1]));
     }
 
     #[tokio::test]

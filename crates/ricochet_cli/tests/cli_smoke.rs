@@ -1837,6 +1837,15 @@ fn lsp_server_initializes_and_publishes_live_diagnostics() {
                 .any(|item| item["label"] == "workspace_read_text")),
         "completion response should include embedded reference catalog words\nstdout:\n{stdout}"
     );
+    assert!(
+        messages.iter().any(|message| message["id"] == 2
+            && message["result"]["items"]
+                .as_array()
+                .expect("completion result should contain items")
+                .iter()
+                .any(|item| item["label"] == "workspace_read_text_snapshot")),
+        "completion response should include workspace_read_text_snapshot from the embedded reference catalog\nstdout:\n{stdout}"
+    );
 }
 
 #[test]
@@ -11738,6 +11747,143 @@ $written "kind" at
     assert_eq!(
         fs::read(&target_path).expect("trusted absolute target should be readable"),
         b"trusted absolute write"
+    );
+}
+
+#[test]
+fn run_workspace_snapshot_drives_atomic_replacement() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let target_dir = base.join("trusted-atomic-replacement");
+    fs::create_dir_all(&target_dir).expect("trusted target directory should be created");
+    let target_path = target_dir.join("output.txt");
+    fs::write(&target_path, b"old complete contents")
+        .expect("trusted target should contain original bytes");
+    let target = escape_ricochet_string(&target_path.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"readOptions map
+writeOptions map
+$writeOptions "overwrite" true put drop
+
+"{target}" $readOptions workspace_read_text_snapshot value snapshot var
+$writeOptions "expected_sha256" $snapshot "sha256" at put drop
+"{target}" "new complete contents" $writeOptions workspace_write_text value written var
+
+$written "atomic" at assert_true
+$written "sha256_before" at $snapshot "sha256" at assert_equals
+$written "sha256_after" at println
+"#
+        ),
+    )
+    .expect("atomic replacement source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    assert_eq!(
+        fs::read(&target_path).expect("trusted absolute target should be readable"),
+        b"new complete contents"
+    );
+    let expected_sha256 = sha256_integrity_for_bytes(b"new complete contents");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut stdout_lines = stdout.lines();
+    assert_eq!(
+        stdout_lines.next(),
+        Some(expected_sha256.as_str()),
+        "stdout should print the exact replacement digest"
+    );
+    assert_eq!(
+        stdout_lines.next(),
+        Some("[]"),
+        "stdout should finish with an empty stack"
+    );
+    assert_eq!(
+        stdout_lines.next(),
+        None,
+        "stdout should contain no extra lines"
+    );
+
+    let readonly_target = target_dir.join("readonly.txt");
+    fs::write(&readonly_target, b"readonly original")
+        .expect("readonly target should contain original bytes");
+    let readonly = escape_ricochet_string(&readonly_target.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"writeOptions map
+$writeOptions "overwrite" true put drop
+"{readonly}" "readonly replacement" $writeOptions workspace_write_text error denied var
+$denied "kind" at println
+"#
+        ),
+    )
+    .expect("readonly denial source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-readonly")
+        .arg(&source_path)
+        .output()
+        .expect("read-only rco run should launch");
+
+    assert_run_success(&output);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["PermissionError", "[]"],
+        "read-only replacement should report PermissionError"
+    );
+    assert_eq!(
+        fs::read(&readonly_target).expect("readonly target should remain readable"),
+        b"readonly original",
+        "read-only replacement denial must preserve exact target bytes"
+    );
+
+    let bounded_root = base.join("atomic-replacement-root");
+    fs::create_dir_all(&bounded_root).expect("bounded filesystem root should be created");
+    let outside_target = base.join("outside-atomic-replacement-root.txt");
+    fs::write(&outside_target, b"outside original")
+        .expect("outside-root target should contain original bytes");
+    let outside = escape_ricochet_string(&outside_target.to_string_lossy());
+    fs::write(
+        &source_path,
+        format!(
+            r#"writeOptions map
+$writeOptions "overwrite" true put drop
+"{outside}" "outside replacement" $writeOptions workspace_write_text error denied var
+$denied "kind" at println
+"#
+        ),
+    )
+    .expect("outside-root denial source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-root")
+        .arg(&bounded_root)
+        .arg(&source_path)
+        .output()
+        .expect("bounded rco run should launch");
+
+    assert_run_success(&output);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["PermissionError", "[]"],
+        "outside-root replacement should report PermissionError"
+    );
+    assert_eq!(
+        fs::read(&outside_target).expect("outside-root target should remain readable"),
+        b"outside original",
+        "outside-root replacement denial must preserve exact target bytes"
     );
 }
 
