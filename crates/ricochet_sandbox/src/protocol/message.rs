@@ -2477,10 +2477,12 @@ pub(crate) fn event_permitted_for(kind: BrokerRequestKind, event: &BrokerEvent) 
 mod tests {
     use super::*;
     use crate::audit::{AuditContext, AuditEventKind};
+    use crate::backend::{SandboxBackend, SessionCommand};
     use crate::catalog::{
         ApprovalActor, Architecture, ArtifactKind, CatalogPathNormalizer, CatalogRecord,
         CatalogSnapshot, HashedArtifact, OperatingSystem, PlatformId,
     };
+    use crate::mock::{MockBackendConfig, MockSandboxBackend};
     use crate::policy::{
         ArgumentAuditMode, AuditPolicy, EnvironmentPolicy, ScratchDisposition, WorkspaceIdentity,
         WorkspaceIdentityResolver, WorkspaceRequest,
@@ -2593,6 +2595,84 @@ mod tests {
                 argument_count: 2,
             },
         ))
+    }
+
+    fn process_launch_request(session_id: &SessionId) -> BrokerRequest {
+        BrokerRequest::ProcessStart(ProcessLaunchRequest {
+            session_id: session_id.clone(),
+            executable: ExecutableRef::ManagedTool(ToolId::parse("git").unwrap()),
+            arguments: vec!["status".to_owned()],
+            cwd: Some("C:/workspace".to_owned()),
+            stdin_open: true,
+            environment: LaunchEnvironment {
+                clear_environment: true,
+                entries: Vec::new(),
+            },
+            timeout_ms: 1_000,
+            stdout_max_bytes: 1_024,
+            stderr_max_bytes: 1_024,
+        })
+    }
+
+    fn pty_launch_request(session_id: &SessionId) -> BrokerRequest {
+        BrokerRequest::PtyStart(PtyLaunchRequest {
+            session_id: session_id.clone(),
+            executable: ExecutableRef::ManagedTool(ToolId::parse("git").unwrap()),
+            arguments: vec!["status".to_owned()],
+            cwd: Some("C:/workspace".to_owned()),
+            environment: LaunchEnvironment {
+                clear_environment: true,
+                entries: Vec::new(),
+            },
+            rows: 24,
+            cols: 80,
+            output_max_bytes: 2_048,
+        })
+    }
+
+    #[test]
+    fn mock_launches_correlate_responses_and_emit_only_request_permitted_events() {
+        let session_id = SessionId::parse("session-01").unwrap();
+        let launches = [
+            process_launch_request(&session_id),
+            pty_launch_request(&session_id),
+        ];
+
+        for (index, request) in launches.into_iter().enumerate() {
+            let active_policy = test_policy("github.com:443");
+            let mut session = MockSandboxBackend::new(MockBackendConfig::default())
+                .prepare(
+                    session_id.clone(),
+                    ScratchId::parse("scratch-01").unwrap(),
+                    test_policy("github.com:443"),
+                )
+                .unwrap();
+            session.drain_events();
+
+            let kind = request.kind();
+            let request_id = RequestId::new(u64::try_from(index + 1).unwrap());
+            let mut correlation = ResponseCorrelation::default();
+            correlation.record_request(request_id, &request).unwrap();
+            let response = session
+                .handle(SessionCommand::try_from(request).unwrap())
+                .unwrap();
+            correlation
+                .validate_and_complete(request_id, &response)
+                .unwrap();
+
+            assert_eq!(session.state(), SessionState::Running);
+            let events = session.drain_events();
+            assert!(!events.is_empty());
+            for event in events {
+                event
+                    .validate_against_policy(&session_id, &active_policy)
+                    .unwrap();
+                assert!(
+                    event_permitted_for(kind, &event),
+                    "{kind:?} emitted forbidden event {event:?}"
+                );
+            }
+        }
     }
 
     #[test]

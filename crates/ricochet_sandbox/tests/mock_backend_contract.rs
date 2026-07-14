@@ -10,12 +10,12 @@ use ricochet_sandbox::{
     OperatingSystem, OperationErrorCode, PlatformId, ProcessId, ProcessLaunchRequest,
     ProcessReadRequest, ProcessRequest, ProcessSnapshot, ProcessStatus, ProcessTreeId,
     ProcessWriteRequest, PtyId, PtyLaunchRequest, PtyReadRequest, PtyRequest, PtyResizeRequest,
-    PtySnapshot, PtyStatus, PtyWriteRequest, Remediation, ResourceLimitKind, ResourceLimits,
-    SandboxBackend, SandboxError, SandboxSession, ScratchDisposition, ScratchId, SessionCommand,
-    SessionId, SessionRequest, SessionState, Sha256Digest, TerminationReason, ToolId, UnixMillis,
-    ValidatedCatalogSnapshot, ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity,
-    WorkspaceIdentityResolver, WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES,
-    POLICY_SCHEMA_V1,
+    PtySnapshot, PtyStatus, PtyWriteRequest, Remediation, RequestId, ResourceLimitKind,
+    ResourceLimits, ResponseCorrelation, SandboxBackend, SandboxError, SandboxSession,
+    ScratchDisposition, ScratchId, SessionCommand, SessionId, SessionRequest, SessionState,
+    Sha256Digest, TerminationReason, ToolId, UnixMillis, ValidatedCatalogSnapshot,
+    ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity, WorkspaceIdentityResolver,
+    WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1,
 };
 
 struct FixturePathNormalizer;
@@ -247,6 +247,15 @@ fn assert_state_transition(event: &BrokerEvent, from: SessionState, to: SessionS
             to: actual_to,
         } if *actual_from == from && *actual_to == to
     ));
+}
+
+fn assert_correlates(request_id: u64, request: &BrokerRequest, response: &BrokerResponse) {
+    let mut correlation = ResponseCorrelation::default();
+    let request_id = RequestId::new(request_id);
+    correlation.record_request(request_id, request).unwrap();
+    correlation
+        .validate_and_complete(request_id, response)
+        .unwrap();
 }
 
 #[test]
@@ -555,6 +564,111 @@ fn retained_process_operations_preserve_ids_arguments_offsets_status_and_release
 }
 
 #[test]
+fn process_reads_return_correlated_empty_chunks_for_offsets_at_or_after_buffer_end() {
+    let id = session_id("session-01");
+    let mut session = prepared_session(
+        MockBackendConfig {
+            scripted_stdout: b"abcdef".to_vec(),
+            scripted_stderr: b"XYZ".to_vec(),
+            ..MockBackendConfig::default()
+        },
+        &id,
+    );
+    session.drain_events();
+    let process = start_process(session.as_mut(), &id);
+    session.drain_events();
+
+    for (
+        request_id,
+        stdout_offset,
+        stderr_offset,
+        expected_stdout,
+        expected_stderr,
+        expected_stdout_offset,
+        expected_stderr_offset,
+    ) in [
+        (1, 1, 1, &b"bc"[..], &b"YZ"[..], 1, 1),
+        (2, 6, 3, &b""[..], &b""[..], 6, 3),
+        (3, 4_096, 8_192, &b""[..], &b""[..], 6, 3),
+        (4, u64::MAX, u64::MAX, &b""[..], &b""[..], 6, 3),
+    ] {
+        let request = ProcessReadRequest {
+            session_id: id.clone(),
+            process_id: process.id,
+            stdout_offset,
+            stderr_offset,
+            max_bytes_per_stream: 2,
+        };
+        let response = session
+            .handle(SessionCommand::ProcessRead(request.clone()))
+            .unwrap();
+        assert_correlates(request_id, &BrokerRequest::ProcessRead(request), &response);
+        let BrokerResponse::ProcessRead(read) = response else {
+            panic!("expected successful process read")
+        };
+        assert_eq!(read.stdout.as_slice(), expected_stdout);
+        assert_eq!(read.stderr.as_slice(), expected_stderr);
+        assert_eq!(read.stdout_offset, expected_stdout_offset);
+        assert_eq!(read.stderr_offset, expected_stderr_offset);
+        assert_eq!(
+            read.stdout_offset
+                .checked_add(u64::try_from(read.stdout.as_slice().len()).unwrap())
+                .unwrap(),
+            if stdout_offset < 6 {
+                stdout_offset + u64::try_from(expected_stdout.len()).unwrap()
+            } else {
+                6
+            }
+        );
+        assert_eq!(
+            read.stderr_offset
+                .checked_add(u64::try_from(read.stderr.as_slice().len()).unwrap())
+                .unwrap(),
+            if stderr_offset < 3 {
+                stderr_offset + u64::try_from(expected_stderr.len()).unwrap()
+            } else {
+                3
+            }
+        );
+        assert!(read.snapshot.running);
+        assert!(
+            !(!read.snapshot.running
+                && read.stdout_offset >= read.snapshot.stdout_len
+                && read.stderr_offset >= read.snapshot.stderr_len)
+        );
+    }
+
+    session
+        .handle(SessionCommand::ProcessWrite(ProcessWriteRequest {
+            session_id: id.clone(),
+            process_id: process.id,
+            bytes: WireBytes::new(Vec::new()).unwrap(),
+            close_stdin: true,
+        }))
+        .unwrap();
+    let request = ProcessReadRequest {
+        session_id: id.clone(),
+        process_id: process.id,
+        stdout_offset: u64::MAX,
+        stderr_offset: u64::MAX,
+        max_bytes_per_stream: MAX_IO_CHUNK_BYTES as u32,
+    };
+    let response = session
+        .handle(SessionCommand::ProcessRead(request.clone()))
+        .unwrap();
+    assert_correlates(5, &BrokerRequest::ProcessRead(request), &response);
+    let BrokerResponse::ProcessRead(read) = response else {
+        panic!("expected successful process read")
+    };
+    assert!(read.stdout.as_slice().is_empty());
+    assert!(read.stderr.as_slice().is_empty());
+    assert_eq!((read.stdout_offset, read.stderr_offset), (6, 3));
+    assert!(!read.snapshot.running);
+    assert!(read.stdout_offset >= read.snapshot.stdout_len);
+    assert!(read.stderr_offset >= read.snapshot.stderr_len);
+}
+
+#[test]
 fn chunked_initial_stdin_supports_keep_open_and_close_one_shot_sequence() {
     let id = session_id("session-01");
     let scripted_stdout = (0..(MAX_IO_CHUNK_BYTES * 2 + 17))
@@ -626,7 +740,7 @@ fn chunked_initial_stdin_supports_keep_open_and_close_one_shot_sequence() {
         assert_eq!(read.stdout_offset, offset);
         assert!(read.stdout.as_slice().len() <= MAX_IO_CHUNK_BYTES);
         reconstructed.extend_from_slice(read.stdout.as_slice());
-        offset += read.stdout.as_slice().len() as u64;
+        offset += u64::try_from(read.stdout.as_slice().len()).unwrap();
     }
     assert_eq!(reconstructed, scripted_stdout);
     assert!(matches!(
@@ -786,6 +900,81 @@ fn pty_operations_preserve_ids_arguments_output_offsets_dimensions_stop_and_rele
         ),
         OperationErrorCode::PtyNotFound
     );
+}
+
+#[test]
+fn pty_reads_return_correlated_empty_chunks_for_offsets_at_or_after_buffer_end() {
+    let id = session_id("session-01");
+    let mut session = prepared_session(
+        MockBackendConfig {
+            scripted_stdout: b"pty-out".to_vec(),
+            scripted_stderr: b"+err".to_vec(),
+            ..MockBackendConfig::default()
+        },
+        &id,
+    );
+    session.drain_events();
+    let pty = start_pty(session.as_mut(), &id);
+    session.drain_events();
+
+    for (request_id, offset, expected, expected_offset) in [
+        (10, 2, &b"y-o"[..], 2),
+        (11, 11, &b""[..], 11),
+        (12, 4_096, &b""[..], 11),
+        (13, u64::MAX, &b""[..], 11),
+    ] {
+        let request = PtyReadRequest {
+            session_id: id.clone(),
+            pty_id: pty.id,
+            offset,
+            max_bytes: 3,
+        };
+        let response = session
+            .handle(SessionCommand::PtyRead(request.clone()))
+            .unwrap();
+        assert_correlates(request_id, &BrokerRequest::PtyRead(request), &response);
+        let BrokerResponse::PtyRead(read) = response else {
+            panic!("expected successful PTY read")
+        };
+        assert_eq!(read.output.as_slice(), expected);
+        assert_eq!(read.offset, expected_offset);
+        assert_eq!(
+            read.offset
+                .checked_add(u64::try_from(read.output.as_slice().len()).unwrap())
+                .unwrap(),
+            if offset < 11 {
+                offset + u64::try_from(expected.len()).unwrap()
+            } else {
+                11
+            }
+        );
+        assert!(read.snapshot.running);
+        assert!(read.snapshot.running || read.offset < read.snapshot.output_len);
+    }
+
+    session
+        .handle(SessionCommand::PtyStop(PtyRequest {
+            session_id: id.clone(),
+            pty_id: pty.id,
+        }))
+        .unwrap();
+    let request = PtyReadRequest {
+        session_id: id,
+        pty_id: pty.id,
+        offset: u64::MAX,
+        max_bytes: MAX_IO_CHUNK_BYTES as u32,
+    };
+    let response = session
+        .handle(SessionCommand::PtyRead(request.clone()))
+        .unwrap();
+    assert_correlates(14, &BrokerRequest::PtyRead(request), &response);
+    let BrokerResponse::PtyRead(read) = response else {
+        panic!("expected successful PTY read")
+    };
+    assert!(read.output.as_slice().is_empty());
+    assert_eq!(read.offset, 11);
+    assert!(!read.snapshot.running);
+    assert!(read.offset >= read.snapshot.output_len);
 }
 
 #[test]
@@ -1094,7 +1283,7 @@ fn launch_event_and_audit_order_is_deterministic_and_timestamps_are_monotonic() 
     let process = start_process(session.as_mut(), &id);
 
     let events = session.drain_events();
-    assert_eq!(events.len(), 4);
+    assert_eq!(events.len(), 3);
     let BrokerEvent::Audit(launch) = &events[0] else {
         panic!("launch audit must be first")
     };
@@ -1115,10 +1304,7 @@ fn launch_event_and_audit_order_is_deterministic_and_timestamps_are_monotonic() 
             if *process_tree_id == process.process_tree_id
     ));
     assert_state_transition(&events[2], SessionState::Ready, SessionState::Running);
-    assert!(matches!(
-        events[3],
-        BrokerEvent::SessionState(SessionState::Running)
-    ));
+    assert_eq!(session.state(), SessionState::Running);
     let audit_times = events
         .iter()
         .filter_map(|event| match event {

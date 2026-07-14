@@ -219,6 +219,16 @@ impl MockSandboxSession {
         Ok(())
     }
 
+    fn transition_for_launch(&mut self) -> Result<(), SandboxError> {
+        let from = self.lifecycle.state();
+        self.lifecycle.transition(SessionState::Running)?;
+        self.audit(AuditEventKind::StateTransition {
+            from,
+            to: SessionState::Running,
+        });
+        Ok(())
+    }
+
     fn validate_request(&self, request: BrokerRequest) -> Result<BrokerRequest, SandboxError> {
         request.validate_against(&self.session_id, &self.policy)?;
         Ok(request)
@@ -302,7 +312,7 @@ impl MockSandboxSession {
         );
         self.audit(AuditEventKind::ProcessTreeStarted { process_tree_id });
         if self.lifecycle.state() == SessionState::Ready {
-            self.transition(SessionState::Running)?;
+            self.transition_for_launch()?;
         }
         Ok(BrokerResponse::Process(snapshot))
     }
@@ -320,18 +330,8 @@ impl MockSandboxSession {
                 OperationSubject::Process(process_id),
             );
         };
-        let Some(stdout) = read_chunk(&process.stdout, stdout_offset, max_bytes) else {
-            return Self::operation_error(
-                OperationErrorCode::ProcessError,
-                OperationSubject::Process(process_id),
-            );
-        };
-        let Some(stderr) = read_chunk(&process.stderr, stderr_offset, max_bytes) else {
-            return Self::operation_error(
-                OperationErrorCode::ProcessError,
-                OperationSubject::Process(process_id),
-            );
-        };
+        let (stdout, stdout_offset) = read_chunk(&process.stdout, stdout_offset, max_bytes);
+        let (stderr, stderr_offset) = read_chunk(&process.stderr, stderr_offset, max_bytes);
         let snapshot = ProcessReadSnapshot {
             snapshot: process.snapshot.clone(),
             stdout: WireBytes::new(stdout)?,
@@ -466,7 +466,7 @@ impl MockSandboxSession {
         );
         self.audit(AuditEventKind::ProcessTreeStarted { process_tree_id });
         if self.lifecycle.state() == SessionState::Ready {
-            self.transition(SessionState::Running)?;
+            self.transition_for_launch()?;
         }
         Ok(BrokerResponse::Pty(snapshot))
     }
@@ -483,12 +483,7 @@ impl MockSandboxSession {
                 OperationSubject::Pty(pty_id),
             );
         };
-        let Some(output) = read_chunk(&pty.output, offset, max_bytes) else {
-            return Self::operation_error(
-                OperationErrorCode::PtyError,
-                OperationSubject::Pty(pty_id),
-            );
-        };
+        let (output, offset) = read_chunk(&pty.output, offset, max_bytes);
         let snapshot = PtyReadSnapshot {
             snapshot: pty.snapshot.clone(),
             output: WireBytes::new(output)?,
@@ -781,13 +776,14 @@ fn truncate_to_cap(bytes: &[u8], cap: u64) -> Vec<u8> {
     bytes[..bytes.len().min(cap)].to_vec()
 }
 
-fn read_chunk(bytes: &[u8], offset: u64, max_bytes: u32) -> Option<Vec<u8>> {
-    let offset = usize::try_from(offset).ok()?;
-    if offset > bytes.len() {
-        return None;
-    }
-    let end = offset.saturating_add(max_bytes as usize).min(bytes.len());
-    Some(bytes[offset..end].to_vec())
+fn read_chunk(bytes: &[u8], requested_offset: u64, max_bytes: u32) -> (Vec<u8>, u64) {
+    let buffer_len = u64::try_from(bytes.len()).expect("mock buffer length must fit the wire");
+    let offset = requested_offset.min(buffer_len);
+    let start = usize::try_from(offset).expect("clamped mock read offset must fit usize");
+    let end = start
+        .saturating_add(usize::try_from(max_bytes).expect("u32 must fit usize"))
+        .min(bytes.len());
+    (bytes[start..end].to_vec(), offset)
 }
 
 impl SandboxSession for MockSandboxSession {
