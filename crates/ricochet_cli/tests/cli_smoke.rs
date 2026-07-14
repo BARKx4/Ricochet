@@ -15,6 +15,8 @@ use flate2::Compression;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tar::{Builder, EntryType, Header};
+#[cfg(windows)]
+use wait_timeout::ChildExt;
 
 const HOSTED_DISCOVERY_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.v1+json";
 const HOSTED_SEARCH_MEDIA_TYPE: &str = "application/vnd.ricochet.registry.search.v1+json";
@@ -11537,6 +11539,124 @@ stopped get "stopped" at
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn run_pty_start_nested_repl_completes_lifecycle_on_windows() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "repl" push drop
+options map
+options get "cwd" "." put drop
+options get "clear_env" false put drop
+options get "rows" 24 put drop
+options get "cols" 80 put drop
+options get "output_max_bytes" 65536 put drop
+"{rco}" args get options get pty_start value session var
+session get "id" at "2 3 +\r\n" pty_write value drop
+nil read var
+0 attempts var
+attempts get 100 < while
+  readOptions map
+  session get "id" at readOptions get pty_read value read set
+  read get "output" at "Number(5)" contains? if
+    break
+  end
+  25 sleep
+  attempts get 1 + attempts set
+end
+read get "output" at "Number(5)" contains?
+read get "output" at println
+stopOptions map
+session get "id" at stopOptions get pty_stop value drop
+nil detail var
+0 stopAttempts var
+stopAttempts get 100 < while
+  session get "id" at pty_detail value detail set
+  detail get "running" at false = if
+    break
+  end
+  25 sleep
+  stopAttempts get 1 + stopAttempts set
+end
+session get "id" at pty_release value
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rco"));
+    command.arg("run").arg("--allow-pty").arg(&source_path);
+    let output = command_output_with_timeout(
+        command,
+        Duration::from_secs(15),
+        "starting nested Windows PTY",
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(5)") && stdout.contains("[Bool(true), Bool(true)]"),
+        "stdout should show the nested REPL result and released session, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("\u{1b}[6n"),
+        "Windows PTY startup must not request cursor inheritance, got:\n{stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn run_pty_start_failure_is_structured_on_windows() {
+    let source_path = temp_source_path();
+    let root = source_path.parent().expect("source path has parent");
+    fs::create_dir_all(root).expect("temp source directory should be created");
+    let missing_command = escape_ricochet_string(
+        root.join("missing-pty-child.exe")
+            .to_string_lossy()
+            .as_ref(),
+    );
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+options map
+options get "cwd" "." put drop
+options get "clear_env" false put drop
+options get "rows" 24 put drop
+options get "cols" 80 put drop
+options get "output_max_bytes" 65536 put drop
+"{missing_command}" args get options get pty_start started var
+started get ok? false =
+started get error "kind" at "PtyError" =
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rco"));
+    command.arg("run").arg("--allow-pty").arg(&source_path);
+    let output = command_output_with_timeout(
+        command,
+        Duration::from_secs(15),
+        "returning a structured Windows PTY spawn error",
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[Bool(true), Bool(true)]"),
+        "stdout should show a structured PtyError without terminating the parent, got:\n{stdout}"
+    );
+}
+
 #[test]
 fn run_approval_words_claim_once_and_complete() {
     let source_path = write_source(
@@ -13305,6 +13425,46 @@ fn run_source(source: &str) -> std::process::Output {
         .arg(&source_path)
         .output()
         .expect("rco run should launch")
+}
+
+#[cfg(windows)]
+fn command_output_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    context: &str,
+) -> std::process::Output {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rco command should launch");
+    if child
+        .wait_timeout(timeout)
+        .expect("rco command wait should succeed")
+        .is_none()
+    {
+        let child_id = child.id().to_string();
+        let process_tree_terminated = Command::new("taskkill")
+            .args(["/PID", child_id.as_str(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !process_tree_terminated {
+            child.kill().expect("hung rco command should be terminated");
+        }
+        let output = child
+            .wait_with_output()
+            .expect("terminated rco command output should be collected");
+        panic!(
+            "rco command hung while {context}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    child
+        .wait_with_output()
+        .expect("rco command output should be collected")
 }
 
 fn write_source(source: &str) -> PathBuf {

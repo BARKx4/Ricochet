@@ -58,6 +58,7 @@ ricochet_vm = { path = "../ricochet_vm", features = ["test-host"] }
 rcgen = "0.13.2"
 rustls.workspace = true
 tungstenite.workspace = true
+wait-timeout.workspace = true
 
 [[test]]
 name = "session_capture"
