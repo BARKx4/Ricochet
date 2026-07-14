@@ -11712,6 +11712,60 @@ runtime_capabilities "workspace" at "enabled" at
 }
 
 #[test]
+fn run_workspace_list_can_return_an_opt_in_bounded_prefix() {
+    let source_path = temp_source_path();
+    let base = source_path.parent().expect("source path has parent");
+    let root = base.join("workspace-list-truncation-root");
+    fs::create_dir_all(&root).expect("workspace list root should be created");
+    for name in ["a.rco", "b.rco", "c.rco"] {
+        fs::write(root.join(name), name).expect("workspace list fixture should be written");
+    }
+    fs::write(
+        &source_path,
+        r#"
+boundedOptions map
+$boundedOptions "include_dirs" false put drop
+$boundedOptions "max_entries" 2 put drop
+$boundedOptions "truncate_on_limit" true put drop
+"." $boundedOptions workspace_list value count
+
+strictOptions map
+$strictOptions "include_dirs" false put drop
+$strictOptions "max_entries" 2 put drop
+"." $strictOptions workspace_list error "kind" at
+
+invalidOptions map
+$invalidOptions "truncate_on_limit" "true" put drop
+"." $invalidOptions workspace_list error "kind" at
+"#,
+    )
+    .expect("workspace list truncation source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--fs-root")
+        .arg(&root)
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(2)"),
+        "stdout should report exactly two retained workspace entries, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"IoError\")"),
+        "stdout should preserve the default max_entries overflow error, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("String(\"WorkspaceRequestError\")"),
+        "stdout should reject a non-Boolean truncate_on_limit option, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn run_workspace_write_text_accepts_trusted_absolute_path() {
     let source_path = temp_source_path();
     let base = source_path.parent().expect("source path has parent");
