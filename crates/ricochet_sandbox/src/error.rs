@@ -361,65 +361,44 @@ impl SandboxError {
     #[allow(clippy::result_large_err)]
     pub fn validate(&self) -> Result<(), SandboxError> {
         let fixed_fields_match = self.message == message_for(self.code)
+            && typed_denial_shape_valid(self.code, self.failed_guarantee, self.remediation)
             && match self.code {
-                SandboxErrorCode::SandboxUnavailable => {
-                    self.phase == SandboxPhase::Setup
-                        && self.failed_guarantee.is_some()
-                        && self.remediation.is_some()
-                }
+                SandboxErrorCode::SandboxUnavailable => self.phase == SandboxPhase::Setup,
                 SandboxErrorCode::SandboxPolicyError => {
-                    self.phase == SandboxPhase::Setup
-                        && self.backend.is_none()
-                        && self.failed_guarantee.is_some()
-                        && self.remediation.is_none()
+                    self.phase == SandboxPhase::Setup && self.backend.is_none()
                 }
                 SandboxErrorCode::ToolNotApproved => {
                     self.phase == SandboxPhase::Launch
                         && self.backend.is_none()
-                        && self.failed_guarantee == Some(FailedGuarantee::ToolApproval)
-                        && self.remediation == Some(Remediation::ApproveTool)
                         && self.metadata.has_only_tool_id()
                 }
                 SandboxErrorCode::ToolFingerprintMismatch => {
                     self.phase == SandboxPhase::Launch
                         && self.backend.is_none()
-                        && self.failed_guarantee == Some(FailedGuarantee::ToolFingerprint)
-                        && self.remediation == Some(Remediation::RefreshToolFingerprint)
                         && self.metadata.has_only_tool_id()
                 }
                 SandboxErrorCode::NetworkDenied => {
                     self.phase == SandboxPhase::Runtime
                         && self.backend.is_none()
-                        && self.failed_guarantee == Some(FailedGuarantee::DestinationGrant)
-                        && self.remediation == Some(Remediation::AddDestinationGrant)
                         && self.metadata.has_only_destination()
                 }
                 SandboxErrorCode::ResourceLimitExceeded => {
                     self.phase == SandboxPhase::Runtime
                         && self.backend.is_none()
-                        && self.failed_guarantee == Some(FailedGuarantee::ResourceCeiling)
-                        && self.remediation == Some(Remediation::LowerRequestedLimit)
                         && self.metadata.has_only_resource_limit()
                 }
                 SandboxErrorCode::SandboxLaunchError => {
                     self.phase == SandboxPhase::Launch
                         && self.backend.is_some()
-                        && self.failed_guarantee.is_some()
-                        && self.remediation == Some(Remediation::EnableBackendPrerequisite)
                         && self.metadata.is_empty()
                 }
                 SandboxErrorCode::SandboxTerminated => {
                     self.phase == SandboxPhase::Shutdown
                         && self.backend.is_none()
-                        && self.failed_guarantee.is_none()
-                        && self.remediation.is_none()
                         && self.metadata.is_termination()
                 }
                 SandboxErrorCode::BrokerProtocolError => {
-                    self.phase == SandboxPhase::Protocol
-                        && self.backend.is_none()
-                        && self.failed_guarantee == Some(FailedGuarantee::ProtocolAuthenticity)
-                        && self.remediation == Some(Remediation::RetryAfterBrokerRestart)
+                    self.phase == SandboxPhase::Protocol && self.backend.is_none()
                 }
             };
 
@@ -450,6 +429,41 @@ impl SandboxError {
             remediation,
             metadata,
             native_cause: None,
+        }
+    }
+}
+
+pub(crate) fn typed_denial_shape_valid(
+    code: SandboxErrorCode,
+    guarantee: Option<FailedGuarantee>,
+    remediation: Option<Remediation>,
+) -> bool {
+    match code {
+        SandboxErrorCode::SandboxUnavailable => guarantee.is_some() && remediation.is_some(),
+        SandboxErrorCode::SandboxPolicyError => guarantee.is_some() && remediation.is_none(),
+        SandboxErrorCode::ToolNotApproved => {
+            guarantee == Some(FailedGuarantee::ToolApproval)
+                && remediation == Some(Remediation::ApproveTool)
+        }
+        SandboxErrorCode::ToolFingerprintMismatch => {
+            guarantee == Some(FailedGuarantee::ToolFingerprint)
+                && remediation == Some(Remediation::RefreshToolFingerprint)
+        }
+        SandboxErrorCode::NetworkDenied => {
+            guarantee == Some(FailedGuarantee::DestinationGrant)
+                && remediation == Some(Remediation::AddDestinationGrant)
+        }
+        SandboxErrorCode::ResourceLimitExceeded => {
+            guarantee == Some(FailedGuarantee::ResourceCeiling)
+                && remediation == Some(Remediation::LowerRequestedLimit)
+        }
+        SandboxErrorCode::SandboxLaunchError => {
+            guarantee.is_some() && remediation == Some(Remediation::EnableBackendPrerequisite)
+        }
+        SandboxErrorCode::SandboxTerminated => guarantee.is_none() && remediation.is_none(),
+        SandboxErrorCode::BrokerProtocolError => {
+            guarantee == Some(FailedGuarantee::ProtocolAuthenticity)
+                && remediation == Some(Remediation::RetryAfterBrokerRestart)
         }
     }
 }

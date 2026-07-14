@@ -31,23 +31,7 @@ impl SessionLifecycle {
 
     #[allow(clippy::result_large_err)]
     pub fn transition(&mut self, next: SessionState) -> Result<(), SandboxError> {
-        let allowed = matches!(
-            (self.state, next),
-            (
-                SessionState::Preparing,
-                SessionState::Ready | SessionState::Failed
-            ) | (
-                SessionState::Ready,
-                SessionState::Running | SessionState::Stopping | SessionState::Failed
-            ) | (
-                SessionState::Running,
-                SessionState::Stopping | SessionState::Failed
-            ) | (
-                SessionState::Stopping,
-                SessionState::Closed | SessionState::Failed
-            )
-        );
-        if !allowed {
+        if !transition_allowed(self.state, next) {
             return Err(SandboxError::policy(
                 FailedGuarantee::SessionOwnership,
                 DiagnosticMetadata::empty(),
@@ -57,6 +41,25 @@ impl SessionLifecycle {
         self.state = next;
         Ok(())
     }
+}
+
+pub(crate) fn transition_allowed(from: SessionState, to: SessionState) -> bool {
+    matches!(
+        (from, to),
+        (
+            SessionState::Preparing,
+            SessionState::Ready | SessionState::Failed
+        ) | (
+            SessionState::Ready,
+            SessionState::Running | SessionState::Stopping | SessionState::Failed
+        ) | (
+            SessionState::Running,
+            SessionState::Stopping | SessionState::Failed
+        ) | (
+            SessionState::Stopping,
+            SessionState::Closed | SessionState::Failed
+        )
+    )
 }
 
 impl Default for SessionLifecycle {

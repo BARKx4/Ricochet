@@ -8,9 +8,9 @@ use ricochet_sandbox::{
     ExecutionAuditIdentity, ExecutionInstanceId, ExecutionPolicyRequest, ExecutionSurface,
     FailedGuarantee, HashedArtifact, OperatingSystem, PlatformId, ProcessId, ProcessTreeId, PtyId,
     Remediation, ResourceLimitKind, ResourceLimits, SandboxError, SandboxErrorCode, SandboxPhase,
-    ScratchDisposition, ScratchId, SessionId, SessionLifecycle, SessionState, Sha256Digest, ToolId,
-    ToolReference, UnixMillis, WorkspaceIdentity, WorkspaceIdentityResolver, WorkspaceRequest,
-    CATALOG_SCHEMA_V1, POLICY_SCHEMA_V1, PROTOCOL_V1,
+    ScratchDisposition, ScratchId, SessionId, SessionLifecycle, SessionState, Sha256Digest,
+    TerminationReason, ToolId, ToolReference, UnixMillis, WorkspaceIdentity,
+    WorkspaceIdentityResolver, WorkspaceRequest, CATALOG_SCHEMA_V1, POLICY_SCHEMA_V1, PROTOCOL_V1,
 };
 use serde_json::{json, Value};
 
@@ -768,4 +768,410 @@ fn audit_records_round_trip_and_reject_forged_or_unknown_fields() {
     let mut unknown_execution = execution_value;
     unknown_execution["native_process_id"] = json!(72);
     assert!(serde_json::from_value::<ExecutionAuditIdentity>(unknown_execution).is_err());
+}
+
+fn denial_value(code: &str, guarantee: &str, remediation: Value) -> Value {
+    json!({
+        "type": "denied",
+        "body": {
+            "code": code,
+            "guarantee": guarantee,
+            "remediation": remediation
+        }
+    })
+}
+
+#[test]
+fn denial_events_accept_only_constructor_compatible_typed_triples() {
+    let accepted = [
+        denial_value(
+            "SandboxUnavailable",
+            "broker_availability",
+            json!("start_or_install_broker"),
+        ),
+        denial_value("SandboxPolicyError", "policy_validity", Value::Null),
+        denial_value("ToolNotApproved", "tool_approval", json!("approve_tool")),
+        denial_value(
+            "ToolFingerprintMismatch",
+            "tool_fingerprint",
+            json!("refresh_tool_fingerprint"),
+        ),
+        denial_value(
+            "NetworkDenied",
+            "destination_grant",
+            json!("add_destination_grant"),
+        ),
+        denial_value(
+            "ResourceLimitExceeded",
+            "resource_ceiling",
+            json!("lower_requested_limit"),
+        ),
+        denial_value(
+            "SandboxLaunchError",
+            "native_launch",
+            json!("enable_backend_prerequisite"),
+        ),
+        denial_value(
+            "BrokerProtocolError",
+            "protocol_authenticity",
+            json!("retry_after_broker_restart"),
+        ),
+    ];
+
+    for value in accepted {
+        let decoded: AuditEventKind = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+    }
+
+    let forged = [
+        denial_value("NetworkDenied", "tool_approval", json!("approve_tool")),
+        denial_value(
+            "ToolNotApproved",
+            "destination_grant",
+            json!("add_destination_grant"),
+        ),
+        denial_value(
+            "BrokerProtocolError",
+            "protocol_authenticity",
+            json!("inspect_sandbox_doctor"),
+        ),
+        denial_value(
+            "SandboxPolicyError",
+            "policy_validity",
+            json!("inspect_sandbox_doctor"),
+        ),
+        denial_value("SandboxTerminated", "session_ownership", Value::Null),
+    ];
+
+    for value in forged {
+        assert!(
+            serde_json::from_value::<AuditEventKind>(value.clone()).is_err(),
+            "accepted forged denial event {value}"
+        );
+    }
+
+    let record = AuditRecord::new(
+        UnixMillis::new(1_783_987_200_003),
+        audit_context(
+            ExecutionAccess::Read,
+            EnforcementState::Enforced,
+            "windows-lpac",
+        )
+        .unwrap(),
+        AuditEventKind::Denied {
+            code: SandboxErrorCode::NetworkDenied,
+            guarantee: FailedGuarantee::DestinationGrant,
+            remediation: Some(Remediation::AddDestinationGrant),
+        },
+    );
+    let mut forged_record = serde_json::to_value(record).unwrap();
+    forged_record["event"] = denial_value("NetworkDenied", "tool_approval", json!("approve_tool"));
+    assert!(serde_json::from_value::<AuditRecord>(forged_record).is_err());
+}
+
+#[test]
+fn decoded_state_transition_events_use_the_lifecycle_transition_table() {
+    let states = [
+        SessionState::Preparing,
+        SessionState::Ready,
+        SessionState::Running,
+        SessionState::Stopping,
+        SessionState::Closed,
+        SessionState::Failed,
+    ];
+
+    for from in states {
+        for to in states {
+            let value = json!({
+                "type": "state_transition",
+                "body": {
+                    "from": serde_json::to_value(from).unwrap(),
+                    "to": serde_json::to_value(to).unwrap()
+                }
+            });
+            assert_eq!(
+                serde_json::from_value::<AuditEventKind>(value).is_ok(),
+                transition_allowed(from, to),
+                "decoded an impossible transition {from:?} -> {to:?}"
+            );
+        }
+    }
+
+    let closed_to_running = json!({
+        "type": "state_transition",
+        "body": { "from": "closed", "to": "running" }
+    });
+    assert!(serde_json::from_value::<AuditEventKind>(closed_to_running).is_err());
+}
+
+fn assert_context_decode_rejected(value: Value, label: &str) {
+    assert!(
+        serde_json::from_value::<AuditContext>(value).is_err(),
+        "accepted impossible audit context: {label}"
+    );
+}
+
+#[test]
+fn audit_context_decode_revalidates_locally_provable_policy_invariants() {
+    let read = serde_json::to_value(
+        audit_context(
+            ExecutionAccess::Read,
+            EnforcementState::Enforced,
+            "windows-lpac",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let workspace = serde_json::to_value(
+        audit_context(
+            ExecutionAccess::Workspace,
+            EnforcementState::Enforced,
+            "windows-lpac",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let full = serde_json::to_value(
+        audit_context(
+            ExecutionAccess::Full,
+            EnforcementState::UnenforcedFullAccess,
+            "windows-host",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut full_with_limits = full.clone();
+    full_with_limits["resource_limits"] = read["resource_limits"].clone();
+    assert!(serde_json::from_value::<AuditContext>(full_with_limits.clone()).is_ok());
+
+    for field in [
+        "descendant_processes",
+        "memory_bytes",
+        "cpu_time_ms",
+        "wall_time_ms",
+        "open_descriptors_or_handles",
+        "captured_output_bytes",
+    ] {
+        let mut forged = read.clone();
+        forged["resource_limits"][field] = json!(0);
+        assert_context_decode_rejected(forged, &format!("zero {field}"));
+
+        let mut forged_full = full_with_limits.clone();
+        forged_full["resource_limits"][field] = json!(0);
+        assert_context_decode_rejected(forged_full, &format!("full with zero {field}"));
+    }
+
+    for (base, access) in [(&read, "read"), (&workspace, "workspace")] {
+        let mut missing_workspace = base.clone();
+        missing_workspace["workspace"] = Value::Null;
+        assert_context_decode_rejected(missing_workspace, &format!("{access} without workspace"));
+
+        let mut missing_limits = base.clone();
+        missing_limits["resource_limits"] = Value::Null;
+        assert_context_decode_rejected(missing_limits, &format!("{access} without limits"));
+    }
+
+    let mut writable_read = read.clone();
+    writable_read["workspace"]["writable"] = json!(true);
+    assert_context_decode_rejected(writable_read, "writable read workspace");
+
+    let mut readonly_workspace = workspace;
+    readonly_workspace["workspace"]["writable"] = json!(false);
+    assert_context_decode_rejected(readonly_workspace, "read-only workspace access");
+
+    let mut empty_root = read.clone();
+    empty_root["workspace"]["canonical_root"] = json!("");
+    assert_context_decode_rejected(empty_root, "empty canonical workspace root");
+
+    let mut full_with_readonly_workspace = full.clone();
+    full_with_readonly_workspace["workspace"] =
+        json!({ "canonical_root": "C:/workspace", "writable": false });
+    assert_context_decode_rejected(full_with_readonly_workspace, "read-only full workspace");
+
+    let mut full_with_writable_workspace = full.clone();
+    full_with_writable_workspace["workspace"] =
+        json!({ "canonical_root": "C:/workspace", "writable": true });
+    assert!(serde_json::from_value::<AuditContext>(full_with_writable_workspace).is_ok());
+
+    let mut full_with_tools = full.clone();
+    full_with_tools["tools"] = read["tools"].clone();
+    assert_context_decode_rejected(full_with_tools, "full with public tools");
+
+    let mut full_with_destinations = full;
+    full_with_destinations["destinations"] = read["destinations"].clone();
+    assert_context_decode_rejected(full_with_destinations, "full with destinations");
+
+    let mut duplicate_tools = read.clone();
+    duplicate_tools["tools"] = json!([read["tools"][0].clone(), read["tools"][0].clone()]);
+    assert_context_decode_rejected(duplicate_tools, "duplicate tools");
+
+    let mut unsorted_tools = read.clone();
+    unsorted_tools["tools"] = json!([read["tools"][1].clone(), read["tools"][0].clone()]);
+    assert_context_decode_rejected(unsorted_tools, "unsorted tools");
+
+    let mut duplicate_helpers = read.clone();
+    duplicate_helpers["tools"][1]["helper_ids"] = json!(["helper", "helper"]);
+    assert_context_decode_rejected(duplicate_helpers, "duplicate helpers");
+
+    let mut unsorted_helpers = read.clone();
+    unsorted_helpers["tools"][1]["helper_ids"] = json!(["main", "helper"]);
+    assert_context_decode_rejected(unsorted_helpers, "unsorted helpers");
+
+    let mut missing_helper = read.clone();
+    missing_helper["tools"][1]["helper_ids"] = json!(["absent"]);
+    assert_context_decode_rejected(missing_helper, "missing helper record");
+
+    let mut cyclic_helpers = read.clone();
+    cyclic_helpers["tools"][0]["helper_ids"] = json!(["main"]);
+    assert_context_decode_rejected(cyclic_helpers, "cyclic helper records");
+
+    let mut duplicate_destinations = read.clone();
+    duplicate_destinations["destinations"] = json!(["audit.example:443", "audit.example:443"]);
+    assert_context_decode_rejected(duplicate_destinations, "duplicate destinations");
+
+    let mut unsorted_destinations = read;
+    unsorted_destinations["destinations"] = json!(["z.example:443", "a.example:443"]);
+    assert_context_decode_rejected(unsorted_destinations, "unsorted destinations");
+}
+
+#[test]
+fn optional_error_audit_tool_and_event_fields_are_explicit_nulls() {
+    let error = SandboxError::policy(
+        FailedGuarantee::PolicyValidity,
+        DiagnosticMetadata::default(),
+    );
+    assert_eq!(
+        serde_json::to_value(error).unwrap(),
+        json!({
+            "code": "SandboxPolicyError",
+            "phase": "setup",
+            "backend": null,
+            "failed_guarantee": "policy_validity",
+            "message": "requested execution policy is invalid",
+            "remediation": null,
+            "metadata": {
+                "tool_id": null,
+                "destination": null,
+                "resource_limit": null,
+                "protocol_version": null,
+                "session_id": null,
+                "backend_feature": null
+            }
+        })
+    );
+
+    let terminated = SandboxError::terminated(TerminationReason::CancelledByHost, session_id());
+    assert_eq!(
+        serde_json::to_value(terminated).unwrap(),
+        json!({
+            "code": "SandboxTerminated",
+            "phase": "shutdown",
+            "backend": null,
+            "failed_guarantee": null,
+            "message": "sandbox session was terminated",
+            "remediation": null,
+            "metadata": {
+                "tool_id": null,
+                "destination": null,
+                "resource_limit": null,
+                "protocol_version": null,
+                "session_id": "session-01",
+                "backend_feature": null
+            }
+        })
+    );
+
+    let full = audit_context(
+        ExecutionAccess::Full,
+        EnforcementState::UnenforcedFullAccess,
+        "windows-host",
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&full).unwrap(),
+        json!({
+            "session_id": "session-01",
+            "policy_digest": full.policy_digest().to_hex(),
+            "access": "full",
+            "enforcement": "unenforced_full_access",
+            "backend": { "name": "windows-host", "version": "1" },
+            "broker_protocol": PROTOCOL_V1,
+            "workspace": null,
+            "scratch_id": "scratch-01",
+            "catalog_generation": 7,
+            "tools": [],
+            "destinations": [],
+            "resource_limits": null
+        })
+    );
+
+    let read = audit_context(
+        ExecutionAccess::Read,
+        EnforcementState::Enforced,
+        "windows-lpac",
+    )
+    .unwrap();
+    let helper = &read.tools()[0];
+    assert_eq!(
+        serde_json::to_value(helper).unwrap(),
+        json!({
+            "tool_id": helper.tool_id.as_str(),
+            "executable_sha256": helper.executable_sha256.to_hex(),
+            "helper_ids": [],
+            "transport_adapter": null
+        })
+    );
+
+    assert_eq!(
+        serde_json::to_value(AuditEventKind::LaunchRequested {
+            surface: ExecutionSurface::Process,
+            tool_id: None,
+            argument_count: 0,
+        })
+        .unwrap(),
+        json!({
+            "type": "launch_requested",
+            "body": {
+                "surface": "process",
+                "tool_id": null,
+                "argument_count": 0
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(AuditEventKind::Denied {
+            code: SandboxErrorCode::SandboxPolicyError,
+            guarantee: FailedGuarantee::PolicyValidity,
+            remediation: None,
+        })
+        .unwrap(),
+        json!({
+            "type": "denied",
+            "body": {
+                "code": "SandboxPolicyError",
+                "guarantee": "policy_validity",
+                "remediation": null
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(AuditEventKind::Exited {
+            execution: ExecutionAuditIdentity::process(ProcessTreeId::new(81), ProcessId::new(82),),
+            exit_code: None,
+            success: false,
+        })
+        .unwrap(),
+        json!({
+            "type": "exited",
+            "body": {
+                "execution": {
+                    "process_tree_id": 81,
+                    "instance": { "type": "process", "body": 82 }
+                },
+                "exit_code": null,
+                "success": false
+            }
+        })
+    );
 }
