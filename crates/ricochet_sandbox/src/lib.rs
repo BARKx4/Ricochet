@@ -32,6 +32,7 @@ mod audit;
 mod catalog;
 mod destination;
 mod error;
+mod exact_serde;
 mod identity;
 mod lifecycle;
 mod policy;

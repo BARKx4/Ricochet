@@ -9,6 +9,7 @@ use crate::error::{
     typed_denial_shape_valid, DiagnosticMetadata, FailedGuarantee, Remediation, ResourceLimitKind,
     SandboxError, SandboxErrorCode, TerminationReason,
 };
+use crate::exact_serde::RequiredOption;
 use crate::identity::{
     BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId, PtyId, ScratchId,
     SessionId, ToolId, UnixMillis,
@@ -59,7 +60,7 @@ impl AuditContext {
         policy: &ValidatedExecutionPolicy,
     ) -> Result<Self, SandboxError> {
         let access = policy.access();
-        if !compatible_access_enforcement(access, enforcement) {
+        if !access_enforcement_valid(access, enforcement) {
             return Err(SandboxError::policy(
                 FailedGuarantee::PolicyValidity,
                 DiagnosticMetadata::empty(),
@@ -158,11 +159,11 @@ impl AuditContext {
             .is_none_or(|limits| limits.validate().is_ok());
         let destinations_valid = self.destinations.windows(2).all(|pair| pair[0] < pair[1]);
 
-        if compatible_access_enforcement(self.access, self.enforcement)
+        if access_enforcement_valid(self.access, self.enforcement)
             && workspace_valid
             && access_fields_valid
             && limits_valid
-            && public_tools_valid(&self.tools)
+            && public_tool_projection_valid(&self.tools)
             && destinations_valid
         {
             return Ok(());
@@ -210,12 +211,12 @@ impl<'de> Deserialize<'de> for AuditContext {
             enforcement: EnforcementState,
             backend: BackendIdentity,
             broker_protocol: u16,
-            workspace: Option<AuditWorkspace>,
+            workspace: RequiredOption<AuditWorkspace>,
             scratch_id: ScratchId,
             catalog_generation: CatalogGeneration,
             tools: Vec<PublicToolRecord>,
             destinations: Vec<DestinationGrant>,
-            resource_limits: Option<ResourceLimits>,
+            resource_limits: RequiredOption<ResourceLimits>,
         }
 
         let wire = WireAuditContext::deserialize(deserializer)?;
@@ -226,19 +227,22 @@ impl<'de> Deserialize<'de> for AuditContext {
             enforcement: wire.enforcement,
             backend: wire.backend,
             broker_protocol: wire.broker_protocol,
-            workspace: wire.workspace,
+            workspace: wire.workspace.into_option(),
             scratch_id: wire.scratch_id,
             catalog_generation: wire.catalog_generation,
             tools: wire.tools,
             destinations: wire.destinations,
-            resource_limits: wire.resource_limits,
+            resource_limits: wire.resource_limits.into_option(),
         };
         context.validate().map_err(D::Error::custom)?;
         Ok(context)
     }
 }
 
-fn compatible_access_enforcement(access: ExecutionAccess, enforcement: EnforcementState) -> bool {
+pub(crate) fn access_enforcement_valid(
+    access: ExecutionAccess,
+    enforcement: EnforcementState,
+) -> bool {
     matches!(
         (access, enforcement),
         (
@@ -251,7 +255,7 @@ fn compatible_access_enforcement(access: ExecutionAccess, enforcement: Enforceme
     )
 }
 
-fn public_tools_valid(tools: &[PublicToolRecord]) -> bool {
+pub(crate) fn public_tool_projection_valid(tools: &[PublicToolRecord]) -> bool {
     if !tools
         .windows(2)
         .all(|pair| pair[0].tool_id < pair[1].tool_id)
@@ -439,7 +443,7 @@ enum WireAuditEventKind {
     },
     LaunchRequested {
         surface: ExecutionSurface,
-        tool_id: Option<ToolId>,
+        tool_id: RequiredOption<ToolId>,
         argument_count: usize,
     },
     ProcessTreeStarted {
@@ -447,7 +451,7 @@ enum WireAuditEventKind {
     },
     Exited {
         execution: ExecutionAuditIdentity,
-        exit_code: Option<i64>,
+        exit_code: RequiredOption<i64>,
         success: bool,
     },
     Cancelled {
@@ -468,7 +472,7 @@ enum WireAuditEventKind {
     Denied {
         code: SandboxErrorCode,
         guarantee: FailedGuarantee,
-        remediation: Option<Remediation>,
+        remediation: RequiredOption<Remediation>,
     },
 }
 
@@ -482,7 +486,7 @@ impl From<WireAuditEventKind> for AuditEventKind {
                 argument_count,
             } => Self::LaunchRequested {
                 surface,
-                tool_id,
+                tool_id: tool_id.into_option(),
                 argument_count,
             },
             WireAuditEventKind::ProcessTreeStarted { process_tree_id } => {
@@ -494,7 +498,7 @@ impl From<WireAuditEventKind> for AuditEventKind {
                 success,
             } => Self::Exited {
                 execution,
-                exit_code,
+                exit_code: exit_code.into_option(),
                 success,
             },
             WireAuditEventKind::Cancelled { execution, reason } => {
@@ -518,7 +522,7 @@ impl From<WireAuditEventKind> for AuditEventKind {
             } => Self::Denied {
                 code,
                 guarantee,
-                remediation,
+                remediation: remediation.into_option(),
             },
         }
     }

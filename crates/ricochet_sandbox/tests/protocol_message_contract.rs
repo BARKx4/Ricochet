@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use ricochet_sandbox::{
-    chunk_wire_bytes, ApprovalActor, Architecture, ArtifactKind, AuditPolicy,
+    chunk_wire_bytes, ApprovalActor, Architecture, ArtifactKind, AuditContext, AuditPolicy,
     AuthenticatedChannelContext, BackendIdentity, BrokerEvent, BrokerRequest, BrokerRequestKind,
     BrokerResponse, CancelSessionRequest, CatalogGeneration, CatalogPathNormalizer, CatalogRecord,
     CatalogSnapshot, ConfirmedExecutionCapabilities, ConnectionNonce, CreateSessionRequest,
@@ -12,11 +12,11 @@ use ricochet_sandbox::{
     ProcessReadRequest, ProcessReadSnapshot, ProcessRequest, ProcessSnapshot, ProcessStatus,
     ProcessTreeId, ProtocolEnvelope, ProtocolMessage, PtyId, PtyLaunchRequest, PtyReadRequest,
     PtyReadSnapshot, PtyRequest, PtyResizeRequest, PtySnapshot, PtyStatus, PtyWriteRequest,
-    PublicCatalogSnapshot, RequestId, ResourceLimits, ResponseCorrelation, SandboxError,
-    ScratchDisposition, ScratchId, SessionId, SessionRequest, Sha256Digest, TerminationNotice,
-    TerminationReason, ToolId, UnixMillis, ValidatedCatalogSnapshot, ValidatedExecutionPolicy,
-    WireBytes, WorkspaceIdentity, WorkspaceIdentityResolver, WorkspaceRequest, CATALOG_SCHEMA_V1,
-    MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1, PROTOCOL_V1,
+    PublicCatalogSnapshot, PublicToolRecord, RequestId, ResourceLimits, ResponseCorrelation,
+    SandboxError, ScratchDisposition, ScratchId, SessionId, SessionRequest, Sha256Digest,
+    TerminationNotice, TerminationReason, ToolId, UnixMillis, ValidatedCatalogSnapshot,
+    ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity, WorkspaceIdentityResolver,
+    WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1, PROTOCOL_V1,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -249,6 +249,22 @@ where
     let encoded = serde_json::to_value(value).unwrap();
     let decoded: T = serde_json::from_value(encoded.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+}
+
+fn assert_omission_rejected<T>(source: &Value, label: &str, remove: impl FnOnce(&mut Value))
+where
+    T: DeserializeOwned,
+{
+    assert!(
+        serde_json::from_value::<T>(source.clone()).is_ok(),
+        "valid explicit field source failed before removing {label}"
+    );
+    let mut forged = source.clone();
+    remove(&mut forged);
+    assert!(
+        serde_json::from_value::<T>(forged).is_err(),
+        "accepted omitted {label}"
+    );
 }
 
 fn envelope(sequence: u64, message: ProtocolMessage) -> ProtocolEnvelope {
@@ -1300,6 +1316,15 @@ fn recursive_snapshot_role_and_event_session_validation_rejects_forgery() {
         .validate_for(ricochet_sandbox::EndpointRole::Broker)
         .is_err());
 
+    let mut wrong_version: Value =
+        serde_json::from_str(include_str!("fixtures/protocol/v1/audit_event.json")).unwrap();
+    wrong_version["message"]["body"]["event"]["body"]["context"]["broker_protocol"] = json!(2);
+    let wrong_version: ProtocolEnvelope = serde_json::from_value(wrong_version).unwrap();
+    assert!(wrong_version
+        .message
+        .validate_for(ricochet_sandbox::EndpointRole::Broker)
+        .is_err());
+
     let termination = BrokerEvent::Terminated(TerminationNotice {
         reason: TerminationReason::CancelledByHost,
         process_tree_ids: vec![ProcessTreeId::new(0)],
@@ -1433,4 +1458,294 @@ fn optional_fields_are_explicit_nulls() {
             .get("backend")
             .is_some_and(Value::is_null)
     );
+}
+
+#[test]
+fn omitted_v1_optional_fields_are_rejected_at_every_wire_nesting() {
+    let process_start = serde_json::to_value(envelope(
+        4,
+        ProtocolMessage::request(
+            RequestId::new(4),
+            BrokerRequest::ProcessStart(process_launch()),
+        ),
+    ))
+    .unwrap();
+    assert_omission_rejected::<ProtocolEnvelope>(&process_start, "process_start.cwd", |value| {
+        value["message"]["body"]["request"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cwd");
+    });
+
+    let pty_start = serde_json::to_value(envelope(
+        5,
+        ProtocolMessage::request(RequestId::new(5), BrokerRequest::PtyStart(pty_launch())),
+    ))
+    .unwrap();
+    assert_omission_rejected::<ProtocolEnvelope>(&pty_start, "pty_start.cwd", |value| {
+        value["message"]["body"]["request"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cwd");
+    });
+
+    let process = serde_json::to_value(envelope(
+        6,
+        ProtocolMessage::response(
+            RequestId::new(6),
+            BrokerResponse::Process(process_snapshot()),
+        ),
+    ))
+    .unwrap();
+    for field in ["cwd", "exit_code", "error"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&process, field, |value| {
+            value["message"]["body"]["response"]["body"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+
+    let pty = serde_json::to_value(envelope(
+        7,
+        ProtocolMessage::response(RequestId::new(7), BrokerResponse::Pty(pty_snapshot())),
+    ))
+    .unwrap();
+    for field in ["cwd", "exit_code", "error", "native_process_id"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&pty, field, |value| {
+            value["message"]["body"]["response"]["body"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+
+    let constrained = policy(ExecutionAccess::Read, true, true);
+    let capabilities = ConfirmedExecutionCapabilities::new(
+        session("session-01"),
+        ScratchId::parse("scratch-01").unwrap(),
+        BackendIdentity::new("windows-lpac", "1").unwrap(),
+        PROTOCOL_V1,
+        EnforcementState::Enforced,
+        &constrained,
+    )
+    .unwrap();
+    let capabilities = serde_json::to_value(envelope(
+        8,
+        ProtocolMessage::response(
+            RequestId::new(8),
+            BrokerResponse::SessionCreated(capabilities),
+        ),
+    ))
+    .unwrap();
+    for field in ["workspace", "resource_limits"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&capabilities, field, |value| {
+            value["message"]["body"]["response"]["body"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+
+    let termination = serde_json::to_value(envelope(
+        9,
+        ProtocolMessage::event(
+            session("session-01"),
+            BrokerEvent::Terminated(TerminationNotice {
+                reason: TerminationReason::CancelledByHost,
+                process_tree_ids: vec![ProcessTreeId::new(0)],
+                error: None,
+            }),
+        ),
+    ))
+    .unwrap();
+    assert_omission_rejected::<ProtocolEnvelope>(&termination, "termination.error", |value| {
+        value["message"]["body"]["event"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("error");
+    });
+
+    let create_session = serde_json::to_value(envelope(
+        10,
+        ProtocolMessage::request(
+            RequestId::new(10),
+            BrokerRequest::CreateSession(CreateSessionRequest {
+                session_id: session("session-01"),
+                policy: policy_request(ExecutionAccess::Read, true, true),
+            }),
+        ),
+    ))
+    .unwrap();
+    for field in ["workspace", "resource_limits"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&create_session, field, |value| {
+            value["message"]["body"]["request"]["body"]["policy"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+
+    let public_catalog = serde_json::to_value(envelope(
+        11,
+        ProtocolMessage::response(
+            RequestId::new(11),
+            BrokerResponse::PublicCatalog(catalog().public_snapshot()),
+        ),
+    ))
+    .unwrap();
+    assert_omission_rejected::<ProtocolEnvelope>(
+        &public_catalog,
+        "public_tool.transport_adapter",
+        |value| {
+            value["message"]["body"]["response"]["body"]["records"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("transport_adapter");
+        },
+    );
+
+    let audit: Value =
+        serde_json::from_str(include_str!("fixtures/protocol/v1/audit_event.json")).unwrap();
+    for field in ["workspace", "resource_limits"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&audit, field, |value| {
+            value["message"]["body"]["event"]["body"]["context"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+    assert_omission_rejected::<ProtocolEnvelope>(&audit, "audit.launch.tool_id", |value| {
+        value["message"]["body"]["event"]["body"]["event"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("tool_id");
+    });
+
+    let mut exited = audit.clone();
+    exited["message"]["body"]["event"]["body"]["event"] = json!({
+        "type": "exited",
+        "body": {
+            "execution": {
+                "process_tree_id": 0,
+                "instance": { "type": "process", "body": 0 }
+            },
+            "exit_code": null,
+            "success": false
+        }
+    });
+    assert_omission_rejected::<ProtocolEnvelope>(&exited, "audit.exited.exit_code", |value| {
+        value["message"]["body"]["event"]["body"]["event"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("exit_code");
+    });
+
+    let mut denied = audit.clone();
+    denied["message"]["body"]["event"]["body"]["event"] = json!({
+        "type": "denied",
+        "body": {
+            "code": "SandboxPolicyError",
+            "guarantee": "policy_validity",
+            "remediation": null
+        }
+    });
+    assert_omission_rejected::<ProtocolEnvelope>(&denied, "audit.denied.remediation", |value| {
+        value["message"]["body"]["event"]["body"]["event"]["body"]
+            .as_object_mut()
+            .unwrap()
+            .remove("remediation");
+    });
+
+    let error: Value =
+        serde_json::from_str(include_str!("fixtures/protocol/v1/error_response.json")).unwrap();
+    for field in ["backend", "failed_guarantee", "remediation"] {
+        assert_omission_rejected::<ProtocolEnvelope>(&error, field, |value| {
+            value["message"]["body"]["response"]["body"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+    for field in [
+        "tool_id",
+        "destination",
+        "resource_limit",
+        "protocol_version",
+        "session_id",
+        "backend_feature",
+    ] {
+        assert_omission_rejected::<ProtocolEnvelope>(&error, field, |value| {
+            value["message"]["body"]["response"]["body"]["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        });
+    }
+}
+
+#[test]
+fn forged_public_catalog_rejects_revoked_helpers() {
+    let helper = tool("helper");
+    let snapshot = PublicCatalogSnapshot {
+        schema_version: CATALOG_SCHEMA_V1,
+        generation: generation(7),
+        platform: platform(),
+        records: vec![
+            PublicToolRecord {
+                tool_id: helper.clone(),
+                executable_sha256: Sha256Digest::hash(b"helper"),
+                helper_ids: Vec::new(),
+                transport_adapter: None,
+            },
+            PublicToolRecord {
+                tool_id: tool("main"),
+                executable_sha256: Sha256Digest::hash(b"main"),
+                helper_ids: vec![helper.clone()],
+                transport_adapter: None,
+            },
+        ],
+        revoked_tools: vec![helper],
+    };
+    assert!(
+        ProtocolMessage::response(RequestId::new(12), BrokerResponse::PublicCatalog(snapshot),)
+            .validate_for(ricochet_sandbox::EndpointRole::Broker)
+            .is_err()
+    );
+}
+
+#[test]
+fn audit_and_capability_callers_reject_the_same_security_projection_forgery() {
+    let constrained = policy(ExecutionAccess::Read, true, true);
+    let capabilities = ConfirmedExecutionCapabilities::new(
+        session("session-01"),
+        ScratchId::parse("scratch-01").unwrap(),
+        BackendIdentity::new("windows-lpac", "1").unwrap(),
+        PROTOCOL_V1,
+        EnforcementState::Enforced,
+        &constrained,
+    )
+    .unwrap();
+    let capabilities = serde_json::to_value(capabilities).unwrap();
+    let audit: Value =
+        serde_json::from_str(include_str!("fixtures/protocol/v1/audit_event.json")).unwrap();
+    let context = &audit["message"]["body"]["event"]["body"]["context"];
+
+    let mut bad_capabilities_matrix = capabilities.clone();
+    bad_capabilities_matrix["enforcement"] = json!("unenforced_full_access");
+    let mut bad_audit_matrix = context.clone();
+    bad_audit_matrix["enforcement"] = json!("unenforced_full_access");
+    assert!(
+        serde_json::from_value::<ConfirmedExecutionCapabilities>(bad_capabilities_matrix).is_err()
+    );
+    assert!(serde_json::from_value::<AuditContext>(bad_audit_matrix).is_err());
+
+    let mut bad_capabilities_tools = capabilities;
+    bad_capabilities_tools["tools"][0]["helper_ids"] = json!(["missing-helper"]);
+    let mut bad_audit_tools = context.clone();
+    bad_audit_tools["tools"][0]["helper_ids"] = json!(["missing-helper"]);
+    assert!(
+        serde_json::from_value::<ConfirmedExecutionCapabilities>(bad_capabilities_tools).is_err()
+    );
+    assert!(serde_json::from_value::<AuditContext>(bad_audit_tools).is_err());
 }

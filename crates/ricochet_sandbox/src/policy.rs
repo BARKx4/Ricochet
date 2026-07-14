@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     ArtifactKind, PlatformId, PreparedCatalogClosure, PreparedTool, TransportAdapter,
@@ -10,6 +10,7 @@ use crate::catalog::{
 };
 use crate::destination::DestinationGrant;
 use crate::error::{DiagnosticMetadata, FailedGuarantee, ResourceLimitKind, SandboxError};
+use crate::exact_serde::RequiredOption;
 use crate::identity::{CatalogGeneration, PolicyDigest, Sha256Digest, ToolId};
 use crate::version::POLICY_SCHEMA_V1;
 
@@ -141,7 +142,7 @@ pub struct ResourceLimits {
     pub captured_output_bytes: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionPolicyRequest {
     pub schema_version: u16,
@@ -156,6 +157,46 @@ pub struct ExecutionPolicyRequest {
     pub environment: EnvironmentPolicy,
     pub resource_limits: Option<ResourceLimits>,
     pub audit_policy: AuditPolicy,
+}
+
+impl<'de> Deserialize<'de> for ExecutionPolicyRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireExecutionPolicyRequest {
+            schema_version: u16,
+            access: ExecutionAccess,
+            allow_process: bool,
+            allow_pty: bool,
+            workspace: RequiredOption<WorkspaceRequest>,
+            scratch_disposition: ScratchDisposition,
+            catalog_generation: CatalogGeneration,
+            activated_tools: Vec<ToolId>,
+            destinations: Vec<DestinationGrant>,
+            environment: EnvironmentPolicy,
+            resource_limits: RequiredOption<ResourceLimits>,
+            audit_policy: AuditPolicy,
+        }
+
+        let wire = WireExecutionPolicyRequest::deserialize(deserializer)?;
+        Ok(Self {
+            schema_version: wire.schema_version,
+            access: wire.access,
+            allow_process: wire.allow_process,
+            allow_pty: wire.allow_pty,
+            workspace: wire.workspace.into_option(),
+            scratch_disposition: wire.scratch_disposition,
+            catalog_generation: wire.catalog_generation,
+            activated_tools: wire.activated_tools,
+            destinations: wire.destinations,
+            environment: wire.environment,
+            resource_limits: wire.resource_limits.into_option(),
+            audit_policy: wire.audit_policy,
+        })
+    }
 }
 
 pub struct ValidatedExecutionPolicy {

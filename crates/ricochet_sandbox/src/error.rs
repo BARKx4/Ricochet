@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::destination::DestinationGrant;
+use crate::exact_serde::RequiredOption;
 use crate::identity::{BackendFeatureId, BackendIdentity, SessionId, ToolId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -86,7 +87,7 @@ pub enum TerminationReason {
     SessionClosed,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticMetadata {
     tool_id: Option<ToolId>,
@@ -95,6 +96,34 @@ pub struct DiagnosticMetadata {
     protocol_version: Option<u16>,
     session_id: Option<SessionId>,
     backend_feature: Option<BackendFeatureId>,
+}
+
+impl<'de> Deserialize<'de> for DiagnosticMetadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireDiagnosticMetadata {
+            tool_id: RequiredOption<ToolId>,
+            destination: RequiredOption<DestinationGrant>,
+            resource_limit: RequiredOption<ResourceLimitKind>,
+            protocol_version: RequiredOption<u16>,
+            session_id: RequiredOption<SessionId>,
+            backend_feature: RequiredOption<BackendFeatureId>,
+        }
+
+        let wire = WireDiagnosticMetadata::deserialize(deserializer)?;
+        Ok(Self {
+            tool_id: wire.tool_id.into_option(),
+            destination: wire.destination.into_option(),
+            resource_limit: wire.resource_limit.into_option(),
+            protocol_version: wire.protocol_version.into_option(),
+            session_id: wire.session_id.into_option(),
+            backend_feature: wire.backend_feature.into_option(),
+        })
+    }
 }
 
 impl DiagnosticMetadata {
@@ -493,10 +522,10 @@ impl<'de> Deserialize<'de> for SandboxError {
         struct WireSandboxError {
             code: SandboxErrorCode,
             phase: SandboxPhase,
-            backend: Option<BackendIdentity>,
-            failed_guarantee: Option<FailedGuarantee>,
+            backend: RequiredOption<BackendIdentity>,
+            failed_guarantee: RequiredOption<FailedGuarantee>,
             message: String,
-            remediation: Option<Remediation>,
+            remediation: RequiredOption<Remediation>,
             metadata: DiagnosticMetadata,
         }
 
@@ -504,10 +533,10 @@ impl<'de> Deserialize<'de> for SandboxError {
         let error = Self {
             code: wire.code,
             phase: wire.phase,
-            backend: wire.backend,
-            failed_guarantee: wire.failed_guarantee,
+            backend: wire.backend.into_option(),
+            failed_guarantee: wire.failed_guarantee.into_option(),
             message: wire.message,
-            remediation: wire.remediation,
+            remediation: wire.remediation.into_option(),
             metadata: wire.metadata,
             native_cause: None,
         };

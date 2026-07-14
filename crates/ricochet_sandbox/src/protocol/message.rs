@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use base64::engine::general_purpose::STANDARD;
@@ -7,10 +7,14 @@ use serde::de::Error as _;
 use serde::ser::{Error as _, SerializeStruct as _};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::audit::{AuditRecord, AuditWorkspace, EnforcementState};
+use crate::audit::{
+    access_enforcement_valid, public_tool_projection_valid, AuditRecord, AuditWorkspace,
+    EnforcementState,
+};
 use crate::catalog::{PublicCatalogSnapshot, PublicToolRecord};
 use crate::destination::DestinationGrant;
 use crate::error::{DiagnosticMetadata, SandboxError, SandboxErrorCode, TerminationReason};
+use crate::exact_serde::RequiredOption;
 use crate::identity::{
     BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId, PtyId, RequestId,
     ScratchId, SessionId, Sha256Digest, ToolId, UnixMillis,
@@ -508,7 +512,7 @@ pub struct CancelSessionRequest {
     pub session_id: SessionId,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessLaunchRequest {
     pub session_id: SessionId,
@@ -520,6 +524,40 @@ pub struct ProcessLaunchRequest {
     pub timeout_ms: u64,
     pub stdout_max_bytes: u64,
     pub stderr_max_bytes: u64,
+}
+
+impl<'de> Deserialize<'de> for ProcessLaunchRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireProcessLaunchRequest {
+            session_id: SessionId,
+            executable: ExecutableRef,
+            arguments: Vec<String>,
+            cwd: RequiredOption<String>,
+            stdin_open: bool,
+            environment: LaunchEnvironment,
+            timeout_ms: u64,
+            stdout_max_bytes: u64,
+            stderr_max_bytes: u64,
+        }
+
+        let wire = WireProcessLaunchRequest::deserialize(deserializer)?;
+        Ok(Self {
+            session_id: wire.session_id,
+            executable: wire.executable,
+            arguments: wire.arguments,
+            cwd: wire.cwd.into_option(),
+            stdin_open: wire.stdin_open,
+            environment: wire.environment,
+            timeout_ms: wire.timeout_ms,
+            stdout_max_bytes: wire.stdout_max_bytes,
+            stderr_max_bytes: wire.stderr_max_bytes,
+        })
+    }
 }
 
 impl fmt::Debug for ProcessLaunchRequest {
@@ -577,7 +615,7 @@ impl fmt::Debug for ProcessWriteRequest {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PtyLaunchRequest {
     pub session_id: SessionId,
@@ -588,6 +626,38 @@ pub struct PtyLaunchRequest {
     pub rows: u16,
     pub cols: u16,
     pub output_max_bytes: u64,
+}
+
+impl<'de> Deserialize<'de> for PtyLaunchRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WirePtyLaunchRequest {
+            session_id: SessionId,
+            executable: ExecutableRef,
+            arguments: Vec<String>,
+            cwd: RequiredOption<String>,
+            environment: LaunchEnvironment,
+            rows: u16,
+            cols: u16,
+            output_max_bytes: u64,
+        }
+
+        let wire = WirePtyLaunchRequest::deserialize(deserializer)?;
+        Ok(Self {
+            session_id: wire.session_id,
+            executable: wire.executable,
+            arguments: wire.arguments,
+            cwd: wire.cwd.into_option(),
+            environment: wire.environment,
+            rows: wire.rows,
+            cols: wire.cols,
+            output_max_bytes: wire.output_max_bytes,
+        })
+    }
 }
 
 impl fmt::Debug for PtyLaunchRequest {
@@ -919,13 +989,13 @@ impl<'de> Deserialize<'de> for ProcessSnapshot {
             command_display: String,
             arguments: Vec<String>,
             argument_count: usize,
-            cwd: Option<String>,
+            cwd: RequiredOption<String>,
             started_at: UnixMillis,
             status: ProcessStatus,
             running: bool,
             success: bool,
-            exit_code: Option<i64>,
-            error: Option<SandboxError>,
+            exit_code: RequiredOption<i64>,
+            error: RequiredOption<SandboxError>,
             stdout_len: u64,
             stderr_len: u64,
             stdout_truncated: bool,
@@ -942,13 +1012,13 @@ impl<'de> Deserialize<'de> for ProcessSnapshot {
             command_display: wire.command_display,
             arguments: wire.arguments,
             argument_count: wire.argument_count,
-            cwd: wire.cwd,
+            cwd: wire.cwd.into_option(),
             started_at: wire.started_at,
             status: wire.status,
             running: wire.running,
             success: wire.success,
-            exit_code: wire.exit_code,
-            error: wire.error,
+            exit_code: wire.exit_code.into_option(),
+            error: wire.error.into_option(),
             stdout_len: wire.stdout_len,
             stderr_len: wire.stderr_len,
             stdout_truncated: wire.stdout_truncated,
@@ -1141,18 +1211,18 @@ impl<'de> Deserialize<'de> for PtySnapshot {
             command_display: String,
             arguments: Vec<String>,
             argument_count: usize,
-            cwd: Option<String>,
+            cwd: RequiredOption<String>,
             started_at: UnixMillis,
             status: PtyStatus,
             running: bool,
             success: bool,
-            exit_code: Option<i64>,
-            error: Option<SandboxError>,
+            exit_code: RequiredOption<i64>,
+            error: RequiredOption<SandboxError>,
             output_len: u64,
             output_truncated: bool,
             rows: u16,
             cols: u16,
-            native_process_id: Option<u32>,
+            native_process_id: RequiredOption<u32>,
             stopped: bool,
         }
         let wire = WirePtySnapshot::deserialize(deserializer)?;
@@ -1162,18 +1232,18 @@ impl<'de> Deserialize<'de> for PtySnapshot {
             command_display: wire.command_display,
             arguments: wire.arguments,
             argument_count: wire.argument_count,
-            cwd: wire.cwd,
+            cwd: wire.cwd.into_option(),
             started_at: wire.started_at,
             status: wire.status,
             running: wire.running,
             success: wire.success,
-            exit_code: wire.exit_code,
-            error: wire.error,
+            exit_code: wire.exit_code.into_option(),
+            error: wire.error.into_option(),
             output_len: wire.output_len,
             output_truncated: wire.output_truncated,
             rows: wire.rows,
             cols: wire.cols,
-            native_process_id: wire.native_process_id,
+            native_process_id: wire.native_process_id.into_option(),
             stopped: wire.stopped,
         };
         snapshot.validate().map_err(D::Error::custom)?;
@@ -1379,21 +1449,11 @@ impl ConfirmedExecutionCapabilities {
                     && self.destinations.is_empty()
             }
         };
-        let enforcement_valid = matches!(
-            (self.access, self.enforcement),
-            (
-                ExecutionAccess::Read | ExecutionAccess::Workspace,
-                EnforcementState::Enforced | EnforcementState::MockOnly
-            ) | (
-                ExecutionAccess::Full,
-                EnforcementState::UnenforcedFullAccess | EnforcementState::MockOnly
-            )
-        );
         let workspace_valid = self
             .workspace
             .as_ref()
             .is_none_or(|workspace| valid_wire_text(workspace.canonical_root()));
-        let tools_valid = public_tools_valid(&self.tools);
+        let tools_valid = public_tool_projection_valid(&self.tools);
         let destinations_valid = self.destinations.windows(2).all(|pair| pair[0] < pair[1]);
         let limits_valid = self
             .resource_limits
@@ -1401,7 +1461,7 @@ impl ConfirmedExecutionCapabilities {
             .is_none_or(|limits| limits.validate().is_ok());
         if self.broker_protocol == PROTOCOL_V1
             && access_fields_valid
-            && enforcement_valid
+            && access_enforcement_valid(self.access, self.enforcement)
             && workspace_valid
             && tools_valid
             && destinations_valid
@@ -1451,12 +1511,12 @@ impl<'de> Deserialize<'de> for ConfirmedExecutionCapabilities {
             broker_protocol: u16,
             session_id: SessionId,
             policy_digest: PolicyDigest,
-            workspace: Option<AuditWorkspace>,
+            workspace: RequiredOption<AuditWorkspace>,
             scratch_id: ScratchId,
             catalog_generation: CatalogGeneration,
             tools: Vec<PublicToolRecord>,
             destinations: Vec<DestinationGrant>,
-            resource_limits: Option<ResourceLimits>,
+            resource_limits: RequiredOption<ResourceLimits>,
         }
         let wire = WireCapabilities::deserialize(deserializer)?;
         let value = Self {
@@ -1466,12 +1526,12 @@ impl<'de> Deserialize<'de> for ConfirmedExecutionCapabilities {
             broker_protocol: wire.broker_protocol,
             session_id: wire.session_id,
             policy_digest: wire.policy_digest,
-            workspace: wire.workspace,
+            workspace: wire.workspace.into_option(),
             scratch_id: wire.scratch_id,
             catalog_generation: wire.catalog_generation,
             tools: wire.tools,
             destinations: wire.destinations,
-            resource_limits: wire.resource_limits,
+            resource_limits: wire.resource_limits.into_option(),
         };
         value.validate().map_err(D::Error::custom)?;
         Ok(value)
@@ -1496,47 +1556,6 @@ impl fmt::Debug for ConfirmedExecutionCapabilities {
             .field("resource_limits_present", &self.resource_limits.is_some())
             .finish()
     }
-}
-
-fn public_tools_valid(tools: &[PublicToolRecord]) -> bool {
-    if !tools
-        .windows(2)
-        .all(|pair| pair[0].tool_id < pair[1].tool_id)
-    {
-        return false;
-    }
-    let mut incoming = vec![0_usize; tools.len()];
-    for tool in tools {
-        if !tool.helper_ids.windows(2).all(|pair| pair[0] < pair[1]) {
-            return false;
-        }
-        for helper in &tool.helper_ids {
-            let Ok(index) = tools.binary_search_by(|candidate| candidate.tool_id.cmp(helper))
-            else {
-                return false;
-            };
-            incoming[index] += 1;
-        }
-    }
-    let mut pending = incoming
-        .iter()
-        .enumerate()
-        .filter_map(|(index, count)| (*count == 0).then_some(index))
-        .collect::<VecDeque<_>>();
-    let mut visited = 0;
-    while let Some(index) = pending.pop_front() {
-        visited += 1;
-        for helper in &tools[index].helper_ids {
-            let helper_index = tools
-                .binary_search_by(|candidate| candidate.tool_id.cmp(helper))
-                .expect("helper existence validated above");
-            incoming[helper_index] -= 1;
-            if incoming[helper_index] == 0 {
-                pending.push_back(helper_index);
-            }
-        }
-    }
-    visited == tools.len()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2032,10 +2051,17 @@ fn validate_public_catalog(snapshot: &PublicCatalogSnapshot) -> Result<(), Sandb
         .revoked_tools
         .windows(2)
         .all(|pair| pair[0] < pair[1]);
+    let helpers_not_revoked = snapshot.records.iter().all(|record| {
+        record
+            .helper_ids
+            .iter()
+            .all(|helper| snapshot.revoked_tools.binary_search(helper).is_err())
+    });
     if snapshot.schema_version == CATALOG_SCHEMA_V1
         && records_sorted
         && revoked_sorted
-        && public_tools_valid(&snapshot.records)
+        && helpers_not_revoked
+        && public_tool_projection_valid(&snapshot.records)
     {
         Ok(())
     } else {
@@ -2080,12 +2106,34 @@ impl fmt::Debug for BrokerResponse {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerminationNotice {
     pub reason: TerminationReason,
     pub process_tree_ids: Vec<ProcessTreeId>,
     pub error: Option<SandboxError>,
+}
+
+impl<'de> Deserialize<'de> for TerminationNotice {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireTerminationNotice {
+            reason: TerminationReason,
+            process_tree_ids: Vec<ProcessTreeId>,
+            error: RequiredOption<SandboxError>,
+        }
+
+        let wire = WireTerminationNotice::deserialize(deserializer)?;
+        Ok(Self {
+            reason: wire.reason,
+            process_tree_ids: wire.process_tree_ids,
+            error: wire.error.into_option(),
+        })
+    }
 }
 
 impl TerminationNotice {
@@ -2140,7 +2188,12 @@ impl BrokerEvent {
         match self {
             Self::Audit(record) => {
                 record.validate()?;
-                ensure_session(record.context().session_id(), session_id)
+                ensure_session(record.context().session_id(), session_id)?;
+                if record.context().broker_protocol() == PROTOCOL_V1 {
+                    Ok(())
+                } else {
+                    Err(protocol_error())
+                }
             }
             Self::SessionState(_) => Ok(()),
             Self::Terminated(notice) => notice.validate(),

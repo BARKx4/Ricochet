@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{DiagnosticMetadata, FailedGuarantee, SandboxError};
+use crate::exact_serde::RequiredOption;
 use crate::identity::{CatalogGeneration, Sha256Digest, ToolId, UnixMillis};
 use crate::version::CATALOG_SCHEMA_V1;
 
@@ -131,13 +132,37 @@ pub struct ValidatedCatalogSnapshot {
     revoked_tools: BTreeSet<ToolId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicToolRecord {
     pub tool_id: ToolId,
     pub executable_sha256: Sha256Digest,
     pub helper_ids: Vec<ToolId>,
     pub transport_adapter: Option<TransportAdapter>,
+}
+
+impl<'de> Deserialize<'de> for PublicToolRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WirePublicToolRecord {
+            tool_id: ToolId,
+            executable_sha256: Sha256Digest,
+            helper_ids: Vec<ToolId>,
+            transport_adapter: RequiredOption<TransportAdapter>,
+        }
+
+        let wire = WirePublicToolRecord::deserialize(deserializer)?;
+        Ok(Self {
+            tool_id: wire.tool_id,
+            executable_sha256: wire.executable_sha256,
+            helper_ids: wire.helper_ids,
+            transport_adapter: wire.transport_adapter.into_option(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
