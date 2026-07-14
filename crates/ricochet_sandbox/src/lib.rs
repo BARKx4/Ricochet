@@ -2,6 +2,7 @@ mod catalog;
 mod destination;
 mod error;
 mod identity;
+mod policy;
 mod version;
 
 pub use catalog::{
@@ -18,6 +19,12 @@ pub use error::{
 pub use identity::{
     BackendFeatureId, BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId,
     PtyId, RequestId, ScratchId, SessionId, Sha256Digest, ToolId, UnixMillis,
+};
+pub use policy::{
+    resolve_legacy_access, ArgumentAuditMode, AuditPolicy, EffectiveEnvironment, EnvironmentPolicy,
+    EnvironmentVariable, ExecutionAccess, ExecutionGrant, ExecutionPolicyRequest, ExecutionSurface,
+    GrantSet, LaunchEnvironment, ResourceLimits, ScratchDisposition, ValidatedExecutionPolicy,
+    WorkspaceIdentity, WorkspaceIdentityResolver, WorkspaceRequest,
 };
 pub use version::{
     CATALOG_SCHEMA_V1, FRAME_MAC_BYTES, MAX_FRAME_BYTES, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1,
