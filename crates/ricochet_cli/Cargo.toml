@@ -47,6 +47,7 @@ tower.workspace = true
 
 [dev-dependencies]
 tungstenite.workspace = true
+wait-timeout.workspace = true
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 muda = "0.19.3"

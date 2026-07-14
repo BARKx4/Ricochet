@@ -23,3 +23,9 @@ __pycache__/
 !**/README.md
 !SECURITY.md
 !SUPPORT.md
+
+# Keep the source-controlled portable-pty patch auditable while ignoring files
+# generated when its standalone crate tests are run directly.
+!third_party/portable-pty/LICENSE.md
+!third_party/portable-pty/RICOCHET-PATCH.md
+third_party/portable-pty/Cargo.lock

@@ -9,6 +9,7 @@ members = [
   "crates/ricochet_cli",
   "crates/ricochet_sandbox",
 ]
+exclude = ["third_party/portable-pty"]
 
 [workspace.package]
 edition = "2021"
@@ -57,3 +58,6 @@ tower-http = { version = "0.6", features = ["trace"] }
 tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 wait-timeout = "0.2"
 zeroize = "1"
+
+[patch.crates-io]
+portable-pty = { path = "third_party/portable-pty" }
