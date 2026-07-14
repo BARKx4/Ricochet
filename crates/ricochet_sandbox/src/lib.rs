@@ -1,8 +1,15 @@
+mod catalog;
 mod destination;
 mod error;
 mod identity;
 mod version;
 
+pub use catalog::{
+    ApprovalActor, Architecture, ArtifactKind, CatalogPathNormalizer, CatalogRecord,
+    CatalogSnapshot, HashedArtifact, OperatingSystem, PlatformId, PreparedCatalogClosure,
+    PreparedTool, PublicCatalogSnapshot, PublicToolRecord, ReplacementLineage, ToolReference,
+    TransportAdapter, ValidatedCatalogSnapshot,
+};
 pub use destination::DestinationGrant;
 pub use error::{
     DiagnosticMetadata, FailedGuarantee, Remediation, ResourceLimitKind, SandboxError,
