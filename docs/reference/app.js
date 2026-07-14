@@ -1988,7 +1988,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "path:string options:map -> result(array)",
-    "body": "Lists workspace entries as metadata maps. Options include `recursive`, `include_files`, `include_dirs`, and `max_entries`.",
+    "body": "Lists workspace entries as metadata maps. Options include `recursive`, `include_files`, `include_dirs`, `max_entries`, and Boolean `truncate_on_limit`. By default, exceeding `max_entries` returns `IoError`; when truncation is enabled, recursive traversal stops globally and returns the capped Array.",
     "example": "options map\n\".\" $options workspace_list value"
   },
   {
