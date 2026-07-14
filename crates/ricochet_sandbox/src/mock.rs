@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::audit::{
     AuditContext, AuditEventKind, AuditRecord, EnforcementState, ExecutionAuditIdentity,
@@ -151,6 +151,7 @@ impl SandboxBackend for MockSandboxBackend {
             next_process_tree_id: 0,
             processes: BTreeMap::new(),
             ptys: BTreeMap::new(),
+            revoked_tools: BTreeSet::new(),
         }))
     }
 }
@@ -169,6 +170,7 @@ struct MockSandboxSession {
     next_process_tree_id: u64,
     processes: BTreeMap<ProcessId, MockProcess>,
     ptys: BTreeMap<crate::identity::PtyId, MockPty>,
+    revoked_tools: BTreeSet<ToolId>,
 }
 
 struct MockProcess {
@@ -719,7 +721,7 @@ impl MockSandboxSession {
     fn tool_closure_contains(&self, root: &ToolId, expected: &ToolId) -> bool {
         let tools = self.policy.prepared_catalog().tools();
         let mut pending = vec![root];
-        let mut visited = std::collections::BTreeSet::new();
+        let mut visited = BTreeSet::new();
         while let Some(tool_id) = pending.pop() {
             if tool_id == expected {
                 return true;
@@ -734,10 +736,25 @@ impl MockSandboxSession {
         false
     }
 
+    fn reject_revoked_executable(&self, executable: &ExecutableRef) -> Result<(), SandboxError> {
+        let ExecutableRef::ManagedTool(root) = executable else {
+            return Ok(());
+        };
+        match self
+            .revoked_tools
+            .iter()
+            .find(|revoked| self.tool_closure_contains(root, revoked))
+        {
+            Some(revoked) => Err(SandboxError::tool_not_approved(revoked.clone())),
+            None => Ok(()),
+        }
+    }
+
     fn revoke_tool(&mut self, tool_id: &ToolId) -> Result<(), SandboxError> {
         if let Some(error) = self.config.failures.get(&MockFailurePoint::Revocation) {
             return Err(error.clone());
         }
+        self.revoked_tools.insert(tool_id.clone());
         let mut affected = self
             .active_executions()
             .into_iter()
@@ -832,6 +849,7 @@ impl SandboxSession for MockSandboxSession {
                 let BrokerRequest::ProcessStart(request) = request else {
                     unreachable!()
                 };
+                self.reject_revoked_executable(&request.executable)?;
                 self.handle_process_start(request)
             }
             SessionCommand::ProcessList(request) => {
@@ -911,6 +929,7 @@ impl SandboxSession for MockSandboxSession {
                 let BrokerRequest::PtyStart(request) = request else {
                     unreachable!()
                 };
+                self.reject_revoked_executable(&request.executable)?;
                 self.handle_pty_start(request)
             }
             SessionCommand::PtyList(request) => {
@@ -984,6 +1003,12 @@ impl SandboxSession for MockSandboxSession {
     }
 
     fn terminate(&mut self, reason: TerminationReason) -> Result<(), SandboxError> {
+        if matches!(
+            reason,
+            TerminationReason::CancelledByHost | TerminationReason::ToolRevoked
+        ) {
+            return Err(SandboxError::protocol(Default::default()));
+        }
         if let Some(error) = self.config.failures.get(&MockFailurePoint::Cancel) {
             return Err(error.clone());
         }

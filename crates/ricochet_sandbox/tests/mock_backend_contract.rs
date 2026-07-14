@@ -13,7 +13,7 @@ use ricochet_sandbox::{
     PtySnapshot, PtyStatus, PtyWriteRequest, Remediation, RequestId, ResourceLimitKind,
     ResourceLimits, ResponseCorrelation, SandboxBackend, SandboxError, SandboxSession,
     ScratchDisposition, ScratchId, SessionCommand, SessionId, SessionRequest, SessionState,
-    Sha256Digest, TerminationReason, ToolId, UnixMillis, ValidatedCatalogSnapshot,
+    Sha256Digest, TerminationReason, ToolId, ToolReference, UnixMillis, ValidatedCatalogSnapshot,
     ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity, WorkspaceIdentityResolver,
     WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1,
 };
@@ -72,34 +72,62 @@ fn limits() -> ResourceLimits {
     }
 }
 
+fn catalog_record(id: &str, fingerprint_byte: u8, helpers: Vec<ToolReference>) -> CatalogRecord {
+    CatalogRecord {
+        schema_version: CATALOG_SCHEMA_V1,
+        generation: generation(),
+        tool_id: tool_id(id),
+        platform: platform(),
+        original_source_path: format!(r"C:\source\{id}.exe"),
+        executable: HashedArtifact {
+            logical_name: format!("{id}-executable"),
+            managed_canonical_path: format!(r"C:\broker-private\{id}.exe"),
+            sha256: Sha256Digest::from_bytes([fingerprint_byte; 32]),
+            kind: ArtifactKind::Executable,
+        },
+        helpers,
+        non_system_libraries: Vec::new(),
+        resources: Vec::new(),
+        transport_adapter: None,
+        approval_actor: ApprovalActor {
+            display_name: "Sandbox Administrator".to_owned(),
+            mechanism: "interactive-consent".to_owned(),
+        },
+        approved_at: UnixMillis::new(1_783_987_200_000),
+        replaces: None,
+    }
+}
+
+fn tool_reference(id: &str, fingerprint_byte: u8) -> ToolReference {
+    ToolReference {
+        tool_id: tool_id(id),
+        sha256: Sha256Digest::from_bytes([fingerprint_byte; 32]),
+    }
+}
+
 fn catalog() -> ValidatedCatalogSnapshot {
     CatalogSnapshot {
         schema_version: CATALOG_SCHEMA_V1,
         generation: generation(),
         platform: platform(),
-        records: vec![CatalogRecord {
-            schema_version: CATALOG_SCHEMA_V1,
-            generation: generation(),
-            tool_id: tool_id("git"),
-            platform: platform(),
-            original_source_path: r"C:\source\git.exe".to_owned(),
-            executable: HashedArtifact {
-                logical_name: "git-executable".to_owned(),
-                managed_canonical_path: r"C:\broker-private\git.exe".to_owned(),
-                sha256: Sha256Digest::from_bytes([0x33; 32]),
-                kind: ArtifactKind::Executable,
-            },
-            helpers: Vec::new(),
-            non_system_libraries: Vec::new(),
-            resources: Vec::new(),
-            transport_adapter: None,
-            approval_actor: ApprovalActor {
-                display_name: "Sandbox Administrator".to_owned(),
-                mechanism: "interactive-consent".to_owned(),
-            },
-            approved_at: UnixMillis::new(1_783_987_200_000),
-            replaces: None,
-        }],
+        records: vec![catalog_record("git", 0x33, Vec::new())],
+        revoked_tools: Vec::new(),
+    }
+    .validate(&FixturePathNormalizer)
+    .unwrap()
+}
+
+fn catalog_with_transitive_helpers_and_unrelated_root() -> ValidatedCatalogSnapshot {
+    CatalogSnapshot {
+        schema_version: CATALOG_SCHEMA_V1,
+        generation: generation(),
+        platform: platform(),
+        records: vec![
+            catalog_record("connect-helper", 0x55, Vec::new()),
+            catalog_record("git", 0x33, vec![tool_reference("ssh", 0x44)]),
+            catalog_record("python", 0x66, Vec::new()),
+            catalog_record("ssh", 0x44, vec![tool_reference("connect-helper", 0x55)]),
+        ],
         revoked_tools: Vec::new(),
     }
     .validate(&FixturePathNormalizer)
@@ -138,6 +166,17 @@ fn read_policy() -> ValidatedExecutionPolicy {
         .unwrap()
 }
 
+fn closure_policy() -> ValidatedExecutionPolicy {
+    let mut request = policy_request(ExecutionAccess::Read, true, true);
+    request.activated_tools = vec![tool_id("git"), tool_id("python")];
+    request
+        .validate(
+            &catalog_with_transitive_helpers_and_unrelated_root(),
+            &FixtureWorkspaceResolver,
+        )
+        .unwrap()
+}
+
 fn process_launch(session_id: &SessionId, stdin_open: bool) -> ProcessLaunchRequest {
     ProcessLaunchRequest {
         session_id: session_id.clone(),
@@ -153,6 +192,16 @@ fn process_launch(session_id: &SessionId, stdin_open: bool) -> ProcessLaunchRequ
         stdout_max_bytes: (MAX_IO_CHUNK_BYTES as u64) * 3,
         stderr_max_bytes: MAX_IO_CHUNK_BYTES as u64,
     }
+}
+
+fn process_launch_for_tool(
+    session_id: &SessionId,
+    selected_tool: &str,
+    stdin_open: bool,
+) -> ProcessLaunchRequest {
+    let mut request = process_launch(session_id, stdin_open);
+    request.executable = ExecutableRef::ManagedTool(tool_id(selected_tool));
+    request
 }
 
 fn pty_launch(session_id: &SessionId) -> PtyLaunchRequest {
@@ -171,6 +220,12 @@ fn pty_launch(session_id: &SessionId) -> PtyLaunchRequest {
     }
 }
 
+fn pty_launch_for_tool(session_id: &SessionId, selected_tool: &str) -> PtyLaunchRequest {
+    let mut request = pty_launch(session_id);
+    request.executable = ExecutableRef::ManagedTool(tool_id(selected_tool));
+    request
+}
+
 fn backend(config: MockBackendConfig) -> MockSandboxBackend {
     MockSandboxBackend::new(config)
 }
@@ -178,6 +233,12 @@ fn backend(config: MockBackendConfig) -> MockSandboxBackend {
 fn prepared_session(config: MockBackendConfig, id: &SessionId) -> Box<dyn SandboxSession> {
     backend(config)
         .prepare(id.clone(), scratch_id("scratch-01"), read_policy())
+        .unwrap()
+}
+
+fn prepared_closure_session(config: MockBackendConfig, id: &SessionId) -> Box<dyn SandboxSession> {
+    backend(config)
+        .prepare(id.clone(), scratch_id("scratch-01"), closure_policy())
         .unwrap()
 }
 
@@ -210,10 +271,41 @@ fn start_process(session: &mut dyn SandboxSession, id: &SessionId) -> ProcessSna
     )
 }
 
+fn start_process_for_tool(
+    session: &mut dyn SandboxSession,
+    id: &SessionId,
+    selected_tool: &str,
+) -> ProcessSnapshot {
+    process_response(
+        session
+            .handle(SessionCommand::ProcessStart(process_launch_for_tool(
+                id,
+                selected_tool,
+                true,
+            )))
+            .unwrap(),
+    )
+}
+
 fn start_pty(session: &mut dyn SandboxSession, id: &SessionId) -> PtySnapshot {
     pty_response(
         session
             .handle(SessionCommand::PtyStart(pty_launch(id)))
+            .unwrap(),
+    )
+}
+
+fn start_pty_for_tool(
+    session: &mut dyn SandboxSession,
+    id: &SessionId,
+    selected_tool: &str,
+) -> PtySnapshot {
+    pty_response(
+        session
+            .handle(SessionCommand::PtyStart(pty_launch_for_tool(
+                id,
+                selected_tool,
+            )))
             .unwrap(),
     )
 }
@@ -1138,6 +1230,57 @@ fn broker_termination_supports_every_broker_owned_reason_with_complete_tree_even
 }
 
 #[test]
+fn direct_terminate_rejects_command_owned_reasons_without_mutating_session_or_executions() {
+    for (index, reason) in [
+        TerminationReason::CancelledByHost,
+        TerminationReason::ToolRevoked,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = session_id(&format!("session-owned-{index}"));
+        let mut session = prepared_session(MockBackendConfig::default(), &id);
+        session.drain_events();
+        let process_before = start_process(session.as_mut(), &id);
+        let pty_before = start_pty(session.as_mut(), &id);
+        let process_before_wire = serde_json::to_value(&process_before).unwrap();
+        let pty_before_wire = serde_json::to_value(&pty_before).unwrap();
+        session.drain_events();
+
+        assert_eq!(
+            session.terminate(reason).unwrap_err().kind(),
+            "BrokerProtocolError"
+        );
+        assert_eq!(session.state(), SessionState::Running);
+        assert_eq!(
+            serde_json::to_value(process_response(
+                session
+                    .handle(SessionCommand::ProcessDetail(ProcessRequest {
+                        session_id: id.clone(),
+                        process_id: process_before.id,
+                    }))
+                    .unwrap(),
+            ))
+            .unwrap(),
+            process_before_wire
+        );
+        assert_eq!(
+            serde_json::to_value(pty_response(
+                session
+                    .handle(SessionCommand::PtyDetail(PtyRequest {
+                        session_id: id,
+                        pty_id: pty_before.id,
+                    }))
+                    .unwrap(),
+            ))
+            .unwrap(),
+            pty_before_wire
+        );
+        assert!(session.drain_events().is_empty());
+    }
+}
+
+#[test]
 fn close_derives_session_closed_and_orders_stopping_termination_then_closed() {
     let id = session_id("session-01");
     let mut session = prepared_session(MockBackendConfig::default(), &id);
@@ -1246,6 +1389,195 @@ fn tool_revocation_terminates_every_affected_process_and_pty_tree_with_typed_aud
         notice.process_tree_ids,
         [process.process_tree_id, pty.process_tree_id]
     );
+}
+
+#[test]
+fn transitive_helper_revocation_is_persistent_and_isolates_unrelated_process_and_pty_roots() {
+    let id = session_id("session-helper-revoke");
+    let mut session = prepared_closure_session(MockBackendConfig::default(), &id);
+    session.drain_events();
+    let dependent_process = start_process_for_tool(session.as_mut(), &id, "git");
+    let unrelated_process = start_process_for_tool(session.as_mut(), &id, "python");
+    let dependent_pty = start_pty_for_tool(session.as_mut(), &id, "git");
+    let unrelated_pty = start_pty_for_tool(session.as_mut(), &id, "python");
+    session.drain_events();
+
+    session.revoke(&tool_id("connect-helper")).unwrap();
+
+    let dependent_process_after = process_response(
+        session
+            .handle(SessionCommand::ProcessDetail(ProcessRequest {
+                session_id: id.clone(),
+                process_id: dependent_process.id,
+            }))
+            .unwrap(),
+    );
+    let unrelated_process_after = process_response(
+        session
+            .handle(SessionCommand::ProcessDetail(ProcessRequest {
+                session_id: id.clone(),
+                process_id: unrelated_process.id,
+            }))
+            .unwrap(),
+    );
+    let dependent_pty_after = pty_response(
+        session
+            .handle(SessionCommand::PtyDetail(PtyRequest {
+                session_id: id.clone(),
+                pty_id: dependent_pty.id,
+            }))
+            .unwrap(),
+    );
+    let unrelated_pty_after = pty_response(
+        session
+            .handle(SessionCommand::PtyDetail(PtyRequest {
+                session_id: id.clone(),
+                pty_id: unrelated_pty.id,
+            }))
+            .unwrap(),
+    );
+    assert_eq!(dependent_process_after.status, ProcessStatus::Cancelled);
+    assert_eq!(dependent_pty_after.status, PtyStatus::Stopped);
+    assert!(unrelated_process_after.running);
+    assert!(unrelated_pty_after.running);
+
+    let events = session.drain_events();
+    assert_eq!(events.len(), 4);
+    for event in &events {
+        let wire = serde_json::to_value(event).unwrap();
+        let _: BrokerEvent = serde_json::from_value(wire).unwrap();
+    }
+    let BrokerEvent::Audit(revoked) = &events[0] else {
+        panic!("revocation audit must be first")
+    };
+    assert!(matches!(
+        revoked.event(),
+        AuditEventKind::Revoked {
+            tool_id: revoked,
+            affected_process_trees,
+        } if *revoked == tool_id("connect-helper")
+            && affected_process_trees
+                == &[dependent_process.process_tree_id, dependent_pty.process_tree_id]
+    ));
+    let expected_terminal_audits = [
+        ricochet_sandbox::ExecutionAuditIdentity::process(
+            dependent_process.process_tree_id,
+            dependent_process.id,
+        ),
+        ricochet_sandbox::ExecutionAuditIdentity::pty(
+            dependent_pty.process_tree_id,
+            dependent_pty.id,
+        ),
+    ];
+    for (event, expected) in events[1..3].iter().zip(expected_terminal_audits) {
+        let BrokerEvent::Audit(record) = event else {
+            panic!("affected execution must have a terminal audit")
+        };
+        assert!(matches!(
+            record.event(),
+            AuditEventKind::Cancelled {
+                execution,
+                reason: TerminationReason::ToolRevoked,
+            } if *execution == expected
+        ));
+    }
+    let BrokerEvent::Terminated(notice) = &events[3] else {
+        panic!("revocation termination notice must follow terminal audits")
+    };
+    assert_eq!(notice.reason, TerminationReason::ToolRevoked);
+    assert_eq!(
+        notice.process_tree_ids,
+        [
+            dependent_process.process_tree_id,
+            dependent_pty.process_tree_id
+        ]
+    );
+
+    assert_eq!(
+        session
+            .handle(SessionCommand::ProcessStart(process_launch_for_tool(
+                &id, "git", true,
+            )))
+            .unwrap_err()
+            .kind(),
+        "ToolNotApproved"
+    );
+    assert_eq!(
+        session
+            .handle(SessionCommand::PtyStart(pty_launch_for_tool(&id, "git")))
+            .unwrap_err()
+            .kind(),
+        "ToolNotApproved"
+    );
+    assert!(start_process_for_tool(session.as_mut(), &id, "python").running);
+    assert!(start_pty_for_tool(session.as_mut(), &id, "python").running);
+    session.drain_events();
+
+    session.revoke(&tool_id("connect-helper")).unwrap();
+    let repeated = session.drain_events();
+    assert_eq!(repeated.len(), 1);
+    let BrokerEvent::Audit(revoked) = &repeated[0] else {
+        panic!("repeated revocation must remain a typed audit")
+    };
+    assert!(matches!(
+        revoked.event(),
+        AuditEventKind::Revoked {
+            tool_id: revoked,
+            affected_process_trees,
+        } if *revoked == tool_id("connect-helper") && affected_process_trees.is_empty()
+    ));
+    assert_eq!(
+        session
+            .handle(SessionCommand::ProcessStart(process_launch_for_tool(
+                &id, "git", true,
+            )))
+            .unwrap_err()
+            .kind(),
+        "ToolNotApproved"
+    );
+}
+
+#[test]
+fn root_revocation_persists_for_later_process_and_pty_launches() {
+    let id = session_id("session-root-revoke");
+    let mut session = prepared_closure_session(MockBackendConfig::default(), &id);
+    session.drain_events();
+
+    session.revoke(&tool_id("git")).unwrap();
+    let events = session.drain_events();
+    assert_eq!(events.len(), 1);
+    let wire = serde_json::to_value(&events[0]).unwrap();
+    let _: BrokerEvent = serde_json::from_value(wire).unwrap();
+    let BrokerEvent::Audit(revoked) = &events[0] else {
+        panic!("root revocation must emit a typed audit")
+    };
+    assert!(matches!(
+        revoked.event(),
+        AuditEventKind::Revoked {
+            tool_id: revoked,
+            affected_process_trees,
+        } if *revoked == tool_id("git") && affected_process_trees.is_empty()
+    ));
+
+    assert_eq!(
+        session
+            .handle(SessionCommand::ProcessStart(process_launch_for_tool(
+                &id, "git", true,
+            )))
+            .unwrap_err()
+            .kind(),
+        "ToolNotApproved"
+    );
+    assert_eq!(
+        session
+            .handle(SessionCommand::PtyStart(pty_launch_for_tool(&id, "git")))
+            .unwrap_err()
+            .kind(),
+        "ToolNotApproved"
+    );
+    assert!(session.drain_events().is_empty());
+    assert!(start_process_for_tool(session.as_mut(), &id, "python").running);
+    assert!(start_pty_for_tool(session.as_mut(), &id, "python").running);
 }
 
 #[test]
@@ -1482,7 +1814,7 @@ fn every_mock_failure_point_is_reachable_and_fails_before_mutation() {
         pty_response(
             revocation
                 .handle(SessionCommand::PtyDetail(PtyRequest {
-                    session_id: id,
+                    session_id: id.clone(),
                     pty_id: pty.id,
                 }))
                 .unwrap(),
@@ -1490,6 +1822,8 @@ fn every_mock_failure_point_is_reachable_and_fails_before_mutation() {
         .running
     );
     assert!(revocation.drain_events().is_empty());
+    assert!(start_process(revocation.as_mut(), &id).running);
+    assert!(start_pty(revocation.as_mut(), &id).running);
 }
 
 #[test]
