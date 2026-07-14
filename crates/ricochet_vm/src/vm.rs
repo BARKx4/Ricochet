@@ -3183,6 +3183,53 @@ impl Vm {
         resolve_bounded_path(word, "filesystem", root, source)
     }
 
+    pub(super) fn workspace_contains_path(
+        &self,
+        word: &str,
+        root_source: &str,
+        path_source: &str,
+    ) -> bool {
+        let Ok(root) = self.resolve_filesystem_path(word, root_source) else {
+            return false;
+        };
+        let Ok(candidate) = self.resolve_filesystem_path(word, path_source) else {
+            return false;
+        };
+        let current_directory = if root.is_relative() || candidate.is_relative() {
+            let Ok(current_directory) = std::env::current_dir() else {
+                return false;
+            };
+            Some(current_directory)
+        } else {
+            None
+        };
+        let normalized_root = match &current_directory {
+            Some(current_directory) if root.is_relative() => {
+                normalize_path(&current_directory.join(root))
+            }
+            _ => normalize_path(&root),
+        };
+        let normalized_candidate = match &current_directory {
+            Some(current_directory) if candidate.is_relative() => {
+                normalize_path(&current_directory.join(candidate))
+            }
+            _ => normalize_path(&candidate),
+        };
+        if !path_has_prefix(&normalized_candidate, &normalized_root) {
+            return false;
+        }
+        let Some(canonical_root) = canonical_directory(&normalized_root) else {
+            return false;
+        };
+        let Some(canonical_existing) =
+            canonical_path(&nearest_existing_ancestor(&normalized_candidate))
+        else {
+            return false;
+        };
+
+        path_has_prefix(&canonical_existing, &canonical_root)
+    }
+
     pub(super) fn resolve_process_path(
         &self,
         word: &str,
@@ -4856,7 +4903,7 @@ fn resolve_bounded_path(
     };
     let normalized = normalize_path(&candidate);
 
-    if !normalized.starts_with(root) {
+    if !path_has_prefix(&normalized, root) {
         return Err(VmError::HostError {
             word: word.to_string(),
             message: format!("{label} path is outside root: {source}"),
@@ -4871,7 +4918,7 @@ fn resolve_bounded_path(
             message: format!("failed to resolve {label} path {}: {error}", source),
         })?;
     let canonical_existing = normalize_path(&strip_verbatim_prefix(canonical_existing));
-    if !canonical_existing.starts_with(root) {
+    if !path_has_prefix(&canonical_existing, root) {
         return Err(VmError::HostError {
             word: word.to_string(),
             message: format!("{label} path is outside root: {source}"),
@@ -4879,6 +4926,36 @@ fn resolve_bounded_path(
     }
 
     Ok(normalized)
+}
+
+fn canonical_directory(path: &Path) -> Option<PathBuf> {
+    let canonical = canonical_path(path)?;
+    canonical.is_dir().then_some(canonical)
+}
+
+fn canonical_path(path: &Path) -> Option<PathBuf> {
+    path.canonicalize()
+        .ok()
+        .map(strip_verbatim_prefix)
+        .map(|path| normalize_path(&path))
+}
+
+#[cfg(not(windows))]
+fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
+    path.starts_with(prefix)
+}
+
+#[cfg(windows)]
+fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
+    let mut path_components = path.components();
+    prefix.components().all(|prefix_component| {
+        path_components.next().is_some_and(|path_component| {
+            path_component
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(prefix_component.as_os_str().to_string_lossy().as_ref())
+        })
+    })
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -4993,6 +5070,152 @@ mod tests {
             [Value::Bool(value)] => *value,
             stack => panic!("{word} should leave one boolean, got {stack:?}"),
         }
+    }
+
+    fn call_workspace_contains(root: &Path, path: &Path) -> bool {
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.stack
+            .push(Value::String(root.to_string_lossy().into_owned()));
+        vm.stack
+            .push(Value::String(path.to_string_lossy().into_owned()));
+        vm.call_word("workspace_contains?")
+            .expect("workspace_contains? should succeed");
+
+        match vm.stack() {
+            [Value::Bool(value)] => *value,
+            stack => panic!("workspace_contains? should leave one boolean, got {stack:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    fn create_workspace_contains_directory_link(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("create workspace containment symlink");
+    }
+
+    #[cfg(windows)]
+    fn create_workspace_contains_directory_link(target: &Path, link: &Path) {
+        std::os::windows::fs::symlink_dir(target, link)
+            .expect("create workspace containment directory symlink");
+    }
+
+    #[test]
+    fn workspace_contains_accepts_normal_and_missing_descendant_paths() {
+        let sandbox = tempfile::tempdir().expect("workspace containment sandbox");
+        let root = sandbox.path().join("workspace");
+        fs::create_dir_all(&root).expect("create workspace containment root");
+        let normal_file = root.join("normal.txt");
+        fs::write(&normal_file, "inside").expect("write normal workspace file");
+        let missing_descendant = root.join("missing").join("descendant.txt");
+
+        assert!(call_workspace_contains(&root, &root));
+        assert!(call_workspace_contains(&root, &normal_file));
+        assert!(call_workspace_contains(&root, &missing_descendant));
+    }
+
+    #[test]
+    fn workspace_contains_rejects_lexical_parent_escape() {
+        let sandbox = tempfile::tempdir().expect("workspace lexical containment sandbox");
+        let root = sandbox.path().join("workspace");
+        let outside = sandbox.path().join("outside");
+        fs::create_dir_all(&root).expect("create workspace containment root");
+        fs::create_dir_all(&outside).expect("create outside directory");
+        let outside_file = outside.join("outside.txt");
+        fs::write(&outside_file, "outside").expect("write outside file");
+        let lexical_parent = root.join("..").join("outside").join("outside.txt");
+
+        assert!(!call_workspace_contains(&root, &lexical_parent));
+    }
+
+    #[test]
+    fn workspace_contains_rejects_unresolvable_root() {
+        let sandbox = tempfile::tempdir().expect("workspace missing-root sandbox");
+        let existing_root = sandbox.path().join("workspace");
+        fs::create_dir_all(&existing_root).expect("create existing workspace root");
+        let normal_file = existing_root.join("normal.txt");
+        fs::write(&normal_file, "inside").expect("write normal workspace file");
+        let missing_root = sandbox.path().join("missing-root");
+
+        assert!(!call_workspace_contains(&missing_root, &normal_file));
+        assert!(!call_workspace_contains(
+            &missing_root,
+            &missing_root.join("normal.txt")
+        ));
+    }
+
+    #[test]
+    fn workspace_contains_accepts_relative_dot_root() {
+        assert!(call_workspace_contains(
+            Path::new("."),
+            Path::new("generated/workspace-contains.txt")
+        ));
+    }
+
+    fn workspace_contains_link_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf, PathBuf)
+    {
+        let sandbox = tempfile::tempdir().expect("workspace link containment sandbox");
+        let root = sandbox.path().join("workspace");
+        let outside = sandbox.path().join("outside");
+        let inside_target = root.join("inside-target");
+        fs::create_dir_all(&root).expect("create workspace containment root");
+        fs::create_dir_all(&outside).expect("create outside link target");
+        fs::create_dir_all(&inside_target).expect("create inside link target");
+        fs::write(outside.join("existing.txt"), "outside").expect("write outside link file");
+        fs::write(inside_target.join("existing.txt"), "inside").expect("write inside link file");
+
+        let outside_link = root.join("outside-link");
+        let inside_link = root.join("inside-link");
+        create_workspace_contains_directory_link(&outside, &outside_link);
+        create_workspace_contains_directory_link(&inside_target, &inside_link);
+        let outside_link_existing = outside_link.join("existing.txt");
+        let outside_link_missing = outside_link.join("missing.txt");
+        let inside_link_existing = inside_link.join("existing.txt");
+
+        (
+            sandbox,
+            root,
+            outside_link_existing,
+            outside_link_missing,
+            inside_link_existing,
+        )
+    }
+
+    #[test]
+    fn workspace_contains_rejects_existing_cross_root_link_target() {
+        let (_sandbox, root, outside_link_existing, _, _) = workspace_contains_link_fixture();
+
+        assert!(!call_workspace_contains(&root, &outside_link_existing));
+    }
+
+    #[test]
+    fn workspace_contains_rejects_missing_cross_root_link_descendant() {
+        let (_sandbox, root, _, outside_link_missing, _) = workspace_contains_link_fixture();
+
+        assert!(!call_workspace_contains(&root, &outside_link_missing));
+    }
+
+    #[test]
+    fn workspace_contains_accepts_existing_in_root_link_target() {
+        let (_sandbox, root, _, _, inside_link_existing) = workspace_contains_link_fixture();
+
+        assert!(call_workspace_contains(&root, &inside_link_existing));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_contains_accepts_windows_case_variants_component_wise() {
+        let sandbox = tempfile::tempdir().expect("workspace case containment sandbox");
+        let root = sandbox.path().join("WorkspaceRoot");
+        fs::create_dir_all(&root).expect("create mixed-case workspace root");
+        let descendant = root.join("MixedCase.txt");
+        fs::write(&descendant, "inside").expect("write mixed-case descendant");
+        let uppercase_root = PathBuf::from(root.to_string_lossy().to_uppercase());
+        let lowercase_descendant = PathBuf::from(descendant.to_string_lossy().to_lowercase());
+
+        assert!(call_workspace_contains(
+            &uppercase_root,
+            &lowercase_descendant
+        ));
     }
 
     #[test]
