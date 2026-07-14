@@ -10974,6 +10974,11 @@ fn collect_test_files(path: &Path) -> Result<Vec<PathBuf>> {
 
     let mut files = Vec::new();
     collect_rco_files(path, &mut files)?;
+    files.retain(|file| {
+        file.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("Test.rco"))
+    });
     files.sort();
     Ok(files)
 }
