@@ -8730,7 +8730,7 @@ fn debug_adapter_serves_task_snapshot_variables() {
 }
 
 #[test]
-fn test_runs_testcase_methods() {
+fn test_explicit_non_test_named_file_runs_testcase_methods() {
     let source_path = temp_source_path();
     fs::create_dir_all(source_path.parent().expect("source path has parent"))
         .expect("temp source directory should be created");
@@ -8767,6 +8767,100 @@ end
     assert!(
         stdout.contains("1 tests, 0 failed"),
         "stdout should include summary, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_directory_discovers_only_sorted_test_files_recursively() {
+    let root = temp_source_path()
+        .parent()
+        .expect("source path has parent")
+        .join("directory-test-discovery");
+    let earlier_dir = root.join("a");
+    let later_dir = root.join("b");
+    fs::create_dir_all(&earlier_dir).expect("earlier test directory should be created");
+    fs::create_dir_all(&later_dir).expect("later test directory should be created");
+
+    fs::write(
+        earlier_dir.join("EarlierTest.rco"),
+        r#"
+EarlierTest TestCase Subclass
+  [
+    1 1 assert_equals
+  ] "testEarlier" Method
+end
+"#,
+    )
+    .expect("earlier test should be written");
+    fs::write(
+        later_dir.join("LaterTest.rco"),
+        r#"
+LaterTest TestCase Subclass
+  [
+    2 2 assert_equals
+  ] "testLater" Method
+end
+"#,
+    )
+    .expect("later test should be written");
+    fs::write(root.join("tool-smoke.rco"), "7 exit\n")
+        .expect("non-test CLI entrypoint should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(&root)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "directory rco test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let earlier = stdout
+        .find("PASS EarlierTest.testEarlier")
+        .expect("stdout should include the recursively discovered earlier test");
+    let later = stdout
+        .find("PASS LaterTest.testLater")
+        .expect("stdout should include the recursively discovered later test");
+    assert!(
+        earlier < later,
+        "recursively discovered tests should run in sorted path order, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("2 tests, 0 failed"),
+        "stdout should include the directory summary, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_directory_without_test_candidates_skips_other_sources() {
+    let root = temp_source_path()
+        .parent()
+        .expect("source path has parent")
+        .join("directory-without-test-candidates");
+    fs::create_dir_all(&root).expect("test directory should be created");
+    fs::write(root.join("application.rco"), "9 exit\n")
+        .expect("non-test application source should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("test")
+        .arg(&root)
+        .output()
+        .expect("rco test should launch");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "empty directory rco test failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("0 tests, 0 failed"),
+        "stdout should include the empty directory summary, got:\n{stdout}"
     );
 }
 
