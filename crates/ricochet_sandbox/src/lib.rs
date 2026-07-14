@@ -31,6 +31,7 @@
 mod audit;
 mod backend;
 mod catalog;
+mod conformance;
 mod destination;
 mod error;
 mod exact_serde;
@@ -54,6 +55,14 @@ pub use catalog::{
     CatalogSnapshot, HashedArtifact, OperatingSystem, PlatformId, PreparedCatalogClosure,
     PreparedTool, PublicCatalogSnapshot, PublicToolRecord, ReplacementLineage, ToolReference,
     TransportAdapter, ValidatedCatalogSnapshot,
+};
+pub use conformance::{
+    run_shared_conformance, shared_cases, AuditExpectation, AvailabilityProbe, CompatibilityProbe,
+    ConformanceAttestation, ConformanceCase, ConformanceDriver, ConformanceLevel,
+    ConformanceReport, ExecutableProbe, ExpectedDestination, ExpectedOutcome, ExpectedSessionAudit,
+    ExpectedToolFingerprint, FilesystemProbe, HostResourceProbe, IsolationProbe, LifecycleProbe,
+    MockConformanceDriver, NetworkProbe, ObservedOutcome, PolicyProbe, ProbeAttempt, ProbeKind,
+    ProbeObservation, ProbeResult, ProbeStatus,
 };
 pub use destination::DestinationGrant;
 pub use error::{
