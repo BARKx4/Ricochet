@@ -13,7 +13,7 @@ use crate::audit::{
 };
 use crate::catalog::{PublicCatalogSnapshot, PublicToolRecord};
 use crate::destination::DestinationGrant;
-use crate::error::{DiagnosticMetadata, SandboxError, SandboxErrorCode, TerminationReason};
+use crate::error::{DiagnosticMetadata, SandboxError, TerminationReason};
 use crate::exact_serde::RequiredOption;
 use crate::identity::{
     BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId, PtyId, RequestId,
@@ -2138,7 +2138,7 @@ impl<'de> Deserialize<'de> for TerminationNotice {
 
 impl TerminationNotice {
     #[allow(clippy::result_large_err)]
-    fn validate(&self) -> Result<(), SandboxError> {
+    fn validate_for_session(&self, session_id: &SessionId) -> Result<(), SandboxError> {
         let unique = self
             .process_tree_ids
             .iter()
@@ -2147,9 +2147,10 @@ impl TerminationNotice {
             .len()
             == self.process_tree_ids.len();
         if unique
-            && self.error.as_ref().is_none_or(|error| {
-                error.code() == SandboxErrorCode::SandboxTerminated && error.validate().is_ok()
-            })
+            && self
+                .error
+                .as_ref()
+                .is_none_or(|error| error.matches_termination(self.reason, session_id))
         {
             Ok(())
         } else {
@@ -2196,7 +2197,7 @@ impl BrokerEvent {
                 }
             }
             Self::SessionState(_) => Ok(()),
-            Self::Terminated(notice) => notice.validate(),
+            Self::Terminated(notice) => notice.validate_for_session(session_id),
         }
     }
 
@@ -2671,6 +2672,45 @@ mod tests {
                     event_permitted_for(kind, &event),
                     "{kind:?} emitted forbidden event {event:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn mock_termination_events_pass_recursive_and_policy_validation() {
+        let session_id = SessionId::parse("session-01").unwrap();
+        let reasons = [
+            TerminationReason::TimedOut,
+            TerminationReason::BrokerShutdown,
+            TerminationReason::PolicyEnforcement,
+            TerminationReason::ResourceLimit(crate::error::ResourceLimitKind::MemoryBytes),
+            TerminationReason::SessionClosed,
+        ];
+
+        for reason in reasons {
+            let active_policy = test_policy("github.com:443");
+            let mut session = MockSandboxBackend::new(MockBackendConfig::default())
+                .prepare(
+                    session_id.clone(),
+                    ScratchId::parse("scratch-01").unwrap(),
+                    test_policy("github.com:443"),
+                )
+                .unwrap();
+            session.drain_events();
+
+            session.terminate(reason).unwrap();
+            let events = session.drain_events();
+            assert!(events
+                .iter()
+                .any(|event| matches!(event, BrokerEvent::Terminated(_))));
+
+            for event in events {
+                event
+                    .validate_against_policy(&session_id, &active_policy)
+                    .unwrap();
+                ProtocolMessage::event(session_id.clone(), event)
+                    .validate_for(EndpointRole::Broker)
+                    .unwrap();
             }
         }
     }

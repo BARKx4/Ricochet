@@ -211,6 +211,24 @@ impl DiagnosticMetadata {
             && self.session_id.is_some()
             && self.backend_feature.is_none()
     }
+
+    pub(crate) fn matches_termination(
+        &self,
+        reason: TerminationReason,
+        session_id: &SessionId,
+    ) -> bool {
+        self.is_termination()
+            && self.session_id.as_ref() == Some(session_id)
+            && match reason {
+                TerminationReason::ResourceLimit(limit) => self.resource_limit == Some(limit),
+                TerminationReason::CancelledByHost
+                | TerminationReason::TimedOut
+                | TerminationReason::ToolRevoked
+                | TerminationReason::BrokerShutdown
+                | TerminationReason::PolicyEnforcement
+                | TerminationReason::SessionClosed => self.resource_limit.is_none(),
+            }
+    }
 }
 
 impl Default for DiagnosticMetadata {
@@ -385,6 +403,16 @@ impl SandboxError {
 
     pub fn metadata(&self) -> &DiagnosticMetadata {
         &self.metadata
+    }
+
+    pub(crate) fn matches_termination(
+        &self,
+        reason: TerminationReason,
+        session_id: &SessionId,
+    ) -> bool {
+        self.code == SandboxErrorCode::SandboxTerminated
+            && self.validate().is_ok()
+            && self.metadata.matches_termination(reason, session_id)
     }
 
     #[allow(clippy::result_large_err)]

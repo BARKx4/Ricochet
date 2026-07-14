@@ -12,11 +12,12 @@ use ricochet_sandbox::{
     ProcessReadRequest, ProcessReadSnapshot, ProcessRequest, ProcessSnapshot, ProcessStatus,
     ProcessTreeId, ProtocolEnvelope, ProtocolMessage, PtyId, PtyLaunchRequest, PtyReadRequest,
     PtyReadSnapshot, PtyRequest, PtyResizeRequest, PtySnapshot, PtyStatus, PtyWriteRequest,
-    PublicCatalogSnapshot, PublicToolRecord, RequestId, ResourceLimits, ResponseCorrelation,
-    SandboxError, ScratchDisposition, ScratchId, SessionId, SessionRequest, Sha256Digest,
-    TerminationNotice, TerminationReason, ToolId, UnixMillis, ValidatedCatalogSnapshot,
-    ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity, WorkspaceIdentityResolver,
-    WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1, PROTOCOL_V1,
+    PublicCatalogSnapshot, PublicToolRecord, RequestId, ResourceLimitKind, ResourceLimits,
+    ResponseCorrelation, SandboxError, ScratchDisposition, ScratchId, SessionId, SessionRequest,
+    Sha256Digest, TerminationNotice, TerminationReason, ToolId, UnixMillis,
+    ValidatedCatalogSnapshot, ValidatedExecutionPolicy, WireBytes, WorkspaceIdentity,
+    WorkspaceIdentityResolver, WorkspaceRequest, CATALOG_SCHEMA_V1, MAX_IO_CHUNK_BYTES,
+    POLICY_SCHEMA_V1, PROTOCOL_V1,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -273,6 +274,24 @@ fn envelope(sequence: u64, message: ProtocolMessage) -> ProtocolEnvelope {
         sequence,
         message,
     }
+}
+
+fn decoded_termination_event(
+    reason: TerminationReason,
+    error: Option<SandboxError>,
+) -> ProtocolEnvelope {
+    let source = envelope(
+        4,
+        ProtocolMessage::event(
+            session("session-01"),
+            BrokerEvent::Terminated(TerminationNotice {
+                reason,
+                process_tree_ids: vec![ProcessTreeId::new(0)],
+                error,
+            }),
+        ),
+    );
+    serde_json::from_value(serde_json::to_value(source).unwrap()).unwrap()
 }
 
 #[test]
@@ -1350,6 +1369,82 @@ fn recursive_snapshot_role_and_event_session_validation_rejects_forgery() {
             .validate_for(ricochet_sandbox::EndpointRole::Broker)
             .is_err()
     );
+}
+
+#[test]
+fn termination_event_rejects_nested_error_for_a_different_session() {
+    let decoded = decoded_termination_event(
+        TerminationReason::CancelledByHost,
+        Some(SandboxError::terminated(
+            TerminationReason::CancelledByHost,
+            session("session-02"),
+        )),
+    );
+
+    assert!(decoded
+        .message
+        .validate_for(ricochet_sandbox::EndpointRole::Broker)
+        .is_err());
+}
+
+#[test]
+fn termination_event_rejects_nested_error_for_a_different_resource_limit() {
+    let decoded = decoded_termination_event(
+        TerminationReason::ResourceLimit(ResourceLimitKind::MemoryBytes),
+        Some(SandboxError::terminated(
+            TerminationReason::ResourceLimit(ResourceLimitKind::CpuTime),
+            session("session-01"),
+        )),
+    );
+
+    assert!(decoded
+        .message
+        .validate_for(ricochet_sandbox::EndpointRole::Broker)
+        .is_err());
+}
+
+#[test]
+fn non_resource_termination_event_rejects_nested_resource_metadata() {
+    let decoded = decoded_termination_event(
+        TerminationReason::CancelledByHost,
+        Some(SandboxError::terminated(
+            TerminationReason::ResourceLimit(ResourceLimitKind::CpuTime),
+            session("session-01"),
+        )),
+    );
+
+    assert!(decoded
+        .message
+        .validate_for(ricochet_sandbox::EndpointRole::Broker)
+        .is_err());
+}
+
+#[test]
+fn coherent_termination_events_round_trip_and_validate_recursively() {
+    let cases = [
+        decoded_termination_event(
+            TerminationReason::ResourceLimit(ResourceLimitKind::MemoryBytes),
+            Some(SandboxError::terminated(
+                TerminationReason::ResourceLimit(ResourceLimitKind::MemoryBytes),
+                session("session-01"),
+            )),
+        ),
+        decoded_termination_event(
+            TerminationReason::CancelledByHost,
+            Some(SandboxError::terminated(
+                TerminationReason::CancelledByHost,
+                session("session-01"),
+            )),
+        ),
+        decoded_termination_event(TerminationReason::BrokerShutdown, None),
+    ];
+
+    for case in cases {
+        round_trip(&case);
+        case.message
+            .validate_for(ricochet_sandbox::EndpointRole::Broker)
+            .unwrap();
+    }
 }
 
 #[test]
