@@ -650,6 +650,11 @@ impl CommandBuilder {
             block.extend(value.encode_wide());
             block.push(0);
         }
+        // A non-empty block already ends with its last entry's NUL. An empty
+        // block still needs that first NUL before the final block terminator.
+        if block.is_empty() {
+            block.push(0);
+        }
         // and a final terminator for CreateProcessW
         block.push(0);
 
@@ -819,5 +824,26 @@ mod tests {
 
         cmd.env_remove("cARGO_pKG_aUTHORS");
         assert!(cmd.get_env("CARGO_PKG_AUTHORS").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_empty_environment_block_is_double_nul_terminated() {
+        let mut cmd = CommandBuilder::new("dummy");
+        cmd.env_clear();
+
+        assert_eq!(cmd.environment_block(), vec![0, 0]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_nonempty_environment_block_is_double_nul_terminated() {
+        let mut cmd = CommandBuilder::new("dummy");
+        cmd.env_clear();
+        cmd.env("RCO_BIN", r"E:\rco.exe");
+
+        let mut expected: Vec<u16> = OsStr::new(r"RCO_BIN=E:\rco.exe").encode_wide().collect();
+        expected.extend([0, 0]);
+        assert_eq!(cmd.environment_block(), expected);
     }
 }
