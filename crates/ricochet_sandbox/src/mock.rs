@@ -9,7 +9,9 @@ use crate::backend::{
     BackendCapabilities, BackendSelfTest, BackendSelfTestFailure, SandboxBackend, SandboxSession,
     SessionCommand,
 };
-use crate::error::{FailedGuarantee, SandboxError, TerminationReason};
+use crate::error::{
+    DiagnosticMetadata, FailedGuarantee, Remediation, SandboxError, TerminationReason,
+};
 use crate::identity::{
     BackendFeatureId, BackendIdentity, ProcessId, ProcessTreeId, ScratchId, SessionId, ToolId,
     UnixMillis,
@@ -194,41 +196,73 @@ enum MockExecution {
     Pty(crate::identity::PtyId),
 }
 
-impl MockSandboxSession {
-    fn timestamp(&mut self) -> UnixMillis {
-        let value = self.next_timestamp;
-        self.next_timestamp = self
-            .next_timestamp
-            .checked_add(1)
-            .expect("the deterministic mock timestamp must not overflow");
-        UnixMillis::new(value)
+struct MockTimestampBatch {
+    cursor: u64,
+    remaining: u64,
+    next_timestamp: u64,
+}
+
+impl MockTimestampBatch {
+    fn new(next_timestamp: u64, count: usize) -> Result<Self, SandboxError> {
+        let count = u64::try_from(count).map_err(|_| counter_exhausted())?;
+        let reserved_next = next_timestamp
+            .checked_add(count)
+            .ok_or_else(counter_exhausted)?;
+        Ok(Self {
+            cursor: next_timestamp,
+            remaining: count,
+            next_timestamp: reserved_next,
+        })
     }
 
-    fn audit(&mut self, event: AuditEventKind) {
-        let at = self.timestamp();
-        self.events.push(BrokerEvent::Audit(AuditRecord::new(
-            at,
+    fn take(&mut self) -> Result<UnixMillis, SandboxError> {
+        self.remaining = self
+            .remaining
+            .checked_sub(1)
+            .ok_or_else(counter_exhausted)?;
+        let timestamp = UnixMillis::new(self.cursor);
+        self.cursor = self.cursor.checked_add(1).ok_or_else(counter_exhausted)?;
+        Ok(timestamp)
+    }
+
+    fn finish(self) -> Result<u64, SandboxError> {
+        if self.remaining == 0 && self.cursor == self.next_timestamp {
+            Ok(self.next_timestamp)
+        } else {
+            Err(counter_exhausted())
+        }
+    }
+}
+
+fn counter_exhausted() -> SandboxError {
+    SandboxError::unavailable(
+        None,
+        FailedGuarantee::BrokerAvailability,
+        Remediation::RetryAfterBrokerRestart,
+        DiagnosticMetadata::empty(),
+    )
+}
+
+fn reserve_numeric_id(next_id: u64) -> Result<(u64, u64), SandboxError> {
+    let reserved_next = next_id.checked_add(1).ok_or_else(counter_exhausted)?;
+    Ok((next_id, reserved_next))
+}
+
+fn wire_len(bytes: &[u8]) -> Result<u64, SandboxError> {
+    u64::try_from(bytes.len()).map_err(|_| counter_exhausted())
+}
+
+impl MockSandboxSession {
+    fn planned_audit(
+        &self,
+        timestamps: &mut MockTimestampBatch,
+        event: AuditEventKind,
+    ) -> Result<BrokerEvent, SandboxError> {
+        Ok(BrokerEvent::Audit(AuditRecord::new(
+            timestamps.take()?,
             self.audit_context.clone(),
             event,
-        )));
-    }
-
-    fn transition(&mut self, next: SessionState) -> Result<(), SandboxError> {
-        let from = self.lifecycle.state();
-        self.lifecycle.transition(next)?;
-        self.audit(AuditEventKind::StateTransition { from, to: next });
-        self.events.push(BrokerEvent::SessionState(next));
-        Ok(())
-    }
-
-    fn transition_for_launch(&mut self) -> Result<(), SandboxError> {
-        let from = self.lifecycle.state();
-        self.lifecycle.transition(SessionState::Running)?;
-        self.audit(AuditEventKind::StateTransition {
-            from,
-            to: SessionState::Running,
-        });
-        Ok(())
+        )))
     }
 
     fn validate_request(&self, request: BrokerRequest) -> Result<BrokerRequest, SandboxError> {
@@ -261,23 +295,23 @@ impl MockSandboxSession {
             ExecutableRef::ManagedTool(tool_id) => format!("managed:{}", tool_id.as_str()),
             ExecutableRef::HostCommand(_) => "host:[REDACTED]".to_owned(),
         };
-        self.audit(AuditEventKind::LaunchRequested {
-            surface: ExecutionSurface::Process,
-            tool_id: tool_id.clone(),
-            argument_count: request.arguments.len(),
-        });
-
-        let process_id = ProcessId::new(self.next_process_id);
-        self.next_process_id = self
-            .next_process_id
-            .checked_add(1)
-            .expect("the deterministic mock process ID must not overflow");
-        let process_tree_id = ProcessTreeId::new(self.next_process_tree_id);
-        self.next_process_tree_id = self
-            .next_process_tree_id
-            .checked_add(1)
-            .expect("the deterministic mock process-tree ID must not overflow");
-        let started_at = self.timestamp();
+        let transition_for_launch = self.lifecycle.state() == SessionState::Ready;
+        let timestamp_count = if transition_for_launch { 4 } else { 3 };
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, timestamp_count)?;
+        let launch_event = self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::LaunchRequested {
+                surface: ExecutionSurface::Process,
+                tool_id: tool_id.clone(),
+                argument_count: request.arguments.len(),
+            },
+        )?;
+        let (process_id, next_process_id) = reserve_numeric_id(self.next_process_id)?;
+        let process_id = ProcessId::new(process_id);
+        let (process_tree_id, next_process_tree_id) =
+            reserve_numeric_id(self.next_process_tree_id)?;
+        let process_tree_id = ProcessTreeId::new(process_tree_id);
+        let started_at = timestamps.take()?;
         let stdout = truncate_to_cap(&self.config.scripted_stdout, request.stdout_max_bytes);
         let stderr = truncate_to_cap(&self.config.scripted_stderr, request.stderr_max_bytes);
         let snapshot = ProcessSnapshot {
@@ -293,8 +327,8 @@ impl MockSandboxSession {
             success: false,
             exit_code: None,
             error: None,
-            stdout_len: stdout.len() as u64,
-            stderr_len: stderr.len() as u64,
+            stdout_len: wire_len(&stdout)?,
+            stderr_len: wire_len(&stderr)?,
             stdout_truncated: stdout.len() != self.config.scripted_stdout.len(),
             stderr_truncated: stderr.len() != self.config.scripted_stderr.len(),
             stdin_open: request.stdin_open,
@@ -302,6 +336,31 @@ impl MockSandboxSession {
             cancelled: false,
         };
         snapshot.validate()?;
+        let process_tree_event = self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::ProcessTreeStarted { process_tree_id },
+        )?;
+        let (next_lifecycle, transition_event) = if transition_for_launch {
+            let from = self.lifecycle.state();
+            let mut lifecycle = self.lifecycle;
+            lifecycle.transition(SessionState::Running)?;
+            let event = self.planned_audit(
+                &mut timestamps,
+                AuditEventKind::StateTransition {
+                    from,
+                    to: SessionState::Running,
+                },
+            )?;
+            (lifecycle, Some(event))
+        } else {
+            (self.lifecycle, None)
+        };
+        let next_timestamp = timestamps.finish()?;
+
+        self.next_timestamp = next_timestamp;
+        self.next_process_id = next_process_id;
+        self.next_process_tree_id = next_process_tree_id;
+        self.lifecycle = next_lifecycle;
         self.processes.insert(
             process_id,
             MockProcess {
@@ -312,9 +371,10 @@ impl MockSandboxSession {
                 tool_id,
             },
         );
-        self.audit(AuditEventKind::ProcessTreeStarted { process_tree_id });
-        if self.lifecycle.state() == SessionState::Ready {
-            self.transition_for_launch()?;
+        self.events.push(launch_event);
+        self.events.push(process_tree_event);
+        if let Some(event) = transition_event {
+            self.events.push(event);
         }
         Ok(BrokerResponse::Process(snapshot))
     }
@@ -332,8 +392,8 @@ impl MockSandboxSession {
                 OperationSubject::Process(process_id),
             );
         };
-        let (stdout, stdout_offset) = read_chunk(&process.stdout, stdout_offset, max_bytes);
-        let (stderr, stderr_offset) = read_chunk(&process.stderr, stderr_offset, max_bytes);
+        let (stdout, stdout_offset) = read_chunk(&process.stdout, stdout_offset, max_bytes)?;
+        let (stderr, stderr_offset) = read_chunk(&process.stderr, stderr_offset, max_bytes)?;
         let snapshot = ProcessReadSnapshot {
             snapshot: process.snapshot.clone(),
             stdout: WireBytes::new(stdout)?,
@@ -354,7 +414,7 @@ impl MockSandboxSession {
         if let Some(error) = self.config.failures.get(&MockFailurePoint::Write) {
             return Err(error.clone());
         }
-        let Some(process) = self.processes.get_mut(&process_id) else {
+        let Some(process) = self.processes.get(&process_id) else {
             return Self::operation_error(
                 OperationErrorCode::ProcessNotFound,
                 OperationSubject::Process(process_id),
@@ -372,30 +432,42 @@ impl MockSandboxSession {
                 OperationSubject::Process(process_id),
             );
         }
+        let (next_timestamp, exit_event) = if close_stdin {
+            let mut timestamps = MockTimestampBatch::new(self.next_timestamp, 1)?;
+            let event = self.planned_audit(
+                &mut timestamps,
+                AuditEventKind::Exited {
+                    execution: ExecutionAuditIdentity::process(
+                        process.snapshot.process_tree_id,
+                        process.snapshot.id,
+                    ),
+                    exit_code: Some(self.config.scripted_exit_code),
+                    success: self.config.scripted_exit_code == 0,
+                },
+            )?;
+            (Some(timestamps.finish()?), Some(event))
+        } else {
+            (None, None)
+        };
+
+        let process = self
+            .processes
+            .get_mut(&process_id)
+            .ok_or_else(counter_exhausted)?;
         process.stdin.extend_from_slice(bytes);
-        let mut exited = None;
         if close_stdin {
             process.snapshot.stdin_open = false;
             process.snapshot.running = false;
             process.snapshot.status = ProcessStatus::Exited;
             process.snapshot.exit_code = Some(self.config.scripted_exit_code);
             process.snapshot.success = self.config.scripted_exit_code == 0;
-            exited = Some((
-                ExecutionAuditIdentity::process(
-                    process.snapshot.process_tree_id,
-                    process.snapshot.id,
-                ),
-                process.snapshot.exit_code,
-                process.snapshot.success,
-            ));
         }
         let snapshot = process.snapshot.clone();
-        if let Some((execution, exit_code, success)) = exited {
-            self.audit(AuditEventKind::Exited {
-                execution,
-                exit_code,
-                success,
-            });
+        if let Some(next_timestamp) = next_timestamp {
+            self.next_timestamp = next_timestamp;
+        }
+        if let Some(event) = exit_event {
+            self.events.push(event);
         }
         Ok(BrokerResponse::Process(snapshot))
     }
@@ -415,27 +487,31 @@ impl MockSandboxSession {
             ExecutableRef::ManagedTool(tool_id) => format!("managed:{}", tool_id.as_str()),
             ExecutableRef::HostCommand(_) => "host:[REDACTED]".to_owned(),
         };
-        self.audit(AuditEventKind::LaunchRequested {
-            surface: ExecutionSurface::Pty,
-            tool_id: tool_id.clone(),
-            argument_count: request.arguments.len(),
-        });
-
-        let pty_id = crate::identity::PtyId::new(self.next_pty_id);
-        self.next_pty_id = self
-            .next_pty_id
-            .checked_add(1)
-            .expect("the deterministic mock PTY ID must not overflow");
-        let process_tree_id = ProcessTreeId::new(self.next_process_tree_id);
-        self.next_process_tree_id = self
-            .next_process_tree_id
-            .checked_add(1)
-            .expect("the deterministic mock process-tree ID must not overflow");
-        let started_at = self.timestamp();
+        let transition_for_launch = self.lifecycle.state() == SessionState::Ready;
+        let timestamp_count = if transition_for_launch { 4 } else { 3 };
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, timestamp_count)?;
+        let launch_event = self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::LaunchRequested {
+                surface: ExecutionSurface::Pty,
+                tool_id: tool_id.clone(),
+                argument_count: request.arguments.len(),
+            },
+        )?;
+        let (pty_id, next_pty_id) = reserve_numeric_id(self.next_pty_id)?;
+        let pty_id = crate::identity::PtyId::new(pty_id);
+        let (process_tree_id, next_process_tree_id) =
+            reserve_numeric_id(self.next_process_tree_id)?;
+        let process_tree_id = ProcessTreeId::new(process_tree_id);
+        let native_process_id = pty_id
+            .get()
+            .checked_add(10_000)
+            .ok_or_else(counter_exhausted)
+            .and_then(|value| u32::try_from(value).map_err(|_| counter_exhausted()))?;
+        let started_at = timestamps.take()?;
         let mut scripted_output = self.config.scripted_stdout.clone();
         scripted_output.extend_from_slice(&self.config.scripted_stderr);
         let output = truncate_to_cap(&scripted_output, request.output_max_bytes);
-        let native_process_id = u32::try_from(10_000_u64 + pty_id.get()).ok();
         let snapshot = PtySnapshot {
             id: pty_id,
             process_tree_id,
@@ -449,14 +525,39 @@ impl MockSandboxSession {
             success: false,
             exit_code: None,
             error: None,
-            output_len: output.len() as u64,
+            output_len: wire_len(&output)?,
             output_truncated: output.len() != scripted_output.len(),
             rows: request.rows,
             cols: request.cols,
-            native_process_id,
+            native_process_id: Some(native_process_id),
             stopped: false,
         };
         snapshot.validate()?;
+        let process_tree_event = self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::ProcessTreeStarted { process_tree_id },
+        )?;
+        let (next_lifecycle, transition_event) = if transition_for_launch {
+            let from = self.lifecycle.state();
+            let mut lifecycle = self.lifecycle;
+            lifecycle.transition(SessionState::Running)?;
+            let event = self.planned_audit(
+                &mut timestamps,
+                AuditEventKind::StateTransition {
+                    from,
+                    to: SessionState::Running,
+                },
+            )?;
+            (lifecycle, Some(event))
+        } else {
+            (self.lifecycle, None)
+        };
+        let next_timestamp = timestamps.finish()?;
+
+        self.next_timestamp = next_timestamp;
+        self.next_pty_id = next_pty_id;
+        self.next_process_tree_id = next_process_tree_id;
+        self.lifecycle = next_lifecycle;
         self.ptys.insert(
             pty_id,
             MockPty {
@@ -466,9 +567,10 @@ impl MockSandboxSession {
                 tool_id,
             },
         );
-        self.audit(AuditEventKind::ProcessTreeStarted { process_tree_id });
-        if self.lifecycle.state() == SessionState::Ready {
-            self.transition_for_launch()?;
+        self.events.push(launch_event);
+        self.events.push(process_tree_event);
+        if let Some(event) = transition_event {
+            self.events.push(event);
         }
         Ok(BrokerResponse::Pty(snapshot))
     }
@@ -485,7 +587,7 @@ impl MockSandboxSession {
                 OperationSubject::Pty(pty_id),
             );
         };
-        let (output, offset) = read_chunk(&pty.output, offset, max_bytes);
+        let (output, offset) = read_chunk(&pty.output, offset, max_bytes)?;
         let snapshot = PtyReadSnapshot {
             snapshot: pty.snapshot.clone(),
             output: WireBytes::new(output)?,
@@ -549,7 +651,7 @@ impl MockSandboxSession {
         if let Some(error) = self.config.failures.get(&MockFailurePoint::Cancel) {
             return Err(error.clone());
         }
-        let Some(pty) = self.ptys.get_mut(&pty_id) else {
+        let Some(pty) = self.ptys.get(&pty_id) else {
             return Self::operation_error(
                 OperationErrorCode::PtyNotFound,
                 OperationSubject::Pty(pty_id),
@@ -558,38 +660,65 @@ impl MockSandboxSession {
         if !pty.snapshot.running {
             return Ok(BrokerResponse::Pty(pty.snapshot.clone()));
         }
+        let execution = ExecutionAuditIdentity::pty(pty.snapshot.process_tree_id, pty.snapshot.id);
+        let tree_id = pty.snapshot.process_tree_id;
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, 1)?;
+        let audit_event = self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::Cancelled {
+                execution,
+                reason: TerminationReason::CancelledByHost,
+            },
+        )?;
+        let next_timestamp = timestamps.finish()?;
+        let termination_event =
+            self.termination_event(TerminationReason::CancelledByHost, vec![tree_id]);
+
+        let pty = self.ptys.get_mut(&pty_id).ok_or_else(counter_exhausted)?;
         pty.snapshot.status = PtyStatus::Stopped;
         pty.snapshot.running = false;
         pty.snapshot.success = false;
         pty.snapshot.stopped = true;
         let snapshot = pty.snapshot.clone();
-        let execution = ExecutionAuditIdentity::pty(snapshot.process_tree_id, snapshot.id);
-        self.audit(AuditEventKind::Cancelled {
-            execution,
-            reason: TerminationReason::CancelledByHost,
-        });
-        self.events.push(BrokerEvent::Terminated(TerminationNotice {
-            reason: TerminationReason::CancelledByHost,
-            process_tree_ids: vec![snapshot.process_tree_id],
-            error: Some(SandboxError::terminated(
-                TerminationReason::CancelledByHost,
-                self.session_id.clone(),
-            )),
-        }));
+        self.next_timestamp = next_timestamp;
+        self.events.push(audit_event);
+        self.events.push(termination_event);
         Ok(BrokerResponse::Pty(snapshot))
     }
 
-    fn audit_execution_termination(
-        &mut self,
+    fn termination_audit_kind(
         execution: ExecutionAuditIdentity,
         reason: TerminationReason,
-    ) {
+    ) -> AuditEventKind {
         match reason {
-            TerminationReason::TimedOut => self.audit(AuditEventKind::TimedOut { execution }),
+            TerminationReason::TimedOut => AuditEventKind::TimedOut { execution },
             TerminationReason::ResourceLimit(limit) => {
-                self.audit(AuditEventKind::ResourceLimit { execution, limit })
+                AuditEventKind::ResourceLimit { execution, limit }
             }
-            _ => self.audit(AuditEventKind::Cancelled { execution, reason }),
+            _ => AuditEventKind::Cancelled { execution, reason },
+        }
+    }
+
+    fn execution_identity(
+        &self,
+        execution: MockExecution,
+    ) -> Option<(ProcessTreeId, ExecutionAuditIdentity)> {
+        match execution {
+            MockExecution::Process(process_id) => self.processes.get(&process_id).map(|process| {
+                (
+                    process.snapshot.process_tree_id,
+                    ExecutionAuditIdentity::process(
+                        process.snapshot.process_tree_id,
+                        process.snapshot.id,
+                    ),
+                )
+            }),
+            MockExecution::Pty(pty_id) => self.ptys.get(&pty_id).map(|pty| {
+                (
+                    pty.snapshot.process_tree_id,
+                    ExecutionAuditIdentity::pty(pty.snapshot.process_tree_id, pty.snapshot.id),
+                )
+            }),
         }
     }
 
@@ -620,12 +749,12 @@ impl MockSandboxSession {
         executions
     }
 
-    fn terminate_execution(
+    fn apply_execution_termination(
         &mut self,
         execution: MockExecution,
         reason: TerminationReason,
     ) -> Option<ProcessTreeId> {
-        let (tree_id, audit_identity) = match execution {
+        let tree_id = match execution {
             MockExecution::Process(process_id) => {
                 let process = self.processes.get_mut(&process_id)?;
                 if !process.snapshot.running {
@@ -643,13 +772,7 @@ impl MockSandboxSession {
                 } else {
                     ProcessStatus::Cancelled
                 };
-                (
-                    process.snapshot.process_tree_id,
-                    ExecutionAuditIdentity::process(
-                        process.snapshot.process_tree_id,
-                        process.snapshot.id,
-                    ),
-                )
+                process.snapshot.process_tree_id
             }
             MockExecution::Pty(pty_id) => {
                 let pty = self.ptys.get_mut(&pty_id)?;
@@ -662,36 +785,75 @@ impl MockSandboxSession {
                 pty.snapshot.error = None;
                 pty.snapshot.stopped = true;
                 pty.snapshot.status = PtyStatus::Stopped;
-                (
-                    pty.snapshot.process_tree_id,
-                    ExecutionAuditIdentity::pty(pty.snapshot.process_tree_id, pty.snapshot.id),
-                )
+                pty.snapshot.process_tree_id
             }
         };
-        self.audit_execution_termination(audit_identity, reason);
         Some(tree_id)
     }
 
-    fn termination_notice(&mut self, reason: TerminationReason, tree_ids: Vec<ProcessTreeId>) {
-        self.events.push(BrokerEvent::Terminated(TerminationNotice {
+    fn termination_event(
+        &self,
+        reason: TerminationReason,
+        tree_ids: Vec<ProcessTreeId>,
+    ) -> BrokerEvent {
+        BrokerEvent::Terminated(TerminationNotice {
             reason,
             process_tree_ids: tree_ids,
             error: Some(SandboxError::terminated(reason, self.session_id.clone())),
-        }));
+        })
     }
 
     fn terminate_session(&mut self, reason: TerminationReason) -> Result<(), SandboxError> {
         if matches!(self.lifecycle.state(), SessionState::Closed) {
             return Ok(());
         }
-        self.transition(SessionState::Stopping)?;
-        let tree_ids = self
-            .active_executions()
-            .into_iter()
-            .filter_map(|(_, execution)| self.terminate_execution(execution, reason))
-            .collect::<Vec<_>>();
-        self.termination_notice(reason, tree_ids);
-        self.transition(SessionState::Closed)
+        let active = self.active_executions();
+        let timestamp_count = active.len().checked_add(2).ok_or_else(counter_exhausted)?;
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, timestamp_count)?;
+        let from = self.lifecycle.state();
+        let mut next_lifecycle = self.lifecycle;
+        next_lifecycle.transition(SessionState::Stopping)?;
+        next_lifecycle.transition(SessionState::Closed)?;
+
+        let mut events =
+            Vec::with_capacity(active.len().checked_add(5).ok_or_else(counter_exhausted)?);
+        events.push(self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::StateTransition {
+                from,
+                to: SessionState::Stopping,
+            },
+        )?);
+        events.push(BrokerEvent::SessionState(SessionState::Stopping));
+        let mut tree_ids = Vec::with_capacity(active.len());
+        for (tree_id, execution) in &active {
+            let (_, identity) = self
+                .execution_identity(*execution)
+                .ok_or_else(counter_exhausted)?;
+            tree_ids.push(*tree_id);
+            events.push(self.planned_audit(
+                &mut timestamps,
+                Self::termination_audit_kind(identity, reason),
+            )?);
+        }
+        events.push(self.termination_event(reason, tree_ids));
+        events.push(self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::StateTransition {
+                from: SessionState::Stopping,
+                to: SessionState::Closed,
+            },
+        )?);
+        events.push(BrokerEvent::SessionState(SessionState::Closed));
+        let next_timestamp = timestamps.finish()?;
+
+        for (_, execution) in active {
+            self.apply_execution_termination(execution, reason);
+        }
+        self.lifecycle = next_lifecycle;
+        self.next_timestamp = next_timestamp;
+        self.events.extend(events);
+        Ok(())
     }
 
     fn process_cancel(&mut self, process_id: ProcessId) -> Result<BrokerResponse, SandboxError> {
@@ -708,11 +870,23 @@ impl MockSandboxSession {
             return Ok(BrokerResponse::Process(process.snapshot.clone()));
         }
         let tree_id = process.snapshot.process_tree_id;
-        self.terminate_execution(
+        let execution = ExecutionAuditIdentity::process(tree_id, process.snapshot.id);
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, 1)?;
+        let audit_event = self.planned_audit(
+            &mut timestamps,
+            Self::termination_audit_kind(execution, TerminationReason::CancelledByHost),
+        )?;
+        let next_timestamp = timestamps.finish()?;
+        let termination_event =
+            self.termination_event(TerminationReason::CancelledByHost, vec![tree_id]);
+
+        self.apply_execution_termination(
             MockExecution::Process(process_id),
             TerminationReason::CancelledByHost,
         );
-        self.termination_notice(TerminationReason::CancelledByHost, vec![tree_id]);
+        self.next_timestamp = next_timestamp;
+        self.events.push(audit_event);
+        self.events.push(termination_event);
         Ok(BrokerResponse::Process(
             self.processes[&process_id].snapshot.clone(),
         ))
@@ -754,7 +928,6 @@ impl MockSandboxSession {
         if let Some(error) = self.config.failures.get(&MockFailurePoint::Revocation) {
             return Err(error.clone());
         }
-        self.revoked_tools.insert(tool_id.clone());
         let mut affected = self
             .active_executions()
             .into_iter()
@@ -774,16 +947,44 @@ impl MockSandboxSession {
             .iter()
             .map(|(tree_id, _)| *tree_id)
             .collect::<Vec<_>>();
-        self.audit(AuditEventKind::Revoked {
-            tool_id: tool_id.clone(),
-            affected_process_trees: affected_tree_ids.clone(),
-        });
-        for (_, execution) in affected {
-            self.terminate_execution(execution, TerminationReason::ToolRevoked);
+        let timestamp_count = affected
+            .len()
+            .checked_add(1)
+            .ok_or_else(counter_exhausted)?;
+        let mut timestamps = MockTimestampBatch::new(self.next_timestamp, timestamp_count)?;
+        let mut events = Vec::with_capacity(
+            affected
+                .len()
+                .checked_add(2)
+                .ok_or_else(counter_exhausted)?,
+        );
+        events.push(self.planned_audit(
+            &mut timestamps,
+            AuditEventKind::Revoked {
+                tool_id: tool_id.clone(),
+                affected_process_trees: affected_tree_ids.clone(),
+            },
+        )?);
+        for (_, execution) in &affected {
+            let (_, identity) = self
+                .execution_identity(*execution)
+                .ok_or_else(counter_exhausted)?;
+            events.push(self.planned_audit(
+                &mut timestamps,
+                Self::termination_audit_kind(identity, TerminationReason::ToolRevoked),
+            )?);
         }
         if !affected_tree_ids.is_empty() {
-            self.termination_notice(TerminationReason::ToolRevoked, affected_tree_ids);
+            events.push(self.termination_event(TerminationReason::ToolRevoked, affected_tree_ids));
         }
+        let next_timestamp = timestamps.finish()?;
+
+        self.revoked_tools.insert(tool_id.clone());
+        for (_, execution) in affected {
+            self.apply_execution_termination(execution, TerminationReason::ToolRevoked);
+        }
+        self.next_timestamp = next_timestamp;
+        self.events.extend(events);
         Ok(())
     }
 }
@@ -793,14 +994,20 @@ fn truncate_to_cap(bytes: &[u8], cap: u64) -> Vec<u8> {
     bytes[..bytes.len().min(cap)].to_vec()
 }
 
-fn read_chunk(bytes: &[u8], requested_offset: u64, max_bytes: u32) -> (Vec<u8>, u64) {
-    let buffer_len = u64::try_from(bytes.len()).expect("mock buffer length must fit the wire");
+fn read_chunk(
+    bytes: &[u8],
+    requested_offset: u64,
+    max_bytes: u32,
+) -> Result<(Vec<u8>, u64), SandboxError> {
+    let buffer_len = u64::try_from(bytes.len()).map_err(|_| counter_exhausted())?;
     let offset = requested_offset.min(buffer_len);
-    let start = usize::try_from(offset).expect("clamped mock read offset must fit usize");
+    let start = usize::try_from(offset).map_err(|_| counter_exhausted())?;
+    let max_bytes = usize::try_from(max_bytes).map_err(|_| counter_exhausted())?;
     let end = start
-        .saturating_add(usize::try_from(max_bytes).expect("u32 must fit usize"))
+        .checked_add(max_bytes)
+        .ok_or_else(counter_exhausted)?
         .min(bytes.len());
-    (bytes[start..end].to_vec(), offset)
+    Ok((bytes[start..end].to_vec(), offset))
 }
 
 impl SandboxSession for MockSandboxSession {
@@ -1021,5 +1228,578 @@ impl SandboxSession for MockSandboxSession {
 
     fn drain_events(&mut self) -> Vec<BrokerEvent> {
         std::mem::take(&mut self.events)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::{
+        Architecture, CatalogPathNormalizer, CatalogSnapshot, OperatingSystem, PlatformId,
+    };
+    use crate::error::{DiagnosticMetadata, Remediation};
+    use crate::identity::CatalogGeneration;
+    use crate::policy::{
+        ArgumentAuditMode, AuditPolicy, EnvironmentPolicy, ExecutionAccess, ExecutionPolicyRequest,
+        LaunchEnvironment, ScratchDisposition, WorkspaceIdentity, WorkspaceIdentityResolver,
+        WorkspaceRequest,
+    };
+    use crate::protocol::{
+        CancelSessionRequest, ProcessLaunchRequest, ProcessRequest, ProcessWriteRequest,
+        PtyLaunchRequest, PtyRequest, SessionRequest,
+    };
+    use crate::version::{CATALOG_SCHEMA_V1, POLICY_SCHEMA_V1};
+
+    struct TestPathNormalizer;
+
+    impl CatalogPathNormalizer for TestPathNormalizer {
+        fn normalize(&self, _platform: &PlatformId, path: &str) -> Result<String, SandboxError> {
+            Ok(path.to_owned())
+        }
+    }
+
+    struct TestWorkspaceResolver;
+
+    impl WorkspaceIdentityResolver for TestWorkspaceResolver {
+        fn resolve(&self, request: &WorkspaceRequest) -> Result<WorkspaceIdentity, SandboxError> {
+            Ok(WorkspaceIdentity {
+                requested_root: request.requested_root.clone(),
+                canonical_root: request.requested_root.clone(),
+                native_object_identity: "test-workspace".to_owned(),
+            })
+        }
+    }
+
+    fn generation() -> CatalogGeneration {
+        CatalogGeneration::new(1).unwrap()
+    }
+
+    fn full_policy() -> ValidatedExecutionPolicy {
+        let catalog = CatalogSnapshot {
+            schema_version: CATALOG_SCHEMA_V1,
+            generation: generation(),
+            platform: PlatformId {
+                os: OperatingSystem::Windows,
+                arch: Architecture::X86_64,
+            },
+            records: Vec::new(),
+            revoked_tools: Vec::new(),
+        }
+        .validate(&TestPathNormalizer)
+        .unwrap();
+        ExecutionPolicyRequest {
+            schema_version: POLICY_SCHEMA_V1,
+            access: ExecutionAccess::Full,
+            allow_process: true,
+            allow_pty: true,
+            workspace: None,
+            scratch_disposition: ScratchDisposition::DeleteOnCleanCloseRetainOtherwise,
+            catalog_generation: generation(),
+            activated_tools: Vec::new(),
+            destinations: Vec::new(),
+            environment: EnvironmentPolicy { base: Vec::new() },
+            resource_limits: None,
+            audit_policy: AuditPolicy {
+                arguments: ArgumentAuditMode::CountOnly,
+            },
+        }
+        .validate(&catalog, &TestWorkspaceResolver)
+        .unwrap()
+    }
+
+    fn session_id() -> SessionId {
+        SessionId::parse("counter-test-session").unwrap()
+    }
+
+    fn prepared_session() -> MockSandboxSession {
+        let session_id = session_id();
+        let scratch_id = ScratchId::parse("counter-test-scratch").unwrap();
+        let policy = full_policy();
+        let identity = MockSandboxBackend::mock_identity();
+        let capabilities = ConfirmedExecutionCapabilities::new(
+            session_id.clone(),
+            scratch_id.clone(),
+            identity.clone(),
+            PROTOCOL_V1,
+            EnforcementState::MockOnly,
+            &policy,
+        )
+        .unwrap();
+        let audit_context = AuditContext::new(
+            session_id.clone(),
+            scratch_id,
+            identity,
+            PROTOCOL_V1,
+            EnforcementState::MockOnly,
+            &policy,
+        )
+        .unwrap();
+        let mut lifecycle = SessionLifecycle::new();
+        lifecycle.transition(SessionState::Ready).unwrap();
+        MockSandboxSession {
+            config: MockBackendConfig::default(),
+            session_id,
+            policy,
+            capabilities,
+            audit_context,
+            lifecycle,
+            events: Vec::new(),
+            next_timestamp: 1,
+            next_process_id: 0,
+            next_pty_id: 0,
+            next_process_tree_id: 0,
+            processes: BTreeMap::new(),
+            ptys: BTreeMap::new(),
+            revoked_tools: BTreeSet::new(),
+        }
+    }
+
+    fn process_launch() -> ProcessLaunchRequest {
+        ProcessLaunchRequest {
+            session_id: session_id(),
+            executable: ExecutableRef::HostCommand("test-command".to_owned()),
+            arguments: Vec::new(),
+            cwd: None,
+            stdin_open: true,
+            environment: LaunchEnvironment {
+                clear_environment: true,
+                entries: Vec::new(),
+            },
+            timeout_ms: 1,
+            stdout_max_bytes: 1,
+            stderr_max_bytes: 1,
+        }
+    }
+
+    fn pty_launch() -> PtyLaunchRequest {
+        PtyLaunchRequest {
+            session_id: session_id(),
+            executable: ExecutableRef::HostCommand("test-command".to_owned()),
+            arguments: Vec::new(),
+            cwd: None,
+            environment: LaunchEnvironment {
+                clear_environment: true,
+                entries: Vec::new(),
+            },
+            rows: 24,
+            cols: 80,
+            output_max_bytes: 1,
+        }
+    }
+
+    fn start_process(session: &mut MockSandboxSession) -> ProcessId {
+        let BrokerResponse::Process(snapshot) = session
+            .handle(SessionCommand::ProcessStart(process_launch()))
+            .unwrap()
+        else {
+            panic!("process start must return a process snapshot")
+        };
+        session.events.clear();
+        snapshot.id
+    }
+
+    fn start_pty(session: &mut MockSandboxSession) -> crate::identity::PtyId {
+        let BrokerResponse::Pty(snapshot) = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap()
+        else {
+            panic!("PTY start must return a PTY snapshot")
+        };
+        session.events.clear();
+        snapshot.id
+    }
+
+    fn assert_counter_error(error: &SandboxError) {
+        assert_eq!(error.kind(), "SandboxUnavailable");
+        assert_eq!(
+            error.remediation(),
+            Some(Remediation::RetryAfterBrokerRestart)
+        );
+        assert_eq!(error.metadata(), &DiagnosticMetadata::empty());
+        let wire = serde_json::to_value(error).unwrap();
+        assert_eq!(wire["failed_guarantee"], "broker_availability");
+        assert_eq!(wire["phase"], "setup");
+    }
+
+    fn assert_empty_launch_state(
+        session: &MockSandboxSession,
+        timestamp: u64,
+        process_id: u64,
+        pty_id: u64,
+        process_tree_id: u64,
+    ) {
+        assert_eq!(session.lifecycle.state(), SessionState::Ready);
+        assert_eq!(session.next_timestamp, timestamp);
+        assert_eq!(session.next_process_id, process_id);
+        assert_eq!(session.next_pty_id, pty_id);
+        assert_eq!(session.next_process_tree_id, process_tree_id);
+        assert!(session.processes.is_empty());
+        assert!(session.ptys.is_empty());
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn timestamp_exhaustion_is_typed_and_atomic() {
+        let mut session = prepared_session();
+        session.next_timestamp = u64::MAX;
+
+        let error = session
+            .handle(SessionCommand::ProcessStart(process_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_eq!(session.lifecycle.state(), SessionState::Ready);
+        assert_eq!(session.next_timestamp, u64::MAX);
+        assert_eq!(session.next_process_id, 0);
+        assert_eq!(session.next_pty_id, 0);
+        assert_eq!(session.next_process_tree_id, 0);
+        assert!(session.processes.is_empty());
+        assert!(session.ptys.is_empty());
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn launch_preflights_the_complete_timestamp_batch_before_mutation() {
+        let mut session = prepared_session();
+        session.next_timestamp = u64::MAX - 2;
+
+        let error = session
+            .handle(SessionCommand::ProcessStart(process_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_empty_launch_state(&session, u64::MAX - 2, 0, 0, 0);
+    }
+
+    #[test]
+    fn process_id_exhaustion_is_typed_and_atomic() {
+        let mut session = prepared_session();
+        session.next_process_id = u64::MAX;
+
+        let error = session
+            .handle(SessionCommand::ProcessStart(process_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_empty_launch_state(&session, 1, u64::MAX, 0, 0);
+    }
+
+    #[test]
+    fn process_id_last_value_is_allocated_once_before_typed_exhaustion() {
+        let mut session = prepared_session();
+        session.next_process_id = u64::MAX - 1;
+        let process_id = start_process(&mut session);
+        assert_eq!(process_id.get(), u64::MAX - 1);
+        let before = serde_json::to_value(&session.processes[&process_id].snapshot).unwrap();
+        let counters_before = (
+            session.next_timestamp,
+            session.next_process_id,
+            session.next_pty_id,
+            session.next_process_tree_id,
+        );
+
+        let error = session
+            .handle(SessionCommand::ProcessStart(process_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_eq!(session.processes.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&session.processes[&process_id].snapshot).unwrap(),
+            before
+        );
+        assert_eq!(
+            (
+                session.next_timestamp,
+                session.next_process_id,
+                session.next_pty_id,
+                session.next_process_tree_id,
+            ),
+            counters_before
+        );
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn process_tree_id_exhaustion_is_typed_and_atomic_for_both_surfaces() {
+        for command in [
+            SessionCommand::ProcessStart(process_launch()),
+            SessionCommand::PtyStart(pty_launch()),
+        ] {
+            let mut session = prepared_session();
+            session.next_process_id = 7;
+            session.next_pty_id = 11;
+            session.next_process_tree_id = u64::MAX;
+
+            let error = session.handle(command).unwrap_err();
+
+            assert_counter_error(&error);
+            assert_empty_launch_state(&session, 1, 7, 11, u64::MAX);
+        }
+    }
+
+    #[test]
+    fn process_tree_last_value_is_allocated_once_before_typed_exhaustion() {
+        let mut session = prepared_session();
+        session.next_process_tree_id = u64::MAX - 1;
+        let process_id = start_process(&mut session);
+        assert_eq!(
+            session.processes[&process_id]
+                .snapshot
+                .process_tree_id
+                .get(),
+            u64::MAX - 1
+        );
+        let before = serde_json::to_value(&session.processes[&process_id].snapshot).unwrap();
+        let counters_before = (
+            session.next_timestamp,
+            session.next_process_id,
+            session.next_pty_id,
+            session.next_process_tree_id,
+        );
+
+        let error = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_eq!(session.processes.len(), 1);
+        assert!(session.ptys.is_empty());
+        assert_eq!(
+            serde_json::to_value(&session.processes[&process_id].snapshot).unwrap(),
+            before
+        );
+        assert_eq!(
+            (
+                session.next_timestamp,
+                session.next_process_id,
+                session.next_pty_id,
+                session.next_process_tree_id,
+            ),
+            counters_before
+        );
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn pty_id_exhaustion_is_typed_and_atomic() {
+        let mut session = prepared_session();
+        session.next_pty_id = u64::MAX;
+
+        let error = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_empty_launch_state(&session, 1, 0, u64::MAX, 0);
+    }
+
+    #[test]
+    fn synthetic_pty_native_pid_conversion_exhaustion_is_typed_and_atomic() {
+        let mut session = prepared_session();
+        let first_unrepresentable_pty_id = u64::from(u32::MAX) - 9_999;
+        session.next_pty_id = first_unrepresentable_pty_id;
+
+        let error = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_empty_launch_state(&session, 1, 0, first_unrepresentable_pty_id, 0);
+    }
+
+    #[test]
+    fn pty_last_native_pid_is_allocated_once_before_typed_conversion_exhaustion() {
+        let mut session = prepared_session();
+        let last_representable_pty_id = u64::from(u32::MAX) - 10_000;
+        session.next_pty_id = last_representable_pty_id;
+        let pty_id = start_pty(&mut session);
+        assert_eq!(pty_id.get(), last_representable_pty_id);
+        assert_eq!(
+            session.ptys[&pty_id].snapshot.native_process_id,
+            Some(u32::MAX)
+        );
+        let before = serde_json::to_value(&session.ptys[&pty_id].snapshot).unwrap();
+        let counters_before = (
+            session.next_timestamp,
+            session.next_process_id,
+            session.next_pty_id,
+            session.next_process_tree_id,
+        );
+
+        let error = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_eq!(session.ptys.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&session.ptys[&pty_id].snapshot).unwrap(),
+            before
+        );
+        assert_eq!(
+            (
+                session.next_timestamp,
+                session.next_process_id,
+                session.next_pty_id,
+                session.next_process_tree_id,
+            ),
+            counters_before
+        );
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn synthetic_pty_native_pid_addition_exhaustion_is_typed_and_atomic() {
+        let mut session = prepared_session();
+        let first_overflowing_pty_id = u64::MAX - 9_999;
+        session.next_pty_id = first_overflowing_pty_id;
+
+        let error = session
+            .handle(SessionCommand::PtyStart(pty_launch()))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_empty_launch_state(&session, 1, 0, first_overflowing_pty_id, 0);
+    }
+
+    #[test]
+    fn timestamp_exhaustion_preserves_process_write_and_cancel_state() {
+        let mut write = prepared_session();
+        let write_id = start_process(&mut write);
+        let write_before = serde_json::to_value(&write.processes[&write_id].snapshot).unwrap();
+        write.next_timestamp = u64::MAX;
+        let error = write
+            .handle(SessionCommand::ProcessWrite(ProcessWriteRequest {
+                session_id: session_id(),
+                process_id: write_id,
+                bytes: WireBytes::new(b"input".to_vec()).unwrap(),
+                close_stdin: true,
+            }))
+            .unwrap_err();
+        assert_counter_error(&error);
+        assert_eq!(
+            serde_json::to_value(&write.processes[&write_id].snapshot).unwrap(),
+            write_before
+        );
+        assert!(write.processes[&write_id].stdin.is_empty());
+        assert_eq!(write.next_timestamp, u64::MAX);
+        assert!(write.events.is_empty());
+
+        let mut cancel = prepared_session();
+        let cancel_id = start_process(&mut cancel);
+        let cancel_before = serde_json::to_value(&cancel.processes[&cancel_id].snapshot).unwrap();
+        cancel.next_timestamp = u64::MAX;
+        let error = cancel
+            .handle(SessionCommand::ProcessCancel(ProcessRequest {
+                session_id: session_id(),
+                process_id: cancel_id,
+            }))
+            .unwrap_err();
+        assert_counter_error(&error);
+        assert_eq!(
+            serde_json::to_value(&cancel.processes[&cancel_id].snapshot).unwrap(),
+            cancel_before
+        );
+        assert_eq!(cancel.next_timestamp, u64::MAX);
+        assert!(cancel.events.is_empty());
+    }
+
+    #[test]
+    fn timestamp_exhaustion_preserves_pty_stop_state_and_input() {
+        let mut session = prepared_session();
+        let pty_id = start_pty(&mut session);
+        let before = serde_json::to_value(&session.ptys[&pty_id].snapshot).unwrap();
+        session.next_timestamp = u64::MAX;
+
+        let error = session
+            .handle(SessionCommand::PtyStop(PtyRequest {
+                session_id: session_id(),
+                pty_id,
+            }))
+            .unwrap_err();
+
+        assert_counter_error(&error);
+        assert_eq!(
+            serde_json::to_value(&session.ptys[&pty_id].snapshot).unwrap(),
+            before
+        );
+        assert!(session.ptys[&pty_id].input.is_empty());
+        assert_eq!(session.next_timestamp, u64::MAX);
+        assert!(session.events.is_empty());
+    }
+
+    #[test]
+    fn timestamp_exhaustion_is_atomic_for_every_session_termination_entry_point() {
+        let mut close = prepared_session();
+        let close_id = start_process(&mut close);
+        let close_before = serde_json::to_value(&close.processes[&close_id].snapshot).unwrap();
+        close.next_timestamp = u64::MAX;
+        let error = close
+            .handle(SessionCommand::Close(SessionRequest {
+                session_id: session_id(),
+            }))
+            .unwrap_err();
+        assert_counter_error(&error);
+        assert_eq!(close.lifecycle.state(), SessionState::Running);
+        assert_eq!(
+            serde_json::to_value(&close.processes[&close_id].snapshot).unwrap(),
+            close_before
+        );
+        assert_eq!(close.next_timestamp, u64::MAX);
+        assert!(close.events.is_empty());
+
+        let mut cancel = prepared_session();
+        let cancel_id = start_process(&mut cancel);
+        let cancel_before = serde_json::to_value(&cancel.processes[&cancel_id].snapshot).unwrap();
+        cancel.next_timestamp = u64::MAX;
+        let error = cancel
+            .handle(SessionCommand::Cancel(CancelSessionRequest {
+                session_id: session_id(),
+            }))
+            .unwrap_err();
+        assert_counter_error(&error);
+        assert_eq!(cancel.lifecycle.state(), SessionState::Running);
+        assert_eq!(
+            serde_json::to_value(&cancel.processes[&cancel_id].snapshot).unwrap(),
+            cancel_before
+        );
+        assert_eq!(cancel.next_timestamp, u64::MAX);
+        assert!(cancel.events.is_empty());
+
+        let mut terminate = prepared_session();
+        let terminate_id = start_process(&mut terminate);
+        let terminate_before =
+            serde_json::to_value(&terminate.processes[&terminate_id].snapshot).unwrap();
+        terminate.next_timestamp = u64::MAX;
+        let error = terminate
+            .terminate(TerminationReason::TimedOut)
+            .unwrap_err();
+        assert_counter_error(&error);
+        assert_eq!(terminate.lifecycle.state(), SessionState::Running);
+        assert_eq!(
+            serde_json::to_value(&terminate.processes[&terminate_id].snapshot).unwrap(),
+            terminate_before
+        );
+        assert_eq!(terminate.next_timestamp, u64::MAX);
+        assert!(terminate.events.is_empty());
+    }
+
+    #[test]
+    fn timestamp_exhaustion_keeps_revocation_registry_and_events_unchanged() {
+        let mut session = prepared_session();
+        let tool_id = ToolId::parse("test-tool").unwrap();
+        session.next_timestamp = u64::MAX;
+
+        let error = session.revoke(&tool_id).unwrap_err();
+
+        assert_counter_error(&error);
+        assert!(session.revoked_tools.is_empty());
+        assert_eq!(session.lifecycle.state(), SessionState::Ready);
+        assert_eq!(session.next_timestamp, u64::MAX);
+        assert_eq!(session.next_process_id, 0);
+        assert_eq!(session.next_pty_id, 0);
+        assert_eq!(session.next_process_tree_id, 0);
+        assert!(session.events.is_empty());
     }
 }
