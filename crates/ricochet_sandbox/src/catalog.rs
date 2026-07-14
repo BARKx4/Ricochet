@@ -8,7 +8,7 @@ use crate::identity::{CatalogGeneration, Sha256Digest, ToolId, UnixMillis};
 use crate::version::CATALOG_SCHEMA_V1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum OperatingSystem {
     Windows,
     Linux,
@@ -16,7 +16,7 @@ pub enum OperatingSystem {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum Architecture {
     X86_64,
     Aarch64,
@@ -30,14 +30,14 @@ pub struct PlatformId {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum TransportAdapter {
     HttpConnect,
     SshProxyCommand,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum ArtifactKind {
     Executable,
     Library,

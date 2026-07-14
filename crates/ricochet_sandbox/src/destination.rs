@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::{DiagnosticMetadata, FailedGuarantee, SandboxError};
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DestinationGrant {
     host: String,
     port: u16,

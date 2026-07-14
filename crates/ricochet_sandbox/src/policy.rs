@@ -16,7 +16,7 @@ use crate::version::POLICY_SCHEMA_V1;
 const AUDIT_DIGEST_PROJECTION_V1: &str = "ricochet.sandbox.policy.audit.v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum ExecutionAccess {
     Read,
     Workspace,
@@ -50,20 +50,20 @@ impl Ord for ExecutionAccess {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum ExecutionSurface {
     Process,
     Pty,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum ScratchDisposition {
     DeleteOnCleanCloseRetainOtherwise,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub enum ArgumentAuditMode {
     CountOnly,
 }

@@ -1,10 +1,46 @@
+//! Stable sandbox values can only be assembled through their typed constructors.
+//!
+//! ```compile_fail
+//! use ricochet_sandbox::{DiagnosticMetadata, SandboxError};
+//!
+//! let _ = SandboxError {
+//!     message: "arbitrary native failure".to_owned(),
+//!     metadata: DiagnosticMetadata::default(),
+//!     ..todo!()
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use ricochet_sandbox::AuditContext;
+//!
+//! let _ = AuditContext {
+//!     broker_protocol: 999,
+//!     ..todo!()
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use ricochet_sandbox::{AuditRecord, UnixMillis};
+//!
+//! let _ = AuditRecord {
+//!     at: UnixMillis::new(0),
+//!     ..todo!()
+//! };
+//! ```
+
+mod audit;
 mod catalog;
 mod destination;
 mod error;
 mod identity;
+mod lifecycle;
 mod policy;
 mod version;
 
+pub use audit::{
+    AuditContext, AuditEventKind, AuditRecord, AuditWorkspace, EnforcementState,
+    ExecutionAuditIdentity, ExecutionInstanceId,
+};
 pub use catalog::{
     ApprovalActor, Architecture, ArtifactKind, CatalogPathNormalizer, CatalogRecord,
     CatalogSnapshot, HashedArtifact, OperatingSystem, PlatformId, PreparedCatalogClosure,
@@ -20,6 +56,7 @@ pub use identity::{
     BackendFeatureId, BackendIdentity, CatalogGeneration, PolicyDigest, ProcessId, ProcessTreeId,
     PtyId, RequestId, ScratchId, SessionId, Sha256Digest, ToolId, UnixMillis,
 };
+pub use lifecycle::{SessionLifecycle, SessionState};
 pub use policy::{
     resolve_legacy_access, ArgumentAuditMode, AuditPolicy, EffectiveEnvironment, EnvironmentPolicy,
     EnvironmentVariable, ExecutionAccess, ExecutionGrant, ExecutionPolicyRequest, ExecutionSurface,

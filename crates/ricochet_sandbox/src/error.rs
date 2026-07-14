@@ -1,12 +1,14 @@
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::destination::DestinationGrant;
 use crate::identity::{BackendFeatureId, BackendIdentity, SessionId, ToolId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum SandboxErrorCode {
     SandboxUnavailable,
     SandboxPolicyError,
@@ -20,6 +22,7 @@ pub enum SandboxErrorCode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SandboxPhase {
     Setup,
     Launch,
@@ -29,6 +32,7 @@ pub enum SandboxPhase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FailedGuarantee {
     BrokerAvailability,
     PolicyValidity,
@@ -42,6 +46,7 @@ pub enum FailedGuarantee {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Remediation {
     StartOrInstallBroker,
     ApproveTool,
@@ -54,6 +59,7 @@ pub enum Remediation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ResourceLimitKind {
     DescendantProcesses,
     MemoryBytes,
@@ -64,6 +70,12 @@ pub enum ResourceLimitKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(
+    deny_unknown_fields,
+    tag = "type",
+    content = "body",
+    rename_all = "snake_case"
+)]
 pub enum TerminationReason {
     CancelledByHost,
     TimedOut,
@@ -74,6 +86,8 @@ pub enum TerminationReason {
     SessionClosed,
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiagnosticMetadata {
     tool_id: Option<ToolId>,
     destination: Option<DestinationGrant>,
@@ -124,6 +138,50 @@ impl DiagnosticMetadata {
         self.backend_feature = Some(value);
         self
     }
+
+    fn is_empty(&self) -> bool {
+        self.tool_id.is_none()
+            && self.destination.is_none()
+            && self.resource_limit.is_none()
+            && self.protocol_version.is_none()
+            && self.session_id.is_none()
+            && self.backend_feature.is_none()
+    }
+
+    fn has_only_tool_id(&self) -> bool {
+        self.tool_id.is_some()
+            && self.destination.is_none()
+            && self.resource_limit.is_none()
+            && self.protocol_version.is_none()
+            && self.session_id.is_none()
+            && self.backend_feature.is_none()
+    }
+
+    fn has_only_destination(&self) -> bool {
+        self.tool_id.is_none()
+            && self.destination.is_some()
+            && self.resource_limit.is_none()
+            && self.protocol_version.is_none()
+            && self.session_id.is_none()
+            && self.backend_feature.is_none()
+    }
+
+    fn has_only_resource_limit(&self) -> bool {
+        self.tool_id.is_none()
+            && self.destination.is_none()
+            && self.resource_limit.is_some()
+            && self.protocol_version.is_none()
+            && self.session_id.is_none()
+            && self.backend_feature.is_none()
+    }
+
+    fn is_termination(&self) -> bool {
+        self.tool_id.is_none()
+            && self.destination.is_none()
+            && self.protocol_version.is_none()
+            && self.session_id.is_some()
+            && self.backend_feature.is_none()
+    }
 }
 
 impl Default for DiagnosticMetadata {
@@ -146,7 +204,7 @@ impl fmt::Debug for DiagnosticMetadata {
     }
 }
 
-#[derive(Error)]
+#[derive(Clone, Error, Serialize)]
 #[error("{message}")]
 pub struct SandboxError {
     code: SandboxErrorCode,
@@ -156,6 +214,7 @@ pub struct SandboxError {
     message: String,
     remediation: Option<Remediation>,
     metadata: DiagnosticMetadata,
+    #[serde(skip)]
     native_cause: Option<String>,
 }
 
@@ -171,7 +230,6 @@ impl SandboxError {
             SandboxPhase::Setup,
             backend,
             Some(guarantee),
-            "sandbox backend is unavailable",
             Some(remediation),
             metadata,
         )
@@ -183,7 +241,6 @@ impl SandboxError {
             SandboxPhase::Setup,
             None,
             Some(guarantee),
-            "sandbox policy is invalid",
             None,
             metadata,
         )
@@ -195,7 +252,6 @@ impl SandboxError {
             SandboxPhase::Launch,
             None,
             Some(FailedGuarantee::ToolApproval),
-            "tool is not approved",
             Some(Remediation::ApproveTool),
             DiagnosticMetadata::empty().with_tool_id(tool_id),
         )
@@ -207,7 +263,6 @@ impl SandboxError {
             SandboxPhase::Launch,
             None,
             Some(FailedGuarantee::ToolFingerprint),
-            "tool fingerprint does not match the approved catalog",
             Some(Remediation::RefreshToolFingerprint),
             DiagnosticMetadata::empty().with_tool_id(tool_id),
         )
@@ -219,7 +274,6 @@ impl SandboxError {
             SandboxPhase::Runtime,
             None,
             Some(FailedGuarantee::DestinationGrant),
-            "network destination is not granted",
             Some(Remediation::AddDestinationGrant),
             DiagnosticMetadata::empty().with_destination(destination),
         )
@@ -231,7 +285,6 @@ impl SandboxError {
             SandboxPhase::Runtime,
             None,
             Some(FailedGuarantee::ResourceCeiling),
-            "sandbox resource limit was exceeded",
             Some(Remediation::LowerRequestedLimit),
             DiagnosticMetadata::empty().with_resource_limit(limit),
         )
@@ -243,7 +296,6 @@ impl SandboxError {
             SandboxPhase::Launch,
             Some(backend),
             Some(guarantee),
-            "native sandbox launch failed",
             Some(Remediation::EnableBackendPrerequisite),
             DiagnosticMetadata::empty(),
         )
@@ -261,7 +313,6 @@ impl SandboxError {
             SandboxPhase::Shutdown,
             None,
             None,
-            "sandbox session was terminated",
             None,
             metadata,
         )
@@ -273,7 +324,6 @@ impl SandboxError {
             SandboxPhase::Protocol,
             None,
             Some(FailedGuarantee::ProtocolAuthenticity),
-            "broker protocol validation failed",
             Some(Remediation::RetryAfterBrokerRestart),
             metadata,
         )
@@ -284,17 +334,102 @@ impl SandboxError {
         self
     }
 
+    pub fn code(&self) -> SandboxErrorCode {
+        self.code
+    }
+
     pub fn kind(&self) -> &'static str {
-        match self.code {
-            SandboxErrorCode::SandboxUnavailable => "SandboxUnavailable",
-            SandboxErrorCode::SandboxPolicyError => "SandboxPolicyError",
-            SandboxErrorCode::ToolNotApproved => "ToolNotApproved",
-            SandboxErrorCode::ToolFingerprintMismatch => "ToolFingerprintMismatch",
-            SandboxErrorCode::NetworkDenied => "NetworkDenied",
-            SandboxErrorCode::ResourceLimitExceeded => "ResourceLimitExceeded",
-            SandboxErrorCode::SandboxLaunchError => "SandboxLaunchError",
-            SandboxErrorCode::SandboxTerminated => "SandboxTerminated",
-            SandboxErrorCode::BrokerProtocolError => "BrokerProtocolError",
+        kind_for(self.code)
+    }
+
+    pub fn phase(&self) -> SandboxPhase {
+        self.phase
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn remediation(&self) -> Option<Remediation> {
+        self.remediation
+    }
+
+    pub fn metadata(&self) -> &DiagnosticMetadata {
+        &self.metadata
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn validate(&self) -> Result<(), SandboxError> {
+        let fixed_fields_match = self.message == message_for(self.code)
+            && match self.code {
+                SandboxErrorCode::SandboxUnavailable => {
+                    self.phase == SandboxPhase::Setup
+                        && self.failed_guarantee.is_some()
+                        && self.remediation.is_some()
+                }
+                SandboxErrorCode::SandboxPolicyError => {
+                    self.phase == SandboxPhase::Setup
+                        && self.backend.is_none()
+                        && self.failed_guarantee.is_some()
+                        && self.remediation.is_none()
+                }
+                SandboxErrorCode::ToolNotApproved => {
+                    self.phase == SandboxPhase::Launch
+                        && self.backend.is_none()
+                        && self.failed_guarantee == Some(FailedGuarantee::ToolApproval)
+                        && self.remediation == Some(Remediation::ApproveTool)
+                        && self.metadata.has_only_tool_id()
+                }
+                SandboxErrorCode::ToolFingerprintMismatch => {
+                    self.phase == SandboxPhase::Launch
+                        && self.backend.is_none()
+                        && self.failed_guarantee == Some(FailedGuarantee::ToolFingerprint)
+                        && self.remediation == Some(Remediation::RefreshToolFingerprint)
+                        && self.metadata.has_only_tool_id()
+                }
+                SandboxErrorCode::NetworkDenied => {
+                    self.phase == SandboxPhase::Runtime
+                        && self.backend.is_none()
+                        && self.failed_guarantee == Some(FailedGuarantee::DestinationGrant)
+                        && self.remediation == Some(Remediation::AddDestinationGrant)
+                        && self.metadata.has_only_destination()
+                }
+                SandboxErrorCode::ResourceLimitExceeded => {
+                    self.phase == SandboxPhase::Runtime
+                        && self.backend.is_none()
+                        && self.failed_guarantee == Some(FailedGuarantee::ResourceCeiling)
+                        && self.remediation == Some(Remediation::LowerRequestedLimit)
+                        && self.metadata.has_only_resource_limit()
+                }
+                SandboxErrorCode::SandboxLaunchError => {
+                    self.phase == SandboxPhase::Launch
+                        && self.backend.is_some()
+                        && self.failed_guarantee.is_some()
+                        && self.remediation == Some(Remediation::EnableBackendPrerequisite)
+                        && self.metadata.is_empty()
+                }
+                SandboxErrorCode::SandboxTerminated => {
+                    self.phase == SandboxPhase::Shutdown
+                        && self.backend.is_none()
+                        && self.failed_guarantee.is_none()
+                        && self.remediation.is_none()
+                        && self.metadata.is_termination()
+                }
+                SandboxErrorCode::BrokerProtocolError => {
+                    self.phase == SandboxPhase::Protocol
+                        && self.backend.is_none()
+                        && self.failed_guarantee == Some(FailedGuarantee::ProtocolAuthenticity)
+                        && self.remediation == Some(Remediation::RetryAfterBrokerRestart)
+                }
+            };
+
+        if fixed_fields_match {
+            Ok(())
+        } else {
+            Err(Self::policy(
+                FailedGuarantee::PolicyValidity,
+                DiagnosticMetadata::empty(),
+            ))
         }
     }
 
@@ -303,7 +438,6 @@ impl SandboxError {
         phase: SandboxPhase,
         backend: Option<BackendIdentity>,
         failed_guarantee: Option<FailedGuarantee>,
-        message: impl Into<String>,
         remediation: Option<Remediation>,
         metadata: DiagnosticMetadata,
     ) -> Self {
@@ -312,7 +446,7 @@ impl SandboxError {
             phase,
             backend,
             failed_guarantee,
-            message: message.into(),
+            message: message_for(code).to_owned(),
             remediation,
             metadata,
             native_cause: None,
@@ -332,5 +466,68 @@ impl fmt::Debug for SandboxError {
             .field("remediation", &self.remediation)
             .field("metadata", &self.metadata)
             .finish_non_exhaustive()
+    }
+}
+
+impl<'de> Deserialize<'de> for SandboxError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireSandboxError {
+            code: SandboxErrorCode,
+            phase: SandboxPhase,
+            backend: Option<BackendIdentity>,
+            failed_guarantee: Option<FailedGuarantee>,
+            message: String,
+            remediation: Option<Remediation>,
+            metadata: DiagnosticMetadata,
+        }
+
+        let wire = WireSandboxError::deserialize(deserializer)?;
+        let error = Self {
+            code: wire.code,
+            phase: wire.phase,
+            backend: wire.backend,
+            failed_guarantee: wire.failed_guarantee,
+            message: wire.message,
+            remediation: wire.remediation,
+            metadata: wire.metadata,
+            native_cause: None,
+        };
+        error.validate().map_err(D::Error::custom)?;
+        Ok(error)
+    }
+}
+
+const fn kind_for(code: SandboxErrorCode) -> &'static str {
+    match code {
+        SandboxErrorCode::SandboxUnavailable => "SandboxUnavailable",
+        SandboxErrorCode::SandboxPolicyError => "SandboxPolicyError",
+        SandboxErrorCode::ToolNotApproved => "ToolNotApproved",
+        SandboxErrorCode::ToolFingerprintMismatch => "ToolFingerprintMismatch",
+        SandboxErrorCode::NetworkDenied => "NetworkDenied",
+        SandboxErrorCode::ResourceLimitExceeded => "ResourceLimitExceeded",
+        SandboxErrorCode::SandboxLaunchError => "SandboxLaunchError",
+        SandboxErrorCode::SandboxTerminated => "SandboxTerminated",
+        SandboxErrorCode::BrokerProtocolError => "BrokerProtocolError",
+    }
+}
+
+const fn message_for(code: SandboxErrorCode) -> &'static str {
+    match code {
+        SandboxErrorCode::SandboxUnavailable => "sandbox backend is unavailable",
+        SandboxErrorCode::SandboxPolicyError => "requested execution policy is invalid",
+        SandboxErrorCode::ToolNotApproved => "tool is not approved",
+        SandboxErrorCode::ToolFingerprintMismatch => {
+            "tool fingerprint does not match the approved catalog"
+        }
+        SandboxErrorCode::NetworkDenied => "network destination is not granted",
+        SandboxErrorCode::ResourceLimitExceeded => "sandbox resource limit was exceeded",
+        SandboxErrorCode::SandboxLaunchError => "native sandbox launch failed",
+        SandboxErrorCode::SandboxTerminated => "sandbox session was terminated",
+        SandboxErrorCode::BrokerProtocolError => "broker protocol validation failed",
     }
 }
