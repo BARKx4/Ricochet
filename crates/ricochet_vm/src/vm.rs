@@ -3221,9 +3221,10 @@ impl Vm {
         let Some(canonical_root) = canonical_directory(&normalized_root) else {
             return false;
         };
-        let Some(canonical_existing) =
-            canonical_path(&nearest_existing_ancestor(&normalized_candidate))
-        else {
+        let Ok(existing) = nearest_existing_ancestor(&normalized_candidate) else {
+            return false;
+        };
+        let Some(canonical_existing) = canonical_path(&existing) else {
             return false;
         };
 
@@ -4910,7 +4911,10 @@ fn resolve_bounded_path(
         });
     }
 
-    let existing = nearest_existing_ancestor(&normalized);
+    let existing = nearest_existing_ancestor(&normalized).map_err(|error| VmError::HostError {
+        word: word.to_string(),
+        message: format!("failed to resolve {label} path {}: {error}", source),
+    })?;
     let canonical_existing = existing
         .canonicalize()
         .map_err(|error| VmError::HostError {
@@ -4974,14 +4978,19 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn nearest_existing_ancestor(path: &Path) -> PathBuf {
+fn nearest_existing_ancestor(path: &Path) -> std::io::Result<PathBuf> {
     let mut current = path.to_path_buf();
     loop {
-        if current.exists() {
-            return current;
+        match current.symlink_metadata() {
+            Ok(_) => return Ok(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
         }
         if !current.pop() {
-            return path.to_path_buf();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no existing ancestor for {}", path.display()),
+            ));
         }
     }
 }
@@ -5099,6 +5108,23 @@ mod tests {
             .expect("create workspace containment directory symlink");
     }
 
+    #[cfg(windows)]
+    fn create_workspace_contains_junction(target: &Path, junction: &Path) {
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(junction)
+            .arg(target)
+            .output()
+            .expect("run cmd.exe to create workspace containment junction");
+        assert!(
+            output.status.success(),
+            "create workspace containment junction: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[test]
     fn workspace_contains_accepts_normal_and_missing_descendant_paths() {
         let sandbox = tempfile::tempdir().expect("workspace containment sandbox");
@@ -5199,6 +5225,50 @@ mod tests {
         let (_sandbox, root, _, _, inside_link_existing) = workspace_contains_link_fixture();
 
         assert!(call_workspace_contains(&root, &inside_link_existing));
+    }
+
+    fn workspace_contains_broken_link_fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let sandbox = tempfile::tempdir().expect("workspace broken-link containment sandbox");
+        let root = sandbox.path().join("workspace");
+        fs::create_dir_all(&root).expect("create broken-link workspace root");
+        let missing_target = sandbox.path().join("missing-directory-target");
+        let broken_link = root.join("broken-dir-link");
+        create_workspace_contains_directory_link(&missing_target, &broken_link);
+
+        (sandbox, root, broken_link)
+    }
+
+    #[test]
+    fn workspace_contains_rejects_broken_directory_link() {
+        let (_sandbox, root, broken_link) = workspace_contains_broken_link_fixture();
+
+        assert!(!call_workspace_contains(&root, &broken_link));
+    }
+
+    #[test]
+    fn workspace_contains_rejects_child_beneath_broken_directory_link() {
+        let (_sandbox, root, broken_link) = workspace_contains_broken_link_fixture();
+
+        assert!(!call_workspace_contains(&root, &broken_link.join("child")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_contains_rejects_cross_root_windows_junction() {
+        let sandbox = tempfile::tempdir().expect("workspace junction containment sandbox");
+        let root = sandbox.path().join("workspace");
+        let outside = sandbox.path().join("outside");
+        fs::create_dir_all(&root).expect("create junction workspace root");
+        fs::create_dir_all(&outside).expect("create junction outside target");
+        let outside_file = outside.join("outside.txt");
+        fs::write(&outside_file, "outside junction target").expect("write junction target file");
+        let junction = root.join("outside-junction");
+        create_workspace_contains_junction(&outside, &junction);
+
+        assert!(!call_workspace_contains(
+            &root,
+            &junction.join("outside.txt")
+        ));
     }
 
     #[cfg(windows)]
