@@ -35,6 +35,7 @@ mod error;
 mod identity;
 mod lifecycle;
 mod policy;
+mod protocol;
 mod version;
 
 pub use audit::{
@@ -62,6 +63,16 @@ pub use policy::{
     EnvironmentVariable, ExecutionAccess, ExecutionGrant, ExecutionPolicyRequest, ExecutionSurface,
     GrantSet, LaunchEnvironment, ResourceLimits, ScratchDisposition, ValidatedExecutionPolicy,
     WorkspaceIdentity, WorkspaceIdentityResolver, WorkspaceRequest,
+};
+pub use protocol::{
+    chunk_wire_bytes, AuthenticatedChannelContext, BrokerEvent, BrokerRequest, BrokerRequestKind,
+    BrokerResponse, CancelSessionRequest, ConfirmedExecutionCapabilities, ConnectionNonce,
+    CreateSessionRequest, EndpointRole, ExecutableRef, HandshakeExpectation, HandshakeRequest,
+    HandshakeResponse, OperationError, OperationErrorCode, OperationSubject, OutstandingRequest,
+    PeerContextId, ProcessLaunchRequest, ProcessReadRequest, ProcessReadSnapshot, ProcessRequest,
+    ProcessSnapshot, ProcessStatus, ProcessWriteRequest, ProtocolEnvelope, ProtocolMessage,
+    PtyLaunchRequest, PtyReadRequest, PtyReadSnapshot, PtyRequest, PtyResizeRequest, PtySnapshot,
+    PtyStatus, PtyWriteRequest, ResponseCorrelation, SessionRequest, TerminationNotice, WireBytes,
 };
 pub use version::{
     CATALOG_SCHEMA_V1, FRAME_MAC_BYTES, MAX_FRAME_BYTES, MAX_IO_CHUNK_BYTES, POLICY_SCHEMA_V1,

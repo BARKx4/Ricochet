@@ -1,0 +1,52 @@
+{
+  "protocol_version": 1,
+  "sequence": 3,
+  "message": {
+    "type": "event",
+    "body": {
+      "session_id": "session-01",
+      "event": {
+        "type": "audit",
+        "body": {
+          "at": 1783987200000,
+          "context": {
+            "session_id": "session-01",
+            "policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "access": "read",
+            "enforcement": "enforced",
+            "backend": { "name": "windows-lpac", "version": "1" },
+            "broker_protocol": 1,
+            "workspace": { "canonical_root": "C:/workspace", "writable": false },
+            "scratch_id": "scratch-01",
+            "catalog_generation": 7,
+            "tools": [
+              {
+                "tool_id": "git",
+                "executable_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+                "helper_ids": [],
+                "transport_adapter": "http_connect"
+              }
+            ],
+            "destinations": ["github.com:443"],
+            "resource_limits": {
+              "descendant_processes": 4,
+              "memory_bytes": 67108864,
+              "cpu_time_ms": 10000,
+              "wall_time_ms": 5000,
+              "open_descriptors_or_handles": 64,
+              "captured_output_bytes": 4096
+            }
+          },
+          "event": {
+            "type": "launch_requested",
+            "body": {
+              "surface": "process",
+              "tool_id": "git",
+              "argument_count": 2
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "protocol_version": 1,
+  "sequence": 0,
+  "message": {
+    "type": "request",
+    "body": {
+      "request_id": 1,
+      "request": {
+        "type": "handshake",
+        "body": {
+          "supported_protocol_versions": [1],
+          "connection_nonce": "0000000000000000000000000000000000000000000000000000000000000000",
+          "channel_binding": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    }
+  }
+}
