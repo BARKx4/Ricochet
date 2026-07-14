@@ -3215,20 +3215,20 @@ impl Vm {
             }
             _ => normalize_path(&candidate),
         };
-        if !path_has_prefix(&normalized_candidate, &normalized_root) {
+        if !path_has_lexical_prefix(&normalized_candidate, &normalized_root) {
             return false;
         }
         let Some(canonical_root) = canonical_directory(&normalized_root) else {
             return false;
         };
-        let Ok(existing) = nearest_existing_ancestor(&normalized_candidate) else {
+        let Ok(existing) = nearest_strict_existing_ancestor(&normalized_candidate) else {
             return false;
         };
         let Some(canonical_existing) = canonical_path(&existing) else {
             return false;
         };
 
-        path_has_prefix(&canonical_existing, &canonical_root)
+        path_has_canonical_prefix(&canonical_existing, &canonical_root)
     }
 
     pub(super) fn resolve_process_path(
@@ -4904,17 +4904,22 @@ fn resolve_bounded_path(
     };
     let normalized = normalize_path(&candidate);
 
-    if !path_has_prefix(&normalized, root) {
+    if !path_has_lexical_prefix(&normalized, root) {
         return Err(VmError::HostError {
             word: word.to_string(),
             message: format!("{label} path is outside root: {source}"),
         });
     }
 
-    let existing = nearest_existing_ancestor(&normalized).map_err(|error| VmError::HostError {
+    let canonical_root = canonical_directory(root).ok_or_else(|| VmError::HostError {
         word: word.to_string(),
-        message: format!("failed to resolve {label} path {}: {error}", source),
+        message: format!("failed to resolve {label} root: {}", root.display()),
     })?;
+    let existing =
+        nearest_resolvable_ancestor(&normalized).map_err(|error| VmError::HostError {
+            word: word.to_string(),
+            message: format!("failed to resolve {label} path {}: {error}", source),
+        })?;
     let canonical_existing = existing
         .canonicalize()
         .map_err(|error| VmError::HostError {
@@ -4922,7 +4927,7 @@ fn resolve_bounded_path(
             message: format!("failed to resolve {label} path {}: {error}", source),
         })?;
     let canonical_existing = normalize_path(&strip_verbatim_prefix(canonical_existing));
-    if !path_has_prefix(&canonical_existing, root) {
+    if !path_has_canonical_prefix(&canonical_existing, &canonical_root) {
         return Err(VmError::HostError {
             word: word.to_string(),
             message: format!("{label} path is outside root: {source}"),
@@ -4945,12 +4950,12 @@ fn canonical_path(path: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(not(windows))]
-fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
+fn path_has_lexical_prefix(path: &Path, prefix: &Path) -> bool {
     path.starts_with(prefix)
 }
 
 #[cfg(windows)]
-fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
+fn path_has_lexical_prefix(path: &Path, prefix: &Path) -> bool {
     let mut path_components = path.components();
     prefix.components().all(|prefix_component| {
         path_components.next().is_some_and(|path_component| {
@@ -4960,6 +4965,10 @@ fn path_has_prefix(path: &Path, prefix: &Path) -> bool {
                 .eq_ignore_ascii_case(prefix_component.as_os_str().to_string_lossy().as_ref())
         })
     })
+}
+
+fn path_has_canonical_prefix(path: &Path, prefix: &Path) -> bool {
+    path.starts_with(prefix)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -4978,7 +4987,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn nearest_existing_ancestor(path: &Path) -> std::io::Result<PathBuf> {
+fn nearest_strict_existing_ancestor(path: &Path) -> std::io::Result<PathBuf> {
     let mut current = path.to_path_buf();
     loop {
         match current.symlink_metadata() {
@@ -4990,6 +4999,23 @@ fn nearest_existing_ancestor(path: &Path) -> std::io::Result<PathBuf> {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("no existing ancestor for {}", path.display()),
+            ));
+        }
+    }
+}
+
+fn nearest_resolvable_ancestor(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    loop {
+        match current.metadata() {
+            Ok(_) => return Ok(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        if !current.pop() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no resolvable ancestor for {}", path.display()),
             ));
         }
     }
@@ -5104,8 +5130,7 @@ mod tests {
 
     #[cfg(windows)]
     fn create_workspace_contains_directory_link(target: &Path, link: &Path) {
-        std::os::windows::fs::symlink_dir(target, link)
-            .expect("create workspace containment directory symlink");
+        create_workspace_contains_junction(target, link);
     }
 
     #[cfg(windows)]
@@ -5123,6 +5148,26 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[cfg(windows)]
+    fn enable_directory_case_sensitivity(path: &Path) -> Result<(), String> {
+        let output = std::process::Command::new("fsutil.exe")
+            .args(["file", "SetCaseSensitiveInfo"])
+            .arg(path)
+            .arg("enable")
+            .output()
+            .map_err(|error| format!("run fsutil.exe: {error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "status={:?}, stdout={}, stderr={}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
     }
 
     #[test]
@@ -5252,6 +5297,55 @@ mod tests {
         assert!(!call_workspace_contains(&root, &broken_link.join("child")));
     }
 
+    #[test]
+    fn bounded_dangling_link_metadata_remains_available() {
+        let (_sandbox, root, broken_link) = workspace_contains_broken_link_fixture();
+        let source = broken_link
+            .file_name()
+            .expect("broken link should have a file name")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(&root);
+        vm.set_filesystem_writes_enabled(true);
+
+        vm.stack.push(Value::String(source.clone()));
+        vm.call_word("workspace_metadata")
+            .expect("workspace_metadata should return a result");
+        assert!(matches!(
+            vm.stack.pop(),
+            Some(Value::Result(RicochetResult::Ok(_)))
+        ));
+    }
+
+    #[test]
+    fn bounded_dangling_link_delete_remains_available() {
+        let (_sandbox, root, broken_link) = workspace_contains_broken_link_fixture();
+        let source = broken_link
+            .file_name()
+            .expect("broken link should have a file name")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(&root);
+        vm.set_filesystem_writes_enabled(true);
+
+        vm.stack.push(Value::String(source));
+        vm.stack.push(Value::Map(BTreeMap::new().into()));
+        vm.call_word("workspace_delete")
+            .expect("workspace_delete should return a result");
+        assert!(matches!(
+            vm.stack.pop(),
+            Some(Value::Result(RicochetResult::Ok(_)))
+        ));
+        assert!(
+            broken_link.symlink_metadata().is_err(),
+            "workspace_delete should remove the dangling link object"
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn workspace_contains_rejects_cross_root_windows_junction() {
@@ -5286,6 +5380,55 @@ mod tests {
             &uppercase_root,
             &lowercase_descendant
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_contains_rejects_distinct_case_sensitive_sibling_tree() {
+        let sandbox = tempfile::tempdir().expect("case-sensitive containment sandbox");
+        if let Err(reason) = enable_directory_case_sensitivity(sandbox.path()) {
+            eprintln!(
+                "SKIP workspace_contains_rejects_distinct_case_sensitive_sibling_tree: {reason}"
+            );
+            return;
+        }
+
+        let root = sandbox.path().join("Workspace");
+        let distinct_sibling = sandbox.path().join("workspace");
+        fs::create_dir(&root).expect("create selected case-sensitive workspace root");
+        fs::create_dir(&distinct_sibling).expect("create distinct case-sensitive sibling root");
+        let sibling_file = distinct_sibling.join("outside.txt");
+        fs::write(&sibling_file, "outside").expect("write distinct sibling file");
+
+        assert!(!call_workspace_contains(&root, &sibling_file));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_contains_windows_directory_link_fixture_is_a_junction() {
+        let sandbox = tempfile::tempdir().expect("workspace junction fixture sandbox");
+        let target = sandbox.path().join("target");
+        let link = sandbox.path().join("link");
+        fs::create_dir(&target).expect("create junction fixture target");
+        create_workspace_contains_directory_link(&target, &link);
+
+        let output = std::process::Command::new("fsutil.exe")
+            .args(["reparsepoint", "query"])
+            .arg(&link)
+            .output()
+            .expect("query workspace directory-link reparse point");
+        assert!(
+            output.status.success(),
+            "query workspace directory-link reparse point: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+        assert!(
+            output.contains("0xa0000003"),
+            "expected a junction reparse tag, got: {output}"
+        );
     }
 
     #[test]
