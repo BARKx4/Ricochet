@@ -5007,10 +5007,8 @@ fn nearest_strict_existing_ancestor(path: &Path) -> std::io::Result<PathBuf> {
 fn nearest_resolvable_ancestor(path: &Path) -> std::io::Result<PathBuf> {
     let mut current = path.to_path_buf();
     loop {
-        match current.metadata() {
-            Ok(_) => return Ok(current),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+        if current.exists() {
+            return Ok(current);
         }
         if !current.pop() {
             return Err(std::io::Error::new(
@@ -5148,6 +5146,38 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[cfg(unix)]
+    fn create_workspace_cyclic_link(link: &Path) -> Result<(), String> {
+        std::os::unix::fs::symlink(link, link)
+            .map_err(|error| format!("create self-referential workspace symlink: {error}"))
+    }
+
+    #[cfg(windows)]
+    fn create_workspace_cyclic_link(link: &Path) -> Result<(), String> {
+        std::os::windows::fs::symlink_dir(link, link).map_err(|error| {
+            format!("create self-referential workspace directory symlink: {error}")
+        })
+    }
+
+    fn workspace_cyclic_link_fixture() -> Option<(tempfile::TempDir, PathBuf, PathBuf)> {
+        let sandbox = tempfile::tempdir().expect("workspace cyclic-link sandbox");
+        let root = sandbox.path().join("workspace");
+        fs::create_dir(&root).expect("create cyclic-link workspace root");
+        let cyclic_link = root.join("self-link");
+        let create_result = create_workspace_cyclic_link(&cyclic_link);
+
+        #[cfg(unix)]
+        create_result.expect("Unix must create the self-referential workspace symlink");
+
+        #[cfg(windows)]
+        if let Err(reason) = create_result {
+            eprintln!("SKIP bounded cyclic-link regression: {reason}");
+            return None;
+        }
+
+        Some((sandbox, root, cyclic_link))
     }
 
     #[cfg(windows)]
@@ -5343,6 +5373,60 @@ mod tests {
         assert!(
             broken_link.symlink_metadata().is_err(),
             "workspace_delete should remove the dangling link object"
+        );
+    }
+
+    #[test]
+    fn bounded_cyclic_link_metadata_remains_available() {
+        let Some((_sandbox, root, cyclic_link)) = workspace_cyclic_link_fixture() else {
+            return;
+        };
+        let source = cyclic_link
+            .file_name()
+            .expect("cyclic link should have a file name")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(&root);
+
+        vm.stack.push(Value::String(source));
+        vm.call_word("workspace_metadata")
+            .expect("workspace_metadata should return a result");
+        let result = vm.stack.pop().expect("workspace_metadata result");
+        assert!(
+            matches!(result, Value::Result(RicochetResult::Ok(_))),
+            "bounded metadata should inspect a cyclic link object, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn bounded_cyclic_link_delete_remains_available() {
+        let Some((_sandbox, root, cyclic_link)) = workspace_cyclic_link_fixture() else {
+            return;
+        };
+        let source = cyclic_link
+            .file_name()
+            .expect("cyclic link should have a file name")
+            .to_string_lossy()
+            .into_owned();
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, false);
+        vm.set_filesystem_root(&root);
+        vm.set_filesystem_writes_enabled(true);
+
+        vm.stack.push(Value::String(source));
+        vm.stack.push(Value::Map(BTreeMap::new().into()));
+        vm.call_word("workspace_delete")
+            .expect("workspace_delete should return a result");
+        let result = vm.stack.pop().expect("workspace_delete result");
+        assert!(
+            matches!(result, Value::Result(RicochetResult::Ok(_))),
+            "bounded delete should remove a cyclic link object, got {result:?}"
+        );
+        assert!(
+            cyclic_link.symlink_metadata().is_err(),
+            "workspace_delete should remove the cyclic link object"
         );
     }
 
