@@ -11613,6 +11613,85 @@ session get "id" at pty_release value
 
 #[cfg(windows)]
 #[test]
+fn run_pty_start_nested_repl_with_empty_allowlisted_environment_completes_on_windows() {
+    let source_path = temp_source_path();
+    fs::create_dir_all(source_path.parent().expect("source path has parent"))
+        .expect("temp source directory should be created");
+    let rco = escape_ricochet_string(env!("CARGO_BIN_EXE_rco"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"
+args array
+args get "repl" push drop
+options map
+options get "cwd" "." put drop
+options get "clear_env" false put drop
+options get "rows" 24 put drop
+options get "cols" 80 put drop
+options get "output_max_bytes" 65536 put drop
+"{rco}" args get options get pty_start value session var
+session get "id" at "2 3 +\r\n" pty_write value drop
+nil read var
+0 attempts var
+attempts get 100 < while
+  readOptions map
+  session get "id" at readOptions get pty_read value read set
+  read get "output" at "Number(5)" contains? if
+    break
+  end
+  25 sleep
+  attempts get 1 + attempts set
+end
+read get "output" at "Number(5)" contains?
+read get "output" at println
+stopOptions map
+session get "id" at stopOptions get pty_stop value drop
+nil detail var
+0 stopAttempts var
+stopAttempts get 100 < while
+  session get "id" at pty_detail value detail set
+  detail get "running" at false = if
+    break
+  end
+  25 sleep
+  stopAttempts get 1 + stopAttempts set
+end
+detail get "running" at false =
+session get "id" at pty_release value
+"#
+        ),
+    )
+    .expect("source should be written");
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rco"));
+    command
+        .arg("run")
+        .arg("--allow-pty")
+        .arg("--env-allow")
+        .arg("RCO_BIN")
+        .arg(&source_path);
+    let output = command_output_with_timeout(
+        command,
+        Duration::from_secs(15),
+        "starting a nested Windows PTY with an empty allowlisted environment",
+    );
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Number(5)")
+            && stdout.contains("[Bool(true), Bool(true), Bool(true)]"),
+        "stdout should show the nested REPL result, terminal child, and released session, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("\u{1b}[6n"),
+        "Windows PTY startup must not request cursor inheritance, got:\n{stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn run_pty_start_failure_is_structured_on_windows() {
     let source_path = temp_source_path();
     let root = source_path.parent().expect("source path has parent");

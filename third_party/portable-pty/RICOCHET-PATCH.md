@@ -14,4 +14,8 @@ Ricochet cannot service the cursor-position query during the blocking openpty ca
 because its PTY reader starts only after openpty returns. The resize-quirk and
 Win32-input-mode flags remain unchanged.
 
+The Windows CommandBuilder emits two UTF-16 NUL characters for an empty
+environment block. CreateProcessW requires this double-NUL terminator when
+CREATE_UNICODE_ENVIRONMENT is set; non-empty block serialization is unchanged.
+
 All other source is portable-pty 0.9.0.
