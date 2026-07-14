@@ -1,0 +1,29 @@
+{
+  "protocol_version": 1,
+  "sequence": 2,
+  "message": {
+    "type": "response",
+    "body": {
+      "request_id": 3,
+      "response": {
+        "type": "error",
+        "body": {
+          "code": "SandboxPolicyError",
+          "phase": "setup",
+          "backend": null,
+          "failed_guarantee": "policy_validity",
+          "message": "requested execution policy is invalid",
+          "remediation": null,
+          "metadata": {
+            "tool_id": null,
+            "destination": null,
+            "resource_limit": null,
+            "protocol_version": null,
+            "session_id": null,
+            "backend_feature": null
+          }
+        }
+      }
+    }
+  }
+}

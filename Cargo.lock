@@ -3295,6 +3295,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_sandbox"
+version = "0.1.19-rc.6"
+dependencies = [
+ "base64",
+ "hmac 0.12.1",
+ "idna",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
 name = "ricochet_syntax"
 version = "0.1.19-rc.6"
 dependencies = [
@@ -3774,9 +3789,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.8"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "spki"
