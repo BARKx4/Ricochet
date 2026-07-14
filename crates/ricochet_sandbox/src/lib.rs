@@ -29,12 +29,14 @@
 //! ```
 
 mod audit;
+mod backend;
 mod catalog;
 mod destination;
 mod error;
 mod exact_serde;
 mod identity;
 mod lifecycle;
+mod mock;
 mod policy;
 mod protocol;
 mod version;
@@ -42,6 +44,10 @@ mod version;
 pub use audit::{
     AuditContext, AuditEventKind, AuditRecord, AuditWorkspace, EnforcementState,
     ExecutionAuditIdentity, ExecutionInstanceId,
+};
+pub use backend::{
+    BackendCapabilities, BackendSelfTest, BackendSelfTestFailure, SandboxBackend, SandboxSession,
+    SessionCommand,
 };
 pub use catalog::{
     ApprovalActor, Architecture, ArtifactKind, CatalogPathNormalizer, CatalogRecord,
@@ -59,6 +65,7 @@ pub use identity::{
     PtyId, RequestId, ScratchId, SessionId, Sha256Digest, ToolId, UnixMillis,
 };
 pub use lifecycle::{SessionLifecycle, SessionState};
+pub use mock::{MockBackendConfig, MockFailurePoint, MockSandboxBackend};
 pub use policy::{
     resolve_legacy_access, ArgumentAuditMode, AuditPolicy, EffectiveEnvironment, EnvironmentPolicy,
     EnvironmentVariable, ExecutionAccess, ExecutionGrant, ExecutionPolicyRequest, ExecutionSurface,
