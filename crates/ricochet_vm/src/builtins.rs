@@ -4149,13 +4149,7 @@ impl Vm {
         self.ensure_workspace_enabled(word)?;
         let path = self.pop_string(word, "workspace path string")?;
         let root = self.pop_string(word, "workspace root string")?;
-        let contains = match (
-            self.resolve_filesystem_path(word, &root),
-            self.resolve_filesystem_path(word, &path),
-        ) {
-            (Ok(root), Ok(path)) => path.starts_with(root),
-            _ => false,
-        };
+        let contains = self.workspace_contains_path(word, &root, &path);
         self.stack.push(Value::Bool(contains));
         Ok(())
     }
