@@ -1972,7 +1972,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "root:string path:string -> bool",
-    "body": "Returns true when both paths resolve through the filesystem capability and the path is inside the resolved root.",
+    "body": "Returns true when both paths resolve through the filesystem capability and the candidate is physically inside the resolved root. The predicate canonicalizes the existing root and the candidate's nearest existing ancestor, accepts links whose physical targets remain in-root, and returns false for unresolvable roots or physical escapes. This is a point-in-time check, not an atomic access guarantee.",
     "example": "\".\" \"src/main.rco\" workspace_contains?"
   },
   {
@@ -1988,7 +1988,7 @@ const WORDS = [
     "aliases": [],
     "group": "system",
     "stack": "path:string options:map -> result(array)",
-    "body": "Lists workspace entries as metadata maps. Options include `recursive`, `include_files`, `include_dirs`, and `max_entries`.",
+    "body": "Lists workspace entries as metadata maps. Options include `recursive`, `include_files`, `include_dirs`, `max_entries`, and Boolean `truncate_on_limit`. By default, exceeding `max_entries` returns `IoError`; when truncation is enabled, recursive traversal stops globally and returns the capped Array.",
     "example": "options map\n\".\" $options workspace_list value"
   },
   {

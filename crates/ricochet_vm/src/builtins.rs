@@ -4149,13 +4149,7 @@ impl Vm {
         self.ensure_workspace_enabled(word)?;
         let path = self.pop_string(word, "workspace path string")?;
         let root = self.pop_string(word, "workspace root string")?;
-        let contains = match (
-            self.resolve_filesystem_path(word, &root),
-            self.resolve_filesystem_path(word, &path),
-        ) {
-            (Ok(root), Ok(path)) => path.starts_with(root),
-            _ => false,
-        };
+        let contains = self.workspace_contains_path(word, &root, &path);
         self.stack.push(Value::Bool(contains));
         Ok(())
     }
@@ -8467,6 +8461,7 @@ struct WorkspaceListOptions {
     include_files: bool,
     include_dirs: bool,
     max_entries: usize,
+    truncate_on_limit: bool,
 }
 
 #[derive(Clone)]
@@ -8516,7 +8511,13 @@ fn workspace_options_map(
 fn workspace_list_options(value: Value) -> Result<WorkspaceListOptions, Value> {
     let mut options = workspace_options_map(
         value,
-        &["recursive", "include_files", "include_dirs", "max_entries"],
+        &[
+            "recursive",
+            "include_files",
+            "include_dirs",
+            "max_entries",
+            "truncate_on_limit",
+        ],
     )?;
     let recursive = workspace_bool_option(&mut options, "recursive", false)?;
     let include_files = workspace_bool_option(&mut options, "include_files", true)?;
@@ -8527,11 +8528,13 @@ fn workspace_list_options(value: Value) -> Result<WorkspaceListOptions, Value> {
         WORKSPACE_DEFAULT_MAX_LIST_ENTRIES,
         WORKSPACE_MAX_LIST_ENTRIES,
     )?;
+    let truncate_on_limit = workspace_strict_bool_option(&mut options, "truncate_on_limit", false)?;
     Ok(WorkspaceListOptions {
         recursive,
         include_files,
         include_dirs,
         max_entries,
+        truncate_on_limit,
     })
 }
 
@@ -8626,6 +8629,24 @@ fn workspace_bool_option(
     match options.remove(name) {
         Some(Value::Bool(value)) => Ok(value),
         Some(Value::Nil) | None => Ok(default),
+        Some(value) => Err(Value::result_err(
+            "WorkspaceRequestError",
+            format!(
+                "workspace option {name} must be a bool, got {}",
+                value_kind(&value)
+            ),
+        )),
+    }
+}
+
+fn workspace_strict_bool_option(
+    options: &mut BTreeMap<String, Value>,
+    name: &str,
+    default: bool,
+) -> Result<bool, Value> {
+    match options.remove(name) {
+        Some(Value::Bool(value)) => Ok(value),
+        None => Ok(default),
         Some(value) => Err(Value::result_err(
             "WorkspaceRequestError",
             format!(
@@ -8943,9 +8964,17 @@ fn workspace_list_result(
 ) -> Value {
     let mut values = Vec::new();
     match workspace_collect_entries(path, root, options, &mut values) {
-        Ok(()) => Value::result_ok(Value::Array(values.into())),
+        Ok(WorkspaceListTraversal::Complete | WorkspaceListTraversal::LimitReached) => {
+            Value::result_ok(Value::Array(values.into()))
+        }
         Err(error) => Value::result_err("IoError", error),
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkspaceListTraversal {
+    Complete,
+    LimitReached,
 }
 
 fn workspace_collect_entries(
@@ -8953,10 +8982,13 @@ fn workspace_collect_entries(
     root: Option<&Path>,
     options: &WorkspaceListOptions,
     values: &mut Vec<Value>,
-) -> Result<(), String> {
+) -> Result<WorkspaceListTraversal, String> {
     let entries = fs::read_dir(path).map_err(|error| error.to_string())?;
     for entry in entries {
         if values.len() >= options.max_entries {
+            if options.truncate_on_limit {
+                return Ok(WorkspaceListTraversal::LimitReached);
+            }
             return Err(format!(
                 "workspace list exceeded max_entries {}",
                 options.max_entries
@@ -8979,12 +9011,19 @@ fn workspace_collect_entries(
                 root,
                 &metadata,
             ));
+            if options.truncate_on_limit && values.len() >= options.max_entries {
+                return Ok(WorkspaceListTraversal::LimitReached);
+            }
         }
-        if options.recursive && file_type.is_dir() {
-            workspace_collect_entries(&path, root, options, values)?;
+        if options.recursive
+            && file_type.is_dir()
+            && workspace_collect_entries(&path, root, options, values)?
+                == WorkspaceListTraversal::LimitReached
+        {
+            return Ok(WorkspaceListTraversal::LimitReached);
         }
     }
-    Ok(())
+    Ok(WorkspaceListTraversal::Complete)
 }
 
 fn workspace_read_text_bytes(path: &Path, max_bytes: usize) -> Result<Vec<u8>, Value> {
@@ -10497,6 +10536,252 @@ mod tests {
             .rsplit_once("retained staging file: ")
             .expect("error should report a retained staging file");
         PathBuf::from(path)
+    }
+
+    #[test]
+    fn workspace_list_truncate_on_limit_is_opt_in_and_boolean() {
+        let enabled = Value::Map(
+            BTreeMap::from([("truncate_on_limit".to_string(), Value::Bool(true))]).into(),
+        );
+        assert!(workspace_list_options(enabled).is_ok());
+
+        let invalid = Value::Map(
+            BTreeMap::from([(
+                "truncate_on_limit".to_string(),
+                Value::String("true".to_string()),
+            )])
+            .into(),
+        );
+        assert!(matches!(
+            workspace_list_options(invalid),
+            Err(Value::Result(RicochetResult::Err(error)))
+                if error.kind == "WorkspaceRequestError"
+        ));
+
+        let explicit_nil =
+            Value::Map(BTreeMap::from([("truncate_on_limit".to_string(), Value::Nil)]).into());
+        assert!(matches!(
+            workspace_list_options(explicit_nil),
+            Err(Value::Result(RicochetResult::Err(error)))
+                if error.kind == "WorkspaceRequestError"
+        ));
+
+        assert!(workspace_list_options(Value::Map(BTreeMap::new().into())).is_ok());
+
+        let unknown = Value::Map(
+            BTreeMap::from([("truncate_on_limits".to_string(), Value::Bool(true))]).into(),
+        );
+        assert!(matches!(
+            workspace_list_options(unknown),
+            Err(Value::Result(RicochetResult::Err(error)))
+                if error.kind == "WorkspaceRequestError"
+        ));
+    }
+
+    fn workspace_list_test_options(
+        recursive: bool,
+        include_files: bool,
+        include_dirs: bool,
+        max_entries: i64,
+        truncate_on_limit: bool,
+    ) -> WorkspaceListOptions {
+        let value = Value::Map(
+            BTreeMap::from([
+                ("recursive".to_string(), Value::Bool(recursive)),
+                ("include_files".to_string(), Value::Bool(include_files)),
+                ("include_dirs".to_string(), Value::Bool(include_dirs)),
+                ("max_entries".to_string(), Value::Number(max_entries)),
+                (
+                    "truncate_on_limit".to_string(),
+                    Value::Bool(truncate_on_limit),
+                ),
+            ])
+            .into(),
+        );
+        let Ok(options) = workspace_list_options(value) else {
+            panic!("workspace list test options should be valid");
+        };
+        options
+    }
+
+    fn workspace_list_success_values(result: Value) -> Vec<Value> {
+        let Value::Result(RicochetResult::Ok(value)) = result else {
+            panic!("workspace list should succeed");
+        };
+        let Value::Array(values) = *value else {
+            panic!("workspace list success should contain an array");
+        };
+        values.snapshot()
+    }
+
+    #[test]
+    fn workspace_list_omitted_truncation_preserves_overflow_error() {
+        let root = tempfile::tempdir().expect("workspace list overflow root");
+        for name in ["a.rco", "b.rco", "c.rco"] {
+            fs::write(root.path().join(name), name).expect("workspace list overflow fixture");
+        }
+        let options = workspace_list_test_options(false, true, false, 2, false);
+
+        assert!(matches!(
+            workspace_list_result(root.path(), Some(root.path()), &options),
+            Value::Result(RicochetResult::Err(error))
+                if error.kind == "IoError"
+                    && error.message == "workspace list exceeded max_entries 2"
+        ));
+    }
+
+    #[test]
+    fn workspace_list_opt_in_truncation_returns_the_bounded_prefix() {
+        let root = tempfile::tempdir().expect("workspace list truncation root");
+        let fewer = root.path().join("fewer");
+        let exact = root.path().join("exact");
+        let overflow = root.path().join("overflow");
+        for path in [&fewer, &exact, &overflow] {
+            fs::create_dir(path).expect("workspace list fixture directory");
+        }
+        fs::write(fewer.join("a.rco"), "a").expect("fewer fixture");
+        for name in ["a.rco", "b.rco"] {
+            fs::write(exact.join(name), name).expect("exact fixture");
+        }
+        for name in ["a.rco", "b.rco", "c.rco"] {
+            fs::write(overflow.join(name), name).expect("overflow fixture");
+        }
+        let options = workspace_list_test_options(false, true, false, 2, true);
+
+        assert_eq!(
+            workspace_list_success_values(workspace_list_result(
+                &fewer,
+                Some(root.path()),
+                &options,
+            ))
+            .len(),
+            1
+        );
+        assert_eq!(
+            workspace_list_success_values(workspace_list_result(
+                &exact,
+                Some(root.path()),
+                &options,
+            ))
+            .len(),
+            2
+        );
+        let values = workspace_list_success_values(workspace_list_result(
+            &overflow,
+            Some(root.path()),
+            &options,
+        ));
+        assert_eq!(values.len(), 2);
+        for value in values {
+            let Value::Map(metadata) = value else {
+                panic!("workspace list entry should remain a metadata map");
+            };
+            let metadata = metadata.snapshot();
+            assert!(matches!(
+                metadata.get("kind"),
+                Some(Value::String(kind)) if kind == "file"
+            ));
+            for key in ["requested_path", "path", "relative_path", "inside_root"] {
+                assert!(metadata.contains_key(key));
+            }
+        }
+    }
+
+    #[test]
+    fn workspace_list_recursive_truncation_stops_at_the_global_limit() {
+        let root = tempfile::tempdir().expect("recursive workspace list root");
+        let nested = root.path().join("a-nested").join("deeper");
+        let sibling = root.path().join("z-sibling");
+        fs::create_dir_all(&nested).expect("nested workspace list fixture");
+        fs::create_dir_all(&sibling).expect("sibling workspace list fixture");
+        for (directory, names) in [
+            (&nested, ["one.rco", "two.rco", "three.rco"]),
+            (&sibling, ["four.rco", "five.rco", "six.rco"]),
+        ] {
+            for name in names {
+                fs::write(directory.join(name), name).expect("recursive list fixture");
+            }
+        }
+        let options = workspace_list_test_options(true, true, false, 3, true);
+
+        let values = workspace_list_success_values(workspace_list_result(
+            root.path(),
+            Some(root.path()),
+            &options,
+        ));
+        assert_eq!(values.len(), 3);
+        assert!(values.into_iter().all(|value| {
+            matches!(
+                value,
+                Value::Map(metadata)
+                    if metadata.get("kind") == Some(Value::String("file".to_string()))
+            )
+        }));
+    }
+
+    #[test]
+    fn workspace_list_recursive_limit_signal_propagates_to_the_root() {
+        let root = tempfile::tempdir().expect("recursive limit signal root");
+        let nested = root.path().join("nested");
+        fs::create_dir(&nested).expect("recursive limit signal directory");
+        for name in ["one.rco", "two.rco", "three.rco"] {
+            fs::write(nested.join(name), name).expect("recursive limit signal fixture");
+        }
+        let options = workspace_list_test_options(true, true, false, 2, true);
+        let mut values = Vec::new();
+
+        assert_eq!(
+            workspace_collect_entries(root.path(), Some(root.path()), &options, &mut values),
+            Ok(WorkspaceListTraversal::LimitReached)
+        );
+        assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    fn workspace_list_collection_stops_immediately_when_limit_is_reached() {
+        let root = tempfile::tempdir().expect("workspace list early-stop root");
+        for name in ["one.rco", "two.rco"] {
+            fs::write(root.path().join(name), name).expect("early-stop fixture");
+        }
+        let options = workspace_list_test_options(false, true, false, 2, true);
+        let mut values = Vec::new();
+
+        assert_eq!(
+            workspace_collect_entries(root.path(), Some(root.path()), &options, &mut values),
+            Ok(WorkspaceListTraversal::LimitReached)
+        );
+        assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    fn workspace_list_truncation_preserves_include_filters() {
+        let root = tempfile::tempdir().expect("workspace list filter root");
+        fs::write(root.path().join("source.rco"), "source").expect("file fixture");
+        fs::create_dir(root.path().join("nested")).expect("directory fixture");
+
+        let files = workspace_list_success_values(workspace_list_result(
+            root.path(),
+            Some(root.path()),
+            &workspace_list_test_options(false, true, false, 10, true),
+        ));
+        assert_eq!(files.len(), 1);
+        assert!(matches!(
+            &files[0],
+            Value::Map(metadata)
+                if metadata.get("kind") == Some(Value::String("file".to_string()))
+        ));
+
+        let directories = workspace_list_success_values(workspace_list_result(
+            root.path(),
+            Some(root.path()),
+            &workspace_list_test_options(false, false, true, 10, true),
+        ));
+        assert_eq!(directories.len(), 1);
+        assert!(matches!(
+            &directories[0],
+            Value::Map(metadata)
+                if metadata.get("kind") == Some(Value::String("directory".to_string()))
+        ));
     }
 
     #[test]
