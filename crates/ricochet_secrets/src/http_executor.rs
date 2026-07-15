@@ -659,19 +659,87 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         && !(first == 198 && matches!(second, 18 | 19))
 }
 
+// Static, fail-closed snapshot of allocated IPv6 global-unicast space that is
+// also globally reachable. Unlisted space stays denied until this table and
+// its exhaustive representative-address test are deliberately updated.
+//
+// Sources (registry last-updated dates at the time of review):
+// - IANA IPv6 Global Unicast Address Assignments, 2025-10-10
+//   https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+// - IANA IPv6 Special-Purpose Address Space, 2025-10-09
+//   https://www.iana.org/assignments/iana-ipv6-special-registry/
+const IANA_GLOBALLY_REACHABLE_IPV6_PREFIXES: &[(Ipv6Addr, u8)] = &[
+    // Globally reachable special-purpose allocations within 2001::/23.
+    (Ipv6Addr::new(0x2001, 0x0001, 0, 0, 0, 0, 0, 1), 128),
+    (Ipv6Addr::new(0x2001, 0x0001, 0, 0, 0, 0, 0, 2), 128),
+    (Ipv6Addr::new(0x2001, 0x0001, 0, 0, 0, 0, 0, 3), 128),
+    (Ipv6Addr::new(0x2001, 0x0003, 0, 0, 0, 0, 0, 0), 32),
+    (Ipv6Addr::new(0x2001, 0x0004, 0x0112, 0, 0, 0, 0, 0), 48),
+    (Ipv6Addr::new(0x2001, 0x0020, 0, 0, 0, 0, 0, 0), 28),
+    (Ipv6Addr::new(0x2001, 0x0030, 0, 0, 0, 0, 0, 0), 28),
+    // Allocated global-unicast prefixes outside 2001::/23. The parent
+    // 2001::/23 and 2002::/16 are intentionally absent because their IANA
+    // global-reachability status is not true as a whole.
+    (Ipv6Addr::new(0x2001, 0x0200, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x0400, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x0600, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x0800, 0, 0, 0, 0, 0, 0), 22),
+    (Ipv6Addr::new(0x2001, 0x0c00, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x0e00, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x1200, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x1400, 0, 0, 0, 0, 0, 0), 22),
+    (Ipv6Addr::new(0x2001, 0x1800, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x1a00, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x1c00, 0, 0, 0, 0, 0, 0), 22),
+    (Ipv6Addr::new(0x2001, 0x2000, 0, 0, 0, 0, 0, 0), 19),
+    (Ipv6Addr::new(0x2001, 0x4000, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4200, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4400, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4600, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4800, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4a00, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x4c00, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2001, 0x5000, 0, 0, 0, 0, 0, 0), 20),
+    (Ipv6Addr::new(0x2001, 0x8000, 0, 0, 0, 0, 0, 0), 19),
+    (Ipv6Addr::new(0x2001, 0xa000, 0, 0, 0, 0, 0, 0), 20),
+    (Ipv6Addr::new(0x2001, 0xb000, 0, 0, 0, 0, 0, 0), 20),
+    (Ipv6Addr::new(0x2003, 0, 0, 0, 0, 0, 0, 0), 18),
+    (Ipv6Addr::new(0x2400, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2410, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2600, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2610, 0, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2620, 0, 0, 0, 0, 0, 0, 0), 23),
+    (Ipv6Addr::new(0x2630, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2800, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2a00, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2a10, 0, 0, 0, 0, 0, 0, 0), 12),
+    (Ipv6Addr::new(0x2c00, 0, 0, 0, 0, 0, 0, 0), 12),
+];
+
+fn ipv6_prefix_contains(prefix: Ipv6Addr, prefix_length: u8, candidate: Ipv6Addr) -> bool {
+    let shift = 128_u32 - u32::from(prefix_length);
+    u128::from_be_bytes(prefix.octets()) >> shift
+        == u128::from_be_bytes(candidate.octets()) >> shift
+}
+
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
     if let Some(ipv4) = ip.to_ipv4() {
         return is_public_ipv4(ipv4);
     }
-    let segments = ip.segments();
-    segments[0] & 0xe000 == 0x2000
-        && !(ip.is_loopback()
-            || ip.is_unspecified()
-            || ip.is_multicast()
-            || ip.is_unique_local()
-            || ip.is_unicast_link_local()
-            || segments[0] == 0x2001 && segments[1] == 0x0db8
-            || segments[0] == 0x3fff && segments[1] & 0xf000 == 0)
+
+    let is_globally_reachable_allocation = IANA_GLOBALLY_REACHABLE_IPV6_PREFIXES
+        .iter()
+        .any(|(prefix, prefix_length)| ipv6_prefix_contains(*prefix, *prefix_length, ip));
+    let is_documentation =
+        ipv6_prefix_contains(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 0), 32, ip);
+
+    is_globally_reachable_allocation
+        && !is_documentation
+        && !ip.is_loopback()
+        && !ip.is_unspecified()
+        && !ip.is_multicast()
+        && !ip.is_unique_local()
+        && !ip.is_unicast_link_local()
 }
 
 #[cfg(feature = "test-host")]
@@ -797,7 +865,7 @@ mod tests {
 
     #[test]
     fn deferred_http_address_policy_admits_only_public_destinations() {
-        for address in ["93.184.216.34", "2606:4700:4700::1111", "3fff:1000::1"] {
+        for address in ["93.184.216.34", "2606:4700:4700::1111"] {
             assert!(
                 is_public_ip(address.parse().expect("public fixture should parse")),
                 "public address should be admitted: {address}"
@@ -821,6 +889,94 @@ mod tests {
             assert!(
                 !is_public_ip(address.parse().expect("restricted fixture should parse")),
                 "restricted address should be denied: {address}"
+            );
+        }
+    }
+
+    #[test]
+    fn deferred_http_ipv6_policy_fails_closed_to_iana_allocations() {
+        let allocated_and_globally_reachable = [
+            ("2001:1::1/128 PCP anycast", "2001:1::1"),
+            ("2001:1::2/128 TURN anycast", "2001:1::2"),
+            ("2001:1::3/128 DNS-SD anycast", "2001:1::3"),
+            ("2001:3::/32 AMT", "2001:3::1"),
+            ("2001:4:112::/48 AS112", "2001:4:112::1"),
+            ("2001:20::/28 ORCHIDv2", "2001:20::1"),
+            ("2001:30::/28 DET", "2001:30::1"),
+            ("2001:200::/23 APNIC", "2001:200::1"),
+            ("2001:400::/23 ARIN", "2001:400::1"),
+            ("2001:600::/23 RIPE", "2001:600::1"),
+            ("2001:800::/22 RIPE", "2001:800::1"),
+            ("2001:c00::/23 APNIC", "2001:c00::1"),
+            ("2001:e00::/23 APNIC", "2001:e00::1"),
+            ("2001:1200::/23 LACNIC", "2001:1200::1"),
+            ("2001:1400::/22 RIPE", "2001:1400::1"),
+            ("2001:1800::/23 ARIN", "2001:1800::1"),
+            ("2001:1a00::/23 RIPE", "2001:1a00::1"),
+            ("2001:1c00::/22 RIPE", "2001:1c00::1"),
+            ("2001:2000::/19 RIPE", "2001:2000::1"),
+            ("2001:4000::/23 RIPE", "2001:4000::1"),
+            ("2001:4200::/23 AFRINIC", "2001:4200::1"),
+            ("2001:4400::/23 APNIC", "2001:4400::1"),
+            ("2001:4600::/23 RIPE", "2001:4600::1"),
+            ("2001:4800::/23 ARIN", "2001:4800::1"),
+            ("2001:4a00::/23 RIPE", "2001:4a00::1"),
+            ("2001:4c00::/23 RIPE", "2001:4c00::1"),
+            ("2001:5000::/20 RIPE", "2001:5000::1"),
+            ("2001:8000::/19 APNIC", "2001:8000::1"),
+            ("2001:a000::/20 APNIC", "2001:a000::1"),
+            ("2001:b000::/20 APNIC", "2001:b000::1"),
+            ("2003::/18 RIPE", "2003::1"),
+            ("2400::/12 APNIC", "2400::1"),
+            ("2410::/12 APNIC", "2410::1"),
+            ("2600::/12 ARIN", "2600::1"),
+            ("2610::/23 ARIN", "2610::1"),
+            ("2620::/23 ARIN", "2620::1"),
+            ("2630::/12 ARIN", "2630::1"),
+            ("2800::/12 LACNIC", "2800::1"),
+            ("2a00::/12 RIPE", "2a00::1"),
+            ("2a10::/12 RIPE", "2a10::1"),
+            ("2c00::/12 AFRINIC", "2c00::1"),
+        ];
+        assert_eq!(
+            IANA_GLOBALLY_REACHABLE_IPV6_PREFIXES.len(),
+            allocated_and_globally_reachable.len(),
+            "updating the IANA allocation table requires updating its representative fixtures"
+        );
+        for (allocation, address) in allocated_and_globally_reachable {
+            let address: Ipv6Addr = address.parse().expect("allocated fixture should parse");
+            let matching_prefixes = IANA_GLOBALLY_REACHABLE_IPV6_PREFIXES
+                .iter()
+                .filter(|(prefix, prefix_length)| {
+                    ipv6_prefix_contains(*prefix, *prefix_length, address)
+                })
+                .count();
+            assert_eq!(
+                matching_prefixes, 1,
+                "fixture should represent exactly one admitted IANA prefix: {allocation} ({address})"
+            );
+            assert!(
+                is_public_ipv6(address),
+                "allocated globally reachable address should be admitted: {allocation} ({address})"
+            );
+        }
+
+        let reserved_or_not_globally_reachable = [
+            ("returned 6bone space", "3ffe::1"),
+            ("unallocated space above documentation /20", "3fff:1000::1"),
+            ("broad IANA reserved block", "3000::1"),
+            ("unallocated hole inside 2001::/16", "2001:1000::1"),
+            ("Teredo not globally reachable", "2001::1"),
+            ("benchmarking", "2001:2::1"),
+            ("deprecated ORCHID", "2001:10::1"),
+            ("RFC 3849 documentation", "2001:db8::1"),
+            ("6to4 not globally reachable", "2002::1"),
+            ("RFC 9637 documentation", "3fff::1"),
+        ];
+        for (classification, address) in reserved_or_not_globally_reachable {
+            assert!(
+                !is_public_ip(address.parse().expect("reserved fixture should parse")),
+                "reserved or non-global address should be denied: {classification} ({address})"
             );
         }
     }
