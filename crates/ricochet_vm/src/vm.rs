@@ -4872,8 +4872,8 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
 }
 
 fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmError> {
-    if matches!(left, Value::DeferredHttpCredentials(_))
-        || matches!(right, Value::DeferredHttpCredentials(_))
+    if contains_deferred_http_credentials(left, &mut Vec::new())
+        || contains_deferred_http_credentials(right, &mut Vec::new())
     {
         Some(VmError::TypeError {
             word: word.to_string(),
@@ -4883,6 +4883,65 @@ fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmEr
     } else {
         None
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OpaqueEqualityVisit {
+    Array(usize),
+    List(usize),
+    Map(usize),
+    Set(usize),
+}
+
+fn contains_deferred_http_credentials(
+    value: &Value,
+    visits: &mut Vec<OpaqueEqualityVisit>,
+) -> bool {
+    let (visit, values) = match value {
+        Value::DeferredHttpCredentials(_) => return true,
+        Value::Array(values) => (
+            OpaqueEqualityVisit::Array(values.identity()),
+            values.snapshot(),
+        ),
+        Value::List(values) => (
+            OpaqueEqualityVisit::List(values.identity()),
+            values.snapshot(),
+        ),
+        Value::Map(values) => (OpaqueEqualityVisit::Map(values.identity()), values.values()),
+        Value::Set(values) => (
+            OpaqueEqualityVisit::Set(values.identity()),
+            values.snapshot(),
+        ),
+        Value::Instance(instance) => {
+            return instance
+                .fields
+                .values()
+                .any(|value| contains_deferred_http_credentials(value, visits));
+        }
+        Value::Result(RicochetResult::Ok(value)) => {
+            return contains_deferred_http_credentials(value, visits);
+        }
+        Value::Nil
+        | Value::Bool(_)
+        | Value::Number(_)
+        | Value::Float(_)
+        | Value::String(_)
+        | Value::Class(_)
+        | Value::Member(_)
+        | Value::Block(_)
+        | Value::Task(_)
+        | Value::Result(RicochetResult::Err(_))
+        | Value::Regex(_)
+        | Value::Capability(_) => return false,
+    };
+
+    if visits.contains(&visit) {
+        return false;
+    }
+    visits.push(visit);
+    values
+        .iter()
+        .any(|value| contains_deferred_http_credentials(value, visits))
 }
 
 fn accessor_get(field: &str, receiver: &Value) -> Result<Value, VmError> {
@@ -6254,6 +6313,88 @@ mod tests {
                     && expected == "comparable values"
                     && actual == "deferred HTTP credentials"
             ));
+        }
+    }
+
+    fn credential_bearing_request_map(secret: &str) -> MapValue {
+        let source = ricochet_secrets::DeferredSecretSource::literal(secret.to_string())
+            .expect("fixture should construct");
+        MapValue::from(BTreeMap::from([
+            (
+                "__ricochet_deferred_http_credentials_v1".to_string(),
+                Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(
+                    source,
+                )),
+            ),
+            ("method".to_string(), Value::String("POST".to_string())),
+            (
+                "url".to_string(),
+                Value::String("https://api.openai.com/v1/responses".to_string()),
+            ),
+        ]))
+    }
+
+    fn assert_nested_opaque_equality_error(word: &str, left: Value, right: Value) {
+        let mut vm = Vm::default();
+        vm.push_value(left);
+        vm.push_value(right);
+
+        let error = vm
+            .call_word(word)
+            .expect_err("nested opaque credentials must prevent language equality");
+
+        assert!(matches!(
+            error,
+            VmError::TypeError {
+                word: ref error_word,
+                ref expected,
+                ref actual,
+            } if error_word == word
+                && expected == "comparable values"
+                && actual == "deferred HTTP credentials"
+        ));
+        assert_eq!(
+            vm.stack().len(),
+            2,
+            "equality errors should restore operands"
+        );
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_in_aliased_request_maps() {
+        let request = credential_bearing_request_map("aliased-synthetic-secret");
+
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(request.clone()),
+                Value::Map(request.clone()),
+            );
+        }
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_in_separate_request_maps() {
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(credential_bearing_request_map("first-synthetic-secret")),
+                Value::Map(credential_bearing_request_map("second-synthetic-secret")),
+            );
+        }
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_through_collection_cycles() {
+        let request = credential_bearing_request_map("cyclic-synthetic-secret");
+        request.insert("!self".to_string(), Value::Map(request.clone()));
+
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(request.clone()),
+                Value::Map(request.clone()),
+            );
         }
     }
 
