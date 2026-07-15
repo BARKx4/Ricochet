@@ -171,6 +171,9 @@ pub fn class_to_image(class: &Class) -> Result<ImageClass, ImageError> {
 }
 
 pub fn value_to_image(value: &Value, path: &str) -> Result<ImageValue, ImageError> {
+    if value.opaque_value_kind().is_some() {
+        return Err(non_serializable(path, "non-serializable value"));
+    }
     value_to_image_inner(value, path, &mut Vec::new())
 }
 
@@ -252,7 +255,11 @@ pub fn value_from_image(value: ImageValue) -> Result<Value, ImageError> {
             .into_iter()
             .map(value_from_image)
             .collect::<Result<Vec<_>, _>>()
-            .map(SetValue::from)
+            .and_then(|values| {
+                SetValue::try_from(values).map_err(|_| ImageError::InvalidImage {
+                    message: "set image contains a non-comparable value".to_string(),
+                })
+            })
             .map(Value::Set),
         ImageValue::Class(name) => Ok(Value::Class(name)),
         ImageValue::Instance { class_name, fields } => {
@@ -428,7 +435,8 @@ mod tests {
         assert_cycle_path(Value::Map(map), "$.self");
 
         let set = SetValue::default();
-        set.insert(Value::Set(set.clone()));
+        set.insert(Value::Set(set.clone()))
+            .expect("cyclic ordinary set should remain supported");
         assert_cycle_path(Value::Set(set), "$[0]");
     }
 

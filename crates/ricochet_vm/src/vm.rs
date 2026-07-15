@@ -4541,7 +4541,17 @@ impl Vm {
                 Ok(())
             }
             Value::Set(values) => {
-                values.insert(value);
+                if let Some(error) =
+                    opaque_equality_error(word, &Value::Set(values.clone()), &value)
+                {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+                values.insert(value).map_err(|error| VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "comparable values".to_string(),
+                    actual: error.actual().to_string(),
+                })?;
                 self.stack.push(Value::Set(values));
                 Ok(())
             }
@@ -4959,74 +4969,14 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
 }
 
 fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmError> {
-    let actual = contains_opaque_value(left, &mut Vec::new())
-        .or_else(|| contains_opaque_value(right, &mut Vec::new()))?;
+    let actual = left
+        .opaque_value_kind()
+        .or_else(|| right.opaque_value_kind())?;
     Some(VmError::TypeError {
         word: word.to_string(),
         expected: "comparable values".to_string(),
         actual: actual.to_string(),
     })
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum OpaqueEqualityVisit {
-    Array(usize),
-    List(usize),
-    Map(usize),
-    Set(usize),
-}
-
-fn contains_opaque_value(
-    value: &Value,
-    visits: &mut Vec<OpaqueEqualityVisit>,
-) -> Option<&'static str> {
-    let (visit, values) = match value {
-        Value::DeferredHttpCredentials(_) => return Some("deferred HTTP credentials"),
-        Value::SecretRef(_) => return Some("secret reference"),
-        Value::SecureSessionAction(_) => return Some("secure session action"),
-        Value::Array(values) => (
-            OpaqueEqualityVisit::Array(values.identity()),
-            values.snapshot(),
-        ),
-        Value::List(values) => (
-            OpaqueEqualityVisit::List(values.identity()),
-            values.snapshot(),
-        ),
-        Value::Map(values) => (OpaqueEqualityVisit::Map(values.identity()), values.values()),
-        Value::Set(values) => (
-            OpaqueEqualityVisit::Set(values.identity()),
-            values.snapshot(),
-        ),
-        Value::Instance(instance) => {
-            return instance
-                .fields
-                .values()
-                .find_map(|value| contains_opaque_value(value, visits));
-        }
-        Value::Result(RicochetResult::Ok(value)) => {
-            return contains_opaque_value(value, visits);
-        }
-        Value::Nil
-        | Value::Bool(_)
-        | Value::Number(_)
-        | Value::Float(_)
-        | Value::String(_)
-        | Value::Class(_)
-        | Value::Member(_)
-        | Value::Block(_)
-        | Value::Task(_)
-        | Value::Result(RicochetResult::Err(_))
-        | Value::Regex(_)
-        | Value::Capability(_) => return None,
-    };
-
-    if visits.contains(&visit) {
-        return None;
-    }
-    visits.push(visit);
-    values
-        .iter()
-        .find_map(|value| contains_opaque_value(value, visits))
 }
 
 fn accessor_get(field: &str, receiver: &Value) -> Result<Value, VmError> {

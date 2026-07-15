@@ -17,6 +17,9 @@ enum JsonVisit {
 }
 
 pub(crate) fn value_to_json(value: &Value, root: &str, set_mode: SetMode) -> Result<JsonValue> {
+    if value.opaque_value_kind().is_some() {
+        bail!("cannot encode non-serializable value as JSON at {root}");
+    }
     value_to_json_inner(value, root, set_mode, &mut Vec::new())
 }
 
@@ -121,12 +124,33 @@ mod tests {
 
     #[test]
     fn set_policy_preserves_controller_and_session_behavior() {
-        let set = Value::Set(SetValue::from(vec![Value::Number(7)]));
+        let set = Value::Set(SetValue::try_from(vec![Value::Number(7)]).expect("ordinary set"));
 
         assert_eq!(
             value_to_json(&set, "$", SetMode::Array).expect("controller set should encode"),
             serde_json::json!([7])
         );
         assert!(value_to_json(&set, "$", SetMode::Reject).is_err());
+    }
+
+    #[test]
+    fn web_json_rejects_nested_deferred_credentials_with_sanitized_error() {
+        let sentinel = "synthetic-web-json-secret-that-must-not-render";
+        let source = format!(
+            r#""POST" "https://api.openai.com/v1/responses" http_request_new value "{sentinel}" secret_literal http_bearer_auth value"#
+        );
+        let chunk = ricochet_compiler::compile_source("web-json-secret-audit.rco", &source)
+            .expect("fixture should compile");
+        let mut vm = ricochet_vm::Vm::default();
+        vm.run_chunk(&chunk).expect("fixture should execute");
+        let value = Value::Array(ArrayValue::from(vec![vm.stack()[0].clone()]));
+
+        let error = value_to_json(&value, "$.controller", SetMode::Array)
+            .expect_err("Web JSON must reject nested credentials");
+        assert_eq!(
+            error.to_string(),
+            "cannot encode non-serializable value as JSON at $.controller"
+        );
+        assert!(!error.to_string().contains(sentinel));
     }
 }

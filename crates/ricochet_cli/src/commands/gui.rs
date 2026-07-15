@@ -848,6 +848,9 @@ enum WebviewJsonVisit {
 }
 
 fn ricochet_value_to_json(value: &Value, root: &str) -> Result<serde_json::Value> {
+    if value.opaque_value_kind().is_some() {
+        bail!("webview state cannot encode non-serializable value as JSON at {root}");
+    }
     ricochet_value_to_json_inner(value, root, &mut Vec::new())
 }
 
@@ -1159,6 +1162,67 @@ mod tests {
         assert_eq!(failed, "secure_prompt_failed");
         assert!(!failed.contains("native diagnostic that must not escape"));
         assert!(!context.present(&gemini).expect("presence"));
+    }
+
+    #[test]
+    fn callback_document_rejects_nested_credentials_and_native_session_bytes_never_reach_dom() {
+        let sentinel = "synthetic-dom-secret-that-must-not-render";
+        let credentials = ricochet_secrets::DeferredHttpCredentials::bearer(
+            ricochet_secrets::DeferredSecretSource::literal(sentinel.to_string())
+                .expect("synthetic literal"),
+        );
+        let state = Value::Array(ricochet_vm::ArrayValue::from(vec![
+            Value::DeferredHttpCredentials(credentials),
+        ]));
+        let rejected = WebviewDocument {
+            title: "Rejected credential fixture".to_string(),
+            body: "<p>Native credential prompt only.</p>".to_string(),
+            html: "<p>Native credential prompt only.</p>".to_string(),
+            width: 800,
+            height: 600,
+            state,
+            actions: Vec::new(),
+            menus: WebviewMenuBar::default(),
+        };
+        let error = webview_document_update_script(&rejected)
+            .expect_err("callback document must reject nested credentials");
+        assert_eq!(
+            error.to_string(),
+            "webview state cannot encode non-serializable value as JSON at $.state"
+        );
+        assert!(!error.to_string().contains(sentinel));
+
+        let tokens = HostTokenSource::system();
+        let domain = ricochet_secrets::SecurityDomainId::generate(&tokens).expect("domain");
+        let (session, _guard) = SecretSession::create(&tokens, domain).expect("session");
+        let context = session.context();
+        let slot = SecretName::parse("audit.dom").expect("slot");
+        assert_eq!(
+            complete_secure_prompt(
+                &context,
+                &slot,
+                NativePromptOutcome::Stored(zeroize::Zeroizing::new(sentinel.to_string())),
+            ),
+            "stored"
+        );
+        let document = WebviewDocument {
+            title: "Opaque secure action".to_string(),
+            body: "<p>Native credential prompt only.</p>".to_string(),
+            html: "<p>Native credential prompt only.</p>".to_string(),
+            width: 800,
+            height: 600,
+            state: Value::Map(BTreeMap::new().into()),
+            actions: vec![WebviewAction::Secure {
+                action_id: "cd".repeat(32),
+                button_label: HostDisplayLabel::parse("Replace session credential")
+                    .expect("button label"),
+            }],
+            menus: WebviewMenuBar::default(),
+        };
+        let script = webview_document_update_script(&document).expect("opaque secure document");
+        assert!(!script.contains(sentinel));
+        assert!(!script.to_ascii_lowercase().contains("password"));
+        assert!(!script.contains("audit.dom"));
     }
 }
 

@@ -7656,13 +7656,21 @@ fn runtime_error_message(vm: &Vm, error: &ricochet_vm::VmError) -> String {
 }
 
 fn write_debug_trace(path: &Path, events: &[DebugEvent]) -> Result<()> {
-    let trace: Vec<_> = events.iter().map(debug_event_json).collect();
+    let trace = events
+        .iter()
+        .map(debug_event_json)
+        .collect::<Result<Vec<_>>>()?;
     let json = serde_json::to_string_pretty(&trace)?;
     fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn print_debug_event_json_line(event: &DebugEvent) {
-    let value = debug_event_json(event);
+    let value = debug_event_json(event).unwrap_or_else(|_| {
+        json!({
+            "event": "error",
+            "error": "debug protocol cannot serialize non-serializable value",
+        })
+    });
     println!(
         "{}",
         serde_json::to_string(&value).expect("debug event JSON should serialize")
@@ -8301,7 +8309,13 @@ fn debug_ui_snapshot_for_pause(
 }
 
 fn debug_web_pause_event(snapshot: &DebugUiSnapshot, pause_id: usize) -> serde_json::Value {
-    let mut value = debug_event_json(&DebugEvent::Paused(snapshot.pause.clone()));
+    let mut value =
+        debug_event_json(&DebugEvent::Paused(snapshot.pause.clone())).unwrap_or_else(|_| {
+            json!({
+                "event": "error",
+                "error": "debug protocol cannot serialize non-serializable value",
+            })
+        });
     if let serde_json::Value::Object(fields) = &mut value {
         fields.insert("pause_id".to_string(), json!(pause_id));
         fields.insert("source_line".to_string(), json!(snapshot.source_line));

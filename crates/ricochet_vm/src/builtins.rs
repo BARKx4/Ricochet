@@ -621,6 +621,9 @@ impl Vm {
 
     fn method_has(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         let needle = self.pop(method)?;
+        if !matches!(receiver, Value::String(_) | Value::Map(_)) {
+            reject_opaque_equality_operands(method, &receiver, &needle)?;
+        }
         let result = match receiver {
             Value::String(value) => {
                 let Value::String(needle) = needle else {
@@ -630,7 +633,9 @@ impl Vm {
             }
             Value::Array(value) => value.snapshot().contains(&needle),
             Value::List(value) => value.snapshot().contains(&needle),
-            Value::Set(value) => value.contains(&needle),
+            Value::Set(value) => value
+                .contains(&needle)
+                .map_err(|error| collection_equality_error(method, error))?,
             Value::Map(value) => {
                 let Value::String(key) = needle else {
                     return Err(method_type_error(method, "map key string", &needle));
@@ -675,7 +680,9 @@ impl Vm {
                 Ok(Value::List(list))
             }
             Value::Set(set) => {
-                set.insert(value);
+                reject_opaque_equality_operands(method, &Value::Set(set.clone()), &value)?;
+                set.insert(value)
+                    .map_err(|error| collection_equality_error(method, error))?;
                 Ok(Value::Set(set))
             }
             value => Err(method_type_error(method, "array, list, or set", &value)),
@@ -714,6 +721,9 @@ impl Vm {
 
     fn method_remove(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         let target = self.pop(method)?;
+        if !matches!(receiver, Value::Map(_)) {
+            reject_opaque_equality_operands(method, &receiver, &target)?;
+        }
         match &receiver {
             Value::Array(array) => {
                 let values = array.snapshot();
@@ -728,7 +738,8 @@ impl Vm {
                 }
             }
             Value::Set(set) => {
-                set.remove(&target);
+                set.remove(&target)
+                    .map_err(|error| collection_equality_error(method, error))?;
             }
             Value::Map(map) => {
                 let Value::String(key) = target else {
@@ -818,7 +829,10 @@ impl Vm {
                 Ok(match receiver {
                     Value::Array(_) => Value::Array(selected.into()),
                     Value::List(_) => Value::List(selected.into()),
-                    Value::Set(_) => Value::Set(selected.into()),
+                    Value::Set(_) => Value::Set(
+                        SetValue::try_from(selected)
+                            .map_err(|error| collection_equality_error(method, error))?,
+                    ),
                     _ => unreachable!("sequence snapshot accepted receiver"),
                 })
             }
@@ -1761,7 +1775,9 @@ impl Vm {
             methods.extend(class.native_methods.keys().cloned().map(Value::String));
             methods.extend(class.bytecode_methods.keys().cloned().map(Value::String));
         }
-        self.stack.push(Value::Set(methods.into()));
+        self.stack.push(Value::Set(
+            SetValue::try_from(methods).expect("method names are comparable strings"),
+        ));
         Ok(())
     }
 
@@ -5488,7 +5504,9 @@ fn collection_from_sequence_receiver(
     match receiver {
         Value::Array(_) => Ok(Value::Array(values.into())),
         Value::List(_) => Ok(Value::List(values.into())),
-        Value::Set(_) => Ok(Value::Set(values.into())),
+        Value::Set(_) => SetValue::try_from(values)
+            .map(Value::Set)
+            .map_err(|error| collection_equality_error(method, error)),
         value => Err(method_type_error(method, "array, list, or set", value)),
     }
 }
@@ -5571,6 +5589,35 @@ fn method_type_error(word: &str, expected: &str, value: &Value) -> VmError {
         word: word.to_string(),
         expected: expected.to_string(),
         actual: value_kind(value).to_string(),
+    }
+}
+
+fn reject_opaque_equality_operands(
+    word: &str,
+    receiver: &Value,
+    argument: &Value,
+) -> Result<(), VmError> {
+    let Some(actual) = receiver
+        .opaque_value_kind()
+        .or_else(|| argument.opaque_value_kind())
+    else {
+        return Ok(());
+    };
+    Err(VmError::TypeError {
+        word: word.to_string(),
+        expected: "comparable values".to_string(),
+        actual: actual.to_string(),
+    })
+}
+
+fn collection_equality_error(
+    word: &str,
+    error: crate::collection::CollectionEqualityError,
+) -> VmError {
+    VmError::TypeError {
+        word: word.to_string(),
+        expected: "comparable values".to_string(),
+        actual: error.actual().to_string(),
     }
 }
 
@@ -5956,6 +6003,9 @@ enum JsonVisit {
 }
 
 fn value_to_json(value: &Value) -> Result<JsonValue, String> {
+    if value.opaque_value_kind().is_some() {
+        return Err("cannot encode non-serializable value as JSON".to_string());
+    }
     let mut visits = Vec::new();
     let mut path = Vec::new();
     value_to_json_inner(value, &mut visits, &mut path)
