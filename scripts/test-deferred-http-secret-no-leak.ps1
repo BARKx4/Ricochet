@@ -181,6 +181,35 @@ function Get-CargoTargetRoot {
     return Resolve-CargoTargetRootFromMetadataJson $metadata.Stdout
 }
 
+function Test-CargoArtifactLayout {
+    param(
+        [string]$Executable,
+        [string]$TargetRoot,
+        [string]$ProfileDirectoryName,
+        [bool]$InDepsDirectory
+    )
+    $artifactDirectory = [System.IO.Path]::GetDirectoryName(
+        [System.IO.Path]::GetFullPath($Executable)
+    )
+    if ($InDepsDirectory) {
+        if ([System.IO.Path]::GetFileName($artifactDirectory) -cne 'deps') {
+            return $false
+        }
+        $profileDirectory = [System.IO.Path]::GetDirectoryName($artifactDirectory)
+    }
+    else {
+        $profileDirectory = $artifactDirectory
+    }
+    if ([System.IO.Path]::GetFileName($profileDirectory) -cne $ProfileDirectoryName) {
+        return $false
+    }
+    $layoutRoot = [System.IO.Path]::GetDirectoryName($profileDirectory)
+    if (Test-SamePath $layoutRoot $TargetRoot) {
+        return $true
+    }
+    return Test-SamePath ([System.IO.Path]::GetDirectoryName($layoutRoot)) $TargetRoot
+}
+
 function Resolve-CargoTestExecutableFromJson {
     param(
         [string]$JsonLines,
@@ -245,15 +274,7 @@ function Resolve-CargoTestExecutableFromJson {
 
     $artifact = $matches[0]
     $executable = [System.IO.Path]::GetFullPath([string]$artifact.executable)
-    $depsDirectory = [System.IO.Path]::GetDirectoryName($executable)
-    $profileDirectory = [System.IO.Path]::GetDirectoryName($depsDirectory)
-    $layoutRoot = [System.IO.Path]::GetDirectoryName($profileDirectory)
-    $directLayout = Test-SamePath $layoutRoot $TargetRoot
-    $targetTripleLayout = -not $directLayout -and
-        (Test-SamePath ([System.IO.Path]::GetDirectoryName($layoutRoot)) $TargetRoot)
-    if ([System.IO.Path]::GetFileName($depsDirectory) -cne 'deps' -or
-        [System.IO.Path]::GetFileName($profileDirectory) -cne 'debug' -or
-        (-not $directLayout -and -not $targetTripleLayout)) {
+    if (-not (Test-CargoArtifactLayout $executable $TargetRoot 'debug' $true)) {
         throw 'Cargo selected a deferred HTTP audit artifact outside the exact target directory'
     }
     $expectedFileName = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
@@ -273,6 +294,87 @@ function Resolve-CargoTestExecutableFromJson {
     }
     if (-not [System.IO.File]::Exists($executable)) {
         throw 'Cargo selected deferred HTTP audit executable does not exist'
+    }
+    return $executable
+}
+
+function Resolve-CargoReleaseExecutableFromJson {
+    param(
+        [string]$JsonLines,
+        [string]$ExpectedManifestPath,
+        [string]$TargetRoot
+    )
+    $matches = @()
+    foreach ($line in $JsonLines -split "`r?`n") {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        try {
+            $record = $line | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw 'Cargo emitted non-JSON stdout while selecting the release package artifact'
+        }
+        if (-not (Test-JsonProperty $record 'reason') -or $record.reason -ne 'compiler-artifact' -or
+            -not (Test-JsonProperty $record 'manifest_path') -or
+            -not (Test-SamePath ([string]$record.manifest_path) $ExpectedManifestPath) -or
+            -not (Test-JsonProperty $record 'target') -or
+            -not (Test-JsonProperty $record.target 'name') -or [string]$record.target.name -cne 'rco') {
+            continue
+        }
+        $targetKinds = @()
+        if (Test-JsonProperty $record.target 'kind') {
+            $targetKinds = @($record.target.kind)
+        }
+        $crateTypes = @()
+        if (Test-JsonProperty $record.target 'crate_types') {
+            $crateTypes = @($record.target.crate_types)
+        }
+        $features = @('__missing__')
+        if (Test-JsonProperty $record 'features') {
+            $features = @($record.features)
+        }
+        if ($targetKinds.Count -ne 1 -or [string]$targetKinds[0] -cne 'bin' -or
+            $crateTypes.Count -ne 1 -or [string]$crateTypes[0] -cne 'bin' -or
+            -not (Test-JsonProperty $record.target 'test') -or
+            -not (Test-JsonProperty $record 'profile') -or
+            -not (Test-JsonProperty $record.profile 'test') -or [bool]$record.profile.test -or
+            $features.Count -ne 0 -or
+            -not (Test-JsonProperty $record 'executable') -or
+            [string]::IsNullOrWhiteSpace([string]$record.executable)) {
+            continue
+        }
+        $matches += ,$record
+    }
+    if ($matches.Count -eq 0) {
+        throw 'Cargo did not emit the exact release package artifact'
+    }
+    if ($matches.Count -ne 1) {
+        throw 'Cargo emitted ambiguous release package artifacts'
+    }
+
+    $artifact = $matches[0]
+    $executable = [System.IO.Path]::GetFullPath([string]$artifact.executable)
+    if (-not (Test-CargoArtifactLayout $executable $TargetRoot 'release' $false)) {
+        throw 'Cargo selected a release package artifact outside the exact target directory'
+    }
+    $expectedFileName = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) {
+        '^rco\.exe$'
+    }
+    else {
+        '^rco$'
+    }
+    if ([System.IO.Path]::GetFileName($executable) -cnotmatch $expectedFileName) {
+        throw 'Cargo selected an unexpected release package artifact'
+    }
+    if (-not (Test-JsonProperty $artifact 'filenames') -or
+        @($artifact.filenames | Where-Object { Test-SamePath ([string]$_) $executable }).Count -ne 1) {
+        throw 'Cargo release executable was not present exactly once in its artifact filename set'
+    }
+    if (-not [System.IO.File]::Exists($executable)) {
+        throw 'Cargo selected release package executable does not exist'
     }
     return $executable
 }
@@ -312,6 +414,15 @@ function Invoke-ArtifactSelectionSelfCheck {
     $tripleExecutable = Resolve-CargoTestExecutableFromJson $compile.Stdout $targetName $manifestPath $sourcePath $syntheticTripleTargetRoot
     if (-not (Test-SamePath $tripleExecutable $executable)) {
         throw 'artifact selection self-test changed the Cargo executable in a target-triple layout'
+    }
+    $releaseFileName = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) { 'rco.exe' } else { 'rco' }
+    $directReleasePath = Join-Path (Join-Path $targetRoot 'release') $releaseFileName
+    $tripleReleasePath = Join-Path (Join-Path (Join-Path $targetRoot 'synthetic-target-triple') 'release') $releaseFileName
+    if (-not (Test-CargoArtifactLayout $directReleasePath $targetRoot 'release' $false) -or
+        -not (Test-CargoArtifactLayout $tripleReleasePath $targetRoot 'release' $false)) {
+        throw 'artifact selection self-test rejected a release package layout'
     }
 
     $exactLines = @()
@@ -563,7 +674,7 @@ if ($ByteBufferSelfTestOnly) {
 
 if ($ArtifactSelectionSelfTestOnly) {
     $selectedArtifact = Invoke-ArtifactSelectionSelfCheck
-    Write-Output ("artifact_selection_self_check=success;exact_artifact={0};metadata_target_directory=1;target_triple_layout=1;missing_rejected=1;ambiguous_rejected=1;wrong_target_rejected=1;sidecar_rejected=1" -f $selectedArtifact)
+    Write-Output ("artifact_selection_self_check=success;exact_artifact={0};metadata_target_directory=1;test_target_triple_layout=1;release_target_triple_layout=1;missing_rejected=1;ambiguous_rejected=1;wrong_target_rejected=1;sidecar_rejected=1" -f $selectedArtifact)
     return
 }
 
@@ -645,22 +756,15 @@ try {
         $sha256.Dispose()
     }
 
-    $releaseBuild = Start-CapturedProcess $rtk 'cargo build --locked --release -p ricochet_cli --bin rco'
+    $releaseBuild = Start-CapturedProcess $rtk 'proxy cargo build --locked --release -p ricochet_cli --bin rco --message-format=json'
     Write-EvidenceText (Join-Path $applicationEvidence 'release-build.stdout.txt') $releaseBuild.Stdout
     Write-EvidenceText (Join-Path $applicationEvidence 'release-build.stderr.txt') $releaseBuild.Stderr
     if ($releaseBuild.ExitCode -ne 0) {
         throw 'release package build failed; retained output contains diagnostics'
     }
-    $releaseExecutable = if ($env:OS -eq 'Windows_NT') {
-        'release\rco.exe'
-    }
-    else {
-        'release/rco'
-    }
-    $rco = Join-Path $targetRoot $releaseExecutable
-    if (-not [System.IO.File]::Exists($rco)) {
-        throw 'release package executable was not found'
-    }
+    $rco = Resolve-CargoReleaseExecutableFromJson $releaseBuild.Stdout `
+        (Join-Path $root 'crates\ricochet_cli\Cargo.toml') `
+        $targetRoot
     $releaseSmoke = Start-CapturedProcess $rco '--version' 120000
     Write-EvidenceText (Join-Path $applicationEvidence 'release-package-smoke.stdout.txt') $releaseSmoke.Stdout
     Write-EvidenceText (Join-Path $applicationEvidence 'release-package-smoke.stderr.txt') $releaseSmoke.Stderr
