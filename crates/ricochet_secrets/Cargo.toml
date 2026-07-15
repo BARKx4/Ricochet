@@ -4,6 +4,13 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+test-host = []
+
 [dependencies]
 ricochet_application = { path = "../ricochet_application" }
+ricochet_sandbox = { path = "../ricochet_sandbox" }
+reqwest = { workspace = true, features = ["http2"] }
+serde_json.workspace = true
 zeroize.workspace = true

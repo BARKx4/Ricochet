@@ -30,7 +30,10 @@ use crossterm::{
 use regex::Match as RegexMatch;
 use ricochet_application::SecretName;
 use ricochet_bytecode::Chunk;
-use ricochet_secrets::{DeferredHttpCredentials, DeferredSecretSource};
+use ricochet_secrets::{
+    DeferredHttpCredentials, DeferredSecretSource, PreparedSecretHttpRequest, SecretHttpResponse,
+    SecretsHttpExecutor,
+};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
@@ -2266,38 +2269,47 @@ impl Vm {
                 return Ok(());
             }
         };
-        if let Err(error) = self.check_http_url_allowed(word, &request.url) {
-            self.stack
-                .push(Value::result_err("PermissionError", error.to_string()));
-            return Ok(());
-        }
-        if let Some(error) = http_request_policy_error(&request) {
-            self.stack.push(error);
-            return Ok(());
-        }
-        let resolved_destination =
-            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
-                Ok(destination) => destination,
-                Err(error) => {
-                    self.stack.push(error);
-                    return Ok(());
-                }
-            };
-        if let Some(error) =
-            authorize_deferred_http_destination(self, &request, resolved_destination.as_ref())
-        {
-            self.stack.push(error);
-            return Ok(());
-        }
-        let stream_request = HttpStreamRequest {
-            method: request.method,
-            url: request.url,
-            headers: request.headers,
-            json: request.json,
-            body: request.body,
-            timeout: request.timeout,
-            max_response_bytes: request.max_response_bytes,
-            resolved_destination,
+        let execution = match prepare_http_request_execution(self, word, request) {
+            Ok(execution) => execution,
+            Err(error) => {
+                self.stack.push(error);
+                return Ok(());
+            }
+        };
+        let stream_request = match execution {
+            HttpRequestExecution::Ordinary {
+                request,
+                destination,
+            } => HttpStreamRequest {
+                method: request.method,
+                url: request.url,
+                headers: request.headers,
+                json: request.json,
+                body: request.body,
+                timeout: request.timeout,
+                max_response_bytes: request.max_response_bytes,
+                resolved_destination: destination,
+                prepared_secret_request: None,
+                secrets_http_executor: self.secrets_http_executor(),
+            },
+            HttpRequestExecution::Secret {
+                executor,
+                prepared,
+                method,
+                url,
+                max_response_bytes,
+            } => HttpStreamRequest {
+                method,
+                url,
+                headers: reqwest::header::HeaderMap::new(),
+                json: None,
+                body: None,
+                timeout: Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS),
+                max_response_bytes,
+                resolved_destination: None,
+                prepared_secret_request: Some(prepared),
+                secrets_http_executor: executor,
+            },
         };
         let result = match self.http_stream_registry().start(stream_request) {
             Ok(snapshot) => Value::result_ok(http_stream_snapshot_value(&snapshot)),
@@ -4549,25 +4561,11 @@ impl Vm {
             Ok(request) => request,
             Err(error) => return Ok(error),
         };
-        if let Err(error) = self.check_http_url_allowed(method, &request.url) {
-            return Ok(Value::result_err("PermissionError", error.to_string()));
-        }
-        if let Some(error) = http_request_policy_error(&request) {
-            return Ok(error);
-        }
-        let destination =
-            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
-                Ok(destination) => destination,
-                Err(error) => return Ok(error),
-            };
-        if let Some(error) =
-            authorize_deferred_http_destination(self, &request, destination.as_ref())
-        {
-            return Ok(error);
-        }
-        Ok(http_in_worker(move || {
-            perform_http_request(request, destination)
-        }))
+        let execution = match prepare_http_request_execution(self, method, request) {
+            Ok(execution) => execution,
+            Err(error) => return Ok(error),
+        };
+        Ok(http_in_worker(move || perform_http_execution(execution)))
     }
 
     fn method_http_get_task(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
@@ -4638,29 +4636,10 @@ impl Vm {
             Ok(request) => request,
             Err(error) => return Ok(error),
         };
-        let mut permission_error = self
-            .check_http_url_allowed(method, &request.url)
-            .err()
-            .map(|error| Value::result_err("PermissionError", error.to_string()))
-            .or_else(|| http_request_policy_error(&request));
-        let destination = if permission_error.is_none() {
-            match http_resolved_destination(self, &request.url, request.allowed_hosts.as_ref()) {
-                Ok(destination) => destination,
-                Err(error) => {
-                    permission_error = Some(error);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        if permission_error.is_none() {
-            permission_error =
-                authorize_deferred_http_destination(self, &request, destination.as_ref());
-        }
-        self.spawn_value_task(method, move || match permission_error {
-            Some(error) => error,
-            None => perform_http_request(request, destination),
+        let execution = prepare_http_request_execution(self, method, request);
+        self.spawn_value_task(method, move || match execution {
+            Ok(execution) => perform_http_execution(execution),
+            Err(error) => error,
         })
     }
 
@@ -6458,6 +6437,7 @@ fn http_resolved_destination(
     Ok(Some(HttpResolvedDestination { host, addresses }))
 }
 
+#[cfg(test)]
 fn authorize_deferred_http_destination(
     vm: &Vm,
     request: &HttpRequest,
@@ -6559,6 +6539,20 @@ struct HttpRequest {
     allowed_hosts: Option<BTreeSet<String>>,
     allowed_schemes: Option<BTreeSet<String>>,
     deferred_credentials: Option<DeferredHttpCredentials>,
+}
+
+enum HttpRequestExecution {
+    Ordinary {
+        request: HttpRequest,
+        destination: Option<HttpResolvedDestination>,
+    },
+    Secret {
+        executor: SecretsHttpExecutor,
+        prepared: PreparedSecretHttpRequest,
+        method: reqwest::Method,
+        url: String,
+        max_response_bytes: usize,
+    },
 }
 
 fn process_args_from_value(value: Value) -> Result<Vec<String>, Value> {
@@ -10504,6 +10498,94 @@ fn perform_http_post_json(
     )
 }
 
+fn prepare_http_request_execution(
+    vm: &Vm,
+    word: &str,
+    mut request: HttpRequest,
+) -> Result<HttpRequestExecution, Value> {
+    if let Some(credentials) = request.deferred_credentials.take() {
+        let executor = vm.secrets_http_executor();
+        let method = request.method.clone();
+        let url = request.url.clone();
+        let max_response_bytes = request.max_response_bytes;
+        let prepared = executor
+            .prepare(
+                credentials,
+                request.method,
+                request.url,
+                request.headers,
+                request.json,
+                request.body,
+                request.timeout,
+                request.max_response_bytes,
+                request.allowed_hosts,
+                request.allowed_schemes,
+                vm.secret_http_policy_snapshot(),
+            )
+            .map_err(secret_http_error_value)?;
+        return Ok(HttpRequestExecution::Secret {
+            executor,
+            prepared,
+            method,
+            url,
+            max_response_bytes,
+        });
+    }
+
+    if let Err(error) = vm.check_http_url_allowed(word, &request.url) {
+        return Err(Value::result_err("PermissionError", error.to_string()));
+    }
+    if let Some(error) = http_request_policy_error(&request) {
+        return Err(error);
+    }
+    let destination = http_resolved_destination(vm, &request.url, request.allowed_hosts.as_ref())?;
+    Ok(HttpRequestExecution::Ordinary {
+        request,
+        destination,
+    })
+}
+
+fn perform_http_execution(execution: HttpRequestExecution) -> Value {
+    match execution {
+        HttpRequestExecution::Ordinary {
+            request,
+            destination,
+        } => perform_http_request(request, destination),
+        HttpRequestExecution::Secret {
+            executor, prepared, ..
+        } => match executor.execute(prepared) {
+            Ok(response) => secret_http_response_value(response),
+            Err(error) => secret_http_error_value(error),
+        },
+    }
+}
+
+fn secret_http_response_value(response: SecretHttpResponse) -> Value {
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+        .collect::<BTreeMap<_, _>>();
+    Value::result_ok(Value::Map(
+        BTreeMap::from([
+            (
+                "status".to_string(),
+                Value::Number(i64::from(response.status())),
+            ),
+            (
+                "body".to_string(),
+                Value::String(String::from_utf8_lossy(response.body()).into_owned()),
+            ),
+            ("headers".to_string(), Value::Map(headers.into())),
+        ])
+        .into(),
+    ))
+}
+
+fn secret_http_error_value(error: ricochet_secrets::SecretHttpError) -> Value {
+    Value::result_err(error.kind(), error.message())
+}
+
 fn perform_http_request(
     request: HttpRequest,
     destination: Option<HttpResolvedDestination>,
@@ -10555,7 +10637,11 @@ fn next_random() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http_stream_runtime::{
+        TestConnectionCaptureServer, TestHttpsCaptureServer, TestHttpsProtocolNackServer,
+    };
     use ricochet_sandbox::DestinationGrant;
+    use ricochet_secrets::test_host::{TestEnvironmentValue, TestSecretsHttpHost};
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Barrier, Mutex};
@@ -10642,6 +10728,674 @@ mod tests {
             ),
             "expected exact destination permission error containing {message:?}, got {error:?}"
         );
+    }
+
+    fn deferred_environment_request(url: String) -> MapValue {
+        deferred_request(
+            url,
+            DeferredSecretSource::environment(
+                SecretName::parse("provider.api-key").expect("fixture name should parse"),
+            ),
+        )
+    }
+
+    fn deferred_literal_request(url: String, value: &str) -> MapValue {
+        deferred_request(
+            url,
+            DeferredSecretSource::literal(value.to_string())
+                .expect("literal fixture should construct"),
+        )
+    }
+
+    fn deferred_request(url: String, source: DeferredSecretSource) -> MapValue {
+        MapValue::from(BTreeMap::from([
+            (
+                DEFERRED_HTTP_CREDENTIALS_FIELD.to_string(),
+                Value::DeferredHttpCredentials(DeferredHttpCredentials::bearer(source)),
+            ),
+            ("method".to_string(), Value::String("GET".to_string())),
+            ("url".to_string(), Value::String(url)),
+            (
+                "headers".to_string(),
+                Value::Map(BTreeMap::<String, Value>::new().into()),
+            ),
+            (
+                "allowed_hosts".to_string(),
+                Value::Array(vec![Value::String("phase0.test".to_string())].into()),
+            ),
+            (
+                "allowed_schemes".to_string(),
+                Value::Array(vec![Value::String("https".to_string())].into()),
+            ),
+            ("timeout_ms".to_string(), Value::Number(2_000)),
+            ("max_response_bytes".to_string(), Value::Number(1_024)),
+        ]))
+    }
+
+    fn deferred_request_with_header(url: String, name: &str, value: &str) -> MapValue {
+        let request = deferred_environment_request(url);
+        request.insert(
+            "headers".to_string(),
+            Value::Map(
+                BTreeMap::from([(name.to_string(), Value::String(value.to_string()))]).into(),
+            ),
+        );
+        request
+    }
+
+    fn set_request_policy(request: &MapValue, field: &str, values: &[&str]) {
+        request.insert(
+            field.to_string(),
+            Value::Array(
+                values
+                    .iter()
+                    .map(|value| Value::String((*value).to_string()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+        );
+    }
+
+    fn deferred_send_vm(test_host: &TestSecretsHttpHost, port: u16) -> Vm {
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(true, true);
+        vm.set_http_allowed_hosts(["phase0.test".to_string()]);
+        vm.set_http_allowed_destinations(vec![DestinationGrant::new("phase0.test", port)
+            .expect("test exact destination should parse")]);
+        vm.set_environment_enabled(true);
+        vm.set_environment_allowed_names(["provider.api-key".to_string()]);
+        vm.set_secrets_http_executor_for_test(test_host.executor());
+        vm
+    }
+
+    fn assert_http_status(value: &Value, expected: i64) {
+        let Value::Result(RicochetResult::Ok(response)) = value else {
+            panic!("expected successful HTTP result, got {value:?}");
+        };
+        let Value::Map(response) = response.as_ref() else {
+            panic!("expected HTTP response map, got {response:?}");
+        };
+        assert_eq!(response.get("status"), Some(Value::Number(expected)));
+    }
+
+    fn assert_http_error_kind(value: &Value, expected: &str) {
+        assert!(
+            matches!(
+                value,
+                Value::Result(RicochetResult::Err(error)) if error.kind == expected
+            ),
+            "expected {expected} HTTP error, got {value:?}"
+        );
+    }
+
+    fn await_value_task(vm: &mut Vm, task: Value) {
+        vm.push_value(task);
+        let mut await_chunk = Chunk::new("<deferred-http-task-test>");
+        await_chunk.push(
+            ricochet_bytecode::Op::CallWord("await".to_string()),
+            ricochet_bytecode::SourceSpan {
+                file: "<deferred-http-task-test>".to_string(),
+                start: 0,
+                end: 0,
+                line: 1,
+                column: 1,
+            },
+        );
+        vm.run_chunk(&await_chunk)
+            .expect("task HTTP boundary should complete");
+    }
+
+    #[test]
+    fn deferred_http_send_sync_and_task_resolve_once_per_first_hop() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            server.address(),
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("sync-task-synthetic-secret".to_string()),
+            )]),
+        );
+        let port = server.address().port();
+        let request =
+            deferred_environment_request(format!("https://phase0.test:{port}/native-boundary"));
+        let duplicate = request.clone();
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+
+        let mut sync_vm = deferred_send_vm(&test_host, port);
+        sync_vm.push_value(Value::Map(request.clone()));
+        let sync_result = sync_vm
+            .method_http_request(Value::Capability(Capability::Http), "request")
+            .expect("sync HTTP boundary should execute");
+        let first_requests = server.wait_for_requests(1);
+        assert_eq!(
+            first_requests.len(),
+            1,
+            "secure client did not reach the test TLS listener; resolutions={}, source_accesses={}",
+            test_host.credential_resolution_count(),
+            test_host.environment_source_access_count()
+        );
+        assert!(
+            !first_requests[0].is_empty(),
+            "test TLS listener accepted a connection but did not decode an HTTP request"
+        );
+        assert_http_status(&sync_result, 200);
+        assert_eq!(test_host.credential_resolution_count(), 1);
+        assert_eq!(test_host.environment_source_access_count(), 1);
+
+        let mut task_vm = deferred_send_vm(&test_host, port);
+        task_vm.push_value(Value::Map(duplicate));
+        let task = task_vm
+            .method_http_request_task(Value::Capability(Capability::Http), "request_task")
+            .expect("task HTTP boundary should start");
+        await_value_task(&mut task_vm, task);
+        let [task_result] = task_vm.stack() else {
+            panic!("await should leave one HTTP result")
+        };
+        assert_http_status(task_result, 200);
+        assert_eq!(test_host.credential_resolution_count(), 2);
+        assert_eq!(test_host.environment_source_access_count(), 2);
+
+        let mut literal_task_vm = deferred_send_vm(&test_host, port);
+        literal_task_vm.set_environment_enabled(false);
+        literal_task_vm.push_value(Value::Map(deferred_literal_request(
+            format!("https://phase0.test:{port}/literal-task-boundary"),
+            "task-literal-synthetic-secret",
+        )));
+        let literal_task = literal_task_vm
+            .method_http_request_task(Value::Capability(Capability::Http), "request_task")
+            .expect("literal task HTTP boundary should start");
+        await_value_task(&mut literal_task_vm, literal_task);
+        let [literal_task_result] = literal_task_vm.stack() else {
+            panic!("literal task await should leave one HTTP result")
+        };
+        assert_http_status(literal_task_result, 200);
+        assert_eq!(test_host.credential_resolution_count(), 3);
+        assert_eq!(test_host.environment_source_access_count(), 2);
+
+        let requests = server.wait_for_requests(3);
+        assert_eq!(requests.len(), 3);
+        for captured in &requests[..2] {
+            assert_eq!(
+                captured
+                    .lines()
+                    .filter(|line| line.to_ascii_lowercase().starts_with("authorization:"))
+                    .count(),
+                1
+            );
+            assert!(captured.contains("Bearer sync-task-synthetic-secret"));
+        }
+        assert!(requests[2].contains("Bearer task-literal-synthetic-secret"));
+
+        let Some(Value::Map(headers)) = request.get("headers") else {
+            panic!("fixture request should retain its ordinary header map")
+        };
+        assert!(headers.keys().iter().all(|name| {
+            !name.eq_ignore_ascii_case("authorization") && !name.eq_ignore_ascii_case("host")
+        }));
+    }
+
+    #[test]
+    fn deferred_http_send_denials_precede_resolution_and_network_access() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            server.address(),
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("denial-synthetic-secret".to_string()),
+            )]),
+        );
+        let port = server.address().port();
+        let https_url = format!("https://phase0.test:{port}/denied");
+
+        let mut cases = Vec::new();
+
+        let mut http_disabled = deferred_send_vm(&test_host, port);
+        http_disabled.set_host_capabilities(true, false);
+        cases.push((
+            "global HTTP capability",
+            http_disabled,
+            deferred_environment_request(https_url.clone()),
+        ));
+
+        cases.push((
+            "HTTPS scheme",
+            deferred_send_vm(&test_host, port),
+            deferred_environment_request(format!("http://phase0.test:{port}/denied")),
+        ));
+        cases.push((
+            "URL userinfo",
+            deferred_send_vm(&test_host, port),
+            deferred_environment_request(format!(
+                "https://user:password@phase0.test:{port}/denied"
+            )),
+        ));
+        cases.push((
+            "Host header",
+            deferred_send_vm(&test_host, port),
+            deferred_request_with_header(https_url.clone(), "hOsT", "attacker.test"),
+        ));
+        cases.push((
+            "Authorization collision",
+            deferred_send_vm(&test_host, port),
+            deferred_request_with_header(
+                https_url.clone(),
+                "aUtHoRiZaTiOn",
+                "Bearer ordinary-value",
+            ),
+        ));
+
+        let mut legacy_host_only = deferred_send_vm(&test_host, port);
+        legacy_host_only.set_http_allowed_destinations(Vec::new());
+        cases.push((
+            "legacy host permission without exact destination",
+            legacy_host_only,
+            deferred_environment_request(https_url.clone()),
+        ));
+
+        let mut wrong_port = deferred_send_vm(&test_host, port);
+        wrong_port.set_http_allowed_destinations(vec![DestinationGrant::new(
+            "phase0.test",
+            port.saturating_add(1),
+        )
+        .expect("wrong-port fixture should parse")]);
+        cases.push((
+            "wrong exact port",
+            wrong_port,
+            deferred_environment_request(https_url.clone()),
+        ));
+
+        let denied_host_request = deferred_environment_request(https_url.clone());
+        set_request_policy(&denied_host_request, "allowed_hosts", &["other.test"]);
+        cases.push((
+            "request host policy",
+            deferred_send_vm(&test_host, port),
+            denied_host_request,
+        ));
+        let denied_scheme_request = deferred_environment_request(https_url.clone());
+        set_request_policy(&denied_scheme_request, "allowed_schemes", &["http"]);
+        cases.push((
+            "request scheme policy",
+            deferred_send_vm(&test_host, port),
+            denied_scheme_request,
+        ));
+
+        let other_url = format!("https://other.test:{port}/denied");
+        let mut address_denied = deferred_send_vm(&test_host, port);
+        address_denied.set_http_allowed_hosts(["other.test".to_string()]);
+        address_denied.set_http_allowed_destinations(vec![DestinationGrant::new(
+            "other.test",
+            port,
+        )
+        .expect("address-denied exact destination should parse")]);
+        let address_denied_request = deferred_environment_request(other_url);
+        set_request_policy(&address_denied_request, "allowed_hosts", &["other.test"]);
+        cases.push((
+            "DNS and address policy",
+            address_denied,
+            address_denied_request,
+        ));
+
+        let mut environment_disabled = deferred_send_vm(&test_host, port);
+        environment_disabled.set_environment_enabled(false);
+        cases.push((
+            "environment capability",
+            environment_disabled,
+            deferred_environment_request(https_url.clone()),
+        ));
+        let mut name_denied = deferred_send_vm(&test_host, port);
+        name_denied.set_environment_allowed_names(["other.name".to_string()]);
+        cases.push((
+            "environment name allowlist",
+            name_denied,
+            deferred_environment_request(https_url),
+        ));
+
+        for (label, mut vm, request) in cases {
+            vm.push_value(Value::Map(request));
+            let result = vm
+                .method_http_request(Value::Capability(Capability::Http), "request")
+                .unwrap_or_else(|error| panic!("{label} case should return a result: {error}"));
+            assert_http_error_kind(&result, "PermissionError");
+        }
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+        assert!(server.wait_for_requests(0).is_empty());
+    }
+
+    #[test]
+    fn deferred_http_send_task_and_stream_denials_never_touch_the_source() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            server.address(),
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("denied-boundary-secret".to_string()),
+            )]),
+        );
+        let port = server.address().port();
+        let url = format!("https://phase0.test:{port}/denied-boundary");
+
+        let mut task_vm = deferred_send_vm(&test_host, port);
+        task_vm.set_environment_enabled(false);
+        task_vm.push_value(Value::Map(deferred_environment_request(url.clone())));
+        let task = task_vm
+            .method_http_request_task(Value::Capability(Capability::Http), "request_task")
+            .expect("denied task should still return a task handle");
+        await_value_task(&mut task_vm, task);
+        let [task_error] = task_vm.stack() else {
+            panic!("denied task should leave one error result")
+        };
+        assert_http_error_kind(task_error, "PermissionError");
+
+        let mut stream_vm = deferred_send_vm(&test_host, port);
+        stream_vm.set_environment_allowed_names(["other.name".to_string()]);
+        stream_vm.push_value(Value::Map(deferred_environment_request(url)));
+        stream_vm
+            .call_http_stream_start("http_stream_start")
+            .expect("denied stream should return a result");
+        let [stream_error] = stream_vm.stack() else {
+            panic!("denied stream should leave one error result")
+        };
+        assert_http_error_kind(stream_error, "PermissionError");
+
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+        assert!(server.wait_for_requests(0).is_empty());
+    }
+
+    #[test]
+    fn deferred_http_send_redirect_and_retryable_status_are_single_first_hops() {
+        for (status, path) in [(302, "redirect"), (503, "retryable-status")] {
+            let server = if status == 302 {
+                TestHttpsCaptureServer::new(
+                    status,
+                    &[("Location", "https://phase0.test/second-hop")],
+                )
+            } else {
+                TestHttpsCaptureServer::new(status, &[("Retry-After", "0")])
+            };
+            let test_host =
+                TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+            let port = server.address().port();
+            let mut vm = deferred_send_vm(&test_host, port);
+            vm.set_environment_enabled(false);
+            vm.push_value(Value::Map(deferred_literal_request(
+                format!("https://phase0.test:{port}/{path}"),
+                "literal-first-hop-secret",
+            )));
+            let result = vm
+                .method_http_request(Value::Capability(Capability::Http), "request")
+                .expect("literal first-hop request should execute");
+            assert_http_status(&result, i64::from(status));
+            assert_eq!(test_host.credential_resolution_count(), 1);
+            assert_eq!(test_host.environment_source_access_count(), 0);
+            assert_eq!(server.wait_for_requests(1).len(), 1);
+        }
+    }
+
+    #[test]
+    fn deferred_http_send_protocol_nack_is_not_retried() {
+        let server = TestHttpsProtocolNackServer::new();
+        let test_host = TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+        let port = server.address().port();
+        let mut vm = deferred_send_vm(&test_host, port);
+        vm.set_environment_enabled(false);
+        vm.push_value(Value::Map(deferred_literal_request(
+            format!("https://phase0.test:{port}/protocol-nack"),
+            "literal-protocol-nack-secret",
+        )));
+
+        let result = vm
+            .method_http_request(Value::Capability(Capability::Http), "request")
+            .expect("protocol NACK should return a stable HTTP error result");
+
+        assert_http_error_kind(&result, "HttpError");
+        assert!(
+            !format!("{result:?}").contains("literal-protocol-nack-secret"),
+            "protocol NACK diagnostics must not expose the credential"
+        );
+        assert_eq!(test_host.credential_resolution_count(), 1);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(server.wait_for_attempts(1), (1, 1));
+    }
+
+    #[test]
+    fn deferred_http_send_source_and_header_failures_are_stable_and_redacted() {
+        let cases = [
+            (
+                "missing",
+                TestEnvironmentValue::missing(),
+                "SecretReferenceError",
+                "deferred environment credential is missing",
+            ),
+            (
+                "non-unicode",
+                TestEnvironmentValue::non_unicode(),
+                "SecretReferenceError",
+                "deferred environment credential is not Unicode",
+            ),
+            (
+                "header-unsafe",
+                TestEnvironmentValue::unicode(
+                    "header-unsafe-synthetic-secret\r\ninjected: true".to_string(),
+                ),
+                "HttpHeaderError",
+                "deferred HTTP credential is not header-safe",
+            ),
+        ];
+
+        for (label, environment_value, expected_kind, expected_message) in cases {
+            let server = TestHttpsCaptureServer::new(200, &[]);
+            let test_host = TestSecretsHttpHost::new(
+                "phase0.test",
+                server.address(),
+                BTreeMap::from([("provider.api-key".to_string(), environment_value)]),
+            );
+            let port = server.address().port();
+            let mut vm = deferred_send_vm(&test_host, port);
+            vm.push_value(Value::Map(deferred_environment_request(format!(
+                "https://phase0.test:{port}/{label}"
+            ))));
+            let result = vm
+                .method_http_request(Value::Capability(Capability::Http), "request")
+                .expect("source failure should return a result");
+            let Value::Result(RicochetResult::Err(error)) = result else {
+                panic!("{label} should return an error result, got {result:?}")
+            };
+            assert_eq!(error.kind, expected_kind);
+            assert_eq!(error.message, expected_message);
+            let rendered = format!("{error:?}");
+            assert!(!rendered.contains("header-unsafe-synthetic-secret"));
+            assert!(!rendered.to_ascii_lowercase().contains("authorization"));
+            assert_eq!(test_host.credential_resolution_count(), 1);
+            assert_eq!(test_host.environment_source_access_count(), 1);
+            assert!(server.wait_for_requests(0).is_empty());
+        }
+    }
+
+    #[test]
+    fn deferred_http_send_transport_failure_hides_native_and_credential_material() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("unused transport fixture port should bind");
+        let address = listener
+            .local_addr()
+            .expect("unused transport fixture should expose its address");
+        drop(listener);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            address,
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("transport-synthetic-secret".to_string()),
+            )]),
+        );
+        let mut vm = deferred_send_vm(&test_host, address.port());
+        vm.push_value(Value::Map(deferred_environment_request(format!(
+            "https://phase0.test:{}/transport",
+            address.port()
+        ))));
+        let result = vm
+            .method_http_request(Value::Capability(Capability::Http), "request")
+            .expect("transport failure should return a result");
+        let Value::Result(RicochetResult::Err(error)) = result else {
+            panic!("transport failure should return an error result, got {result:?}")
+        };
+        assert_eq!(error.kind, "HttpError");
+        assert_eq!(error.message, "deferred HTTP transport failed");
+        let rendered = format!("{error:?}");
+        assert!(!rendered.contains("transport-synthetic-secret"));
+        assert!(!rendered.to_ascii_lowercase().contains("authorization"));
+        assert!(!rendered.to_ascii_lowercase().contains("os error"));
+        assert_eq!(test_host.credential_resolution_count(), 1);
+        assert_eq!(test_host.environment_source_access_count(), 1);
+    }
+
+    #[test]
+    fn deferred_http_send_tls_and_timeout_failures_are_stable_and_redacted() {
+        for (label, server, timeout_ms) in [
+            ("tls", TestConnectionCaptureServer::new(), 2_000),
+            ("timeout", TestConnectionCaptureServer::new_stalled(), 100),
+        ] {
+            let address = server.address();
+            let secret = format!("{label}-synthetic-secret");
+            let test_host = TestSecretsHttpHost::new(
+                "phase0.test",
+                address,
+                BTreeMap::from([(
+                    "provider.api-key".to_string(),
+                    TestEnvironmentValue::unicode(secret.clone()),
+                )]),
+            );
+            let request = deferred_environment_request(format!(
+                "https://phase0.test:{}/{label}",
+                address.port()
+            ));
+            request.insert("timeout_ms".to_string(), Value::Number(timeout_ms));
+            let mut vm = deferred_send_vm(&test_host, address.port());
+            vm.push_value(Value::Map(request));
+            let result = vm
+                .method_http_request(Value::Capability(Capability::Http), "request")
+                .expect("TLS or timeout failure should return a result");
+            let Value::Result(RicochetResult::Err(error)) = result else {
+                panic!("{label} failure should return an error result, got {result:?}")
+            };
+            assert_eq!(error.kind, "HttpError");
+            assert_eq!(error.message, "deferred HTTP transport failed");
+            let rendered = format!("{error:?}");
+            assert!(!rendered.contains(&secret));
+            assert!(!rendered.to_ascii_lowercase().contains("authorization"));
+            assert!(!rendered.to_ascii_lowercase().contains("os error"));
+            assert_eq!(test_host.credential_resolution_count(), 1);
+            assert_eq!(test_host.environment_source_access_count(), 1);
+            assert_eq!(server.wait_for_connections(1), 1);
+        }
+    }
+
+    #[test]
+    fn http_stream_deferred_credential_denial_precedes_source_access() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            server.address(),
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("stream-denial-secret".to_string()),
+            )]),
+        );
+        let port = server.address().port();
+        let mut vm = deferred_send_vm(&test_host, port);
+        vm.set_environment_enabled(false);
+        vm.push_value(Value::Map(deferred_environment_request(format!(
+            "https://phase0.test:{port}/stream-denied"
+        ))));
+        vm.call_http_stream_start("http_stream_start")
+            .expect("stream policy denial should return a result");
+        let [error] = vm.stack() else {
+            panic!("stream policy denial should leave one result")
+        };
+        assert_http_error_kind(error, "PermissionError");
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+        assert!(server.wait_for_requests(0).is_empty());
+    }
+
+    #[test]
+    fn deferred_http_send_proxy_environment_is_ignored_in_child_process() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let proxy = TestConnectionCaptureServer::new();
+        let current_exe = std::env::current_exe().expect("test executable should resolve");
+        let proxy_url = format!("http://{}", proxy.address());
+        let output = Command::new(current_exe)
+            .args([
+                "builtins::tests::deferred_http_send_proxy_child",
+                "--exact",
+                "--nocapture",
+            ])
+            .env("RICOCHET_DEFERRED_HTTP_PROXY_CHILD", "1")
+            .env(
+                "RICOCHET_DEFERRED_HTTP_DESTINATION",
+                server.address().to_string(),
+            )
+            .env("HTTP_PROXY", &proxy_url)
+            .env("HTTPS_PROXY", &proxy_url)
+            .env("ALL_PROXY", &proxy_url)
+            .env("http_proxy", &proxy_url)
+            .env("https_proxy", &proxy_url)
+            .env("all_proxy", &proxy_url)
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .env("RUST_TEST_THREADS", "1")
+            .output()
+            .expect("proxy-isolation child test should run");
+        assert!(
+            output.status.success(),
+            "proxy-isolation child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(server.wait_for_requests(1).len(), 1);
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(proxy.connection_count(), 0);
+    }
+
+    #[test]
+    fn deferred_http_send_proxy_child() {
+        if std::env::var_os("RICOCHET_DEFERRED_HTTP_PROXY_CHILD").is_none() {
+            return;
+        }
+        let address = std::env::var("RICOCHET_DEFERRED_HTTP_DESTINATION")
+            .expect("proxy child destination should be provided")
+            .parse::<std::net::SocketAddr>()
+            .expect("proxy child destination should parse");
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            address,
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("proxy-child-synthetic-secret".to_string()),
+            )]),
+        );
+        let mut vm = deferred_send_vm(&test_host, address.port());
+        vm.push_value(Value::Map(deferred_environment_request(format!(
+            "https://phase0.test:{}/proxy-child",
+            address.port()
+        ))));
+        let result = vm
+            .method_http_request(Value::Capability(Capability::Http), "request")
+            .expect("proxy child request should execute");
+        assert_http_status(&result, 200);
+        println!(
+            "credential_resolutions={} environment_source_accesses={}",
+            test_host.credential_resolution_count(),
+            test_host.environment_source_access_count()
+        );
+        assert_eq!(test_host.credential_resolution_count(), 1);
+        assert_eq!(test_host.environment_source_access_count(), 1);
     }
 
     #[test]

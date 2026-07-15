@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use ricochet_sandbox::DestinationGrant;
+use ricochet_secrets::SecretsHttpExecutor;
 
 use crate::{
     ApprovalRegistry, HttpStreamRegistry, ProcessRegistry, PtyRegistry, TcpListenerRegistry,
@@ -31,6 +32,7 @@ pub(crate) struct HostRuntimeState {
 #[derive(Clone)]
 pub(crate) struct SharedRuntimeState {
     pub(crate) http_allowed_destinations: BTreeSet<DestinationGrant>,
+    pub(crate) secrets_http_executor: SecretsHttpExecutor,
     pub(crate) http_stream_registry: HttpStreamRegistry,
     pub(crate) upload_stream_registry: UploadStreamRegistry,
     pub(crate) tcp_socket_registry: TcpSocketRegistry,

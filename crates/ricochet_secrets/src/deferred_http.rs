@@ -7,8 +7,13 @@ use zeroize::Zeroizing;
 pub struct DeferredSecretSource(DeferredSecretSourceValue);
 
 enum DeferredSecretSourceValue {
-    Environment { name: SecretName },
-    Literal { value: Zeroizing<String> },
+    Environment {
+        name: SecretName,
+        environment_key: String,
+    },
+    Literal {
+        value: Zeroizing<String>,
+    },
 }
 
 pub struct DeferredSecretSourceError;
@@ -25,7 +30,15 @@ enum DeferredHttpCredential {
 
 impl DeferredSecretSource {
     pub fn environment(name: SecretName) -> Self {
-        Self(DeferredSecretSourceValue::Environment { name })
+        let environment_key = serde_json::to_value(&name)
+            .expect("validated secret names should serialize")
+            .as_str()
+            .expect("validated secret names should serialize as strings")
+            .to_string();
+        Self(DeferredSecretSourceValue::Environment {
+            name,
+            environment_key,
+        })
     }
 
     pub fn literal(value: String) -> Result<Self, DeferredSecretSourceError> {
@@ -38,11 +51,33 @@ impl DeferredSecretSource {
     }
 }
 
+pub(crate) enum DeferredSecretSourceRef<'a> {
+    Environment { environment_key: &'a str },
+    Literal { value: &'a str },
+}
+
+impl DeferredSecretSource {
+    pub(crate) fn source_ref(&self) -> DeferredSecretSourceRef<'_> {
+        match &self.0 {
+            DeferredSecretSourceValue::Environment {
+                environment_key, ..
+            } => DeferredSecretSourceRef::Environment { environment_key },
+            DeferredSecretSourceValue::Literal { value } => {
+                DeferredSecretSourceRef::Literal { value }
+            }
+        }
+    }
+}
+
 impl fmt::Debug for DeferredSecretSourceValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Environment { name } => {
+            Self::Environment {
+                name,
+                environment_key,
+            } => {
                 let _ = name;
+                let _ = environment_key;
                 formatter.write_str("<environment-secret-source>")
             }
             Self::Literal { value } => {
@@ -91,6 +126,12 @@ impl DeferredHttpCredentials {
         Self(Arc::new(DeferredHttpCredentialsStorage {
             credentials: [DeferredHttpCredential::Bearer(source)],
         }))
+    }
+
+    pub(crate) fn bearer_source(&self) -> &DeferredSecretSource {
+        match &self.0.credentials[0] {
+            DeferredHttpCredential::Bearer(source) => source,
+        }
     }
 }
 

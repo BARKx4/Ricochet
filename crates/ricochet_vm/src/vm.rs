@@ -11,6 +11,9 @@ use std::thread;
 
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_sandbox::DestinationGrant;
+use ricochet_secrets::{
+    EnvironmentCredentialPolicy, SecretHttpPolicySnapshot, SecretsHttpExecutor,
+};
 use thiserror::Error;
 
 use crate::approval_runtime::ApprovalRegistry;
@@ -223,6 +226,7 @@ pub struct Vm {
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_allowed_destinations: BTreeSet<DestinationGrant>,
+    secrets_http_executor: SecretsHttpExecutor,
     http_stream_registry: HttpStreamRegistry,
     upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
@@ -292,6 +296,7 @@ impl Default for Vm {
             http_enabled: false,
             http_allowed_hosts: None,
             http_allowed_destinations: BTreeSet::new(),
+            secrets_http_executor: SecretsHttpExecutor::new(),
             http_stream_registry: HttpStreamRegistry::default(),
             upload_stream_registry: UploadStreamRegistry::default(),
             socket_enabled: false,
@@ -592,6 +597,7 @@ fn run_task_to_completion(
         http_enabled: host_runtime.http_enabled,
         http_allowed_hosts: host_runtime.http_allowed_hosts,
         http_allowed_destinations: shared_runtime.http_allowed_destinations,
+        secrets_http_executor: shared_runtime.secrets_http_executor,
         http_stream_registry: shared_runtime.http_stream_registry,
         upload_stream_registry: shared_runtime.upload_stream_registry,
         socket_enabled: host_runtime.socket_enabled,
@@ -986,6 +992,27 @@ impl Vm {
     pub fn http_destination_allowed(&self, host: &str, port: u16) -> bool {
         DestinationGrant::new(host, port)
             .is_ok_and(|destination| self.http_allowed_destinations.contains(&destination))
+    }
+
+    pub(crate) fn secret_http_policy_snapshot(&self) -> SecretHttpPolicySnapshot {
+        SecretHttpPolicySnapshot::new(
+            self.http_enabled,
+            self.http_allowed_hosts.clone(),
+            self.http_allowed_destinations.clone(),
+            EnvironmentCredentialPolicy::new(
+                self.environment_enabled,
+                self.environment_allowed_names.clone(),
+            ),
+        )
+    }
+
+    pub(crate) fn secrets_http_executor(&self) -> SecretsHttpExecutor {
+        self.secrets_http_executor.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_secrets_http_executor_for_test(&mut self, executor: SecretsHttpExecutor) {
+        self.secrets_http_executor = executor;
     }
 
     pub fn set_webview_enabled(&mut self, enabled: bool) {
@@ -3750,6 +3777,7 @@ impl Vm {
     fn shared_runtime_state(&self) -> SharedRuntimeState {
         SharedRuntimeState {
             http_allowed_destinations: self.http_allowed_destinations.clone(),
+            secrets_http_executor: self.secrets_http_executor.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
             upload_stream_registry: self.upload_stream_registry.clone(),
             tcp_socket_registry: self.tcp_socket_registry.clone(),

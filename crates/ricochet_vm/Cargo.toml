@@ -4,6 +4,10 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+test-host = ["ricochet_secrets/test-host"]
+
 [dependencies]
 ricochet_application = { path = "../ricochet_application" }
 ricochet_bytecode = { path = "../ricochet_bytecode" }
@@ -28,4 +32,10 @@ portable-pty.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+h2 = "0.4"
 ricochet_compiler = { path = "../ricochet_compiler" }
+ricochet_secrets = { path = "../ricochet_secrets", features = ["test-host"] }
+rcgen = "0.13.2"
+rustls.workspace = true
+tokio.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
