@@ -4760,6 +4760,22 @@ impl Vm {
     }
 }
 
+/// Integration-only host controls that are unavailable from default builds.
+#[cfg(feature = "test-host")]
+pub mod test_host {
+    use ricochet_secrets::SecretsHttpExecutor;
+
+    use super::Vm;
+
+    /// Installs the synthetic executor used by local-only integration hosts.
+    ///
+    /// Keeping this outside `Vm`'s ordinary API prevents production callers
+    /// from replacing the native credential boundary.
+    pub fn install_secrets_http_executor(vm: &mut Vm, executor: SecretsHttpExecutor) {
+        vm.secrets_http_executor = executor;
+    }
+}
+
 fn module_id_from_map(word: &str, module: &MapValue) -> Result<String, VmError> {
     match module.get("type") {
         Some(Value::String(kind)) if kind == "module" => {}

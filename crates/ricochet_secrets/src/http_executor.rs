@@ -67,6 +67,8 @@ struct SecretsHttpExecutorInner {
 
 enum DestinationResolver {
     System,
+    #[cfg(test)]
+    FixedForAddressPolicyTest(SocketAddr),
     #[cfg(feature = "test-host")]
     Test(TestDestinationResolver),
 }
@@ -453,6 +455,8 @@ impl SecretsHttpExecutor {
                         "deferred HTTP destination address validation failed",
                     )
                 }),
+            #[cfg(test)]
+            DestinationResolver::FixedForAddressPolicyTest(address) => Ok(vec![*address]),
             #[cfg(feature = "test-host")]
             DestinationResolver::Test(resolver) => {
                 if resolver.host == host && resolver.address.port() == port {
@@ -719,20 +723,73 @@ fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+// Static, fail-closed snapshot of IPv4 space whose /8 status is ALLOCATED or
+// LEGACY, with longest-prefix overrides from the complete special-purpose
+// registry. Unlisted, reserved, and future-use space stays denied until these
+// tables and their one-to-one representative tests are deliberately updated.
+//
+// Sources (registry last-updated dates at the time of review):
+// - IANA IPv4 Address Space, 2025-10-10
+//   https://www.iana.org/assignments/ipv4-address-space/
+// - IANA IPv4 Special-Purpose Address Space, 2025-10-09
+//   https://www.iana.org/assignments/iana-ipv4-special-registry/
+const IANA_ALLOCATED_OR_LEGACY_IPV4_FIRST_OCTET_RANGES: &[(u8, u8)] =
+    &[(1, 9), (11, 126), (128, 223)];
+
+// The boolean is the registry's Globally Reachable value. A blank value, as
+// on deprecated 192.88.99.0/24, is not affirmative and therefore fails closed.
+// The two true /32 entries inside non-global 192.0.0.0/24 are intentional
+// globally reachable exceptions selected by longest-prefix match.
+const IANA_IPV4_SPECIAL_PURPOSE_PREFIXES: &[(Ipv4Addr, u8, bool)] = &[
+    (Ipv4Addr::new(0, 0, 0, 0), 8, false),
+    (Ipv4Addr::new(0, 0, 0, 0), 32, false),
+    (Ipv4Addr::new(10, 0, 0, 0), 8, false),
+    (Ipv4Addr::new(100, 64, 0, 0), 10, false),
+    (Ipv4Addr::new(127, 0, 0, 0), 8, false),
+    (Ipv4Addr::new(169, 254, 0, 0), 16, false),
+    (Ipv4Addr::new(172, 16, 0, 0), 12, false),
+    (Ipv4Addr::new(192, 0, 0, 0), 24, false),
+    (Ipv4Addr::new(192, 0, 0, 0), 29, false),
+    (Ipv4Addr::new(192, 0, 0, 8), 32, false),
+    // Globally reachable exceptions within 192.0.0.0/24.
+    (Ipv4Addr::new(192, 0, 0, 9), 32, true),
+    (Ipv4Addr::new(192, 0, 0, 10), 32, true),
+    // IANA lists these two /32s in one NAT64/DNS64 Discovery row.
+    (Ipv4Addr::new(192, 0, 0, 170), 32, false),
+    (Ipv4Addr::new(192, 0, 0, 171), 32, false),
+    (Ipv4Addr::new(192, 0, 2, 0), 24, false),
+    (Ipv4Addr::new(192, 31, 196, 0), 24, true),
+    (Ipv4Addr::new(192, 52, 193, 0), 24, true),
+    (Ipv4Addr::new(192, 88, 99, 0), 24, false),
+    (Ipv4Addr::new(192, 88, 99, 2), 32, false),
+    (Ipv4Addr::new(192, 168, 0, 0), 16, false),
+    (Ipv4Addr::new(192, 175, 48, 0), 24, true),
+    (Ipv4Addr::new(198, 18, 0, 0), 15, false),
+    (Ipv4Addr::new(198, 51, 100, 0), 24, false),
+    (Ipv4Addr::new(203, 0, 113, 0), 24, false),
+    (Ipv4Addr::new(240, 0, 0, 0), 4, false),
+    (Ipv4Addr::new(255, 255, 255, 255), 32, false),
+];
+
+fn ipv4_prefix_contains(prefix: Ipv4Addr, prefix_length: u8, candidate: Ipv4Addr) -> bool {
+    let shift = 32_u32 - u32::from(prefix_length);
+    u32::from_be_bytes(prefix.octets()) >> shift == u32::from_be_bytes(candidate.octets()) >> shift
+}
+
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
-    let [first, second, third, _] = ip.octets();
-    !ip.is_private()
-        && !ip.is_loopback()
-        && !ip.is_link_local()
-        && !ip.is_broadcast()
-        && !ip.is_documentation()
-        && !ip.is_unspecified()
-        && !ip.is_multicast()
-        && first != 0
-        && first < 224
-        && !(first == 100 && (64..=127).contains(&second))
-        && !(first == 192 && second == 0 && third == 0)
-        && !(first == 198 && matches!(second, 18 | 19))
+    let first_octet = ip.octets()[0];
+    let is_allocated_or_legacy = IANA_ALLOCATED_OR_LEGACY_IPV4_FIRST_OCTET_RANGES
+        .iter()
+        .any(|(start, end)| (*start..=*end).contains(&first_octet));
+    if !is_allocated_or_legacy {
+        return false;
+    }
+
+    IANA_IPV4_SPECIAL_PURPOSE_PREFIXES
+        .iter()
+        .filter(|(prefix, prefix_length, _)| ipv4_prefix_contains(*prefix, *prefix_length, ip))
+        .max_by_key(|(_, prefix_length, _)| *prefix_length)
+        .is_none_or(|(_, _, globally_reachable)| *globally_reachable)
 }
 
 // Static, fail-closed snapshot of allocated IPv6 global-unicast space that is
@@ -937,7 +994,26 @@ pub mod test_host {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use ricochet_application::SecretName;
+
     use super::*;
+    use crate::DeferredSecretSource;
+
+    struct CountingCredentialSource {
+        source_accesses: Arc<AtomicUsize>,
+    }
+
+    impl DeferredCredentialSource for CountingCredentialSource {
+        fn resolve_environment(
+            &self,
+            _name: &str,
+        ) -> Result<Zeroizing<String>, DeferredCredentialError> {
+            self.source_accesses.fetch_add(1, Ordering::AcqRel);
+            Ok(Zeroizing::new("must-not-resolve".to_string()))
+        }
+    }
 
     #[test]
     fn deferred_http_address_policy_admits_only_public_destinations() {
@@ -965,6 +1041,310 @@ mod tests {
             assert!(
                 !is_public_ip(address.parse().expect("restricted fixture should parse")),
                 "restricted address should be denied: {address}"
+            );
+        }
+    }
+
+    #[test]
+    fn deferred_http_ipv4_non_global_destination_is_denied_before_credential_resolution_or_send() {
+        let source_accesses = Arc::new(AtomicUsize::new(0));
+        let host = "non-global-ipv4.example.test";
+        let port = 443;
+        let resolved_address = SocketAddr::new(Ipv4Addr::new(192, 88, 99, 2).into(), port);
+        let executor = SecretsHttpExecutor {
+            inner: Arc::new(SecretsHttpExecutorInner {
+                source: Arc::new(CountingCredentialSource {
+                    source_accesses: Arc::clone(&source_accesses),
+                }),
+                resolver: DestinationResolver::FixedForAddressPolicyTest(resolved_address),
+                #[cfg(feature = "test-host")]
+                metrics: None,
+            }),
+        };
+        let credentials = DeferredHttpCredentials::bearer(DeferredSecretSource::environment(
+            SecretName::parse("provider.api-key").expect("fixture name should parse"),
+        ));
+        let allowed_hosts = Some(BTreeSet::from([host.to_string()]));
+        let allowed_schemes = Some(BTreeSet::from(["https".to_string()]));
+        let allowed_destinations = BTreeSet::from([
+            DestinationGrant::new(host, port).expect("fixture destination should be valid")
+        ]);
+        let policy = SecretHttpPolicySnapshot::new(
+            true,
+            allowed_hosts.clone(),
+            allowed_destinations,
+            EnvironmentCredentialPolicy::new(true, None),
+        );
+
+        let error = executor
+            .prepare(
+                credentials,
+                reqwest::Method::GET,
+                format!("https://{host}:{port}/must-not-send"),
+                HeaderMap::new(),
+                None,
+                None,
+                Duration::from_millis(50),
+                1024,
+                allowed_hosts,
+                allowed_schemes,
+                policy,
+            )
+            .expect_err("non-global IPv4 must be rejected before a request can be executed");
+
+        assert_eq!(error.kind(), PERMISSION_ERROR);
+        assert_eq!(
+            source_accesses.load(Ordering::Acquire),
+            0,
+            "address denial must happen before credential source access"
+        );
+    }
+
+    #[test]
+    fn deferred_http_ipv4_policy_fails_closed_to_iana_registries() {
+        let allocated_or_legacy_representatives = [
+            ((1, 9), Ipv4Addr::new(8, 8, 8, 8)),
+            ((11, 126), Ipv4Addr::new(93, 184, 216, 34)),
+            ((128, 223), Ipv4Addr::new(203, 1, 1, 1)),
+        ];
+        assert_eq!(
+            IANA_ALLOCATED_OR_LEGACY_IPV4_FIRST_OCTET_RANGES.len(),
+            allocated_or_legacy_representatives.len(),
+            "updating the IANA allocation ranges requires updating their representatives"
+        );
+        for (expected_range, representative) in allocated_or_legacy_representatives {
+            assert_eq!(
+                IANA_ALLOCATED_OR_LEGACY_IPV4_FIRST_OCTET_RANGES
+                    .iter()
+                    .filter(|range| **range == expected_range)
+                    .count(),
+                1,
+                "allocated range should have exactly one representative: {expected_range:?}"
+            );
+            assert!(
+                is_public_ipv4(representative),
+                "ordinary allocated address should be admitted: {representative}"
+            );
+        }
+
+        for first_octet in 0_u8..=u8::MAX {
+            let address = Ipv4Addr::new(first_octet, 1, 1, 1);
+            let allocated_or_legacy = matches!(first_octet, 1..=9 | 11..=126 | 128..=223);
+            assert_eq!(
+                is_public_ipv4(address),
+                allocated_or_legacy,
+                "ordinary representative must follow the IANA /8 status: {address}"
+            );
+        }
+
+        let special_purpose_representatives = [
+            (
+                "this network",
+                Ipv4Addr::new(0, 0, 0, 0),
+                8,
+                Ipv4Addr::new(0, 1, 2, 3),
+                false,
+            ),
+            (
+                "this host",
+                Ipv4Addr::new(0, 0, 0, 0),
+                32,
+                Ipv4Addr::new(0, 0, 0, 0),
+                false,
+            ),
+            (
+                "private-use",
+                Ipv4Addr::new(10, 0, 0, 0),
+                8,
+                Ipv4Addr::new(10, 0, 0, 1),
+                false,
+            ),
+            (
+                "shared address space",
+                Ipv4Addr::new(100, 64, 0, 0),
+                10,
+                Ipv4Addr::new(100, 64, 0, 1),
+                false,
+            ),
+            (
+                "loopback",
+                Ipv4Addr::new(127, 0, 0, 0),
+                8,
+                Ipv4Addr::new(127, 0, 0, 1),
+                false,
+            ),
+            (
+                "link-local",
+                Ipv4Addr::new(169, 254, 0, 0),
+                16,
+                Ipv4Addr::new(169, 254, 0, 1),
+                false,
+            ),
+            (
+                "private-use",
+                Ipv4Addr::new(172, 16, 0, 0),
+                12,
+                Ipv4Addr::new(172, 16, 0, 1),
+                false,
+            ),
+            (
+                "IETF protocol assignments",
+                Ipv4Addr::new(192, 0, 0, 0),
+                24,
+                Ipv4Addr::new(192, 0, 0, 11),
+                false,
+            ),
+            (
+                "service continuity",
+                Ipv4Addr::new(192, 0, 0, 0),
+                29,
+                Ipv4Addr::new(192, 0, 0, 1),
+                false,
+            ),
+            (
+                "dummy",
+                Ipv4Addr::new(192, 0, 0, 8),
+                32,
+                Ipv4Addr::new(192, 0, 0, 8),
+                false,
+            ),
+            (
+                "PCP anycast",
+                Ipv4Addr::new(192, 0, 0, 9),
+                32,
+                Ipv4Addr::new(192, 0, 0, 9),
+                true,
+            ),
+            (
+                "TURN anycast",
+                Ipv4Addr::new(192, 0, 0, 10),
+                32,
+                Ipv4Addr::new(192, 0, 0, 10),
+                true,
+            ),
+            (
+                "NAT64 discovery",
+                Ipv4Addr::new(192, 0, 0, 170),
+                32,
+                Ipv4Addr::new(192, 0, 0, 170),
+                false,
+            ),
+            (
+                "NAT64 discovery",
+                Ipv4Addr::new(192, 0, 0, 171),
+                32,
+                Ipv4Addr::new(192, 0, 0, 171),
+                false,
+            ),
+            (
+                "TEST-NET-1",
+                Ipv4Addr::new(192, 0, 2, 0),
+                24,
+                Ipv4Addr::new(192, 0, 2, 1),
+                false,
+            ),
+            (
+                "AS112-v4",
+                Ipv4Addr::new(192, 31, 196, 0),
+                24,
+                Ipv4Addr::new(192, 31, 196, 1),
+                true,
+            ),
+            (
+                "AMT",
+                Ipv4Addr::new(192, 52, 193, 0),
+                24,
+                Ipv4Addr::new(192, 52, 193, 1),
+                true,
+            ),
+            (
+                "deprecated 6to4",
+                Ipv4Addr::new(192, 88, 99, 0),
+                24,
+                Ipv4Addr::new(192, 88, 99, 1),
+                false,
+            ),
+            (
+                "6a44 relay",
+                Ipv4Addr::new(192, 88, 99, 2),
+                32,
+                Ipv4Addr::new(192, 88, 99, 2),
+                false,
+            ),
+            (
+                "private-use",
+                Ipv4Addr::new(192, 168, 0, 0),
+                16,
+                Ipv4Addr::new(192, 168, 0, 1),
+                false,
+            ),
+            (
+                "direct delegation AS112",
+                Ipv4Addr::new(192, 175, 48, 0),
+                24,
+                Ipv4Addr::new(192, 175, 48, 1),
+                true,
+            ),
+            (
+                "benchmarking",
+                Ipv4Addr::new(198, 18, 0, 0),
+                15,
+                Ipv4Addr::new(198, 18, 0, 1),
+                false,
+            ),
+            (
+                "TEST-NET-2",
+                Ipv4Addr::new(198, 51, 100, 0),
+                24,
+                Ipv4Addr::new(198, 51, 100, 1),
+                false,
+            ),
+            (
+                "TEST-NET-3",
+                Ipv4Addr::new(203, 0, 113, 0),
+                24,
+                Ipv4Addr::new(203, 0, 113, 1),
+                false,
+            ),
+            (
+                "reserved",
+                Ipv4Addr::new(240, 0, 0, 0),
+                4,
+                Ipv4Addr::new(240, 0, 0, 1),
+                false,
+            ),
+            (
+                "limited broadcast",
+                Ipv4Addr::new(255, 255, 255, 255),
+                32,
+                Ipv4Addr::new(255, 255, 255, 255),
+                false,
+            ),
+        ];
+        assert_eq!(
+            IANA_IPV4_SPECIAL_PURPOSE_PREFIXES.len(),
+            special_purpose_representatives.len(),
+            "updating the IANA special-purpose table requires updating its representatives"
+        );
+        for (classification, prefix, prefix_length, address, globally_reachable) in
+            special_purpose_representatives
+        {
+            let actual = IANA_IPV4_SPECIAL_PURPOSE_PREFIXES
+                .iter()
+                .filter(|(candidate_prefix, candidate_length, _)| {
+                    ipv4_prefix_contains(*candidate_prefix, *candidate_length, address)
+                })
+                .max_by_key(|(_, candidate_length, _)| *candidate_length)
+                .expect("special-purpose representative should match its registry entry");
+            assert_eq!(
+                *actual,
+                (prefix, prefix_length, globally_reachable),
+                "fixture should represent exactly one most-specific IANA entry: {classification} ({address})"
+            );
+            assert_eq!(
+                is_public_ipv4(address),
+                globally_reachable,
+                "special-purpose reachability must match IANA: {classification} ({address})"
             );
         }
     }

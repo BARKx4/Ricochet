@@ -5,6 +5,9 @@ version.workspace = true
 license.workspace = true
 autobins = false
 
+[features]
+test-host = ["ricochet_secrets/test-host", "ricochet_vm/test-host"]
+
 [[bin]]
 name = "rco"
 path = "src/bin/rco.rs"
@@ -51,7 +54,15 @@ zeroize.workspace = true
 
 [dev-dependencies]
 ricochet_secrets = { path = "../ricochet_secrets", features = ["test-host"] }
+ricochet_vm = { path = "../ricochet_vm", features = ["test-host"] }
+rcgen = "0.13.2"
+rustls.workspace = true
 tungstenite.workspace = true
+
+[[test]]
+name = "session_capture"
+path = "tests/session_capture.rs"
+required-features = ["test-host"]
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 muda = "0.19.3"

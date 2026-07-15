@@ -402,6 +402,8 @@ struct WebviewSession {
     document: WebviewDocument,
     secret_bridge: Arc<GuiSecretSessionBridge>,
     secret_session_guard: SecretSessionGuard,
+    #[cfg(feature = "test-host")]
+    test_secret_session: SecretSession,
     prompt_coordinator: Arc<HostPromptCoordinator>,
     next_prompt_ticket: u64,
     closed: bool,
@@ -414,8 +416,19 @@ impl WebviewSession {
         capabilities: CapabilityOptions,
         dynamic_import_parent: PathBuf,
     ) -> Result<Self> {
+        Self::new_configured(chunk, args, capabilities, dynamic_import_parent, |_| {})
+    }
+
+    fn new_configured(
+        chunk: &Chunk,
+        args: Vec<String>,
+        capabilities: CapabilityOptions,
+        dynamic_import_parent: PathBuf,
+        configure_vm: impl FnOnce(&mut Vm),
+    ) -> Result<Self> {
         let mut vm = cli_vm(args, &capabilities)?;
         install_dynamic_module_loader(&mut vm, dynamic_import_parent);
+        configure_vm(&mut vm);
         let tokens = HostTokenSource::system();
         let (secret_session, secret_session_guard) =
             SecretSession::create(&tokens, vm.security_domain_id())
@@ -440,6 +453,8 @@ impl WebviewSession {
             document,
             secret_bridge,
             secret_session_guard,
+            #[cfg(feature = "test-host")]
+            test_secret_session: secret_session,
             prompt_coordinator: Arc::new(HostPromptCoordinator::new()),
             next_prompt_ticket: 1,
             closed: false,
@@ -539,6 +554,113 @@ impl WebviewSession {
         self.secret_bridge.close();
         self.vm.clear_secret_session_bridge();
         self.secret_session_guard.close();
+    }
+}
+
+/// Public only with the crate's `test-host` feature. This composes the real
+/// callback GUI session with a synthetic local executor without opening that
+/// executor replacement seam in production builds.
+#[cfg(feature = "test-host")]
+pub mod test_host {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct CallbackGuiSnapshot {
+        pub dom: String,
+        pub state: serde_json::Value,
+        pub secure_action_ids: Vec<String>,
+        pub stdout: String,
+        pub stderr: String,
+        pub debug: String,
+        pub image: String,
+        pub dap: String,
+    }
+
+    pub struct CallbackGuiTestHost {
+        session: WebviewSession,
+    }
+
+    impl CallbackGuiTestHost {
+        pub fn new(
+            chunk: &Chunk,
+            executor: ricochet_secrets::SecretsHttpExecutor,
+            destination: DestinationGrant,
+        ) -> Result<Self> {
+            let host = destination.host().to_string();
+            let session = WebviewSession::new_configured(
+                chunk,
+                Vec::new(),
+                CapabilityOptions::default(),
+                current_dir_for_dynamic_imports()?,
+                move |vm| {
+                    vm.set_host_capabilities(false, true);
+                    vm.set_http_allowed_hosts([host]);
+                    vm.set_http_allowed_destinations(vec![destination]);
+                    ricochet_vm::vm::test_host::install_secrets_http_executor(vm, executor);
+                },
+            )?;
+            Ok(Self { session })
+        }
+
+        pub fn snapshot(&self) -> Result<CallbackGuiSnapshot> {
+            let update = webview_document_update_script(&self.session.document)?;
+            let dom = format!("{}\n{update}", self.session.document.html);
+            let state = ricochet_value_to_json(&self.session.document.state, "$.state")?;
+            let secure_action_ids = self
+                .session
+                .document
+                .actions
+                .iter()
+                .filter_map(|action| match action {
+                    WebviewAction::Secure { action_id, .. } => Some(action_id.clone()),
+                    WebviewAction::Ordinary { .. } => None,
+                })
+                .collect();
+            let debug = format!("{:?}", self.session.vm.stack());
+            let image = match self.session.vm.to_image() {
+                Ok(image) => serde_json::to_string(&image).context("serialize test VM image")?,
+                Err(error) => error.to_string(),
+            };
+            let mut dap = self
+                .session
+                .vm
+                .stack()
+                .iter()
+                .map(crate::debug_protocol::debug_value_label)
+                .collect::<Vec<_>>();
+            if let Some(document) = self.session.vm.variable("document") {
+                dap.push(crate::debug_protocol::debug_value_label(document));
+            }
+            Ok(CallbackGuiSnapshot {
+                dom,
+                state,
+                secure_action_ids,
+                stdout: self.session.vm.stdout().to_string(),
+                stderr: self.session.vm.stderr().to_string(),
+                debug,
+                image,
+                dap: dap.join("\n"),
+            })
+        }
+
+        pub fn dispatch_secure_action(
+            &mut self,
+            action_id: &str,
+            dispatcher: &NativePromptDispatcher,
+        ) -> Result<CallbackGuiSnapshot> {
+            self.session.dispatch_secure_event(
+                &json!({
+                    "type": "secure_session_action",
+                    "action": action_id,
+                }),
+                dispatcher,
+            )?;
+            self.snapshot()
+        }
+
+        pub fn session_resolution_count(&self) -> usize {
+            self.session.test_secret_session.test_resolution_count()
+        }
     }
 }
 

@@ -188,7 +188,30 @@ fn session_contract_enforces_bounds_capacity_and_absence_without_mutation() {
 }
 
 #[test]
-fn session_contract_close_is_idempotent_and_invalidates_worker_clones() {
+fn session_contract_explicit_close_remains_idempotent() {
+    let (_tokens, _domain, session, guard) = fixture();
+    let context = session.context();
+    context
+        .prompt(name("provider.openai"))
+        .expect("prebound prompt")
+        .bind(Zeroizing::new("synthetic-session-secret".to_string()))
+        .expect("valid bind");
+
+    guard.close();
+    guard.close();
+
+    assert_eq!(session.test_slot_count(), 0);
+    assert_eq!(
+        context
+            .present(&name("provider.openai"))
+            .expect_err("closed session must reject contexts")
+            .kind(),
+        SecretSessionErrorKind::Closed
+    );
+}
+
+#[test]
+fn session_contract_single_owner_drop_invalidates_worker_clones() {
     let (_tokens, domain, session, guard) = fixture();
     let context = session.context();
     let slot = name("provider.openai");
@@ -198,9 +221,16 @@ fn session_contract_close_is_idempotent_and_invalidates_worker_clones() {
         .bind(Zeroizing::new("synthetic-session-secret".to_string()))
         .expect("valid bind");
     let worker_ref = reference.clone();
-    guard.close();
-    guard.close();
+    let worker_context = context.clone();
+    drop(guard);
     assert_eq!(session.test_slot_count(), 0);
+    assert_eq!(
+        worker_context
+            .present(&name("provider.openai"))
+            .expect_err("dropping the sole guard must close cloned contexts")
+            .kind(),
+        SecretSessionErrorKind::Closed
+    );
 
     let host = "session.example";
     let address = SocketAddr::from(([127, 0, 0, 1], 9));
@@ -208,7 +238,7 @@ fn session_contract_close_is_idempotent_and_invalidates_worker_clones() {
     let error = prepared_session_request(
         &http.executor(),
         worker_ref,
-        policy(Some(&context), &domain, host, address.port()),
+        policy(Some(&worker_context), &domain, host, address.port()),
         host,
         address.port(),
     )

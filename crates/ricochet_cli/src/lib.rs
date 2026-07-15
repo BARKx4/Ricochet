@@ -64,6 +64,9 @@ pub mod secure_action;
 pub mod secure_prompt;
 mod static_registry;
 
+#[cfg(feature = "test-host")]
+pub use commands::gui::test_host as gui_test_host;
+
 use commands::package::{EmbeddedAppKind, EmbeddedAppPayload, LinuxPackageFormat, PackageOptions};
 use debug_protocol::{
     apply_debug_control_command, debug_command_from_command, debug_command_from_web_request,

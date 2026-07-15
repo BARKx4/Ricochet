@@ -8605,9 +8605,8 @@ fn parse_legacy_secret_reference(
             let Some(Value::String(name)) = reference.get("name") else {
                 return Err(DeferredCredentialError::InvalidShape);
             };
-            let name = SecretName::parse(name)
-                .map_err(|_| DeferredCredentialError::InvalidEnvironmentName)?;
-            Ok(DeferredSecretSource::environment(name))
+            DeferredSecretSource::legacy_environment(name)
+                .ok_or(DeferredCredentialError::InvalidEnvironmentName)
         }
         "literal"
             if reference.len() == 2
@@ -11012,9 +11011,8 @@ mod tests {
     fn deferred_environment_request(url: String) -> MapValue {
         deferred_request(
             url,
-            DeferredSecretSource::environment(
-                SecretName::parse("provider.api-key").expect("fixture name should parse"),
-            ),
+            DeferredSecretSource::legacy_environment("OPENAI_API_KEY")
+                .expect("uppercase environment fixture should parse"),
         )
     }
 
@@ -11082,7 +11080,7 @@ mod tests {
         vm.set_http_allowed_destinations(vec![DestinationGrant::new("phase0.test", port)
             .expect("test exact destination should parse")]);
         vm.set_environment_enabled(true);
-        vm.set_environment_allowed_names(["provider.api-key".to_string()]);
+        vm.set_environment_allowed_names(["OPENAI_API_KEY".to_string()]);
         vm.set_secrets_http_executor_for_test(test_host.executor());
         vm
     }
@@ -11131,7 +11129,7 @@ mod tests {
             "phase0.test",
             server.address(),
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("sync-task-synthetic-secret".to_string()),
             )]),
         );
@@ -11222,7 +11220,7 @@ mod tests {
             "phase0.test",
             server.address(),
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("denial-synthetic-secret".to_string()),
             )]),
         );
@@ -11325,7 +11323,7 @@ mod tests {
             deferred_environment_request(https_url.clone()),
         ));
         let mut name_denied = deferred_send_vm(&test_host, port);
-        name_denied.set_environment_allowed_names(["other.name".to_string()]);
+        name_denied.set_environment_allowed_names(["openai_api_key".to_string()]);
         cases.push((
             "environment name allowlist",
             name_denied,
@@ -11351,7 +11349,7 @@ mod tests {
             "phase0.test",
             server.address(),
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("post-auth-collision-secret".to_string()),
             )]),
         );
@@ -11362,7 +11360,7 @@ mod tests {
 
         let mut auth_vm = Vm::default();
         auth_vm.push_value(Value::Map(request));
-        auth_vm.push_value(Value::String("provider.api-key".to_string()));
+        auth_vm.push_value(Value::String("OPENAI_API_KEY".to_string()));
         auth_vm
             .call_secret_env("secret_env")
             .expect("environment reference should construct");
@@ -11403,7 +11401,7 @@ mod tests {
             "phase0.test",
             server.address(),
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("denied-boundary-secret".to_string()),
             )]),
         );
@@ -11423,7 +11421,7 @@ mod tests {
         assert_http_error_kind(task_error, "PermissionError");
 
         let mut stream_vm = deferred_send_vm(&test_host, port);
-        stream_vm.set_environment_allowed_names(["other.name".to_string()]);
+        stream_vm.set_environment_allowed_names(["openai_api_key".to_string()]);
         stream_vm.push_value(Value::Map(deferred_environment_request(url)));
         stream_vm
             .call_http_stream_start("http_stream_start")
@@ -11525,7 +11523,7 @@ mod tests {
             let test_host = TestSecretsHttpHost::new(
                 "phase0.test",
                 server.address(),
-                BTreeMap::from([("provider.api-key".to_string(), environment_value)]),
+                BTreeMap::from([("OPENAI_API_KEY".to_string(), environment_value)]),
             );
             let port = server.address().port();
             let mut vm = deferred_send_vm(&test_host, port);
@@ -11561,7 +11559,7 @@ mod tests {
             "phase0.test",
             address,
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("transport-synthetic-secret".to_string()),
             )]),
         );
@@ -11598,7 +11596,7 @@ mod tests {
                 "phase0.test",
                 address,
                 BTreeMap::from([(
-                    "provider.api-key".to_string(),
+                    "OPENAI_API_KEY".to_string(),
                     TestEnvironmentValue::unicode(secret.clone()),
                 )]),
             );
@@ -11634,7 +11632,7 @@ mod tests {
             "phase0.test",
             server.address(),
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("stream-denial-secret".to_string()),
             )]),
         );
@@ -11707,7 +11705,7 @@ mod tests {
             "phase0.test",
             address,
             BTreeMap::from([(
-                "provider.api-key".to_string(),
+                "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("proxy-child-synthetic-secret".to_string()),
             )]),
         );
@@ -11862,7 +11860,7 @@ mod tests {
         let mut vm = Vm::default();
         vm.set_environment_enabled(false);
         vm.push_value(Value::Map(synthetic_http_request()));
-        vm.push_value(Value::String("synthetic_probe_only".to_string()));
+        vm.push_value(Value::String("OPENAI_API_KEY".to_string()));
         vm.call_secret_env("secret_env")
             .expect("environment secret reference construction should succeed");
 
@@ -11870,6 +11868,37 @@ mod tests {
             .expect("environment secret reference should attach without resolving");
 
         assert_no_public_authorization_header(&successful_http_request(&vm));
+    }
+
+    #[test]
+    fn deferred_http_credential_construction_accepts_uppercase_environment_name_with_capabilities_disabled_without_resolution(
+    ) {
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            std::net::SocketAddr::from(([127, 0, 0, 1], 443)),
+            BTreeMap::from([(
+                "OPENAI_API_KEY".to_string(),
+                TestEnvironmentValue::unicode("construction-only-secret".to_string()),
+            )]),
+        );
+        let source = r#"
+"POST" "https://api.openai.com/v1/responses" http_request_new value request var
+$request "OPENAI_API_KEY" secret_env http_bearer_auth
+"#;
+        let chunk = ricochet_compiler::compile_source("uppercase-env-construction.rco", source)
+            .expect("uppercase environment construction source should compile");
+        let mut vm = Vm::default();
+        vm.set_host_capabilities(false, false);
+        vm.set_environment_enabled(false);
+        vm.set_sleep_enabled(false);
+        vm.set_secrets_http_executor_for_test(test_host.executor());
+
+        vm.run_chunk(&chunk)
+            .expect("uppercase environment reference should construct without capabilities");
+
+        assert_no_public_authorization_header(&successful_http_request(&vm));
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
     }
 
     #[test]
@@ -11881,7 +11910,7 @@ $request "synthetic-probe-only" secret_literal http_bearer_auth
 "#,
             r#"
 "POST" "https://api.openai.com/v1/responses" http_request_new value request var
-$request "synthetic_probe_only" secret_env http_bearer_auth
+$request "OPENAI_API_KEY" secret_env http_bearer_auth
 "#,
             r#"
 "POST" "https://api.openai.com/v1/responses" http_request_new value request var
@@ -11929,11 +11958,11 @@ $request "synthetic-plaintext-token" http_bearer_auth
         let valid = [
             legacy_secret_reference([
                 ("type", Value::String("env".to_string())),
-                ("name", Value::String("provider.api-key".to_string())),
+                ("name", Value::String("OPENAI_API_KEY".to_string())),
             ]),
             legacy_secret_reference([
                 ("kind", Value::String("env".to_string())),
-                ("name", Value::String("provider.api-key".to_string())),
+                ("name", Value::String("_RICOCHET2".to_string())),
             ]),
             legacy_secret_reference([
                 ("type", Value::String("literal".to_string())),
@@ -11948,8 +11977,10 @@ $request "synthetic-plaintext-token" http_bearer_auth
         for reference in valid {
             let source = parse_legacy_secret_reference(reference)
                 .expect("exact generated secret reference should parse");
-            assert!(!format!("{source:?}").contains("synthetic"));
-            assert!(!format!("{source:?}").contains("provider"));
+            let rendered = format!("{source:?}");
+            assert!(!rendered.contains("synthetic"));
+            assert!(!rendered.contains("OPENAI_API_KEY"));
+            assert!(!rendered.contains("_RICOCHET2"));
         }
     }
 
@@ -11964,7 +11995,15 @@ $request "synthetic-plaintext-token" http_bearer_auth
             ]),
             legacy_secret_reference([
                 ("type", Value::String("env".to_string())),
-                ("name", Value::String("PROVIDER_API_KEY".to_string())),
+                ("name", Value::String("9OPENAI_API_KEY".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("name", Value::String("provider.api-key".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("name", Value::String("A".repeat(129))),
             ]),
             legacy_secret_reference([
                 ("type", Value::String("env".to_string())),
@@ -12168,7 +12207,7 @@ $request "synthetic-plaintext-token" http_bearer_auth
 
         let mut replacement_vm = Vm::default();
         replacement_vm.push_value(Value::Map(first_request));
-        replacement_vm.push_value(Value::String("replacement.secret".to_string()));
+        replacement_vm.push_value(Value::String("REPLACEMENT_SECRET".to_string()));
         replacement_vm
             .call_secret_env("secret_env")
             .expect("replacement environment reference should construct");

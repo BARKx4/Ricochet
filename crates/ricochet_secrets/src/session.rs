@@ -44,7 +44,18 @@ pub struct SecretSessionContext {
     inner: Arc<SecretSessionInner>,
 }
 
-#[derive(Clone)]
+/// The session's single host-owned shutdown authority.
+///
+/// The guard is intentionally not cloneable, so dropping the sole owner always
+/// closes and clears the session even while contexts and references remain.
+///
+/// ```compile_fail
+/// use ricochet_secrets::SecretSessionGuard;
+///
+/// fn duplicate(guard: SecretSessionGuard) {
+///     let _second_owner = guard.clone();
+/// }
+/// ```
 pub struct SecretSessionGuard {
     inner: Arc<SecretSessionInner>,
 }

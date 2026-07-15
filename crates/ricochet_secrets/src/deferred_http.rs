@@ -13,6 +13,9 @@ enum DeferredSecretSourceValue {
         name: SecretName,
         environment_key: String,
     },
+    LegacyEnvironment {
+        name: LegacyEnvironmentVariableName,
+    },
     Literal {
         value: Zeroizing<String>,
     },
@@ -20,6 +23,8 @@ enum DeferredSecretSourceValue {
         reference: SecretRef,
     },
 }
+
+struct LegacyEnvironmentVariableName(String);
 
 pub struct DeferredSecretSourceError;
 
@@ -46,6 +51,11 @@ impl DeferredSecretSource {
         })
     }
 
+    pub fn legacy_environment(name: &str) -> Option<Self> {
+        let name = LegacyEnvironmentVariableName::parse(name)?;
+        Some(Self(DeferredSecretSourceValue::LegacyEnvironment { name }))
+    }
+
     pub fn literal(value: String) -> Result<Self, DeferredSecretSourceError> {
         if value.is_empty() {
             return Err(DeferredSecretSourceError);
@@ -57,6 +67,22 @@ impl DeferredSecretSource {
 
     pub fn opaque(reference: SecretRef) -> Self {
         Self(DeferredSecretSourceValue::Opaque { reference })
+    }
+}
+
+impl LegacyEnvironmentVariableName {
+    fn parse(value: &str) -> Option<Self> {
+        let bytes = value.as_bytes();
+        if !(1..=128).contains(&bytes.len())
+            || !(bytes[0].is_ascii_alphabetic() || bytes[0] == b'_')
+            || !bytes
+                .iter()
+                .skip(1)
+                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            return None;
+        }
+        Some(Self(value.to_string()))
     }
 }
 
@@ -72,6 +98,11 @@ impl DeferredSecretSource {
             DeferredSecretSourceValue::Environment {
                 environment_key, ..
             } => DeferredSecretSourceRef::Environment { environment_key },
+            DeferredSecretSourceValue::LegacyEnvironment { name } => {
+                DeferredSecretSourceRef::Environment {
+                    environment_key: &name.0,
+                }
+            }
             DeferredSecretSourceValue::Literal { value } => {
                 DeferredSecretSourceRef::Literal { value }
             }
@@ -91,6 +122,10 @@ impl fmt::Debug for DeferredSecretSourceValue {
             } => {
                 let _ = name;
                 let _ = environment_key;
+                formatter.write_str("<environment-secret-source>")
+            }
+            Self::LegacyEnvironment { name } => {
+                let _ = name;
                 formatter.write_str("<environment-secret-source>")
             }
             Self::Literal { value } => {
@@ -226,6 +261,7 @@ mod tests {
                 assert_eq!(value.as_str(), "synthetic-secret-value");
             }
             DeferredSecretSourceValue::Environment { .. }
+            | DeferredSecretSourceValue::LegacyEnvironment { .. }
             | DeferredSecretSourceValue::Opaque { .. } => {
                 panic!("literal constructor should store a literal source")
             }
@@ -236,6 +272,43 @@ mod tests {
         assert!(!format!("{literal}").contains("synthetic"));
         assert!(!format!("{literal:?}").contains("synthetic"));
         assert!(DeferredSecretSource::literal(String::new()).is_err());
+    }
+
+    #[test]
+    fn legacy_environment_names_are_portable_bounded_exact_and_redacted() {
+        for valid in [
+            "A".to_string(),
+            "_RICOCHET2".to_string(),
+            "OPENAI_API_KEY".to_string(),
+            "Mixed_Case_3".to_string(),
+            "A".repeat(128),
+        ] {
+            let source = DeferredSecretSource::legacy_environment(&valid)
+                .expect("portable environment name should parse");
+            let DeferredSecretSourceRef::Environment { environment_key } = source.source_ref()
+            else {
+                panic!("legacy environment constructor should retain an environment source")
+            };
+            assert_eq!(environment_key, valid);
+            assert!(!format!("{source}").contains(&valid));
+            assert!(!format!("{source:?}").contains(&valid));
+        }
+
+        for invalid in [
+            String::new(),
+            "9OPENAI_API_KEY".to_string(),
+            "OPENAI-API-KEY".to_string(),
+            "OPENAI.API.KEY".to_string(),
+            "OPENAI=API_KEY".to_string(),
+            "OPENAI\0API_KEY".to_string(),
+            "OPENAI_\u{00c9}".to_string(),
+            "A".repeat(129),
+        ] {
+            assert!(
+                DeferredSecretSource::legacy_environment(&invalid).is_none(),
+                "non-portable environment name should be rejected"
+            );
+        }
     }
 
     #[test]
