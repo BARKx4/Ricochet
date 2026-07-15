@@ -2283,6 +2283,12 @@ impl Vm {
                     return Ok(());
                 }
             };
+        if let Some(error) =
+            authorize_deferred_http_destination(self, &request, resolved_destination.as_ref())
+        {
+            self.stack.push(error);
+            return Ok(());
+        }
         let stream_request = HttpStreamRequest {
             method: request.method,
             url: request.url,
@@ -4554,6 +4560,11 @@ impl Vm {
                 Ok(destination) => destination,
                 Err(error) => return Ok(error),
             };
+        if let Some(error) =
+            authorize_deferred_http_destination(self, &request, destination.as_ref())
+        {
+            return Ok(error);
+        }
         Ok(http_in_worker(move || {
             perform_http_request(request, destination)
         }))
@@ -4643,6 +4654,10 @@ impl Vm {
         } else {
             None
         };
+        if permission_error.is_none() {
+            permission_error =
+                authorize_deferred_http_destination(self, &request, destination.as_ref());
+        }
         self.spawn_value_task(method, move || match permission_error {
             Some(error) => error,
             None => perform_http_request(request, destination),
@@ -6443,6 +6458,95 @@ fn http_resolved_destination(
     Ok(Some(HttpResolvedDestination { host, addresses }))
 }
 
+fn authorize_deferred_http_destination(
+    vm: &Vm,
+    request: &HttpRequest,
+    resolved_destination: Option<&HttpResolvedDestination>,
+) -> Option<Value> {
+    request.deferred_credentials.as_ref()?;
+
+    let parsed = match reqwest::Url::parse(&request.url) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Some(Value::result_err(
+                "HttpRequestError",
+                format!("invalid HTTP URL {:?}: {error}", request.url),
+            ));
+        }
+    };
+    if parsed.scheme() != "https" {
+        return Some(Value::result_err(
+            "PermissionError",
+            "deferred HTTP credentials require HTTPS",
+        ));
+    }
+    if !vm.http_host_policy_enabled() {
+        return Some(Value::result_err(
+            "PermissionError",
+            "deferred HTTP credentials require explicit HTTP host permission",
+        ));
+    }
+    if let Err(error) = vm.check_http_url_allowed("deferred HTTP credentials", &request.url) {
+        return Some(Value::result_err("PermissionError", error.to_string()));
+    }
+    if let Some(error) = http_request_policy_error(request) {
+        return Some(error);
+    }
+
+    let host = match parsed.host_str() {
+        Some(host) => host.to_ascii_lowercase(),
+        None => {
+            return Some(Value::result_err(
+                "HttpRequestError",
+                format!("HTTP URL has no host: {:?}", request.url),
+            ));
+        }
+    };
+    let port = match parsed.port_or_known_default() {
+        Some(port) => port,
+        None => {
+            return Some(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP URL must include a port or use a known scheme: {:?}",
+                    request.url
+                ),
+            ));
+        }
+    };
+    let Some(resolved_destination) = resolved_destination else {
+        return Some(Value::result_err(
+            "PermissionError",
+            "deferred HTTP credentials require successful HTTP address policy",
+        ));
+    };
+    if resolved_destination.host != host || resolved_destination.addresses.is_empty() {
+        return Some(Value::result_err(
+            "PermissionError",
+            "deferred HTTP credentials require successful HTTP address policy",
+        ));
+    }
+    for address in &resolved_destination.addresses {
+        if address.port() != port {
+            return Some(Value::result_err(
+                "PermissionError",
+                "deferred HTTP credentials require successful HTTP address policy",
+            ));
+        }
+        if let Some(message) = socket_address_policy_error(&host, *address) {
+            return Some(Value::result_err("PermissionError", message));
+        }
+    }
+    if !vm.http_destination_allowed(&host, port) {
+        return Some(Value::result_err(
+            "PermissionError",
+            format!("deferred HTTP credentials require an exact HTTP destination grant for {host}:{port}"),
+        ));
+    }
+
+    None
+}
+
 #[derive(Clone)]
 struct HttpRequest {
     method: reqwest::Method,
@@ -6454,6 +6558,7 @@ struct HttpRequest {
     max_response_bytes: usize,
     allowed_hosts: Option<BTreeSet<String>>,
     allowed_schemes: Option<BTreeSet<String>>,
+    deferred_credentials: Option<DeferredHttpCredentials>,
 }
 
 fn process_args_from_value(value: Value) -> Result<Vec<String>, Value> {
@@ -9922,6 +10027,19 @@ fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
         ));
     };
     let mut fields = map.snapshot();
+    let deferred_credentials = match fields.remove(DEFERRED_HTTP_CREDENTIALS_FIELD) {
+        Some(Value::DeferredHttpCredentials(credentials)) => Some(credentials),
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "private deferred HTTP credentials must be opaque credentials, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+        None => None,
+    };
     let url = match fields.remove("url") {
         Some(Value::String(value)) => value,
         Some(value) => {
@@ -10061,6 +10179,7 @@ fn http_request_from_value(value: Value) -> Result<HttpRequest, Value> {
         max_response_bytes,
         allowed_hosts,
         allowed_schemes,
+        deferred_credentials,
     })
 }
 
@@ -10436,6 +10555,7 @@ fn next_random() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ricochet_sandbox::DestinationGrant;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Barrier, Mutex};
@@ -10480,6 +10600,141 @@ mod tests {
             Some(Value::Nil) | None => {}
             Some(value) => panic!("HTTP request headers should be a map, got {value:?}"),
         }
+    }
+
+    fn exact_destination_request(url: &str, deferred: bool) -> HttpRequest {
+        HttpRequest {
+            method: reqwest::Method::POST,
+            url: url.to_string(),
+            headers: reqwest::header::HeaderMap::new(),
+            json: None,
+            body: None,
+            timeout: Duration::from_millis(HTTP_DEFAULT_TIMEOUT_MS),
+            max_response_bytes: HTTP_DEFAULT_MAX_RESPONSE_BYTES,
+            allowed_hosts: Some(BTreeSet::from(["xn--bcher-kva.example".to_string()])),
+            allowed_schemes: Some(BTreeSet::from(["https".to_string()])),
+            deferred_credentials: deferred.then(|| {
+                DeferredHttpCredentials::bearer(
+                    DeferredSecretSource::literal("synthetic-probe-only".to_string())
+                        .expect("synthetic deferred credential should construct"),
+                )
+            }),
+        }
+    }
+
+    fn exact_destination_resolution(
+        host: &str,
+        port: u16,
+        address: [u8; 4],
+    ) -> HttpResolvedDestination {
+        HttpResolvedDestination {
+            host: host.to_string(),
+            addresses: vec![std::net::SocketAddr::from((address, port))],
+        }
+    }
+
+    fn assert_exact_destination_permission_error(error: Value, message: &str) {
+        assert!(
+            matches!(
+                error,
+                Value::Result(RicochetResult::Err(ref error))
+                    if error.kind == "PermissionError" && error.message.contains(message)
+            ),
+            "expected exact destination permission error containing {message:?}, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn exact_http_destination_requires_a_separate_canonical_host_and_port_grant() {
+        let request =
+            exact_destination_request("https://xn--bcher-kva.example:443/v1/responses", true);
+        let resolution =
+            exact_destination_resolution("xn--bcher-kva.example", 443, [93, 184, 216, 34]);
+        let mut vm = Vm::default();
+        vm.set_http_allowed_hosts(["xn--bcher-kva.example".to_string()]);
+
+        let denied = authorize_deferred_http_destination(&vm, &request, Some(&resolution))
+            .expect("legacy host allowlist alone must not authorize deferred credentials");
+        assert_exact_destination_permission_error(denied, "exact HTTP destination");
+
+        vm.set_http_allowed_destinations(vec![DestinationGrant::parse("BÜCHER.Example.:443")
+            .expect("canonical exact destination fixture should parse")]);
+        assert!(
+            authorize_deferred_http_destination(&vm, &request, Some(&resolution)).is_none(),
+            "canonical exact host and port should authorize deferred credentials"
+        );
+
+        let wrong_port_request =
+            exact_destination_request("https://xn--bcher-kva.example:444/v1/responses", true);
+        let wrong_port_resolution =
+            exact_destination_resolution("xn--bcher-kva.example", 444, [93, 184, 216, 34]);
+        let denied = authorize_deferred_http_destination(
+            &vm,
+            &wrong_port_request,
+            Some(&wrong_port_resolution),
+        )
+        .expect("an exact grant for port 443 must not authorize port 444");
+        assert_exact_destination_permission_error(denied, "exact HTTP destination");
+    }
+
+    #[test]
+    fn exact_http_destination_requires_https_and_existing_request_policies() {
+        let resolution =
+            exact_destination_resolution("xn--bcher-kva.example", 443, [93, 184, 216, 34]);
+        let mut vm = Vm::default();
+        vm.set_http_allowed_destinations(vec![DestinationGrant::parse(
+            "xn--bcher-kva.example:443",
+        )
+        .expect("exact destination fixture should parse")]);
+        let request =
+            exact_destination_request("https://xn--bcher-kva.example:443/v1/responses", true);
+
+        let denied = authorize_deferred_http_destination(&vm, &request, Some(&resolution))
+            .expect("an exact grant must not replace the legacy host allowlist");
+        assert_exact_destination_permission_error(denied, "HTTP host permission");
+
+        vm.set_http_allowed_hosts(["xn--bcher-kva.example".to_string()]);
+        let mut http_request = request.clone();
+        http_request.url = "http://xn--bcher-kva.example:443/v1/responses".to_string();
+        let denied = authorize_deferred_http_destination(&vm, &http_request, Some(&resolution))
+            .expect("deferred credentials must require HTTPS");
+        assert_exact_destination_permission_error(denied, "HTTPS");
+
+        let mut request_policy_denied = request;
+        request_policy_denied.allowed_hosts = Some(BTreeSet::from(["other.example".to_string()]));
+        let denied =
+            authorize_deferred_http_destination(&vm, &request_policy_denied, Some(&resolution))
+                .expect("the request host policy must remain mandatory");
+        assert_exact_destination_permission_error(denied, "request policy");
+    }
+
+    #[test]
+    fn exact_http_destination_requires_successful_address_policy() {
+        let request =
+            exact_destination_request("https://xn--bcher-kva.example:443/v1/responses", true);
+        let private_resolution =
+            exact_destination_resolution("xn--bcher-kva.example", 443, [127, 0, 0, 1]);
+        let mut vm = Vm::default();
+        vm.set_http_allowed_hosts(["xn--bcher-kva.example".to_string()]);
+        vm.set_http_allowed_destinations(vec![DestinationGrant::parse(
+            "xn--bcher-kva.example:443",
+        )
+        .expect("exact destination fixture should parse")]);
+
+        let denied = authorize_deferred_http_destination(&vm, &request, Some(&private_resolution))
+            .expect("private resolved addresses must fail before credential use");
+        assert_exact_destination_permission_error(denied, "restricted address");
+    }
+
+    #[test]
+    fn exact_http_destination_does_not_change_ordinary_http_authorization() {
+        let request = exact_destination_request("http://example.com/resource", false);
+        let vm = Vm::default();
+
+        assert!(
+            authorize_deferred_http_destination(&vm, &request, None).is_none(),
+            "requests without deferred credentials must retain legacy HTTP behavior"
+        );
     }
 
     #[test]

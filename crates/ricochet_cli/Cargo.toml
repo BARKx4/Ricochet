@@ -20,6 +20,7 @@ path = "src/bin/rco_gui.rs"
 [dependencies]
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }
+ricochet_sandbox = { path = "../ricochet_sandbox" }
 ricochet_syntax = { path = "../ricochet_syntax" }
 ricochet_vm = { path = "../ricochet_vm" }
 ricochet_web = { path = "../ricochet_web" }

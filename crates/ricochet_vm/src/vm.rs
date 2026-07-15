@@ -10,6 +10,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
+use ricochet_sandbox::DestinationGrant;
 use thiserror::Error;
 
 use crate::approval_runtime::ApprovalRegistry;
@@ -221,6 +222,7 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    http_allowed_destinations: BTreeSet<DestinationGrant>,
     http_stream_registry: HttpStreamRegistry,
     upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
@@ -289,6 +291,7 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            http_allowed_destinations: BTreeSet::new(),
             http_stream_registry: HttpStreamRegistry::default(),
             upload_stream_registry: UploadStreamRegistry::default(),
             socket_enabled: false,
@@ -588,6 +591,7 @@ fn run_task_to_completion(
         filesystem_writes_enabled: host_runtime.filesystem_writes_enabled,
         http_enabled: host_runtime.http_enabled,
         http_allowed_hosts: host_runtime.http_allowed_hosts,
+        http_allowed_destinations: shared_runtime.http_allowed_destinations,
         http_stream_registry: shared_runtime.http_stream_registry,
         upload_stream_registry: shared_runtime.upload_stream_registry,
         socket_enabled: host_runtime.socket_enabled,
@@ -973,6 +977,15 @@ impl Vm {
                 .map(|host| host.to_ascii_lowercase())
                 .collect(),
         );
+    }
+
+    pub fn set_http_allowed_destinations(&mut self, destinations: Vec<DestinationGrant>) {
+        self.http_allowed_destinations = destinations.into_iter().collect();
+    }
+
+    pub fn http_destination_allowed(&self, host: &str, port: u16) -> bool {
+        DestinationGrant::new(host, port)
+            .is_ok_and(|destination| self.http_allowed_destinations.contains(&destination))
     }
 
     pub fn set_webview_enabled(&mut self, enabled: bool) {
@@ -2913,6 +2926,14 @@ impl Vm {
                 )
             })
             .unwrap_or(Value::Nil);
+        let http_allowed_destinations = Value::Array(
+            self.http_allowed_destinations
+                .iter()
+                .map(ToString::to_string)
+                .map(Value::String)
+                .collect::<Vec<_>>()
+                .into(),
+        );
         let socket_allowed_hosts = self
             .socket_allowed_hosts
             .as_ref()
@@ -2984,6 +3005,10 @@ impl Vm {
                         BTreeMap::from([
                             ("enabled".to_string(), Value::Bool(self.http_enabled)),
                             ("allowed_hosts".to_string(), http_allowed_hosts),
+                            (
+                                "allowed_destinations".to_string(),
+                                http_allowed_destinations,
+                            ),
                             (
                                 "streams".to_string(),
                                 Value::Number(self.http_stream_registry.len() as i64),
@@ -3724,6 +3749,7 @@ impl Vm {
 
     fn shared_runtime_state(&self) -> SharedRuntimeState {
         SharedRuntimeState {
+            http_allowed_destinations: self.http_allowed_destinations.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
             upload_stream_registry: self.upload_stream_registry.clone(),
             tcp_socket_registry: self.tcp_socket_registry.clone(),
@@ -5170,6 +5196,7 @@ mod tests {
         value::Value, workspace_runtime::WorkspaceWriteRegistry,
     };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
+    use ricochet_sandbox::DestinationGrant;
 
     fn span() -> SourceSpan {
         SourceSpan {
@@ -8048,6 +8075,42 @@ mod tests {
             panic!("expected environment capability map, got {capabilities:?}");
         };
         assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn exact_http_destination_state_is_deduplicated_and_inherited_by_spawned_tasks() {
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("runtime_capabilities".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let unicode = DestinationGrant::parse("BÜCHER.Example.:443")
+            .expect("Unicode destination fixture should parse");
+        let canonical = DestinationGrant::parse("xn--bcher-kva.example:443")
+            .expect("canonical destination fixture should parse");
+        let mut vm = Vm::default();
+        vm.set_http_allowed_destinations(vec![unicode, canonical]);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Map(capabilities)] = vm.stack() else {
+            panic!("expected runtime capabilities map, got {:?}", vm.stack());
+        };
+        let Some(Value::Map(http)) = capabilities.get("http") else {
+            panic!("expected HTTP capability map, got {capabilities:?}");
+        };
+        let Some(Value::Array(destinations)) = http.get("allowed_destinations") else {
+            panic!("expected exact HTTP destination array, got {http:?}");
+        };
+        assert_eq!(
+            destinations.snapshot(),
+            vec![Value::String("xn--bcher-kva.example:443".to_string())]
+        );
+        assert!(vm.http_destination_allowed("BÜCHER.Example.", 443));
+        assert!(!vm.http_destination_allowed("xn--bcher-kva.example", 444));
     }
 
     #[test]

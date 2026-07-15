@@ -30,6 +30,7 @@ use ricochet_compiler::{
     compile_file_with_imports, compile_source, expand_file_with_imports,
     resolve_import_with_metadata, verify_runtime_import_locks_for_parent, CompileError,
 };
+use ricochet_sandbox::DestinationGrant;
 use ricochet_syntax::formatter::format_module;
 use ricochet_syntax::{
     format_source, lex, line_column, line_starts, parse_module, utf16_range_for_span, ArgsDecl,
@@ -505,6 +506,13 @@ enum Command {
         )]
         http_allow_hosts: Vec<String>,
         #[arg(
+            long = "allow-http-destination",
+            value_name = "HOST:PORT",
+            value_parser = parse_http_destination_arg,
+            help = "Allow deferred HTTP credentials only for exact public HOST:PORT; repeat for multiple destinations"
+        )]
+        http_destinations: Vec<String>,
+        #[arg(
             long = "ai-allow-host",
             value_name = "HOST",
             help = "Allow MVC AI providers to send requests only to HOST; repeat for multiple hosts"
@@ -685,6 +693,13 @@ struct CapabilityOptions {
     )]
     http_allow_hosts: Vec<String>,
     #[arg(
+        long = "allow-http-destination",
+        value_name = "HOST:PORT",
+        value_parser = parse_http_destination_arg,
+        help = "Allow deferred HTTP credentials only for exact public HOST:PORT; repeat for multiple destinations"
+    )]
+    http_destinations: Vec<String>,
+    #[arg(
         long,
         help = "Enable outbound TCP and WebSocket socket capabilities for this run"
     )]
@@ -704,6 +719,22 @@ enum CapabilityProfile {
     Sandboxed,
 }
 
+fn parse_http_destination_arg(value: &str) -> std::result::Result<String, String> {
+    DestinationGrant::parse(value)
+        .map(|destination| destination.to_string())
+        .map_err(|error| error.to_string())
+}
+
+fn parsed_http_destinations(values: &[String]) -> Vec<DestinationGrant> {
+    values
+        .iter()
+        .map(|value| {
+            DestinationGrant::parse(value)
+                .expect("CLI destination values are validated and canonicalized by clap")
+        })
+        .collect()
+}
+
 impl CapabilityOptions {
     fn apply_to(&self, vm: &mut Vm) -> Result<()> {
         if self.no_fs {
@@ -716,6 +747,9 @@ impl CapabilityOptions {
         }
         if self.no_http && !self.http_allow_hosts.is_empty() {
             bail!("--http-allow-host cannot be used with --no-http");
+        }
+        if self.no_http && !self.http_destinations.is_empty() {
+            bail!("--allow-http-destination cannot be used with --no-http");
         }
         if self.no_webview && self.allow_webview {
             bail!("--allow-webview cannot be used with --no-webview");
@@ -785,6 +819,7 @@ impl CapabilityOptions {
         if !self.http_allow_hosts.is_empty() {
             vm.set_http_allowed_hosts(self.http_allow_hosts.clone());
         }
+        vm.set_http_allowed_destinations(parsed_http_destinations(&self.http_destinations));
         if self.socket_allow_hosts.is_empty() {
             vm.clear_socket_allowed_hosts();
         } else {
@@ -1128,6 +1163,7 @@ pub async fn run_cli() -> Result<()> {
             fs_root,
             fs_readonly,
             http_allow_hosts,
+            http_destinations,
             ai_allow_hosts,
             database_allow_hosts,
         } => {
@@ -1154,6 +1190,7 @@ pub async fn run_cli() -> Result<()> {
                 fs_readonly,
                 sqlite_data_root: None,
                 http_allow_hosts,
+                http_destinations: parsed_http_destinations(&http_destinations),
                 ai_allow_hosts,
                 database_allow_hosts,
             })

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 ricochet_application = { path = "../ricochet_application" }
 ricochet_bytecode = { path = "../ricochet_bytecode" }
+ricochet_sandbox = { path = "../ricochet_sandbox" }
 ricochet_secrets = { path = "../ricochet_secrets" }
 argon2.workspace = true
 arboard.workspace = true
