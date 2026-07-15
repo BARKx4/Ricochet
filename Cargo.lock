@@ -1108,6 +1108,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1530,6 +1536,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1671,6 +1696,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-core",
+ "h2",
  "http",
  "http-body",
  "httparse",
@@ -2443,10 +2469,17 @@ checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.0",
  "block2",
+ "libc",
  "objc2",
+ "objc2-cloud-kit",
+ "objc2-core-data",
  "objc2-core-foundation",
  "objc2-core-graphics",
+ "objc2-core-image",
+ "objc2-core-text",
+ "objc2-core-video",
  "objc2-foundation",
+ "objc2-quartz-core",
 ]
 
 [[package]]
@@ -2466,6 +2499,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b402a653efbb5e82ce4df10683b6b28027616a2715e90009947d50b8dd298fa"
 dependencies = [
+ "bitflags 2.13.0",
  "objc2",
  "objc2-foundation",
 ]
@@ -2527,6 +2561,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-video"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d425caf1df73233f29fd8a5c3e5edbc30d2d4307870f802d18f00d83dc5141a6"
+dependencies = [
+ "bitflags 2.13.0",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-io-surface",
+]
+
+[[package]]
 name = "objc2-encode"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2548,6 +2595,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.0",
+ "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
 ]
@@ -2710,6 +2759,16 @@ dependencies = [
  "base64ct",
  "rand_core 0.6.4",
  "subtle",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64",
+ "serde_core",
 ]
 
 [[package]]
@@ -3120,6 +3179,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3179,6 +3251,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -3236,6 +3309,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_application"
+version = "0.1.19-rc.6"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ricochet_bytecode"
 version = "0.1.19-rc.6"
 dependencies = [
@@ -3254,14 +3335,23 @@ dependencies = [
  "clap",
  "flate2",
  "getrandom 0.3.4",
+ "gtk",
  "muda",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "rcgen",
  "reqwest",
+ "ricochet_application",
  "ricochet_bytecode",
  "ricochet_compiler",
+ "ricochet_sandbox",
+ "ricochet_secrets",
  "ricochet_syntax",
  "ricochet_vm",
  "ricochet_web",
  "rusqlite",
+ "rustls",
  "semver",
  "serde",
  "serde_json",
@@ -3279,6 +3369,7 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "wry",
+ "zeroize",
 ]
 
 [[package]]
@@ -3309,6 +3400,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_secrets"
+version = "0.1.19-rc.6"
+dependencies = [
+ "getrandom 0.3.4",
+ "reqwest",
+ "ricochet_application",
+ "ricochet_sandbox",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "ricochet_syntax"
 version = "0.1.19-rc.6"
 dependencies = [
@@ -3325,18 +3428,28 @@ dependencies = [
  "chrono",
  "crossterm",
  "getrandom 0.3.4",
+ "h2",
  "portable-pty",
+ "rcgen",
  "regex",
  "reqwest",
  "rfd",
+ "ricochet_application",
  "ricochet_bytecode",
+ "ricochet_compiler",
+ "ricochet_sandbox",
+ "ricochet_secrets",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls",
  "tungstenite",
  "wait-timeout",
+ "zeroize",
 ]
 
 [[package]]
@@ -3355,6 +3468,7 @@ dependencies = [
  "reqwest",
  "ricochet_bytecode",
  "ricochet_compiler",
+ "ricochet_sandbox",
  "ricochet_syntax",
  "ricochet_vm",
  "rusqlite",
@@ -5560,6 +5674,15 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
 ]
 
 [[package]]

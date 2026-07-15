@@ -5,6 +5,29 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::value::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionEqualityError {
+    actual: &'static str,
+}
+
+impl CollectionEqualityError {
+    pub fn actual(&self) -> &'static str {
+        self.actual
+    }
+}
+
+impl fmt::Display for CollectionEqualityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "collection equality is unavailable for {}",
+            self.actual
+        )
+    }
+}
+
+impl std::error::Error for CollectionEqualityError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CollectionKind {
     Array,
@@ -246,12 +269,12 @@ struct SetInner {
 pub struct SetValue(Arc<SetInner>);
 
 impl SetValue {
-    pub fn new(values: Vec<Value>) -> Self {
+    pub fn new(values: Vec<Value>) -> Result<Self, CollectionEqualityError> {
         let set = Self::default();
         for value in values {
-            set.insert(value);
+            set.insert(value)?;
         }
-        set
+        Ok(set)
     }
 
     pub fn snapshot(&self) -> Vec<Value> {
@@ -278,44 +301,48 @@ impl SetValue {
             .is_empty()
     }
 
-    pub fn contains(&self, value: &Value) -> bool {
-        self.snapshot().contains(value)
+    pub fn contains(&self, value: &Value) -> Result<bool, CollectionEqualityError> {
+        let snapshot = self.snapshot();
+        reject_opaque_set_operation(&snapshot, value)?;
+        Ok(snapshot.contains(value))
     }
 
-    pub fn insert(&self, value: Value) {
+    pub fn insert(&self, value: Value) -> Result<bool, CollectionEqualityError> {
         let _mutation = self
             .0
             .mutation
             .lock()
             .expect("collection mutation lock poisoned");
-        if !self.snapshot().contains(&value) {
+        let snapshot = self.snapshot();
+        reject_opaque_set_operation(&snapshot, &value)?;
+        if !snapshot.contains(&value) {
             self.0
                 .values
                 .write()
                 .expect("collection lock poisoned")
                 .push(value);
+            return Ok(true);
         }
+        Ok(false)
     }
 
-    pub fn remove(&self, value: &Value) -> bool {
+    pub fn remove(&self, value: &Value) -> Result<bool, CollectionEqualityError> {
         let _mutation = self
             .0
             .mutation
             .lock()
             .expect("collection mutation lock poisoned");
-        let Some(index) = self
-            .snapshot()
-            .iter()
-            .position(|candidate| candidate == value)
-        else {
-            return false;
+        let snapshot = self.snapshot();
+        reject_opaque_set_operation(&snapshot, value)?;
+        let Some(index) = snapshot.iter().position(|candidate| candidate == value) else {
+            return Ok(false);
         };
         self.0
             .values
             .write()
             .expect("collection lock poisoned")
             .remove(index);
-        true
+        Ok(true)
     }
 
     pub fn clear(&self) {
@@ -340,9 +367,25 @@ impl SetValue {
     }
 }
 
-impl From<Vec<Value>> for SetValue {
-    fn from(values: Vec<Value>) -> Self {
+impl TryFrom<Vec<Value>> for SetValue {
+    type Error = CollectionEqualityError;
+
+    fn try_from(values: Vec<Value>) -> Result<Self, Self::Error> {
         Self::new(values)
+    }
+}
+
+fn reject_opaque_set_operation(
+    stored: &[Value],
+    candidate: &Value,
+) -> Result<(), CollectionEqualityError> {
+    let actual = stored
+        .iter()
+        .find_map(Value::opaque_value_kind)
+        .or_else(|| candidate.opaque_value_kind());
+    match actual {
+        Some(actual) => Err(CollectionEqualityError { actual }),
+        None => Ok(()),
     }
 }
 
@@ -515,7 +558,8 @@ mod tests {
         );
 
         let set = SetValue::default();
-        set.insert(Value::Set(set.clone()));
+        set.insert(Value::Set(set.clone()))
+            .expect("cyclic ordinary set should remain supported");
         assert_eq!(format!("{:?}", Value::Set(set)), "Set({Set(<cycle>)})");
     }
 
@@ -567,12 +611,12 @@ mod tests {
         }
 
         let left = SetValue::default();
-        left.insert(cyclic_array(1));
-        left.insert(cyclic_array(2));
+        left.insert(cyclic_array(1)).expect("ordinary cyclic set");
+        left.insert(cyclic_array(2)).expect("ordinary cyclic set");
 
         let right = SetValue::default();
-        right.insert(cyclic_array(2));
-        right.insert(cyclic_array(1));
+        right.insert(cyclic_array(2)).expect("ordinary cyclic set");
+        right.insert(cyclic_array(1)).expect("ordinary cyclic set");
 
         assert_eq!(left, right);
     }
@@ -582,12 +626,12 @@ mod tests {
         let set = SetValue::default();
         let self_value = Value::Set(set.clone());
 
-        set.insert(self_value.clone());
-        set.insert(self_value.clone());
+        set.insert(self_value.clone()).expect("ordinary cyclic set");
+        set.insert(self_value.clone()).expect("ordinary cyclic set");
 
         assert_eq!(set.len(), 1);
-        assert!(set.contains(&self_value));
-        assert!(set.remove(&self_value));
+        assert!(set.contains(&self_value).expect("ordinary cyclic set"));
+        assert!(set.remove(&self_value).expect("ordinary cyclic set"));
         assert!(set.is_empty());
     }
 
@@ -598,7 +642,8 @@ mod tests {
             .map(|_| {
                 let set = set.clone();
                 thread::spawn(move || {
-                    set.insert(Value::Array(ArrayValue::from(vec![Value::Number(7)])));
+                    set.insert(Value::Array(ArrayValue::from(vec![Value::Number(7)])))
+                        .expect("ordinary concurrent set value");
                 })
             })
             .collect::<Vec<_>>();
@@ -608,5 +653,37 @@ mod tests {
         }
 
         assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn set_equality_operations_reject_nested_opaque_values_on_both_sides() {
+        let source =
+            ricochet_secrets::DeferredSecretSource::literal("synthetic-set-secret".to_string())
+                .expect("synthetic literal");
+        let opaque = Value::DeferredHttpCredentials(
+            ricochet_secrets::DeferredHttpCredentials::bearer(source),
+        );
+        let nested_candidate = Value::Array(ArrayValue::from(vec![opaque.clone()]));
+
+        let error = SetValue::try_from(vec![nested_candidate.clone()])
+            .expect_err("set construction must reject nested opaque values");
+        assert_eq!(error.actual(), "deferred HTTP credentials");
+
+        let shared = ArrayValue::from(vec![Value::Number(1)]);
+        let set = SetValue::try_from(vec![Value::Array(shared.clone())])
+            .expect("ordinary shared collection should insert");
+        shared.push(opaque);
+
+        for error in [
+            set.contains(&Value::Nil)
+                .expect_err("stored opaque value must reject membership"),
+            set.remove(&Value::Nil)
+                .expect_err("stored opaque value must reject removal"),
+            set.insert(Value::Nil)
+                .expect_err("stored opaque value must reject deduplication"),
+        ] {
+            assert_eq!(error.actual(), "deferred HTTP credentials");
+        }
+        assert_eq!(set.len(), 1, "failed guards must not mutate the set");
     }
 }

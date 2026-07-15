@@ -1,0 +1,22 @@
+[package]
+name = "ricochet_secrets"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+test-host = []
+
+[dependencies]
+getrandom.workspace = true
+ricochet_application = { path = "../ricochet_application" }
+ricochet_sandbox = { path = "../ricochet_sandbox" }
+reqwest = { workspace = true, features = ["http2"] }
+serde_json.workspace = true
+zeroize.workspace = true
+
+[[test]]
+name = "session_contract"
+path = "tests/session_contract.rs"
+required-features = ["test-host"]

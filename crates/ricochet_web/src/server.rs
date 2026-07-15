@@ -1,4 +1,5 @@
 use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet, HashMap};
+use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -22,6 +23,7 @@ use ricochet_bytecode::Chunk;
 use ricochet_compiler::{
     compile_file_with_imports, resolve_import_with_metadata, verify_runtime_import_locks_for_parent,
 };
+use ricochet_sandbox::DestinationGrant;
 use ricochet_vm::{
     ApprovalRegistry, Capability, DynamicModuleSource, ProcessRegistry, PtyRegistry,
     UploadStreamMetadata, UploadStreamRegistry, Value, Vm, WorkspaceWriteRegistry,
@@ -340,7 +342,7 @@ impl WatchedRuntime {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ServeOptions {
     pub host: String,
     pub port: u16,
@@ -355,8 +357,33 @@ pub struct ServeOptions {
     pub fs_readonly: bool,
     pub sqlite_data_root: Option<PathBuf>,
     pub http_allow_hosts: Vec<String>,
+    pub http_destinations: Vec<DestinationGrant>,
     pub ai_allow_hosts: Vec<String>,
     pub database_allow_hosts: Vec<String>,
+}
+
+impl fmt::Debug for ServeOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ServeOptions")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("debug", &self.debug)
+            .field("watch", &self.watch)
+            .field("allow_env", &self.allow_env)
+            .field("env_allow", &self.env_allow)
+            .field("allow_process", &self.allow_process)
+            .field("process_root", &self.process_root)
+            .field("allow_pty", &self.allow_pty)
+            .field("fs_root", &self.fs_root)
+            .field("fs_readonly", &self.fs_readonly)
+            .field("sqlite_data_root", &self.sqlite_data_root)
+            .field("http_allow_hosts", &self.http_allow_hosts)
+            .field("http_destination_count", &self.http_destinations.len())
+            .field("ai_allow_hosts", &self.ai_allow_hosts)
+            .field("database_allow_hosts", &self.database_allow_hosts)
+            .finish()
+    }
 }
 
 impl Default for ServeOptions {
@@ -375,6 +402,7 @@ impl Default for ServeOptions {
             fs_readonly: false,
             sqlite_data_root: None,
             http_allow_hosts: Vec::new(),
+            http_destinations: Vec::new(),
             ai_allow_hosts: Vec::new(),
             database_allow_hosts: Vec::new(),
         }
@@ -2955,6 +2983,7 @@ fn compose_serve_capability_vm_setup_with_state(
     };
     let allow_pty = options.allow_pty;
     let http_allow_hosts = Arc::new(options.http_allow_hosts.clone());
+    let http_destinations = Arc::new(options.http_destinations.clone());
     Ok(Some(Arc::new(move |vm| {
         let mut capabilities = match &vm_setup {
             Some(setup) => setup(vm)?,
@@ -2995,6 +3024,7 @@ fn compose_serve_capability_vm_setup_with_state(
             vm.set_http_allowed_hosts((*http_allow_hosts).clone());
             capabilities.insert("http".to_string(), Value::Capability(Capability::Http));
         }
+        vm.set_http_allowed_destinations((*http_destinations).clone());
         Ok(capabilities)
     })))
 }

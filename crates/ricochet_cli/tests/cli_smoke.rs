@@ -14724,3 +14724,116 @@ fn temp_source_path() -> PathBuf {
         .join(format!("run-{}-{nanos}-{sequence}", std::process::id()))
         .join("main.rco")
 }
+
+#[test]
+fn allow_http_destination_accepts_canonical_repeatable_exact_grants() {
+    let source_path = write_source(
+        r#"
+runtime_capabilities "http" at "allowed_destinations" at json
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--http-allow-host")
+        .arg("xn--bcher-kva.example")
+        .arg("--allow-http-destination")
+        .arg("BÜCHER.Example.:443")
+        .arg("--allow-http-destination")
+        .arg("xn--bcher-kva.example:443")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert_run_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.matches("xn--bcher-kva.example:443").count(),
+        1,
+        "canonical duplicate exact grants should collapse, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn allow_http_destination_rejects_ambiguous_or_private_destination_grammar() {
+    let source_path = write_source("1\n");
+
+    for denied in [
+        "example.com",
+        " example.com:443",
+        "example.com:443 ",
+        "user@example.com:443",
+        "https://example.com:443",
+        "example.com/path:443",
+        "localhost:443",
+        "127.0.0.1:443",
+        "[::1]:443",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+            .arg("run")
+            .arg("--allow-http-destination")
+            .arg(denied)
+            .arg(&source_path)
+            .output()
+            .expect("rco run should launch");
+
+        assert!(
+            !output.status.success(),
+            "ambiguous or private destination grammar should be rejected: {denied:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("invalid value") && stderr.contains("--allow-http-destination"),
+            "stderr should identify invalid exact destination grammar for {denied:?}, got:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn allow_http_destination_conflicts_with_no_http() {
+    let source_path = write_source("1\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--no-http")
+        .arg("--allow-http-destination")
+        .arg("api.example.com:443")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "conflicting HTTP options must fail"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--allow-http-destination cannot be used with --no-http"),
+        "stderr should explain the exact destination conflict, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn allow_http_destination_does_not_replace_the_sandbox_host_allowlist() {
+    let source_path = write_source("http drop\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rco"))
+        .arg("run")
+        .arg("--capability-profile")
+        .arg("sandboxed")
+        .arg("--allow-http-destination")
+        .arg("api.example.com:443")
+        .arg(&source_path)
+        .output()
+        .expect("rco run should launch");
+
+    assert!(
+        !output.status.success(),
+        "an exact destination alone must not enable sandboxed HTTP"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("HTTP capability is not enabled"),
+        "stderr should preserve legacy sandbox HTTP behavior, got:\n{stderr}"
+    );
+}

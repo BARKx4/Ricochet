@@ -5,6 +5,9 @@ version.workspace = true
 license.workspace = true
 autobins = false
 
+[features]
+test-host = ["ricochet_secrets/test-host", "ricochet_vm/test-host"]
+
 [[bin]]
 name = "rco"
 path = "src/bin/rco.rs"
@@ -18,9 +21,12 @@ name = "rco-gui"
 path = "src/bin/rco_gui.rs"
 
 [dependencies]
+ricochet_application = { path = "../ricochet_application" }
 ricochet_bytecode = { path = "../ricochet_bytecode" }
 ricochet_compiler = { path = "../ricochet_compiler" }
+ricochet_sandbox = { path = "../ricochet_sandbox" }
 ricochet_syntax = { path = "../ricochet_syntax" }
+ricochet_secrets = { path = "../ricochet_secrets" }
 ricochet_vm = { path = "../ricochet_vm" }
 ricochet_web = { path = "../ricochet_web" }
 anyhow.workspace = true
@@ -44,10 +50,20 @@ tokio-stream.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 tower.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+ricochet_secrets = { path = "../ricochet_secrets", features = ["test-host"] }
+ricochet_vm = { path = "../ricochet_vm", features = ["test-host"] }
+rcgen = "0.13.2"
+rustls.workspace = true
 tungstenite.workspace = true
 wait-timeout.workspace = true
+
+[[test]]
+name = "session_capture"
+path = "tests/session_capture.rs"
+required-features = ["test-host"]
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 muda = "0.19.3"
@@ -55,4 +71,12 @@ tao = "0.35.3"
 wry = "0.55.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.4"
+objc2-app-kit = "=0.3.2"
+objc2-foundation = "=0.3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"

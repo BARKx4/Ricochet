@@ -5419,3 +5419,82 @@ fn http_request_complete(buffer: &[u8]) -> bool {
 fn escape_ricochet_string_for_test(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
+
+#[tokio::test]
+async fn exact_http_destination_is_canonical_deduplicated_and_passed_to_mvc_vms() {
+    let project_root = temp_project_path();
+    fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
+    fs::create_dir_all(project_root.join("app/Controllers"))
+        .expect("controller directory should be created");
+    fs::write(
+        project_root.join("ricochet.toml"),
+        r#"
+[package]
+name = "exact_http_destination"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+
+[web.views]
+escape = "html"
+"#,
+    )
+    .expect("manifest should be written");
+    fs::write(
+        project_root.join("config/routes.rco"),
+        r#"GET "/destinations" DestinationController "show" route"#,
+    )
+    .expect("routes should be written");
+    fs::write(
+        project_root.join("app/Controllers/DestinationController.rco"),
+        r#"
+DestinationController Controller Subclass
+  [
+    runtime_capabilities "http" at "allowed_destinations" at json
+  ] "show" Method
+end
+"#,
+    )
+    .expect("controller should be written");
+
+    let unicode = ricochet_sandbox::DestinationGrant::parse("BÜCHER.Example.:443")
+        .expect("Unicode destination fixture should parse");
+    let canonical = ricochet_sandbox::DestinationGrant::parse("xn--bcher-kva.example:443")
+        .expect("canonical destination fixture should parse");
+    let app = ricochet_web::server::build_served_app_from_dir(
+        &project_root,
+        false,
+        false,
+        &ricochet_web::server::ServeOptions {
+            http_allow_hosts: vec!["xn--bcher-kva.example".to_string()],
+            http_destinations: vec![unicode, canonical],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("build served app with exact HTTP destinations");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/destinations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("exact destination capability response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body was {}",
+        String::from_utf8_lossy(&body)
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&body).expect("response body should be JSON");
+    assert_eq!(body, serde_json::json!(["xn--bcher-kva.example:443"]));
+}

@@ -30,6 +30,7 @@ use ricochet_compiler::{
     compile_file_with_imports, compile_source, expand_file_with_imports,
     resolve_import_with_metadata, verify_runtime_import_locks_for_parent, CompileError,
 };
+use ricochet_sandbox::DestinationGrant;
 use ricochet_syntax::formatter::format_module;
 use ricochet_syntax::{
     format_source, lex, line_column, line_starts, parse_module, utf16_range_for_span, ArgsDecl,
@@ -59,7 +60,12 @@ mod hosted_registry;
 mod hosted_registry_server;
 mod lsp;
 mod migration_dsl;
+pub mod secure_action;
+pub mod secure_prompt;
 mod static_registry;
+
+#[cfg(feature = "test-host")]
+pub use commands::gui::test_host as gui_test_host;
 
 use commands::package::{EmbeddedAppKind, EmbeddedAppPayload, LinuxPackageFormat, PackageOptions};
 use debug_protocol::{
@@ -505,6 +511,13 @@ enum Command {
         )]
         http_allow_hosts: Vec<String>,
         #[arg(
+            long = "allow-http-destination",
+            value_name = "HOST:PORT",
+            value_parser = parse_http_destination_arg,
+            help = "Allow deferred HTTP credentials only for exact public HOST:PORT; repeat for multiple destinations"
+        )]
+        http_destinations: Vec<String>,
+        #[arg(
             long = "ai-allow-host",
             value_name = "HOST",
             help = "Allow MVC AI providers to send requests only to HOST; repeat for multiple hosts"
@@ -685,6 +698,13 @@ struct CapabilityOptions {
     )]
     http_allow_hosts: Vec<String>,
     #[arg(
+        long = "allow-http-destination",
+        value_name = "HOST:PORT",
+        value_parser = parse_http_destination_arg,
+        help = "Allow deferred HTTP credentials only for exact public HOST:PORT; repeat for multiple destinations"
+    )]
+    http_destinations: Vec<String>,
+    #[arg(
         long,
         help = "Enable outbound TCP and WebSocket socket capabilities for this run"
     )]
@@ -704,6 +724,22 @@ enum CapabilityProfile {
     Sandboxed,
 }
 
+fn parse_http_destination_arg(value: &str) -> std::result::Result<String, String> {
+    DestinationGrant::parse(value)
+        .map(|destination| destination.to_string())
+        .map_err(|error| error.to_string())
+}
+
+fn parsed_http_destinations(values: &[String]) -> Vec<DestinationGrant> {
+    values
+        .iter()
+        .map(|value| {
+            DestinationGrant::parse(value)
+                .expect("CLI destination values are validated and canonicalized by clap")
+        })
+        .collect()
+}
+
 impl CapabilityOptions {
     fn apply_to(&self, vm: &mut Vm) -> Result<()> {
         if self.no_fs {
@@ -716,6 +752,9 @@ impl CapabilityOptions {
         }
         if self.no_http && !self.http_allow_hosts.is_empty() {
             bail!("--http-allow-host cannot be used with --no-http");
+        }
+        if self.no_http && !self.http_destinations.is_empty() {
+            bail!("--allow-http-destination cannot be used with --no-http");
         }
         if self.no_webview && self.allow_webview {
             bail!("--allow-webview cannot be used with --no-webview");
@@ -785,6 +824,7 @@ impl CapabilityOptions {
         if !self.http_allow_hosts.is_empty() {
             vm.set_http_allowed_hosts(self.http_allow_hosts.clone());
         }
+        vm.set_http_allowed_destinations(parsed_http_destinations(&self.http_destinations));
         if self.socket_allow_hosts.is_empty() {
             vm.clear_socket_allowed_hosts();
         } else {
@@ -1128,6 +1168,7 @@ pub async fn run_cli() -> Result<()> {
             fs_root,
             fs_readonly,
             http_allow_hosts,
+            http_destinations,
             ai_allow_hosts,
             database_allow_hosts,
         } => {
@@ -1154,6 +1195,7 @@ pub async fn run_cli() -> Result<()> {
                 fs_readonly,
                 sqlite_data_root: None,
                 http_allow_hosts,
+                http_destinations: parsed_http_destinations(&http_destinations),
                 ai_allow_hosts,
                 database_allow_hosts,
             })
@@ -7617,13 +7659,21 @@ fn runtime_error_message(vm: &Vm, error: &ricochet_vm::VmError) -> String {
 }
 
 fn write_debug_trace(path: &Path, events: &[DebugEvent]) -> Result<()> {
-    let trace: Vec<_> = events.iter().map(debug_event_json).collect();
+    let trace = events
+        .iter()
+        .map(debug_event_json)
+        .collect::<Result<Vec<_>>>()?;
     let json = serde_json::to_string_pretty(&trace)?;
     fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn print_debug_event_json_line(event: &DebugEvent) {
-    let value = debug_event_json(event);
+    let value = debug_event_json(event).unwrap_or_else(|_| {
+        json!({
+            "event": "error",
+            "error": "debug protocol cannot serialize non-serializable value",
+        })
+    });
     println!(
         "{}",
         serde_json::to_string(&value).expect("debug event JSON should serialize")
@@ -8262,7 +8312,13 @@ fn debug_ui_snapshot_for_pause(
 }
 
 fn debug_web_pause_event(snapshot: &DebugUiSnapshot, pause_id: usize) -> serde_json::Value {
-    let mut value = debug_event_json(&DebugEvent::Paused(snapshot.pause.clone()));
+    let mut value =
+        debug_event_json(&DebugEvent::Paused(snapshot.pause.clone())).unwrap_or_else(|_| {
+            json!({
+                "event": "error",
+                "error": "debug protocol cannot serialize non-serializable value",
+            })
+        });
     if let serde_json::Value::Object(fields) = &mut value {
         fields.insert("pause_id".to_string(), json!(pause_id));
         fields.insert("source_line".to_string(), json!(snapshot.source_line));
@@ -9507,6 +9563,16 @@ where
             .and_then(|arguments| arguments.get("variablesReference"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0);
+        if self
+            .last_pause
+            .as_ref()
+            .is_some_and(|pause| dap_selected_values_contain_opaque(pause, reference))
+        {
+            return self.send_error_response(
+                request,
+                "debug adapter cannot serialize non-serializable value",
+            );
+        }
         let variables = match (reference, self.last_pause.as_ref()) {
             (1, Some(pause)) => pause
                 .stack
@@ -9742,6 +9808,54 @@ fn dap_binding_variables(bindings: &[(String, Value)]) -> Vec<serde_json::Value>
         .iter()
         .map(|(name, value)| dap_value_variable(name.clone(), value))
         .collect()
+}
+
+fn dap_selected_values_contain_opaque(pause: &DebugPause, reference: u64) -> bool {
+    let contains = |value: &Value| value.opaque_value_kind().is_some();
+    match reference {
+        1 => pause.stack.iter().any(contains),
+        2 => pause.locals.iter().any(|(_, value)| contains(value)),
+        3 => pause.globals.iter().any(|(_, value)| contains(value)),
+        4 => pause.current_self.as_ref().is_some_and(contains),
+        5 => pause.tasks.iter().any(dap_task_contains_opaque),
+        reference => {
+            if let Some(task_id) = dap_task_reference_id(reference) {
+                pause
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .is_some_and(dap_task_contains_opaque)
+            } else if let Some((task_id, frame_index)) = dap_task_frame_reference_id(reference) {
+                pause
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .and_then(|task| task.frames.get(frame_index))
+                    .is_some_and(dap_task_frame_contains_opaque)
+            } else {
+                false
+            }
+        }
+    }
+}
+
+fn dap_task_contains_opaque(task: &DebugTask) -> bool {
+    task.frames.iter().any(dap_task_frame_contains_opaque)
+}
+
+fn dap_task_frame_contains_opaque(frame: &DebugTaskFrame) -> bool {
+    frame
+        .stack
+        .iter()
+        .any(|value| value.opaque_value_kind().is_some())
+        || frame
+            .locals
+            .iter()
+            .any(|(_, value)| value.opaque_value_kind().is_some())
+        || frame
+            .current_self
+            .as_ref()
+            .is_some_and(|value| value.opaque_value_kind().is_some())
 }
 
 fn dap_value_variable(name: String, value: &Value) -> serde_json::Value {
@@ -10998,7 +11112,41 @@ fn collect_rco_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
+
+    fn nested_deferred_credentials_for_dap(sentinel: &str) -> Value {
+        Value::Array(ricochet_vm::ArrayValue::from(vec![
+            Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(
+                ricochet_secrets::DeferredSecretSource::literal(sentinel.to_string())
+                    .expect("synthetic literal"),
+            )),
+        ]))
+    }
+
+    fn dap_variables_response(pause: DebugPause, reference: u64) -> serde_json::Value {
+        let request = json!({
+            "seq": 77,
+            "type": "request",
+            "command": "variables",
+            "arguments": { "variablesReference": reference },
+        });
+        let mut adapter = DapAdapter {
+            reader: Cursor::new(Vec::<u8>::new()),
+            writer: Vec::<u8>::new(),
+            seq: 1,
+            last_pause: Some(pause),
+            pause_error: None,
+        };
+        adapter
+            .send_variables_response(&request)
+            .expect("variables response should be written");
+        let mut reader = io::BufReader::new(Cursor::new(adapter.writer));
+        read_dap_message(&mut reader)
+            .expect("DAP response should parse")
+            .expect("DAP response should be present")
+    }
 
     fn debug_pause_with_task(frames: Vec<DebugTaskFrame>) -> DebugPause {
         DebugPause {
@@ -11078,6 +11226,54 @@ mod tests {
         assert!(variables.iter().any(
             |variable| variable["name"] == "self" && variable["value"] == "String(\"worker\")"
         ));
+    }
+
+    #[test]
+    fn dap_variables_response_rejects_opaque_pause_and_task_scopes_without_metadata() {
+        let sentinel = "synthetic-real-dap-secret-that-must-not-render";
+        let nested = nested_deferred_credentials_for_dap(sentinel);
+
+        let mut globals_pause = debug_pause_with_task(Vec::new());
+        globals_pause
+            .globals
+            .push(("audited_global".to_string(), nested.clone()));
+
+        let task_pause = debug_pause_with_task(vec![DebugTaskFrame {
+            frame: "<task>".to_string(),
+            source: "fixture.rco:6".to_string(),
+            opcode: "PushValue".to_string(),
+            stack: vec![nested],
+            locals: Vec::new(),
+            current_self: None,
+        }]);
+
+        for (response, forbidden_name) in [
+            (dap_variables_response(globals_pause, 3), "audited_global"),
+            (
+                dap_variables_response(task_pause, DAP_TASK_FRAME_REFERENCE_BASE),
+                "stack[0]",
+            ),
+        ] {
+            assert_eq!(response["type"], "response");
+            assert_eq!(response["command"], "variables");
+            assert_eq!(response["success"], false);
+            assert_eq!(
+                response["message"],
+                "debug adapter cannot serialize non-serializable value"
+            );
+            assert!(response.get("variables").is_none());
+            assert!(response["body"].get("variables").is_none());
+            let serialized = serde_json::to_string(&response).expect("response JSON");
+            for forbidden in [
+                sentinel,
+                forbidden_name,
+                "<http-credentials>",
+                "deferred HTTP credentials",
+                "literal",
+            ] {
+                assert!(!serialized.contains(forbidden));
+            }
+        }
     }
 
     #[test]

@@ -21,6 +21,9 @@ pub(crate) enum DebugCommand {
 }
 
 pub(crate) fn debug_value_label(value: &Value) -> String {
+    if value.opaque_value_kind().is_some() {
+        return "<non-serializable-value>".to_string();
+    }
     let debug_value = debug_value_json(value);
     debug_value
         .get("debug")
@@ -225,8 +228,11 @@ fn debug_action_label(action: DebugAction) -> &'static str {
     }
 }
 
-pub(crate) fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
-    match event {
+pub(crate) fn debug_event_json(event: &DebugEvent) -> Result<serde_json::Value> {
+    if debug_event_contains_opaque_value(event) {
+        bail!("debug protocol cannot serialize non-serializable value");
+    }
+    Ok(match event {
         DebugEvent::Paused(pause) => json!({
             "event": "paused",
             "reason": match pause.reason {
@@ -266,6 +272,31 @@ pub(crate) fn debug_event_json(event: &DebugEvent) -> serde_json::Value {
             "message": message,
             "stack": debug_stack_json(stack),
         }),
+    })
+}
+
+fn debug_event_contains_opaque_value(event: &DebugEvent) -> bool {
+    let contains = |value: &Value| value.opaque_value_kind().is_some();
+    match event {
+        DebugEvent::Paused(pause) => {
+            pause.stack.iter().any(contains)
+                || pause.locals.iter().any(|(_, value)| contains(value))
+                || pause.globals.iter().any(|(_, value)| contains(value))
+                || pause.current_self.as_ref().is_some_and(contains)
+                || pause.tasks.iter().any(|task| {
+                    task.frames.iter().any(|frame| {
+                        frame.stack.iter().any(contains)
+                            || frame.locals.iter().any(|(_, value)| contains(value))
+                            || frame.current_self.as_ref().is_some_and(contains)
+                    })
+                })
+        }
+        DebugEvent::Instruction {
+            stack_before,
+            stack_after,
+            ..
+        } => stack_before.iter().any(contains) || stack_after.iter().any(contains),
+        DebugEvent::Fault { stack, .. } => stack.iter().any(contains),
     }
 }
 
@@ -329,7 +360,8 @@ fn debug_value_json(value: &Value) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ricochet_vm::{DebugTask, DebugTaskFrame, Value};
+    use ricochet_secrets::{DeferredHttpCredentials, DeferredSecretSource};
+    use ricochet_vm::{ArrayValue, DebugTask, DebugTaskFrame, Value};
 
     fn running_task(frames: Vec<DebugTaskFrame>) -> DebugTask {
         DebugTask {
@@ -376,5 +408,29 @@ mod tests {
         assert_eq!(frame["locals"][0]["name"], "release_attempts");
         assert_eq!(frame["locals"][0]["value"]["debug"], "Number(0)");
         assert_eq!(frame["self"]["debug"], "String(\"worker\")");
+    }
+
+    #[test]
+    fn debug_event_json_rejects_nested_deferred_credentials_without_rendering_source_bytes() {
+        let sentinel = "synthetic-dap-secret-that-must-not-render";
+        let credentials = DeferredHttpCredentials::bearer(
+            DeferredSecretSource::literal(sentinel.to_string()).expect("synthetic literal"),
+        );
+        let value = Value::Array(ArrayValue::from(vec![Value::DeferredHttpCredentials(
+            credentials,
+        )]));
+        let event = DebugEvent::Fault {
+            frame: "<main>".to_string(),
+            message: "sanitized fixture fault".to_string(),
+            stack: vec![value.clone()],
+        };
+
+        assert_eq!(debug_value_label(&value), "<non-serializable-value>");
+        let error = debug_event_json(&event).expect_err("DAP event must be rejected");
+        assert_eq!(
+            error.to_string(),
+            "debug protocol cannot serialize non-serializable value"
+        );
+        assert!(!error.to_string().contains(sentinel));
     }
 }

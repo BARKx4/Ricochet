@@ -1,5 +1,18 @@
 use crate::commands::package::{extract_embedded_mvc_bundle, packaged_mvc_data_root, MvcBundle};
 use crate::*;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+use ricochet_application::{HostDisplayLabel, SecretName};
+use ricochet_secrets::{HostTokenSource, SecretSession, SecretSessionContext, SecretSessionGuard};
+use ricochet_vm::{
+    HostSecureSessionBridge, SecretSessionBridgeError, SecretSessionBridgeErrorKind,
+    SecureSessionActionDescriptor, SecureSessionActionRequest,
+};
+
+use crate::secure_action::{SecretActionErrorKind, SecretActionId, SecretActionRegistry};
+use crate::secure_prompt::{
+    HostPromptCoordinator, NativePromptDispatcher, NativePromptOutcome, NativePromptRequest,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 struct WebviewDocument {
@@ -14,9 +27,29 @@ struct WebviewDocument {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct WebviewAction {
-    action: String,
-    callback: String,
+enum WebviewAction {
+    Ordinary {
+        action: String,
+        callback: String,
+    },
+    Secure {
+        action_id: String,
+        button_label: HostDisplayLabel,
+    },
+}
+
+#[derive(Clone)]
+struct SecureSessionActionBinding {
+    slot_name: SecretName,
+    prompt_label: HostDisplayLabel,
+    callback_word: String,
+}
+
+struct GuiSecretSessionBridge {
+    session_context: SecretSessionContext,
+    actions: SecretActionRegistry<SecureSessionActionBinding>,
+    document_generation: AtomicU64,
+    closed: AtomicBool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +71,116 @@ enum WebviewMenuItem {
         shortcut: Option<String>,
     },
     Separator,
+}
+
+impl WebviewAction {
+    fn ordinary_callback(&self, action_name: &str) -> Option<&str> {
+        match self {
+            Self::Ordinary { action, callback } if action == action_name => Some(callback),
+            _ => None,
+        }
+    }
+
+    fn is_secure(&self) -> bool {
+        matches!(self, Self::Secure { .. })
+    }
+
+    fn dom_descriptor(&self) -> serde_json::Value {
+        match self {
+            Self::Ordinary { action, callback } => json!({
+                "type": "action",
+                "action": action,
+                "callback": callback,
+            }),
+            Self::Secure {
+                action_id,
+                button_label,
+            } => json!({
+                "type": "secure_session_action",
+                "action": action_id,
+                "label": button_label.as_str(),
+            }),
+        }
+    }
+}
+
+impl GuiSecretSessionBridge {
+    fn new(session_context: SecretSessionContext, tokens: HostTokenSource) -> Self {
+        Self {
+            session_context,
+            actions: SecretActionRegistry::new(tokens),
+            document_generation: AtomicU64::new(1),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    fn current_generation(&self) -> u64 {
+        self.document_generation.load(Ordering::Acquire)
+    }
+
+    fn advance_generation(&self) -> Result<u64> {
+        if self.closed.load(Ordering::Acquire) {
+            bail!("secure session host is closed");
+        }
+        let previous = self.current_generation();
+        let next = previous
+            .checked_add(1)
+            .context("secure session document generation exhausted")?;
+        self.actions.invalidate_generation(previous);
+        self.document_generation.store(next, Ordering::Release);
+        Ok(next)
+    }
+
+    fn take_action(&self, action_id: &SecretActionId) -> Result<SecureSessionActionBinding> {
+        if self.closed.load(Ordering::Acquire) {
+            bail!("secure session host is closed");
+        }
+        self.actions
+            .take(action_id, self.current_generation())
+            .context("secure session action is unavailable")
+    }
+
+    fn close(&self) {
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            self.actions.invalidate_all();
+        }
+    }
+}
+
+impl HostSecureSessionBridge for GuiSecretSessionBridge {
+    fn session_context(&self) -> SecretSessionContext {
+        self.session_context.clone()
+    }
+
+    fn issue_action(
+        &self,
+        request: SecureSessionActionRequest,
+    ) -> Result<SecureSessionActionDescriptor, SecretSessionBridgeError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(SecretSessionBridgeError::new(
+                SecretSessionBridgeErrorKind::Closed,
+            ));
+        }
+        let binding = SecureSessionActionBinding {
+            slot_name: request.slot_name().clone(),
+            prompt_label: request.prompt_label().clone(),
+            callback_word: request.callback_word().to_string(),
+        };
+        let action_id = self
+            .actions
+            .issue(self.current_generation(), binding)
+            .map_err(|error| {
+                let kind = match error.kind() {
+                    SecretActionErrorKind::Capacity => SecretSessionBridgeErrorKind::Capacity,
+                    _ => SecretSessionBridgeErrorKind::Host,
+                };
+                SecretSessionBridgeError::new(kind)
+            })?;
+        SecureSessionActionDescriptor::from_host(
+            action_id.as_str().to_string(),
+            request.button_label().clone(),
+        )
+    }
 }
 
 impl Default for WebviewMenuBar {
@@ -243,6 +386,9 @@ fn run_gui_chunk(
     let mut session = WebviewSession::new(chunk, args, capabilities, dynamic_import_parent)?;
     session.dispatch_env_event_if_requested()?;
     if let Ok(path) = std::env::var(GUI_EXPORT_HTML_ENV) {
+        if session.has_secure_actions() {
+            bail!("secure session actions require the native callback GUI and cannot be exported");
+        }
         fs::write(&path, &session.document.html).with_context(|| {
             format!("failed to write GUI HTML export requested by {GUI_EXPORT_HTML_ENV}={path}")
         })?;
@@ -254,6 +400,13 @@ fn run_gui_chunk(
 struct WebviewSession {
     vm: Vm,
     document: WebviewDocument,
+    secret_bridge: Arc<GuiSecretSessionBridge>,
+    secret_session_guard: SecretSessionGuard,
+    #[cfg(feature = "test-host")]
+    test_secret_session: SecretSession,
+    prompt_coordinator: Arc<HostPromptCoordinator>,
+    next_prompt_ticket: u64,
+    closed: bool,
 }
 
 impl WebviewSession {
@@ -263,8 +416,28 @@ impl WebviewSession {
         capabilities: CapabilityOptions,
         dynamic_import_parent: PathBuf,
     ) -> Result<Self> {
+        Self::new_configured(chunk, args, capabilities, dynamic_import_parent, |_| {})
+    }
+
+    fn new_configured(
+        chunk: &Chunk,
+        args: Vec<String>,
+        capabilities: CapabilityOptions,
+        dynamic_import_parent: PathBuf,
+        configure_vm: impl FnOnce(&mut Vm),
+    ) -> Result<Self> {
         let mut vm = cli_vm(args, &capabilities)?;
         install_dynamic_module_loader(&mut vm, dynamic_import_parent);
+        configure_vm(&mut vm);
+        let tokens = HostTokenSource::system();
+        let (secret_session, secret_session_guard) =
+            SecretSession::create(&tokens, vm.security_domain_id())
+                .context("failed to create callback GUI secure session")?;
+        let secret_bridge = Arc::new(GuiSecretSessionBridge::new(
+            secret_session.context(),
+            tokens,
+        ));
+        vm.install_secret_session_bridge(secret_bridge.clone());
         let result = vm.run_chunk(chunk);
         print!("{}", vm.stdout());
         eprint!("{}", vm.stderr());
@@ -275,7 +448,17 @@ impl WebviewSession {
             bail!("{}", runtime_error_message(&vm, &error));
         }
         let document = webview_document_from_vm(&vm)?;
-        Ok(Self { vm, document })
+        Ok(Self {
+            vm,
+            document,
+            secret_bridge,
+            secret_session_guard,
+            #[cfg(feature = "test-host")]
+            test_secret_session: secret_session,
+            prompt_coordinator: Arc::new(HostPromptCoordinator::new()),
+            next_prompt_ticket: 1,
+            closed: false,
+        })
     }
 
     fn dispatch_env_event_if_requested(&mut self) -> Result<()> {
@@ -289,6 +472,10 @@ impl WebviewSession {
     }
 
     fn dispatch_event_json(&mut self, event_json: serde_json::Value) -> Result<&WebviewDocument> {
+        if event_json.get("type").and_then(|value| value.as_str()) == Some("secure_session_action")
+        {
+            bail!("secure session actions require the native callback GUI prompt host");
+        }
         let action_name = event_json
             .get("action")
             .and_then(|value| value.as_str())
@@ -297,14 +484,49 @@ impl WebviewSession {
             .document
             .actions
             .iter()
-            .find(|action| action.action == action_name)
+            .find_map(|action| action.ordinary_callback(action_name))
             .with_context(|| format!("GUI document has no action named {action_name:?}"))?;
-        let callback = action.callback.clone();
+        let callback = action.to_string();
+        self.secret_bridge.advance_generation()?;
+        self.dispatch_callback(&callback, json_to_ricochet_value(event_json))
+    }
 
+    fn dispatch_secure_event(
+        &mut self,
+        event_json: &serde_json::Value,
+        dispatcher: &NativePromptDispatcher,
+    ) -> Result<&WebviewDocument> {
+        let action_id = parse_secure_session_ipc(event_json)?;
+        let binding = self.secret_bridge.take_action(&action_id)?;
+        let ticket = self.next_prompt_ticket;
+        self.next_prompt_ticket = ticket
+            .checked_add(1)
+            .context("secure prompt ticket sequence exhausted")?;
+        let request = NativePromptRequest::new(
+            ticket,
+            binding.prompt_label.clone(),
+            format!(
+                "Unverified ephemeral session\ncallback-gui/{}",
+                binding.slot_name.as_str()
+            ),
+        );
+        let status = match self.prompt_coordinator.prompt(dispatcher, request) {
+            Ok(result) => complete_secure_prompt(
+                &self.secret_bridge.session_context,
+                &binding.slot_name,
+                result.into_outcome(),
+            ),
+            Err(_) => "secure_prompt_failed",
+        };
+        self.secret_bridge.advance_generation()?;
+        self.dispatch_callback(&binding.callback_word, Value::String(status.to_string()))
+    }
+
+    fn dispatch_callback(&mut self, callback: &str, payload: Value) -> Result<&WebviewDocument> {
         self.vm.push_value(self.document.state.clone());
-        self.vm.push_value(json_to_ricochet_value(event_json));
+        self.vm.push_value(payload);
         let mut chunk = Chunk::new("<gui-event>");
-        chunk.push(Op::CallWord(callback.clone()), gui_event_span());
+        chunk.push(Op::CallWord(callback.to_string()), gui_event_span());
         let result = self.vm.run_chunk(&chunk);
         print!("{}", self.vm.stdout());
         eprint!("{}", self.vm.stderr());
@@ -319,6 +541,159 @@ impl WebviewSession {
         })?;
         Ok(&self.document)
     }
+
+    fn has_secure_actions(&self) -> bool {
+        self.document.actions.iter().any(WebviewAction::is_secure)
+    }
+
+    fn close(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        self.secret_bridge.close();
+        self.vm.clear_secret_session_bridge();
+        self.secret_session_guard.close();
+    }
+}
+
+/// Public only with the crate's `test-host` feature. This composes the real
+/// callback GUI session with a synthetic local executor without opening that
+/// executor replacement seam in production builds.
+#[cfg(feature = "test-host")]
+pub mod test_host {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct CallbackGuiSnapshot {
+        pub dom: String,
+        pub state: serde_json::Value,
+        pub secure_action_ids: Vec<String>,
+        pub stdout: String,
+        pub stderr: String,
+        pub debug: String,
+        pub image: String,
+        pub dap: String,
+    }
+
+    pub struct CallbackGuiTestHost {
+        session: WebviewSession,
+    }
+
+    impl CallbackGuiTestHost {
+        pub fn new(
+            chunk: &Chunk,
+            executor: ricochet_secrets::SecretsHttpExecutor,
+            destination: DestinationGrant,
+        ) -> Result<Self> {
+            let host = destination.host().to_string();
+            let session = WebviewSession::new_configured(
+                chunk,
+                Vec::new(),
+                CapabilityOptions::default(),
+                current_dir_for_dynamic_imports()?,
+                move |vm| {
+                    vm.set_host_capabilities(false, true);
+                    vm.set_http_allowed_hosts([host]);
+                    vm.set_http_allowed_destinations(vec![destination]);
+                    ricochet_vm::vm::test_host::install_secrets_http_executor(vm, executor);
+                },
+            )?;
+            Ok(Self { session })
+        }
+
+        pub fn snapshot(&self) -> Result<CallbackGuiSnapshot> {
+            let update = webview_document_update_script(&self.session.document)?;
+            let dom = format!("{}\n{update}", self.session.document.html);
+            let state = ricochet_value_to_json(&self.session.document.state, "$.state")?;
+            let secure_action_ids = self
+                .session
+                .document
+                .actions
+                .iter()
+                .filter_map(|action| match action {
+                    WebviewAction::Secure { action_id, .. } => Some(action_id.clone()),
+                    WebviewAction::Ordinary { .. } => None,
+                })
+                .collect();
+            let debug = format!("{:?}", self.session.vm.stack());
+            let image = match self.session.vm.to_image() {
+                Ok(image) => serde_json::to_string(&image).context("serialize test VM image")?,
+                Err(error) => error.to_string(),
+            };
+            let mut dap = self
+                .session
+                .vm
+                .stack()
+                .iter()
+                .map(crate::debug_protocol::debug_value_label)
+                .collect::<Vec<_>>();
+            if let Some(document) = self.session.vm.variable("document") {
+                dap.push(crate::debug_protocol::debug_value_label(document));
+            }
+            Ok(CallbackGuiSnapshot {
+                dom,
+                state,
+                secure_action_ids,
+                stdout: self.session.vm.stdout().to_string(),
+                stderr: self.session.vm.stderr().to_string(),
+                debug,
+                image,
+                dap: dap.join("\n"),
+            })
+        }
+
+        pub fn dispatch_secure_action(
+            &mut self,
+            action_id: &str,
+            dispatcher: &NativePromptDispatcher,
+        ) -> Result<CallbackGuiSnapshot> {
+            self.session.dispatch_secure_event(
+                &json!({
+                    "type": "secure_session_action",
+                    "action": action_id,
+                }),
+                dispatcher,
+            )?;
+            self.snapshot()
+        }
+
+        pub fn session_resolution_count(&self) -> usize {
+            self.session.test_secret_session.test_resolution_count()
+        }
+    }
+}
+
+impl Drop for WebviewSession {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+fn complete_secure_prompt(
+    context: &SecretSessionContext,
+    slot_name: &SecretName,
+    outcome: NativePromptOutcome,
+) -> &'static str {
+    match outcome {
+        NativePromptOutcome::Stored(value) => context
+            .prompt(slot_name.clone())
+            .and_then(|prompt| prompt.bind(value))
+            .map(|_| "stored")
+            .unwrap_or("secure_prompt_failed"),
+        NativePromptOutcome::Cancelled => "cancelled",
+    }
+}
+
+fn parse_secure_session_ipc(event_json: &serde_json::Value) -> Result<SecretActionId> {
+    if event_json.get("type").and_then(|value| value.as_str()) != Some("secure_session_action") {
+        bail!("GUI IPC message is not a secure session action");
+    }
+    let action_id = event_json
+        .get("action")
+        .and_then(|value| value.as_str())
+        .context("secure session action IPC is missing opaque action ID")?;
+    SecretActionId::parse(action_id).context("secure session action is unavailable")
 }
 
 fn webview_document_from_vm(vm: &Vm) -> Result<WebviewDocument> {
@@ -392,6 +767,12 @@ fn webview_actions_from_value(value: &Value) -> Result<Vec<WebviewAction>> {
 }
 
 fn webview_action_from_value(value: &Value) -> Result<WebviewAction> {
+    if let Value::SecureSessionAction(action) = value {
+        return Ok(WebviewAction::Secure {
+            action_id: action.action_id().to_string(),
+            button_label: action.button_label().clone(),
+        });
+    }
     let Value::Map(map) = value else {
         bail!("webview action entries must be maps, got {value:?}");
     };
@@ -400,7 +781,7 @@ fn webview_action_from_value(value: &Value) -> Result<WebviewAction> {
             bail!("webview action `type` must be \"action\", got {kind:?}");
         }
     }
-    Ok(WebviewAction {
+    Ok(WebviewAction::Ordinary {
         action: required_document_string(map, "action")?,
         callback: required_document_string(map, "callback")?,
     })
@@ -570,13 +951,7 @@ fn webview_document_update_script(document: &WebviewDocument) -> Result<String> 
         "actions": document
             .actions
             .iter()
-            .map(|action| {
-                json!({
-                    "type": "action",
-                    "action": action.action,
-                    "callback": action.callback,
-                })
-            })
+            .map(WebviewAction::dom_descriptor)
             .collect::<Vec<_>>(),
     });
     let json = serde_json::to_string(&payload).context("failed to encode GUI document update")?;
@@ -595,6 +970,9 @@ enum WebviewJsonVisit {
 }
 
 fn ricochet_value_to_json(value: &Value, root: &str) -> Result<serde_json::Value> {
+    if value.opaque_value_kind().is_some() {
+        bail!("webview state cannot encode non-serializable value as JSON at {root}");
+    }
     ricochet_value_to_json_inner(value, root, &mut Vec::new())
 }
 
@@ -830,6 +1208,144 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn secure_session_action_document_and_ipc_expose_only_host_id_and_frozen_label() {
+        let action = WebviewAction::Secure {
+            action_id: "ab".repeat(32),
+            button_label: HostDisplayLabel::parse("Store session key").expect("label"),
+        };
+        let document = WebviewDocument {
+            title: "Secure fixture".to_string(),
+            body: "<p>Native credential prompt only.</p>".to_string(),
+            html: "<p>Native credential prompt only.</p>".to_string(),
+            width: 800,
+            height: 600,
+            state: Value::Map(BTreeMap::new().into()),
+            actions: vec![action],
+            menus: WebviewMenuBar::default(),
+        };
+        let script = webview_document_update_script(&document).expect("secure document update");
+        assert!(script.contains(&"ab".repeat(32)));
+        assert!(script.contains("Store session key"));
+        for forbidden in [
+            "provider.openai",
+            "after_secret",
+            "prompt_label",
+            "callback",
+            "password",
+            "secret_session_put",
+        ] {
+            assert!(!script.contains(forbidden), "DOM leaked {forbidden:?}");
+        }
+
+        let parsed = parse_secure_session_ipc(&json!({
+            "type": "secure_session_action",
+            "action": "ab".repeat(32),
+            "slot": "attacker.slot",
+            "label": "attacker label",
+            "operation": "persistent_put",
+            "state": {"secret": "attacker plaintext"},
+        }))
+        .expect("host accepts only the opaque action ID field");
+        assert_eq!(parsed.as_str(), "ab".repeat(32));
+    }
+
+    #[test]
+    fn secure_session_action_completion_sanitizes_callback_and_cancel_does_not_bind() {
+        let tokens = HostTokenSource::system();
+        let domain = ricochet_secrets::SecurityDomainId::generate(&tokens).expect("domain");
+        let (session, _guard) = SecretSession::create(&tokens, domain).expect("session");
+        let context = session.context();
+        let openai = SecretName::parse("provider.openai").expect("slot");
+        let anthropic = SecretName::parse("provider.anthropic").expect("slot");
+        let gemini = SecretName::parse("provider.gemini").expect("slot");
+
+        let stored = complete_secure_prompt(
+            &context,
+            &openai,
+            NativePromptOutcome::Stored(zeroize::Zeroizing::new(
+                "synthetic-native-only".to_string(),
+            )),
+        );
+        assert_eq!(stored, "stored");
+        assert!(context.present(&openai).expect("presence"));
+        assert!(!stored.contains("synthetic-native-only"));
+
+        let cancelled =
+            complete_secure_prompt(&context, &anthropic, NativePromptOutcome::Cancelled);
+        assert_eq!(cancelled, "cancelled");
+        assert!(!context.present(&anthropic).expect("presence"));
+
+        let failed = crate::secure_prompt::NativePromptError::new(
+            crate::secure_prompt::NativePromptErrorKind::NativeControl,
+        )
+        .stable_code();
+        assert_eq!(failed, "secure_prompt_failed");
+        assert!(!failed.contains("native diagnostic that must not escape"));
+        assert!(!context.present(&gemini).expect("presence"));
+    }
+
+    #[test]
+    fn callback_document_rejects_nested_credentials_and_native_session_bytes_never_reach_dom() {
+        let sentinel = "synthetic-dom-secret-that-must-not-render";
+        let credentials = ricochet_secrets::DeferredHttpCredentials::bearer(
+            ricochet_secrets::DeferredSecretSource::literal(sentinel.to_string())
+                .expect("synthetic literal"),
+        );
+        let state = Value::Array(ricochet_vm::ArrayValue::from(vec![
+            Value::DeferredHttpCredentials(credentials),
+        ]));
+        let rejected = WebviewDocument {
+            title: "Rejected credential fixture".to_string(),
+            body: "<p>Native credential prompt only.</p>".to_string(),
+            html: "<p>Native credential prompt only.</p>".to_string(),
+            width: 800,
+            height: 600,
+            state,
+            actions: Vec::new(),
+            menus: WebviewMenuBar::default(),
+        };
+        let error = webview_document_update_script(&rejected)
+            .expect_err("callback document must reject nested credentials");
+        assert_eq!(
+            error.to_string(),
+            "webview state cannot encode non-serializable value as JSON at $.state"
+        );
+        assert!(!error.to_string().contains(sentinel));
+
+        let tokens = HostTokenSource::system();
+        let domain = ricochet_secrets::SecurityDomainId::generate(&tokens).expect("domain");
+        let (session, _guard) = SecretSession::create(&tokens, domain).expect("session");
+        let context = session.context();
+        let slot = SecretName::parse("audit.dom").expect("slot");
+        assert_eq!(
+            complete_secure_prompt(
+                &context,
+                &slot,
+                NativePromptOutcome::Stored(zeroize::Zeroizing::new(sentinel.to_string())),
+            ),
+            "stored"
+        );
+        let document = WebviewDocument {
+            title: "Opaque secure action".to_string(),
+            body: "<p>Native credential prompt only.</p>".to_string(),
+            html: "<p>Native credential prompt only.</p>".to_string(),
+            width: 800,
+            height: 600,
+            state: Value::Map(BTreeMap::new().into()),
+            actions: vec![WebviewAction::Secure {
+                action_id: "cd".repeat(32),
+                button_label: HostDisplayLabel::parse("Replace session credential")
+                    .expect("button label"),
+            }],
+            menus: WebviewMenuBar::default(),
+        };
+        let script = webview_document_update_script(&document).expect("opaque secure document");
+        assert!(!script.contains(sentinel));
+        assert!(!script.to_ascii_lowercase().contains("password"));
+        assert!(!script.contains("audit.dom"));
+    }
 }
 
 fn js_json_literal(json: &str) -> String {
@@ -851,6 +1367,11 @@ fn js_json_literal(json: &str) -> String {
 fn open_native_webview(session: WebviewSession) -> Result<()> {
     #[cfg(target_os = "linux")]
     if linux_external_browser_requested() {
+        if session.has_secure_actions() {
+            bail!(
+                "secure session actions require the native callback GUI and cannot use the external-browser fallback"
+            );
+        }
         let path = write_linux_webview_document(&session.document)?;
         open_linux_gui_target(path.as_os_str())?;
         eprintln!(
@@ -988,11 +1509,23 @@ fn mvc_webview_navigation_decision(app_url: &str, target: &str) -> NativeWebview
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn callback_webview_navigation_destroys_bridge(
+    target: &str,
+    initial_document_navigation_seen: &AtomicBool,
+) -> bool {
+    if target.contains('#') {
+        return false;
+    }
+    initial_document_navigation_seen.swap(true, Ordering::AcqRel)
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[derive(Debug, Clone)]
 enum NativeGuiEvent {
     Ipc(String),
     Menu(String),
     OpenExternal(String),
+    InvalidateSecureSession,
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -1046,6 +1579,7 @@ fn open_platform_webview(
             let document = html.into_bytes();
             let navigation_proxy = event_loop.create_proxy();
             let ipc_proxy = event_loop.create_proxy();
+            let initial_document_navigation_seen = Arc::new(AtomicBool::new(false));
             WebViewBuilder::new()
                 .with_custom_protocol(
                     RICOCHET_CALLBACK_WEBVIEW_SCHEME.to_string(),
@@ -1074,11 +1608,17 @@ fn open_platform_webview(
                 )
                 .with_url(RICOCHET_CALLBACK_WEBVIEW_URL)
                 .with_navigation_handler(move |target| {
-                    apply_native_navigation_decision(
-                        &navigation_proxy,
-                        &target,
-                        callback_webview_navigation_decision(&target),
-                    )
+                    let decision = callback_webview_navigation_decision(&target);
+                    if decision == NativeWebviewNavigationDecision::Allow
+                        && callback_webview_navigation_destroys_bridge(
+                            &target,
+                            &initial_document_navigation_seen,
+                        )
+                    {
+                        let _ =
+                            navigation_proxy.send_event(NativeGuiEvent::InvalidateSecureSession);
+                    }
+                    apply_native_navigation_decision(&navigation_proxy, &target, decision)
                 })
                 .with_ipc_handler(move |request| {
                     let uri = request.uri().to_string();
@@ -1116,7 +1656,12 @@ fn open_platform_webview(
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } => {
+                if let Some(session) = session.as_mut() {
+                    session.close();
+                }
+                *control_flow = ControlFlow::Exit;
+            }
             Event::UserEvent(NativeGuiEvent::Ipc(message)) => {
                 if let Err(error) =
                     dispatch_native_gui_ipc(&mut session, &webview, &window, &message)
@@ -1126,6 +1671,9 @@ fn open_platform_webview(
             }
             Event::UserEvent(NativeGuiEvent::Menu(action)) => {
                 if action == RICOCHET_QUIT_ACTION {
+                    if let Some(session) = session.as_mut() {
+                        session.close();
+                    }
                     *control_flow = ControlFlow::Exit;
                 } else if action != RICOCHET_COPY_ACTION && action != RICOCHET_PASTE_ACTION {
                     if let Err(error) =
@@ -1138,6 +1686,11 @@ fn open_platform_webview(
             Event::UserEvent(NativeGuiEvent::OpenExternal(url)) => {
                 if let Err(error) = ricochet_vm::open_external_url(&url) {
                     eprintln!("Ricochet GUI could not open external URL {url:?}: {error}");
+                }
+            }
+            Event::UserEvent(NativeGuiEvent::InvalidateSecureSession) => {
+                if let Some(session) = session.as_mut() {
+                    session.close();
                 }
             }
             _ => {}
@@ -1204,13 +1757,36 @@ fn dispatch_native_gui_event(
     let session = session
         .as_mut()
         .context("this GUI host does not accept Ricochet callback events")?;
-    let document = session.dispatch_event_json(event_json)?;
+    let document = if event_json.get("type").and_then(|value| value.as_str())
+        == Some("secure_session_action")
+    {
+        let dispatcher = NativePromptDispatcher::platform(native_prompt_parent(window));
+        let result = session.dispatch_secure_event(&event_json, &dispatcher);
+        window.set_focus();
+        result?
+    } else {
+        session.dispatch_event_json(event_json)?
+    };
     window.set_title(&document.title);
     let script = webview_document_update_script(document)?;
     webview
         .evaluate_script(&script)
         .context("failed to update native WebView document")?;
     Ok(())
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn native_prompt_parent(window: &tao::window::Window) -> crate::secure_prompt::NativePromptParent {
+    #[cfg(windows)]
+    {
+        use tao::platform::windows::WindowExtWindows;
+        crate::secure_prompt::NativePromptParent::from_raw(window.hwnd())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        crate::secure_prompt::NativePromptParent::from_raw(0)
+    }
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

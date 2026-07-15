@@ -1,0 +1,333 @@
+use std::fmt;
+use std::sync::Arc;
+
+use ricochet_application::SecretName;
+use zeroize::Zeroizing;
+
+use crate::SecretRef;
+
+pub struct DeferredSecretSource(DeferredSecretSourceValue);
+
+enum DeferredSecretSourceValue {
+    Environment {
+        name: SecretName,
+        environment_key: String,
+    },
+    LegacyEnvironment {
+        name: LegacyEnvironmentVariableName,
+    },
+    Literal {
+        value: Zeroizing<String>,
+    },
+    Opaque {
+        reference: SecretRef,
+    },
+}
+
+struct LegacyEnvironmentVariableName(String);
+
+pub struct DeferredSecretSourceError;
+
+pub struct DeferredHttpCredentials(Arc<DeferredHttpCredentialsStorage>);
+
+struct DeferredHttpCredentialsStorage {
+    credentials: [DeferredHttpCredential; 1],
+}
+
+enum DeferredHttpCredential {
+    Bearer(DeferredSecretSource),
+}
+
+impl DeferredSecretSource {
+    pub fn environment(name: SecretName) -> Self {
+        let environment_key = serde_json::to_value(&name)
+            .expect("validated secret names should serialize")
+            .as_str()
+            .expect("validated secret names should serialize as strings")
+            .to_string();
+        Self(DeferredSecretSourceValue::Environment {
+            name,
+            environment_key,
+        })
+    }
+
+    pub fn legacy_environment(name: &str) -> Option<Self> {
+        let name = LegacyEnvironmentVariableName::parse(name)?;
+        Some(Self(DeferredSecretSourceValue::LegacyEnvironment { name }))
+    }
+
+    pub fn literal(value: String) -> Result<Self, DeferredSecretSourceError> {
+        if value.is_empty() {
+            return Err(DeferredSecretSourceError);
+        }
+        Ok(Self(DeferredSecretSourceValue::Literal {
+            value: Zeroizing::new(value),
+        }))
+    }
+
+    pub fn opaque(reference: SecretRef) -> Self {
+        Self(DeferredSecretSourceValue::Opaque { reference })
+    }
+}
+
+impl LegacyEnvironmentVariableName {
+    fn parse(value: &str) -> Option<Self> {
+        let bytes = value.as_bytes();
+        if !(1..=128).contains(&bytes.len())
+            || !(bytes[0].is_ascii_alphabetic() || bytes[0] == b'_')
+            || !bytes
+                .iter()
+                .skip(1)
+                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            return None;
+        }
+        Some(Self(value.to_string()))
+    }
+}
+
+pub(crate) enum DeferredSecretSourceRef<'a> {
+    Environment { environment_key: &'a str },
+    Literal { value: &'a str },
+    Opaque { reference: &'a SecretRef },
+}
+
+impl DeferredSecretSource {
+    pub(crate) fn source_ref(&self) -> DeferredSecretSourceRef<'_> {
+        match &self.0 {
+            DeferredSecretSourceValue::Environment {
+                environment_key, ..
+            } => DeferredSecretSourceRef::Environment { environment_key },
+            DeferredSecretSourceValue::LegacyEnvironment { name } => {
+                DeferredSecretSourceRef::Environment {
+                    environment_key: &name.0,
+                }
+            }
+            DeferredSecretSourceValue::Literal { value } => {
+                DeferredSecretSourceRef::Literal { value }
+            }
+            DeferredSecretSourceValue::Opaque { reference } => {
+                DeferredSecretSourceRef::Opaque { reference }
+            }
+        }
+    }
+}
+
+impl fmt::Debug for DeferredSecretSourceValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Environment {
+                name,
+                environment_key,
+            } => {
+                let _ = name;
+                let _ = environment_key;
+                formatter.write_str("<environment-secret-source>")
+            }
+            Self::LegacyEnvironment { name } => {
+                let _ = name;
+                formatter.write_str("<environment-secret-source>")
+            }
+            Self::Literal { value } => {
+                let _ = value;
+                formatter.write_str("<literal-secret-source>")
+            }
+            Self::Opaque { reference } => {
+                let _ = reference;
+                formatter.write_str("<opaque-secret-source>")
+            }
+        }
+    }
+}
+
+impl fmt::Display for DeferredSecretSourceValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, formatter)
+    }
+}
+
+impl fmt::Debug for DeferredSecretSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let _ = &self.0;
+        formatter.write_str("<deferred-secret-source>")
+    }
+}
+
+impl fmt::Display for DeferredSecretSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<deferred-secret-source>")
+    }
+}
+
+impl fmt::Debug for DeferredSecretSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DeferredSecretSourceError")
+    }
+}
+
+impl fmt::Display for DeferredSecretSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("secret literal must not be empty")
+    }
+}
+
+impl std::error::Error for DeferredSecretSourceError {}
+
+impl DeferredHttpCredentials {
+    pub fn bearer(source: DeferredSecretSource) -> Self {
+        Self(Arc::new(DeferredHttpCredentialsStorage {
+            credentials: [DeferredHttpCredential::Bearer(source)],
+        }))
+    }
+
+    pub(crate) fn bearer_source(&self) -> &DeferredSecretSource {
+        match &self.0.credentials[0] {
+            DeferredHttpCredential::Bearer(source) => source,
+        }
+    }
+}
+
+impl fmt::Debug for DeferredHttpCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bearer(source) => {
+                let _ = source;
+                formatter.write_str("<bearer-http-credential>")
+            }
+        }
+    }
+}
+
+impl fmt::Display for DeferredHttpCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, formatter)
+    }
+}
+
+impl fmt::Debug for DeferredHttpCredentialsStorage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let _ = &self.credentials;
+        formatter.write_str("<http-credentials-storage>")
+    }
+}
+
+impl fmt::Display for DeferredHttpCredentialsStorage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, formatter)
+    }
+}
+
+impl Clone for DeferredHttpCredentials {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl PartialEq for DeferredHttpCredentials {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl fmt::Debug for DeferredHttpCredentials {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<http-credentials>")
+    }
+}
+
+impl fmt::Display for DeferredHttpCredentials {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<http-credentials>")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ricochet_application::SecretName;
+
+    use super::*;
+
+    #[test]
+    fn deferred_secret_sources_use_strict_constructors_and_redacted_formatting() {
+        let environment = DeferredSecretSource::environment(
+            SecretName::parse("provider.api-key").expect("fixture name should parse"),
+        );
+        let literal = DeferredSecretSource::literal("synthetic-secret-value".to_string())
+            .expect("non-empty literal should be accepted");
+
+        match &literal.0 {
+            DeferredSecretSourceValue::Literal { value } => {
+                let _: &zeroize::Zeroizing<String> = value;
+                assert_eq!(value.as_str(), "synthetic-secret-value");
+            }
+            DeferredSecretSourceValue::Environment { .. }
+            | DeferredSecretSourceValue::LegacyEnvironment { .. }
+            | DeferredSecretSourceValue::Opaque { .. } => {
+                panic!("literal constructor should store a literal source")
+            }
+        }
+
+        assert!(!format!("{environment}").contains("provider"));
+        assert!(!format!("{environment:?}").contains("provider"));
+        assert!(!format!("{literal}").contains("synthetic"));
+        assert!(!format!("{literal:?}").contains("synthetic"));
+        assert!(DeferredSecretSource::literal(String::new()).is_err());
+    }
+
+    #[test]
+    fn legacy_environment_names_are_portable_bounded_exact_and_redacted() {
+        for valid in [
+            "A".to_string(),
+            "_RICOCHET2".to_string(),
+            "OPENAI_API_KEY".to_string(),
+            "Mixed_Case_3".to_string(),
+            "A".repeat(128),
+        ] {
+            let source = DeferredSecretSource::legacy_environment(&valid)
+                .expect("portable environment name should parse");
+            let DeferredSecretSourceRef::Environment { environment_key } = source.source_ref()
+            else {
+                panic!("legacy environment constructor should retain an environment source")
+            };
+            assert_eq!(environment_key, valid);
+            assert!(!format!("{source}").contains(&valid));
+            assert!(!format!("{source:?}").contains(&valid));
+        }
+
+        for invalid in [
+            String::new(),
+            "9OPENAI_API_KEY".to_string(),
+            "OPENAI-API-KEY".to_string(),
+            "OPENAI.API.KEY".to_string(),
+            "OPENAI=API_KEY".to_string(),
+            "OPENAI\0API_KEY".to_string(),
+            "OPENAI_\u{00c9}".to_string(),
+            "A".repeat(129),
+        ] {
+            assert!(
+                DeferredSecretSource::legacy_environment(&invalid).is_none(),
+                "non-portable environment name should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn deferred_http_credentials_are_shared_opaque_and_exactly_formatted() {
+        let source = DeferredSecretSource::literal("synthetic-secret-value".to_string())
+            .expect("non-empty literal should be accepted");
+        let credentials = DeferredHttpCredentials::bearer(source);
+        let clone = credentials.clone();
+        let separate = DeferredHttpCredentials::bearer(
+            DeferredSecretSource::literal("synthetic-secret-value".to_string())
+                .expect("non-empty literal should be accepted"),
+        );
+
+        assert_eq!(format!("{credentials}"), "<http-credentials>");
+        assert_eq!(format!("{credentials:?}"), "<http-credentials>");
+        assert_eq!(credentials, clone, "clones should share opaque storage");
+        assert_ne!(
+            credentials, separate,
+            "separate credentials should compare by storage identity"
+        );
+    }
+}

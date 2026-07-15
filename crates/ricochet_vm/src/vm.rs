@@ -10,6 +10,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
+use ricochet_sandbox::DestinationGrant;
+use ricochet_secrets::{
+    EnvironmentCredentialPolicy, HostTokenSource, SecretHttpPolicySnapshot, SecretsHttpExecutor,
+    SecurityDomainId,
+};
 use thiserror::Error;
 
 use crate::approval_runtime::ApprovalRegistry;
@@ -27,7 +32,7 @@ use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
-use crate::runtime_state::{HostRuntimeState, SharedRuntimeState};
+use crate::runtime_state::{HostRuntimeState, HostSecureSessionBridge, SharedRuntimeState};
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
@@ -221,6 +226,10 @@ pub struct Vm {
     filesystem_writes_enabled: bool,
     http_enabled: bool,
     http_allowed_hosts: Option<BTreeSet<String>>,
+    http_allowed_destinations: BTreeSet<DestinationGrant>,
+    secrets_http_executor: SecretsHttpExecutor,
+    security_domain_id: SecurityDomainId,
+    pub(super) secret_session_bridge: Option<Arc<dyn HostSecureSessionBridge>>,
     http_stream_registry: HttpStreamRegistry,
     upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
@@ -289,6 +298,11 @@ impl Default for Vm {
             filesystem_writes_enabled: false,
             http_enabled: false,
             http_allowed_hosts: None,
+            http_allowed_destinations: BTreeSet::new(),
+            secrets_http_executor: SecretsHttpExecutor::new(),
+            security_domain_id: SecurityDomainId::generate(&HostTokenSource::system())
+                .expect("secure VM security-domain token generation failed"),
+            secret_session_bridge: None,
             http_stream_registry: HttpStreamRegistry::default(),
             upload_stream_registry: UploadStreamRegistry::default(),
             socket_enabled: false,
@@ -588,6 +602,10 @@ fn run_task_to_completion(
         filesystem_writes_enabled: host_runtime.filesystem_writes_enabled,
         http_enabled: host_runtime.http_enabled,
         http_allowed_hosts: host_runtime.http_allowed_hosts,
+        http_allowed_destinations: shared_runtime.http_allowed_destinations,
+        secrets_http_executor: shared_runtime.secrets_http_executor,
+        security_domain_id: shared_runtime.security_domain_id,
+        secret_session_bridge: shared_runtime.secret_session_bridge,
         http_stream_registry: shared_runtime.http_stream_registry,
         upload_stream_registry: shared_runtime.upload_stream_registry,
         socket_enabled: host_runtime.socket_enabled,
@@ -975,8 +993,56 @@ impl Vm {
         );
     }
 
+    pub fn set_http_allowed_destinations(&mut self, destinations: Vec<DestinationGrant>) {
+        self.http_allowed_destinations = destinations.into_iter().collect();
+    }
+
+    pub fn http_destination_allowed(&self, host: &str, port: u16) -> bool {
+        DestinationGrant::new(host, port)
+            .is_ok_and(|destination| self.http_allowed_destinations.contains(&destination))
+    }
+
+    pub(crate) fn secret_http_policy_snapshot(&self) -> SecretHttpPolicySnapshot {
+        let policy = SecretHttpPolicySnapshot::new(
+            self.http_enabled,
+            self.http_allowed_hosts.clone(),
+            self.http_allowed_destinations.clone(),
+            EnvironmentCredentialPolicy::new(
+                self.environment_enabled,
+                self.environment_allowed_names.clone(),
+            ),
+        )
+        .with_security_domain(self.security_domain_id.clone());
+        match &self.secret_session_bridge {
+            Some(bridge) => policy
+                .with_secret_session(bridge.session_context(), self.security_domain_id.clone()),
+            None => policy,
+        }
+    }
+
+    pub(crate) fn secrets_http_executor(&self) -> SecretsHttpExecutor {
+        self.secrets_http_executor.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_secrets_http_executor_for_test(&mut self, executor: SecretsHttpExecutor) {
+        self.secrets_http_executor = executor;
+    }
+
     pub fn set_webview_enabled(&mut self, enabled: bool) {
         self.webview_enabled = enabled;
+    }
+
+    pub fn security_domain_id(&self) -> SecurityDomainId {
+        self.security_domain_id.clone()
+    }
+
+    pub fn install_secret_session_bridge(&mut self, bridge: Arc<dyn HostSecureSessionBridge>) {
+        self.secret_session_bridge = Some(bridge);
+    }
+
+    pub fn clear_secret_session_bridge(&mut self) {
+        self.secret_session_bridge = None;
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1890,6 +1956,8 @@ impl Vm {
             "secret_env" => self.call_secret_env(word),
             "secret_literal" => self.call_secret_literal(word),
             "secret_resolve" => self.call_secret_resolve(word),
+            "secret_session_get" => self.call_secret_session_get(word),
+            "secret_session_present?" => self.call_secret_session_present(word),
             "password_hash" => self.call_password_hash(word),
             "password_verify" => self.call_password_verify(word),
             "http_request_new" => self.call_http_request_new(word),
@@ -1998,6 +2066,7 @@ impl Vm {
             "webview_action" => {
                 self.call_capability_method_word(word, Capability::Webview, "action")
             }
+            "webview_secure_session_action" => self.call_webview_secure_session_action(word),
             "webview_input" => self.call_capability_method_word(word, Capability::Webview, "input"),
             "webview_link" => self.call_capability_method_word(word, Capability::Webview, "link"),
             "webview_container" => {
@@ -2913,6 +2982,14 @@ impl Vm {
                 )
             })
             .unwrap_or(Value::Nil);
+        let http_allowed_destinations = Value::Array(
+            self.http_allowed_destinations
+                .iter()
+                .map(ToString::to_string)
+                .map(Value::String)
+                .collect::<Vec<_>>()
+                .into(),
+        );
         let socket_allowed_hosts = self
             .socket_allowed_hosts
             .as_ref()
@@ -2984,6 +3061,10 @@ impl Vm {
                         BTreeMap::from([
                             ("enabled".to_string(), Value::Bool(self.http_enabled)),
                             ("allowed_hosts".to_string(), http_allowed_hosts),
+                            (
+                                "allowed_destinations".to_string(),
+                                http_allowed_destinations,
+                            ),
                             (
                                 "streams".to_string(),
                                 Value::Number(self.http_stream_registry.len() as i64),
@@ -3724,6 +3805,10 @@ impl Vm {
 
     fn shared_runtime_state(&self) -> SharedRuntimeState {
         SharedRuntimeState {
+            security_domain_id: self.security_domain_id.clone(),
+            secret_session_bridge: self.secret_session_bridge.clone(),
+            http_allowed_destinations: self.http_allowed_destinations.clone(),
+            secrets_http_executor: self.secrets_http_executor.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
             upload_stream_registry: self.upload_stream_registry.clone(),
             tcp_socket_registry: self.tcp_socket_registry.clone(),
@@ -4372,8 +4457,13 @@ impl Vm {
 
     fn call_equals(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
+        if let Some(error) = opaque_equality_error(word, &left, &right) {
+            self.stack = stack_before;
+            return Err(error);
+        }
         let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
         self.stack.push(Value::Bool(equal));
 
@@ -4382,8 +4472,13 @@ impl Vm {
 
     fn call_not_equals(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
+        if let Some(error) = opaque_equality_error(word, &left, &right) {
+            self.stack = stack_before;
+            return Err(error);
+        }
         let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
         self.stack.push(Value::Bool(!equal));
 
@@ -4395,6 +4490,11 @@ impl Vm {
         let stack_before = self.stack.clone();
         let expected = self.pop_unchecked();
         let actual = self.pop_unchecked();
+
+        if let Some(error) = opaque_equality_error(word, &actual, &expected) {
+            self.stack = stack_before;
+            return Err(error);
+        }
 
         if numeric_values_equal(&actual, &expected).unwrap_or(actual == expected) {
             return Ok(());
@@ -4441,7 +4541,17 @@ impl Vm {
                 Ok(())
             }
             Value::Set(values) => {
-                values.insert(value);
+                if let Some(error) =
+                    opaque_equality_error(word, &Value::Set(values.clone()), &value)
+                {
+                    self.stack = stack_before;
+                    return Err(error);
+                }
+                values.insert(value).map_err(|error| VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "comparable values".to_string(),
+                    actual: error.actual().to_string(),
+                })?;
                 self.stack.push(Value::Set(values));
                 Ok(())
             }
@@ -4650,6 +4760,22 @@ impl Vm {
     }
 }
 
+/// Integration-only host controls that are unavailable from default builds.
+#[cfg(feature = "test-host")]
+pub mod test_host {
+    use ricochet_secrets::SecretsHttpExecutor;
+
+    use super::Vm;
+
+    /// Installs the synthetic executor used by local-only integration hosts.
+    ///
+    /// Keeping this outside `Vm`'s ordinary API prevents production callers
+    /// from replacing the native credential boundary.
+    pub fn install_secrets_http_executor(vm: &mut Vm, executor: SecretsHttpExecutor) {
+        vm.secrets_http_executor = executor;
+    }
+}
+
 fn module_id_from_map(word: &str, module: &MapValue) -> Result<String, VmError> {
     match module.get("type") {
         Some(Value::String(kind)) if kind == "module" => {}
@@ -4852,7 +4978,21 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
+        Value::DeferredHttpCredentials(_) => "deferred HTTP credentials",
+        Value::SecretRef(_) => "secret reference",
+        Value::SecureSessionAction(_) => "secure session action",
     }
+}
+
+fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmError> {
+    let actual = left
+        .opaque_value_kind()
+        .or_else(|| right.opaque_value_kind())?;
+    Some(VmError::TypeError {
+        word: word.to_string(),
+        expected: "comparable values".to_string(),
+        actual: actual.to_string(),
+    })
 }
 
 fn accessor_get(field: &str, receiver: &Value) -> Result<Value, VmError> {
@@ -5081,6 +5221,7 @@ mod tests {
         value::Value, workspace_runtime::WorkspaceWriteRegistry,
     };
     use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
+    use ricochet_sandbox::DestinationGrant;
 
     fn span() -> SourceSpan {
         SourceSpan {
@@ -6193,6 +6334,120 @@ mod tests {
         let mut symbol_vm = Vm::default();
         symbol_vm.run_chunk(&symbol_chunk).expect("= succeeds");
         assert_eq!(symbol_vm.stack(), &[Value::Bool(false)]);
+    }
+
+    fn deferred_http_credentials_value() -> Value {
+        let source =
+            ricochet_secrets::DeferredSecretSource::literal("synthetic-secret-value".to_string())
+                .expect("fixture should construct");
+        Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(source))
+    }
+
+    #[test]
+    fn equality_words_reject_deferred_http_credentials_before_comparison() {
+        for expected_word in ["=", "!=", "assert_equals"] {
+            let opaque = deferred_http_credentials_value();
+            let mut vm = Vm::default();
+            vm.push_value(opaque.clone());
+            vm.push_value(opaque);
+
+            let error = vm
+                .call_word(expected_word)
+                .expect_err("opaque credentials must not support language equality");
+
+            assert!(matches!(
+                error,
+                VmError::TypeError {
+                    ref word,
+                    ref expected,
+                    ref actual,
+                } if word == expected_word
+                    && expected == "comparable values"
+                    && actual == "deferred HTTP credentials"
+            ));
+        }
+    }
+
+    fn credential_bearing_request_map(secret: &str) -> MapValue {
+        let source = ricochet_secrets::DeferredSecretSource::literal(secret.to_string())
+            .expect("fixture should construct");
+        MapValue::from(BTreeMap::from([
+            (
+                "__ricochet_deferred_http_credentials_v1".to_string(),
+                Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(
+                    source,
+                )),
+            ),
+            ("method".to_string(), Value::String("POST".to_string())),
+            (
+                "url".to_string(),
+                Value::String("https://api.openai.com/v1/responses".to_string()),
+            ),
+        ]))
+    }
+
+    fn assert_nested_opaque_equality_error(word: &str, left: Value, right: Value) {
+        let mut vm = Vm::default();
+        vm.push_value(left);
+        vm.push_value(right);
+
+        let error = vm
+            .call_word(word)
+            .expect_err("nested opaque credentials must prevent language equality");
+
+        assert!(matches!(
+            error,
+            VmError::TypeError {
+                word: ref error_word,
+                ref expected,
+                ref actual,
+            } if error_word == word
+                && expected == "comparable values"
+                && actual == "deferred HTTP credentials"
+        ));
+        assert_eq!(
+            vm.stack().len(),
+            2,
+            "equality errors should restore operands"
+        );
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_in_aliased_request_maps() {
+        let request = credential_bearing_request_map("aliased-synthetic-secret");
+
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(request.clone()),
+                Value::Map(request.clone()),
+            );
+        }
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_in_separate_request_maps() {
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(credential_bearing_request_map("first-synthetic-secret")),
+                Value::Map(credential_bearing_request_map("second-synthetic-secret")),
+            );
+        }
+    }
+
+    #[test]
+    fn equality_words_reject_nested_deferred_http_credentials_through_collection_cycles() {
+        let request = credential_bearing_request_map("cyclic-synthetic-secret");
+        request.insert("!self".to_string(), Value::Map(request.clone()));
+
+        for word in ["=", "!=", "assert_equals"] {
+            assert_nested_opaque_equality_error(
+                word,
+                Value::Map(request.clone()),
+                Value::Map(request.clone()),
+            );
+        }
     }
 
     #[test]
@@ -7845,6 +8100,42 @@ mod tests {
             panic!("expected environment capability map, got {capabilities:?}");
         };
         assert_eq!(environment.get("enabled"), Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn exact_http_destination_state_is_deduplicated_and_inherited_by_spawned_tasks() {
+        let mut task = Chunk::new("test.rco");
+        task.push(Op::CallWord("runtime_capabilities".to_string()), span());
+
+        let mut chunk = Chunk::new("test.rco");
+        let task_block = chunk.push_block(task);
+        chunk.push(Op::PushBlock(task_block), span());
+        chunk.push(Op::CallWord("spawn".to_string()), span());
+
+        let unicode = DestinationGrant::parse("BÜCHER.Example.:443")
+            .expect("Unicode destination fixture should parse");
+        let canonical = DestinationGrant::parse("xn--bcher-kva.example:443")
+            .expect("canonical destination fixture should parse");
+        let mut vm = Vm::default();
+        vm.set_http_allowed_destinations(vec![unicode, canonical]);
+        vm.run_chunk(&chunk).expect("spawn succeeds");
+        vm.call_word("await").expect("await succeeds");
+
+        let [Value::Map(capabilities)] = vm.stack() else {
+            panic!("expected runtime capabilities map, got {:?}", vm.stack());
+        };
+        let Some(Value::Map(http)) = capabilities.get("http") else {
+            panic!("expected HTTP capability map, got {capabilities:?}");
+        };
+        let Some(Value::Array(destinations)) = http.get("allowed_destinations") else {
+            panic!("expected exact HTTP destination array, got {http:?}");
+        };
+        assert_eq!(
+            destinations.snapshot(),
+            vec![Value::String("xn--bcher-kva.example:443".to_string())]
+        );
+        assert!(vm.http_destination_allowed("BÜCHER.Example.", 443));
+        assert!(!vm.http_destination_allowed("xn--bcher-kva.example", 444));
     }
 
     #[test]
