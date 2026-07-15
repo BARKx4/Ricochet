@@ -15,3 +15,8 @@ ricochet_sandbox = { path = "../ricochet_sandbox" }
 reqwest = { workspace = true, features = ["http2"] }
 serde_json.workspace = true
 zeroize.workspace = true
+
+[[test]]
+name = "session_contract"
+path = "tests/session_contract.rs"
+required-features = ["test-host"]
