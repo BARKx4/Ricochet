@@ -1,0 +1,9 @@
+[package]
+name = "ricochet_secrets"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+ricochet_application = { path = "../ricochet_application" }
+zeroize.workspace = true

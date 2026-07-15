@@ -33,6 +33,7 @@ pub use process_runtime::ProcessRegistry;
 pub use pty_runtime::PtyRegistry;
 pub use regex_value::RegexValue;
 pub use result::{RicochetError, RicochetResult};
+pub use ricochet_secrets::DeferredHttpCredentials;
 pub use socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };

@@ -215,6 +215,9 @@ fn value_to_image_inner(
         Value::Task(_) => Err(non_serializable(path, "task")),
         Value::Regex(_) => Err(non_serializable(path, "regex")),
         Value::Capability(_) => Err(non_serializable(path, "capability")),
+        Value::DeferredHttpCredentials(_) => {
+            Err(non_serializable(path, "deferred HTTP credentials"))
+        }
     }
 }
 

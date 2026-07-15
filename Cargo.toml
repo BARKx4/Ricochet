@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/ricochet_application",
   "crates/ricochet_syntax",
   "crates/ricochet_bytecode",
+  "crates/ricochet_secrets",
   "crates/ricochet_vm",
   "crates/ricochet_compiler",
   "crates/ricochet_web",

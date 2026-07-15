@@ -174,6 +174,7 @@ fn ai_value_kind(value: &Value) -> &'static str {
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
+        Value::DeferredHttpCredentials(_) => "deferred HTTP credentials",
     }
 }
 

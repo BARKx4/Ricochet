@@ -4372,8 +4372,13 @@ impl Vm {
 
     fn call_equals(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
+        if let Some(error) = opaque_equality_error(word, &left, &right) {
+            self.stack = stack_before;
+            return Err(error);
+        }
         let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
         self.stack.push(Value::Bool(equal));
 
@@ -4382,8 +4387,13 @@ impl Vm {
 
     fn call_not_equals(&mut self, word: &str) -> Result<(), VmError> {
         self.ensure_stack(word, 2)?;
+        let stack_before = self.stack.clone();
         let right = self.pop_unchecked();
         let left = self.pop_unchecked();
+        if let Some(error) = opaque_equality_error(word, &left, &right) {
+            self.stack = stack_before;
+            return Err(error);
+        }
         let equal = numeric_values_equal(&left, &right).unwrap_or(left == right);
         self.stack.push(Value::Bool(!equal));
 
@@ -4395,6 +4405,11 @@ impl Vm {
         let stack_before = self.stack.clone();
         let expected = self.pop_unchecked();
         let actual = self.pop_unchecked();
+
+        if let Some(error) = opaque_equality_error(word, &actual, &expected) {
+            self.stack = stack_before;
+            return Err(error);
+        }
 
         if numeric_values_equal(&actual, &expected).unwrap_or(actual == expected) {
             return Ok(());
@@ -4852,6 +4867,21 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Result(_) => "result",
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
+        Value::DeferredHttpCredentials(_) => "deferred HTTP credentials",
+    }
+}
+
+fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmError> {
+    if matches!(left, Value::DeferredHttpCredentials(_))
+        || matches!(right, Value::DeferredHttpCredentials(_))
+    {
+        Some(VmError::TypeError {
+            word: word.to_string(),
+            expected: "comparable values".to_string(),
+            actual: "deferred HTTP credentials".to_string(),
+        })
+    } else {
+        None
     }
 }
 
@@ -6193,6 +6223,38 @@ mod tests {
         let mut symbol_vm = Vm::default();
         symbol_vm.run_chunk(&symbol_chunk).expect("= succeeds");
         assert_eq!(symbol_vm.stack(), &[Value::Bool(false)]);
+    }
+
+    fn deferred_http_credentials_value() -> Value {
+        let source =
+            ricochet_secrets::DeferredSecretSource::literal("synthetic-secret-value".to_string())
+                .expect("fixture should construct");
+        Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(source))
+    }
+
+    #[test]
+    fn equality_words_reject_deferred_http_credentials_before_comparison() {
+        for expected_word in ["=", "!=", "assert_equals"] {
+            let opaque = deferred_http_credentials_value();
+            let mut vm = Vm::default();
+            vm.push_value(opaque.clone());
+            vm.push_value(opaque);
+
+            let error = vm
+                .call_word(expected_word)
+                .expect_err("opaque credentials must not support language equality");
+
+            assert!(matches!(
+                error,
+                VmError::TypeError {
+                    ref word,
+                    ref expected,
+                    ref actual,
+                } if word == expected_word
+                    && expected == "comparable values"
+                    && actual == "deferred HTTP credentials"
+            ));
+        }
     }
 
     #[test]

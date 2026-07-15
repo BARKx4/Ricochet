@@ -28,7 +28,9 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use regex::Match as RegexMatch;
+use ricochet_application::SecretName;
 use ricochet_bytecode::Chunk;
+use ricochet_secrets::{DeferredHttpCredentials, DeferredSecretSource};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
@@ -84,6 +86,7 @@ const APPROVAL_DEFAULT_TTL_MS: i64 = 10 * 60 * 1000;
 const APPROVAL_MAX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const PASSWORD_MAX_BYTES: usize = 4096;
 const I64_FLOAT_UPPER_BOUND_EXCLUSIVE: f64 = 9_223_372_036_854_775_808.0;
+const DEFERRED_HTTP_CREDENTIALS_FIELD: &str = "__ricochet_deferred_http_credentials_v1";
 
 #[cfg(windows)]
 fn configure_process_window(command: &mut Command) {
@@ -1640,6 +1643,9 @@ impl Vm {
 
     pub(super) fn call_type(&mut self, word: &str) -> Result<(), VmError> {
         let value = self.pop(word)?;
+        if matches!(value, Value::DeferredHttpCredentials(_)) {
+            return Err(method_type_error(word, "language value", &value));
+        }
         self.stack
             .push(Value::String(value_kind(&value).to_string()));
         Ok(())
@@ -1665,6 +1671,9 @@ impl Vm {
             Value::Result(_) => "Result".to_string(),
             Value::Regex(_) => "Regex".to_string(),
             Value::Capability(_) => "Capability".to_string(),
+            Value::DeferredHttpCredentials(_) => {
+                return Err(method_type_error(word, "language value", &value));
+            }
         };
         self.stack.push(Value::Class(class_name));
         Ok(())
@@ -2104,8 +2113,8 @@ impl Vm {
 
     pub(super) fn call_http_bearer_auth(&mut self, word: &str) -> Result<(), VmError> {
         let stack_before = self.stack.clone();
-        let token = match self.pop_string(word, "bearer token string") {
-            Ok(token) => token,
+        let credential = match self.pop(word) {
+            Ok(credential) => credential,
             Err(error) => {
                 self.stack = stack_before;
                 return Err(error);
@@ -2118,18 +2127,62 @@ impl Vm {
                 return Err(error);
             }
         };
-        if token.is_empty() {
-            self.stack.push(Value::result_err(
-                "HttpRequestError",
-                "bearer token must not be empty",
-            ));
-            return Ok(());
+        match credential {
+            Value::String(token) => {
+                if token.is_empty() {
+                    self.stack.push(Value::result_err(
+                        "HttpRequestError",
+                        "bearer token must not be empty",
+                    ));
+                    return Ok(());
+                }
+                let authorization = format!("Bearer {token}");
+                if reqwest::header::HeaderValue::from_str(&authorization).is_err() {
+                    self.stack.push(Value::result_err(
+                        "HttpHeaderError",
+                        "invalid HTTP header value for Authorization",
+                    ));
+                    return Ok(());
+                }
+                if let Err(error) = http_request_remove_authorization(&request) {
+                    self.stack.push(error);
+                    return Ok(());
+                }
+                request.remove(DEFERRED_HTTP_CREDENTIALS_FIELD);
+                self.stack.push(http_request_header_put(
+                    request,
+                    "Authorization".to_string(),
+                    authorization,
+                ));
+            }
+            Value::Map(reference) => {
+                let source = match parse_legacy_secret_reference(Value::Map(reference)) {
+                    Ok(source) => source,
+                    Err(error) => {
+                        self.stack
+                            .push(Value::result_err("SecretReferenceError", error.to_string()));
+                        return Ok(());
+                    }
+                };
+                if let Err(error) = http_request_remove_authorization(&request) {
+                    self.stack.push(error);
+                    return Ok(());
+                }
+                request.insert(
+                    DEFERRED_HTTP_CREDENTIALS_FIELD.to_string(),
+                    Value::DeferredHttpCredentials(DeferredHttpCredentials::bearer(source)),
+                );
+                self.stack.push(Value::result_ok(Value::Map(request)));
+            }
+            value => {
+                self.stack = stack_before;
+                return Err(VmError::TypeError {
+                    word: word.to_string(),
+                    expected: "bearer token string".to_string(),
+                    actual: value_kind(&value).to_string(),
+                });
+            }
         }
-        self.stack.push(http_request_header_put(
-            request,
-            "Authorization".to_string(),
-            format!("Bearer {token}"),
-        ));
         Ok(())
     }
 
@@ -6176,7 +6229,7 @@ fn builtin_class_name(value: &Value) -> Option<&'static str> {
         Value::Result(_) => Some("Result"),
         Value::Regex(_) => Some("Regex"),
         Value::Capability(_) => Some("Capability"),
-        Value::Instance(_) => None,
+        Value::Instance(_) | Value::DeferredHttpCredentials(_) => None,
     }
 }
 
@@ -8120,6 +8173,79 @@ fn secret_reference_string(reference: &BTreeMap<String, Value>, key: &str) -> Op
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeferredCredentialError {
+    ExpectedMap,
+    InvalidShape,
+    InvalidEnvironmentName,
+    InvalidLiteral,
+}
+
+impl std::fmt::Debug for DeferredCredentialError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ExpectedMap => "DeferredCredentialError::ExpectedMap",
+            Self::InvalidShape => "DeferredCredentialError::InvalidShape",
+            Self::InvalidEnvironmentName => "DeferredCredentialError::InvalidEnvironmentName",
+            Self::InvalidLiteral => "DeferredCredentialError::InvalidLiteral",
+        })
+    }
+}
+
+impl std::fmt::Display for DeferredCredentialError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ExpectedMap => "secret reference must be a map",
+            Self::InvalidShape => "secret reference must use an exact generated shape",
+            Self::InvalidEnvironmentName => "secret reference environment name is invalid",
+            Self::InvalidLiteral => "secret reference literal is invalid",
+        })
+    }
+}
+
+impl std::error::Error for DeferredCredentialError {}
+
+fn parse_legacy_secret_reference(
+    reference: Value,
+) -> Result<DeferredSecretSource, DeferredCredentialError> {
+    let Value::Map(reference) = reference else {
+        return Err(DeferredCredentialError::ExpectedMap);
+    };
+    let reference = reference.snapshot();
+    let (kind_key, kind) = match (reference.get("type"), reference.get("kind")) {
+        (Some(Value::String(kind)), None) => ("type", kind.as_str()),
+        (None, Some(Value::String(kind))) => ("kind", kind.as_str()),
+        _ => return Err(DeferredCredentialError::InvalidShape),
+    };
+
+    match kind {
+        "env"
+            if reference.len() == 2
+                && reference.contains_key(kind_key)
+                && reference.contains_key("name") =>
+        {
+            let Some(Value::String(name)) = reference.get("name") else {
+                return Err(DeferredCredentialError::InvalidShape);
+            };
+            let name = SecretName::parse(name)
+                .map_err(|_| DeferredCredentialError::InvalidEnvironmentName)?;
+            Ok(DeferredSecretSource::environment(name))
+        }
+        "literal"
+            if reference.len() == 2
+                && reference.contains_key(kind_key)
+                && reference.contains_key("value") =>
+        {
+            let Some(Value::String(value)) = reference.get("value") else {
+                return Err(DeferredCredentialError::InvalidShape);
+            };
+            DeferredSecretSource::literal(value.clone())
+                .map_err(|_| DeferredCredentialError::InvalidLiteral)
+        }
+        _ => Err(DeferredCredentialError::InvalidShape),
+    }
+}
+
 fn password_hash_result(password: &str) -> Value {
     if let Some(message) = validate_password_hash_input(password) {
         return Value::result_err("PasswordHashError", message);
@@ -8285,6 +8411,28 @@ fn http_request_header_put(request: MapValue, name: String, value: String) -> Va
     };
     headers.insert(name, Value::String(value));
     Value::result_ok(Value::Map(request))
+}
+
+fn http_request_remove_authorization(request: &MapValue) -> Result<(), Value> {
+    let headers = match request.get("headers") {
+        Some(Value::Map(headers)) => headers,
+        Some(Value::Nil) | None => return Ok(()),
+        Some(value) => {
+            return Err(Value::result_err(
+                "HttpRequestError",
+                format!(
+                    "HTTP request headers must be a map, got {}",
+                    value_kind(&value)
+                ),
+            ));
+        }
+    };
+    for name in headers.keys() {
+        if name.eq_ignore_ascii_case("authorization") {
+            headers.remove(&name);
+        }
+    }
+    Ok(())
 }
 
 fn process_options_env_put(options: MapValue, name: String, value: String) -> Value {
@@ -10291,6 +10439,425 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Barrier, Mutex};
+
+    fn synthetic_http_request() -> MapValue {
+        let mut vm = Vm::default();
+        vm.push_value(Value::String("POST".to_string()));
+        vm.push_value(Value::String(
+            "https://api.openai.com/v1/responses".to_string(),
+        ));
+        vm.call_http_request_new("http_request_new")
+            .expect("synthetic HTTP request construction should succeed");
+
+        let [Value::Result(RicochetResult::Ok(request))] = vm.stack() else {
+            panic!("synthetic HTTP request should leave one successful result");
+        };
+        let Value::Map(request) = request.as_ref() else {
+            panic!("synthetic HTTP request result should contain a request map");
+        };
+        request.clone()
+    }
+
+    fn successful_http_request(vm: &Vm) -> MapValue {
+        let [Value::Result(RicochetResult::Ok(request))] = vm.stack() else {
+            panic!("HTTP credential construction should leave one successful request result");
+        };
+        let Value::Map(request) = request.as_ref() else {
+            panic!("HTTP credential construction should return a request map");
+        };
+        request.clone()
+    }
+
+    fn assert_no_public_authorization_header(request: &MapValue) {
+        match request.get("headers") {
+            Some(Value::Map(headers)) => assert!(
+                headers
+                    .keys()
+                    .iter()
+                    .all(|name| !name.eq_ignore_ascii_case("authorization")),
+                "deferred credentials must not expose a public Authorization header"
+            ),
+            Some(Value::Nil) | None => {}
+            Some(value) => panic!("HTTP request headers should be a map, got {value:?}"),
+        }
+    }
+
+    #[test]
+    fn deferred_http_credential_construction_preserves_plaintext_string_bearer() {
+        let mut vm = Vm::default();
+        vm.push_value(Value::Map(synthetic_http_request()));
+        vm.push_value(Value::String("synthetic-plaintext-token".to_string()));
+
+        vm.call_http_bearer_auth("http_bearer_auth")
+            .expect("plaintext bearer construction should remain supported");
+
+        let request = successful_http_request(&vm);
+        let Some(Value::Map(headers)) = request.get("headers") else {
+            panic!("plaintext bearer construction should create public headers");
+        };
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(Value::String(
+                "Bearer synthetic-plaintext-token".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn deferred_http_credential_construction_defers_literal_reference() {
+        let mut vm = Vm::default();
+        vm.push_value(Value::Map(synthetic_http_request()));
+        vm.push_value(Value::String("synthetic-probe-only".to_string()));
+        vm.call_secret_literal("secret_literal")
+            .expect("literal secret reference construction should succeed");
+
+        vm.call_http_bearer_auth("http_bearer_auth")
+            .expect("literal secret reference should attach without resolving");
+
+        assert_no_public_authorization_header(&successful_http_request(&vm));
+    }
+
+    #[test]
+    fn deferred_http_credential_construction_defers_environment_reference_without_resolving() {
+        let mut vm = Vm::default();
+        vm.set_environment_enabled(false);
+        vm.push_value(Value::Map(synthetic_http_request()));
+        vm.push_value(Value::String("synthetic_probe_only".to_string()));
+        vm.call_secret_env("secret_env")
+            .expect("environment secret reference construction should succeed");
+
+        vm.call_http_bearer_auth("http_bearer_auth")
+            .expect("environment secret reference should attach without resolving");
+
+        assert_no_public_authorization_header(&successful_http_request(&vm));
+    }
+
+    #[test]
+    fn deferred_http_credential_construction_runs_the_exact_stax_source() {
+        let cases = [
+            r#"
+"POST" "https://api.openai.com/v1/responses" http_request_new value request var
+$request "synthetic-probe-only" secret_literal http_bearer_auth
+"#,
+            r#"
+"POST" "https://api.openai.com/v1/responses" http_request_new value request var
+$request "synthetic_probe_only" secret_env http_bearer_auth
+"#,
+            r#"
+"POST" "https://api.openai.com/v1/responses" http_request_new value request var
+$request "synthetic-plaintext-token" http_bearer_auth
+"#,
+        ];
+
+        for source in cases {
+            let chunk = ricochet_compiler::compile_source("stax-reproduction.rco", source)
+                .expect("Stax construction-only reproduction should compile");
+            let mut vm = Vm::default();
+            vm.set_environment_enabled(false);
+            vm.run_chunk(&chunk)
+                .expect("Stax construction-only reproduction should execute");
+
+            let request = successful_http_request(&vm);
+            if source.contains("synthetic-plaintext-token") {
+                let Some(Value::Map(headers)) = request.get("headers") else {
+                    panic!("plaintext reproduction should create public headers");
+                };
+                assert_eq!(
+                    headers.get("Authorization"),
+                    Some(Value::String(
+                        "Bearer synthetic-plaintext-token".to_string()
+                    ))
+                );
+            } else {
+                assert_no_public_authorization_header(&request);
+            }
+        }
+    }
+
+    fn legacy_secret_reference(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+        Value::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect::<BTreeMap<_, _>>()
+                .into(),
+        )
+    }
+
+    #[test]
+    fn secret_reference_parser_accepts_only_exact_generated_shapes_and_kind_alias() {
+        let valid = [
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("name", Value::String("provider.api-key".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("kind", Value::String("env".to_string())),
+                ("name", Value::String("provider.api-key".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("literal".to_string())),
+                ("value", Value::String("synthetic-secret-value".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("kind", Value::String("literal".to_string())),
+                ("value", Value::String("synthetic-secret-value".to_string())),
+            ]),
+        ];
+
+        for reference in valid {
+            let source = parse_legacy_secret_reference(reference)
+                .expect("exact generated secret reference should parse");
+            assert!(!format!("{source:?}").contains("synthetic"));
+            assert!(!format!("{source:?}").contains("provider"));
+        }
+    }
+
+    #[test]
+    fn secret_reference_parser_rejects_malformed_or_authority_bearing_maps_without_echoing() {
+        let invalid = [
+            Value::String("synthetic-secret-value".to_string()),
+            legacy_secret_reference([("name", Value::String("provider.api-key".to_string()))]),
+            legacy_secret_reference([
+                ("type", Value::Number(7)),
+                ("name", Value::String("provider.api-key".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("name", Value::String("PROVIDER_API_KEY".to_string())),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("name", Value::Number(7)),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("literal".to_string())),
+                ("value", Value::Number(7)),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("literal".to_string())),
+                ("value", Value::String("synthetic-secret-value".to_string())),
+                (
+                    "authority",
+                    Value::String("ultra-sensitive-authority".to_string()),
+                ),
+            ]),
+            legacy_secret_reference([
+                ("type", Value::String("env".to_string())),
+                ("env", Value::String("ultra-sensitive-env".to_string())),
+            ]),
+        ];
+
+        for reference in invalid {
+            let error = parse_legacy_secret_reference(reference)
+                .expect_err("non-generated secret reference should be rejected");
+            let rendered = format!("{error:?} {error}");
+            assert!(!rendered.contains("synthetic-secret-value"));
+            assert!(!rendered.contains("ultra-sensitive"));
+        }
+    }
+
+    #[test]
+    fn secret_reference_legacy_words_preserve_construction_and_resolution_behavior() {
+        let mut environment_vm = Vm::default();
+        environment_vm.push_value(Value::String("LEGACY_ENV_NAME".to_string()));
+        environment_vm
+            .call_secret_env("secret_env")
+            .expect("legacy environment reference should construct");
+        let [Value::Map(environment)] = environment_vm.stack() else {
+            panic!("secret_env should leave its legacy map shape");
+        };
+        assert_eq!(
+            environment.snapshot(),
+            BTreeMap::from([
+                (
+                    "name".to_string(),
+                    Value::String("LEGACY_ENV_NAME".to_string())
+                ),
+                ("type".to_string(), Value::String("env".to_string())),
+            ])
+        );
+
+        let mut literal_vm = Vm::default();
+        literal_vm.push_value(Value::String(String::new()));
+        literal_vm
+            .call_secret_literal("secret_literal")
+            .expect("legacy empty literal reference should still construct");
+        let [Value::Map(literal)] = literal_vm.stack() else {
+            panic!("secret_literal should leave its legacy map shape");
+        };
+        assert_eq!(
+            literal.snapshot(),
+            BTreeMap::from([
+                ("type".to_string(), Value::String("literal".to_string())),
+                ("value".to_string(), Value::String(String::new())),
+            ])
+        );
+
+        for discriminator in ["type", "kind"] {
+            let mut resolve_vm = Vm::default();
+            resolve_vm.push_value(legacy_secret_reference([
+                (discriminator, Value::String("literal".to_string())),
+                ("value", Value::String("legacy-plaintext".to_string())),
+            ]));
+            resolve_vm
+                .call_secret_resolve("secret_resolve")
+                .expect("legacy literal reference should resolve");
+            assert_eq!(
+                resolve_vm.stack(),
+                &[Value::result_ok(Value::String(
+                    "legacy-plaintext".to_string()
+                ))]
+            );
+        }
+    }
+
+    #[test]
+    fn http_bearer_auth_deferred_call_removes_case_insensitive_public_authorization() {
+        let request = http_request_header_put(
+            synthetic_http_request(),
+            "authorization".to_string(),
+            "Bearer stale-public-value".to_string(),
+        );
+        let Value::Result(RicochetResult::Ok(request)) = request else {
+            panic!("header fixture should succeed");
+        };
+        let Value::Map(request) = *request else {
+            panic!("header fixture should return a request map");
+        };
+        let mut vm = Vm::default();
+        vm.push_value(Value::Map(request));
+        vm.push_value(Value::String("synthetic-probe-only".to_string()));
+        vm.call_secret_literal("secret_literal")
+            .expect("literal secret reference construction should succeed");
+
+        vm.call_http_bearer_auth("http_bearer_auth")
+            .expect("deferred bearer should attach");
+
+        let request = successful_http_request(&vm);
+        assert_no_public_authorization_header(&request);
+        assert!(matches!(
+            request.get("__ricochet_deferred_http_credentials_v1"),
+            Some(Value::DeferredHttpCredentials(_))
+        ));
+    }
+
+    #[test]
+    fn http_bearer_auth_string_call_replaces_deferred_bearer_with_one_public_header() {
+        let mut deferred_vm = Vm::default();
+        deferred_vm.push_value(Value::Map(synthetic_http_request()));
+        deferred_vm.push_value(Value::String("synthetic-probe-only".to_string()));
+        deferred_vm
+            .call_secret_literal("secret_literal")
+            .expect("literal secret reference construction should succeed");
+        deferred_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("deferred bearer should attach");
+
+        let mut string_vm = Vm::default();
+        string_vm.push_value(Value::Map(successful_http_request(&deferred_vm)));
+        string_vm.push_value(Value::String("replacement-plaintext-token".to_string()));
+        string_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("plaintext bearer should replace deferred bearer");
+
+        let request = successful_http_request(&string_vm);
+        assert!(request
+            .get("__ricochet_deferred_http_credentials_v1")
+            .is_none());
+        let Some(Value::Map(headers)) = request.get("headers") else {
+            panic!("plaintext bearer should create public headers");
+        };
+        assert_eq!(headers.len(), 1);
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(Value::String(
+                "Bearer replacement-plaintext-token".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn http_bearer_auth_invalid_string_preserves_existing_deferred_bearer() {
+        let mut deferred_vm = Vm::default();
+        deferred_vm.push_value(Value::Map(synthetic_http_request()));
+        deferred_vm.push_value(Value::String("synthetic-probe-only".to_string()));
+        deferred_vm
+            .call_secret_literal("secret_literal")
+            .expect("literal secret reference construction should succeed");
+        deferred_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("deferred bearer should attach");
+        let request = successful_http_request(&deferred_vm);
+
+        let mut invalid_vm = Vm::default();
+        invalid_vm.push_value(Value::Map(request.clone()));
+        invalid_vm.push_value(Value::String("invalid\r\nbearer".to_string()));
+        invalid_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("invalid plaintext bearer should return an error result");
+
+        assert!(matches!(
+            invalid_vm.stack(),
+            [Value::Result(RicochetResult::Err(error))] if error.kind == "HttpHeaderError"
+        ));
+        assert!(matches!(
+            request.get("__ricochet_deferred_http_credentials_v1"),
+            Some(Value::DeferredHttpCredentials(_))
+        ));
+        assert_no_public_authorization_header(&request);
+    }
+
+    #[test]
+    fn http_bearer_auth_deferred_calls_replace_the_opaque_bearer() {
+        let mut first_vm = Vm::default();
+        first_vm.push_value(Value::Map(synthetic_http_request()));
+        first_vm.push_value(Value::String("first-synthetic-value".to_string()));
+        first_vm
+            .call_secret_literal("secret_literal")
+            .expect("first literal reference should construct");
+        first_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("first deferred bearer should attach");
+        let first_request = successful_http_request(&first_vm);
+        let Some(Value::DeferredHttpCredentials(first)) =
+            first_request.get("__ricochet_deferred_http_credentials_v1")
+        else {
+            panic!("first deferred bearer should occupy the private slot");
+        };
+
+        let mut replacement_vm = Vm::default();
+        replacement_vm.push_value(Value::Map(first_request));
+        replacement_vm.push_value(Value::String("replacement.secret".to_string()));
+        replacement_vm
+            .call_secret_env("secret_env")
+            .expect("replacement environment reference should construct");
+        replacement_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("replacement deferred bearer should attach");
+        let replacement_request = successful_http_request(&replacement_vm);
+        let Some(Value::DeferredHttpCredentials(replacement)) =
+            replacement_request.get("__ricochet_deferred_http_credentials_v1")
+        else {
+            panic!("replacement deferred bearer should occupy the private slot");
+        };
+
+        assert_ne!(first, replacement);
+        assert_no_public_authorization_header(&replacement_request);
+    }
+
+    #[test]
+    fn deferred_http_credentials_are_rejected_by_json_conversion() {
+        let source =
+            ricochet_secrets::DeferredSecretSource::literal("synthetic-secret-value".to_string())
+                .expect("fixture should construct");
+        let value = Value::DeferredHttpCredentials(
+            ricochet_secrets::DeferredHttpCredentials::bearer(source),
+        );
+
+        let error = value_to_json(&value).expect_err("opaque credentials must not serialize");
+        assert!(!error.contains("synthetic-secret-value"));
+    }
 
     struct PauseAfterStageWorkspaceWriteIo {
         staged: mpsc::Sender<PathBuf>,

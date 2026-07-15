@@ -1,4 +1,5 @@
 use ricochet_bytecode::Chunk;
+use ricochet_secrets::DeferredHttpCredentials;
 use thiserror::Error;
 
 use crate::capability::Capability;
@@ -26,12 +27,15 @@ pub enum Value {
     Result(RicochetResult),
     Regex(RegexValue),
     Capability(Capability),
+    DeferredHttpCredentials(DeferredHttpCredentials),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TruthinessError {
     #[error("result values require an explicit ok? check in conditions")]
     ResultRequiresExplicitOk,
+    #[error("deferred HTTP credentials cannot be used as a condition")]
+    OpaqueDeferredHttpCredentials,
 }
 
 impl Value {
@@ -54,12 +58,16 @@ impl Value {
             Value::Result(_) => true,
             Value::Regex(_) => true,
             Value::Capability(_) => true,
+            Value::DeferredHttpCredentials(_) => true,
         }
     }
 
     pub fn truthy_for_condition(&self) -> Result<bool, TruthinessError> {
         match self {
             Value::Result(_) => Err(TruthinessError::ResultRequiresExplicitOk),
+            Value::DeferredHttpCredentials(_) => {
+                Err(TruthinessError::OpaqueDeferredHttpCredentials)
+            }
             _ => Ok(self.truthy()),
         }
     }
@@ -99,6 +107,29 @@ mod tests {
     use crate::object::Instance;
 
     use super::*;
+
+    fn deferred_http_credentials_value(secret: &str) -> Value {
+        let source = ricochet_secrets::DeferredSecretSource::literal(secret.to_string())
+            .expect("fixture should construct");
+        Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(source))
+    }
+
+    #[test]
+    fn deferred_http_credentials_values_are_redacted_and_shared_by_clone() {
+        let value = deferred_http_credentials_value("synthetic-secret-value");
+        let clone = value.clone();
+        let separate = deferred_http_credentials_value("synthetic-secret-value");
+
+        assert_eq!(value, clone);
+        assert_ne!(value, separate);
+        let rendered = format!("{value:?}");
+        assert!(rendered.contains("<http-credentials>"));
+        assert!(!rendered.contains("synthetic-secret-value"));
+        assert_eq!(
+            value.truthy_for_condition(),
+            Err(TruthinessError::OpaqueDeferredHttpCredentials)
+        );
+    }
 
     #[test]
     fn vm_condition_truthiness_rejects_result_values() {

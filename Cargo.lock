@@ -3238,6 +3238,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_application"
+version = "0.1.19-rc.6"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ricochet_bytecode"
 version = "0.1.19-rc.6"
 dependencies = [
@@ -3310,6 +3318,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet_secrets"
+version = "0.1.19-rc.6"
+dependencies = [
+ "ricochet_application",
+ "zeroize",
+]
+
+[[package]]
 name = "ricochet_syntax"
 version = "0.1.19-rc.6"
 dependencies = [
@@ -3330,7 +3346,10 @@ dependencies = [
  "regex",
  "reqwest",
  "rfd",
+ "ricochet_application",
  "ricochet_bytecode",
+ "ricochet_compiler",
+ "ricochet_secrets",
  "serde",
  "serde_json",
  "sha2 0.10.9",
