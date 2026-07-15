@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn debug_protocol_rejects_nested_deferred_credentials_without_rendering_source_bytes() {
+    fn debug_event_json_rejects_nested_deferred_credentials_without_rendering_source_bytes() {
         let sentinel = "synthetic-dap-secret-that-must-not-render";
         let credentials = DeferredHttpCredentials::bearer(
             DeferredSecretSource::literal(sentinel.to_string()).expect("synthetic literal"),

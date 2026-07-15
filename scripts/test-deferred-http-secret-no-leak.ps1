@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$ByteBufferSelfTestOnly,
+    [switch]$ArtifactSelectionSelfTestOnly
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -28,6 +31,27 @@ function Clear-Bytes {
     }
 }
 
+function Assert-ByteArray {
+    param(
+        [object]$Buffer,
+        [string]$Label
+    )
+    if ($null -eq $Buffer -or $Buffer.GetType() -ne [byte[]]) {
+        throw ("{0} must retain the System.Byte[] runtime type" -f $Label)
+    }
+}
+
+function Assert-ClearedBytes {
+    param(
+        [object]$Buffer,
+        [string]$Label
+    )
+    Assert-ByteArray $Buffer $Label
+    if (@($Buffer | Where-Object { $_ -ne 0 }).Count -ne 0) {
+        throw ("{0} was not zeroized in place" -f $Label)
+    }
+}
+
 function Read-ExactBytes {
     param(
         [System.IO.Stream]$Stream,
@@ -43,7 +67,7 @@ function Read-ExactBytes {
         }
         $offset += $read
     }
-    return $buffer
+    return ,$buffer
 }
 
 function Start-CapturedProcess {
@@ -84,6 +108,210 @@ function Start-CapturedProcess {
         Stdout = $stdout
         Stderr = $stderr
     }
+}
+
+function Test-JsonProperty {
+    param(
+        [object]$Object,
+        [string]$Name
+    )
+    return $null -ne $Object -and $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Test-SamePath {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    $comparison = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) {
+        [System.StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [System.StringComparison]::Ordinal
+    }
+    return [string]::Equals(
+        [System.IO.Path]::GetFullPath($Left),
+        [System.IO.Path]::GetFullPath($Right),
+        $comparison
+    )
+}
+
+function Get-CargoTargetRoot {
+    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+        return [System.IO.Path]::GetFullPath((Join-Path $root 'target'))
+    }
+    if ([System.IO.Path]::IsPathRooted($env:CARGO_TARGET_DIR)) {
+        return [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $root $env:CARGO_TARGET_DIR))
+}
+
+function Resolve-CargoTestExecutableFromJson {
+    param(
+        [string]$JsonLines,
+        [string]$ExpectedTargetName,
+        [string]$ExpectedManifestPath,
+        [string]$ExpectedSourcePath,
+        [string]$TargetRoot
+    )
+    $matches = @()
+    foreach ($line in $JsonLines -split "`r?`n") {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        try {
+            $record = $line | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw 'Cargo emitted non-JSON stdout while selecting the deferred HTTP audit artifact'
+        }
+        if (-not (Test-JsonProperty $record 'reason') -or $record.reason -ne 'compiler-artifact') {
+            continue
+        }
+        if (-not (Test-JsonProperty $record 'manifest_path') -or
+            -not (Test-SamePath ([string]$record.manifest_path) $ExpectedManifestPath) -or
+            -not (Test-JsonProperty $record 'target') -or
+            -not (Test-JsonProperty $record.target 'name') -or
+            [string]$record.target.name -cne $ExpectedTargetName -or
+            -not (Test-JsonProperty $record.target 'src_path') -or
+            -not (Test-SamePath ([string]$record.target.src_path) $ExpectedSourcePath)) {
+            continue
+        }
+        $targetKinds = @()
+        if (Test-JsonProperty $record.target 'kind') {
+            $targetKinds = @($record.target.kind)
+        }
+        $crateTypes = @()
+        if (Test-JsonProperty $record.target 'crate_types') {
+            $crateTypes = @($record.target.crate_types)
+        }
+        $features = @('__missing__')
+        if (Test-JsonProperty $record 'features') {
+            $features = @($record.features)
+        }
+        if ($targetKinds.Count -ne 1 -or [string]$targetKinds[0] -cne 'test' -or
+            $crateTypes.Count -ne 1 -or [string]$crateTypes[0] -cne 'bin' -or
+            -not (Test-JsonProperty $record.target 'test') -or -not [bool]$record.target.test -or
+            -not (Test-JsonProperty $record 'profile') -or
+            -not (Test-JsonProperty $record.profile 'test') -or -not [bool]$record.profile.test -or
+            $features.Count -ne 0 -or
+            -not (Test-JsonProperty $record 'executable') -or
+            [string]::IsNullOrWhiteSpace([string]$record.executable)) {
+            continue
+        }
+        $matches += ,$record
+    }
+    if ($matches.Count -eq 0) {
+        throw 'Cargo did not emit the exact deferred HTTP audit test artifact'
+    }
+    if ($matches.Count -ne 1) {
+        throw 'Cargo emitted ambiguous deferred HTTP audit test artifacts'
+    }
+
+    $artifact = $matches[0]
+    $executable = [System.IO.Path]::GetFullPath([string]$artifact.executable)
+    $expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $TargetRoot 'debug\deps'))
+    if (-not (Test-SamePath ([System.IO.Path]::GetDirectoryName($executable)) $expectedDirectory)) {
+        throw 'Cargo selected a deferred HTTP audit artifact outside the exact target directory'
+    }
+    $expectedFileName = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) {
+        '^deferred_http_secret_no_leak-[0-9a-f]{16}\.exe$'
+    }
+    else {
+        '^deferred_http_secret_no_leak-[0-9a-f]{16}$'
+    }
+    if ([System.IO.Path]::GetFileName($executable) -cnotmatch $expectedFileName) {
+        throw 'Cargo selected a sidecar or unexpected deferred HTTP audit artifact'
+    }
+    if (-not (Test-JsonProperty $artifact 'filenames') -or
+        @($artifact.filenames | Where-Object { Test-SamePath ([string]$_) $executable }).Count -ne 1) {
+        throw 'Cargo executable was not present exactly once in its artifact filename set'
+    }
+    if (-not [System.IO.File]::Exists($executable)) {
+        throw 'Cargo selected deferred HTTP audit executable does not exist'
+    }
+    return $executable
+}
+
+function Assert-ArtifactSelectionRejects {
+    param(
+        [scriptblock]$Action,
+        [string]$Label
+    )
+    try {
+        & $Action
+    }
+    catch {
+        return
+    }
+    throw ("artifact selection self-test accepted {0}" -f $Label)
+}
+
+function Invoke-ArtifactSelectionSelfCheck {
+    $rtkCommand = Get-Command rtk -ErrorAction Stop
+    $compile = Start-CapturedProcess $rtkCommand.Source 'proxy cargo test -p ricochet_cli --test deferred_http_secret_no_leak --no-run --message-format=json'
+    if ($compile.ExitCode -ne 0) {
+        throw ("artifact selection self-test compilation failed: {0}" -f $compile.Stderr.Trim())
+    }
+    $targetRoot = Get-CargoTargetRoot
+    $targetName = 'deferred_http_secret_no_leak'
+    $manifestPath = Join-Path $root 'crates\ricochet_cli\Cargo.toml'
+    $sourcePath = Join-Path $root 'crates\ricochet_cli\tests\deferred_http_secret_no_leak.rs'
+    $executable = Resolve-CargoTestExecutableFromJson $compile.Stdout $targetName $manifestPath $sourcePath $targetRoot
+
+    $exactLines = @()
+    foreach ($line in $compile.Stdout -split "`r?`n") {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        $record = $line | ConvertFrom-Json -ErrorAction Stop
+        if ((Test-JsonProperty $record 'reason') -and $record.reason -eq 'compiler-artifact' -and
+            (Test-JsonProperty $record 'manifest_path') -and
+            (Test-SamePath ([string]$record.manifest_path) $manifestPath) -and
+            (Test-JsonProperty $record 'target') -and
+            (Test-JsonProperty $record.target 'name') -and
+            [string]$record.target.name -ceq $targetName -and
+            (Test-JsonProperty $record.target 'src_path') -and
+            (Test-SamePath ([string]$record.target.src_path) $sourcePath)) {
+            $exactLines += ,$line
+        }
+    }
+    if ($exactLines.Count -ne 1) {
+        throw 'artifact selection self-test could not isolate one exact Cargo record'
+    }
+    $exactLine = $exactLines[0]
+
+    Assert-ArtifactSelectionRejects {
+        Resolve-CargoTestExecutableFromJson '{"reason":"build-finished","success":true}' $targetName $manifestPath $sourcePath $targetRoot
+    } 'a missing artifact'
+    Assert-ArtifactSelectionRejects {
+        Resolve-CargoTestExecutableFromJson ("{0}`n{0}" -f $exactLine) $targetName $manifestPath $sourcePath $targetRoot
+    } 'ambiguous artifacts'
+
+    $wrongTargetRecord = $exactLine | ConvertFrom-Json -ErrorAction Stop
+    $wrongTargetRecord.target.name = 'wrong_deferred_http_target'
+    $wrongTargetJson = $wrongTargetRecord | ConvertTo-Json -Compress -Depth 20
+    Assert-ArtifactSelectionRejects {
+        Resolve-CargoTestExecutableFromJson $wrongTargetJson $targetName $manifestPath $sourcePath $targetRoot
+    } 'a wrong target'
+
+    $sidecarRecord = $exactLine | ConvertFrom-Json -ErrorAction Stop
+    $sidecarPath = Join-Path (Join-Path $targetRoot 'debug\deps') 'deferred_http_secret_no_leak-0000000000000000.pdb'
+    $sidecarRecord.executable = $sidecarPath
+    $sidecarRecord.filenames = @($sidecarPath)
+    $sidecarJson = $sidecarRecord | ConvertTo-Json -Compress -Depth 20
+    Assert-ArtifactSelectionRejects {
+        Resolve-CargoTestExecutableFromJson $sidecarJson $targetName $manifestPath $sourcePath $targetRoot
+    } 'a sidecar artifact'
+
+    return [System.IO.Path]::GetFileName($executable)
 }
 
 function Write-EvidenceText {
@@ -132,7 +360,62 @@ function ConvertTo-HexBytes {
         $hex[$index * 2] = if ($high -lt 10) { 48 + $high } else { $letterBase + $high }
         $hex[($index * 2) + 1] = if ($low -lt 10) { 48 + $low } else { $letterBase + $low }
     }
-    return $hex
+    return ,$hex
+}
+
+function Invoke-ByteBufferSelfCheck {
+    $source = [byte[]](0x11, 0x22, 0x33, 0x44)
+    $stream = New-Object System.IO.MemoryStream(, $source)
+    $raw = $null
+    $digest = $null
+    $lower = $null
+    $upper = $null
+    try {
+        $raw = Read-ExactBytes $stream $source.Length
+        Assert-ByteArray $raw 'read buffer self-check'
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $sha.ComputeHash($raw)
+        }
+        finally {
+            $sha.Dispose()
+        }
+        $lower = ConvertTo-HexBytes $digest $false
+        $upper = ConvertTo-HexBytes $digest $true
+        Assert-ByteArray $lower 'lowercase digest self-check'
+        Assert-ByteArray $upper 'uppercase digest self-check'
+    }
+    finally {
+        $stream.Dispose()
+        Clear-Bytes $source
+        Clear-Bytes $raw
+        Clear-Bytes $digest
+        Clear-Bytes $lower
+        Clear-Bytes $upper
+    }
+    Assert-ClearedBytes $source 'source self-check'
+    Assert-ClearedBytes $raw 'read buffer self-check'
+    Assert-ClearedBytes $digest 'digest self-check'
+    Assert-ClearedBytes $lower 'lowercase digest self-check'
+    Assert-ClearedBytes $upper 'uppercase digest self-check'
+
+    foreach ($exception in @(
+        (New-Object System.InvalidOperationException('injected failure')),
+        (New-Object System.OperationCanceledException('injected cancellation'))
+    )) {
+        $failureBuffer = [byte[]](0xaa, 0xbb, 0xcc, 0xdd)
+        try {
+            throw $exception
+        }
+        catch [System.InvalidOperationException] {
+        }
+        catch [System.OperationCanceledException] {
+        }
+        finally {
+            Clear-Bytes $failureBuffer
+        }
+        Assert-ClearedBytes $failureBuffer 'failure-path self-check'
+    }
 }
 
 function Scan-Files {
@@ -170,37 +453,38 @@ function Scan-Files {
     }
 }
 
+if ($ByteBufferSelfTestOnly) {
+    Invoke-ByteBufferSelfCheck
+    Write-Output 'byte_buffer_self_check=success;runtime_type=System.Byte[];success_zeroized=5;failure_zeroized=1;cancellation_zeroized=1'
+    return
+}
+
+if ($ArtifactSelectionSelfTestOnly) {
+    $selectedArtifact = Invoke-ArtifactSelectionSelfCheck
+    Write-Output ("artifact_selection_self_check=success;exact_artifact={0};missing_rejected=1;ambiguous_rejected=1;wrong_target_rejected=1;sidecar_rejected=1" -f $selectedArtifact)
+    return
+}
+
 try {
     [System.IO.Directory]::CreateDirectory($applicationEvidence) | Out-Null
     [System.IO.Directory]::CreateDirectory($selfTestEvidence) | Out-Null
+    Invoke-ByteBufferSelfCheck
 
     $rtkCommand = Get-Command rtk -ErrorAction Stop
     $rtk = $rtkCommand.Source
-    $compile = Start-CapturedProcess $rtk 'cargo test -p ricochet_cli --test deferred_http_secret_no_leak --no-run'
+    $compile = Start-CapturedProcess $rtk 'proxy cargo test -p ricochet_cli --test deferred_http_secret_no_leak --no-run --message-format=json'
     Write-EvidenceText (Join-Path $applicationEvidence 'test-build.stdout.txt') $compile.Stdout
     Write-EvidenceText (Join-Path $applicationEvidence 'test-build.stderr.txt') $compile.Stderr
     if ($compile.ExitCode -ne 0) {
         throw 'deferred HTTP audit child compilation failed; retained output contains diagnostics'
     }
 
-    $targetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
-        Join-Path $root 'target'
-    }
-    else {
-        [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
-    }
-    $testPattern = if ($env:OS -eq 'Windows_NT') {
-        'deferred_http_secret_no_leak-*.exe'
-    }
-    else {
-        'deferred_http_secret_no_leak-*'
-    }
-    $testBinary = Get-ChildItem -LiteralPath (Join-Path $targetRoot 'debug\deps') -Filter $testPattern -File |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 1
-    if ($null -eq $testBinary) {
-        throw 'compiled deferred HTTP audit child was not found'
-    }
+    $targetRoot = Get-CargoTargetRoot
+    $testBinary = Resolve-CargoTestExecutableFromJson $compile.Stdout `
+        'deferred_http_secret_no_leak' `
+        (Join-Path $root 'crates\ricochet_cli\Cargo.toml') `
+        (Join-Path $root 'crates\ricochet_cli\tests\deferred_http_secret_no_leak.rs') `
+        $targetRoot
 
     $pipe = New-Object System.IO.Pipes.AnonymousPipeServerStream(
         [System.IO.Pipes.PipeDirection]::In,
@@ -208,7 +492,7 @@ try {
     )
     $clientHandle = $pipe.GetClientHandleAsString()
     $start = New-Object System.Diagnostics.ProcessStartInfo
-    $start.FileName = $testBinary.FullName
+    $start.FileName = $testBinary
     $start.Arguments = 'scanner_child_writes_secret_only_to_inherited_anonymous_pipe --ignored --exact --nocapture'
     $start.WorkingDirectory = $root
     $start.UseShellExecute = $false
@@ -349,4 +633,18 @@ finally {
     Clear-Bytes $selfTestDigest
     Clear-Bytes $selfTestDigestTextLower
     Clear-Bytes $selfTestDigestTextUpper
+    foreach ($bufferCheck in @(
+        @{ Buffer = $secretBuffer; Label = 'application raw buffer' },
+        @{ Buffer = $secretDigest; Label = 'application digest buffer' },
+        @{ Buffer = $secretDigestTextLower; Label = 'application lowercase digest buffer' },
+        @{ Buffer = $secretDigestTextUpper; Label = 'application uppercase digest buffer' },
+        @{ Buffer = $selfTestRaw; Label = 'self-test raw buffer' },
+        @{ Buffer = $selfTestDigest; Label = 'self-test digest buffer' },
+        @{ Buffer = $selfTestDigestTextLower; Label = 'self-test lowercase digest buffer' },
+        @{ Buffer = $selfTestDigestTextUpper; Label = 'self-test uppercase digest buffer' }
+    )) {
+        if ($null -ne $bufferCheck.Buffer) {
+            Assert-ClearedBytes $bufferCheck.Buffer $bufferCheck.Label
+        }
+    }
 }

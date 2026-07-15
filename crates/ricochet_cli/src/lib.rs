@@ -9560,6 +9560,16 @@ where
             .and_then(|arguments| arguments.get("variablesReference"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0);
+        if self
+            .last_pause
+            .as_ref()
+            .is_some_and(|pause| dap_selected_values_contain_opaque(pause, reference))
+        {
+            return self.send_error_response(
+                request,
+                "debug adapter cannot serialize non-serializable value",
+            );
+        }
         let variables = match (reference, self.last_pause.as_ref()) {
             (1, Some(pause)) => pause
                 .stack
@@ -9795,6 +9805,54 @@ fn dap_binding_variables(bindings: &[(String, Value)]) -> Vec<serde_json::Value>
         .iter()
         .map(|(name, value)| dap_value_variable(name.clone(), value))
         .collect()
+}
+
+fn dap_selected_values_contain_opaque(pause: &DebugPause, reference: u64) -> bool {
+    let contains = |value: &Value| value.opaque_value_kind().is_some();
+    match reference {
+        1 => pause.stack.iter().any(contains),
+        2 => pause.locals.iter().any(|(_, value)| contains(value)),
+        3 => pause.globals.iter().any(|(_, value)| contains(value)),
+        4 => pause.current_self.as_ref().is_some_and(contains),
+        5 => pause.tasks.iter().any(dap_task_contains_opaque),
+        reference => {
+            if let Some(task_id) = dap_task_reference_id(reference) {
+                pause
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .is_some_and(dap_task_contains_opaque)
+            } else if let Some((task_id, frame_index)) = dap_task_frame_reference_id(reference) {
+                pause
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .and_then(|task| task.frames.get(frame_index))
+                    .is_some_and(dap_task_frame_contains_opaque)
+            } else {
+                false
+            }
+        }
+    }
+}
+
+fn dap_task_contains_opaque(task: &DebugTask) -> bool {
+    task.frames.iter().any(dap_task_frame_contains_opaque)
+}
+
+fn dap_task_frame_contains_opaque(frame: &DebugTaskFrame) -> bool {
+    frame
+        .stack
+        .iter()
+        .any(|value| value.opaque_value_kind().is_some())
+        || frame
+            .locals
+            .iter()
+            .any(|(_, value)| value.opaque_value_kind().is_some())
+        || frame
+            .current_self
+            .as_ref()
+            .is_some_and(|value| value.opaque_value_kind().is_some())
 }
 
 fn dap_value_variable(name: String, value: &Value) -> serde_json::Value {
@@ -11051,7 +11109,41 @@ fn collect_rco_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
+
+    fn nested_deferred_credentials_for_dap(sentinel: &str) -> Value {
+        Value::Array(ricochet_vm::ArrayValue::from(vec![
+            Value::DeferredHttpCredentials(ricochet_secrets::DeferredHttpCredentials::bearer(
+                ricochet_secrets::DeferredSecretSource::literal(sentinel.to_string())
+                    .expect("synthetic literal"),
+            )),
+        ]))
+    }
+
+    fn dap_variables_response(pause: DebugPause, reference: u64) -> serde_json::Value {
+        let request = json!({
+            "seq": 77,
+            "type": "request",
+            "command": "variables",
+            "arguments": { "variablesReference": reference },
+        });
+        let mut adapter = DapAdapter {
+            reader: Cursor::new(Vec::<u8>::new()),
+            writer: Vec::<u8>::new(),
+            seq: 1,
+            last_pause: Some(pause),
+            pause_error: None,
+        };
+        adapter
+            .send_variables_response(&request)
+            .expect("variables response should be written");
+        let mut reader = io::BufReader::new(Cursor::new(adapter.writer));
+        read_dap_message(&mut reader)
+            .expect("DAP response should parse")
+            .expect("DAP response should be present")
+    }
 
     fn debug_pause_with_task(frames: Vec<DebugTaskFrame>) -> DebugPause {
         DebugPause {
@@ -11131,6 +11223,54 @@ mod tests {
         assert!(variables.iter().any(
             |variable| variable["name"] == "self" && variable["value"] == "String(\"worker\")"
         ));
+    }
+
+    #[test]
+    fn dap_variables_response_rejects_opaque_pause_and_task_scopes_without_metadata() {
+        let sentinel = "synthetic-real-dap-secret-that-must-not-render";
+        let nested = nested_deferred_credentials_for_dap(sentinel);
+
+        let mut globals_pause = debug_pause_with_task(Vec::new());
+        globals_pause
+            .globals
+            .push(("audited_global".to_string(), nested.clone()));
+
+        let task_pause = debug_pause_with_task(vec![DebugTaskFrame {
+            frame: "<task>".to_string(),
+            source: "fixture.rco:6".to_string(),
+            opcode: "PushValue".to_string(),
+            stack: vec![nested],
+            locals: Vec::new(),
+            current_self: None,
+        }]);
+
+        for (response, forbidden_name) in [
+            (dap_variables_response(globals_pause, 3), "audited_global"),
+            (
+                dap_variables_response(task_pause, DAP_TASK_FRAME_REFERENCE_BASE),
+                "stack[0]",
+            ),
+        ] {
+            assert_eq!(response["type"], "response");
+            assert_eq!(response["command"], "variables");
+            assert_eq!(response["success"], false);
+            assert_eq!(
+                response["message"],
+                "debug adapter cannot serialize non-serializable value"
+            );
+            assert!(response.get("variables").is_none());
+            assert!(response["body"].get("variables").is_none());
+            let serialized = serde_json::to_string(&response).expect("response JSON");
+            for forbidden in [
+                sentinel,
+                forbidden_name,
+                "<http-credentials>",
+                "deferred HTTP credentials",
+                "literal",
+            ] {
+                assert!(!serialized.contains(forbidden));
+            }
+        }
     }
 
     #[test]
