@@ -670,7 +670,8 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
             || ip.is_multicast()
             || ip.is_unique_local()
             || ip.is_unicast_link_local()
-            || segments[0] == 0x2001 && segments[1] == 0x0db8)
+            || segments[0] == 0x2001 && segments[1] == 0x0db8
+            || segments[0] == 0x3fff && segments[1] & 0xf000 == 0)
 }
 
 #[cfg(feature = "test-host")]
@@ -796,7 +797,7 @@ mod tests {
 
     #[test]
     fn deferred_http_address_policy_admits_only_public_destinations() {
-        for address in ["93.184.216.34", "2606:4700:4700::1111"] {
+        for address in ["93.184.216.34", "2606:4700:4700::1111", "3fff:1000::1"] {
             assert!(
                 is_public_ip(address.parse().expect("public fixture should parse")),
                 "public address should be admitted: {address}"
@@ -813,6 +814,9 @@ mod tests {
             "fe80::1",
             "fec0::1",
             "2001:db8::1",
+            "3fff::",
+            "3fff::1",
+            "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff",
         ] {
             assert!(
                 !is_public_ip(address.parse().expect("restricted fixture should parse")),

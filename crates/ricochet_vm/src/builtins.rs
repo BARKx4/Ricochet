@@ -11066,6 +11066,58 @@ mod tests {
     }
 
     #[test]
+    fn deferred_http_send_rejects_authorization_added_after_deferred_auth() {
+        let server = TestHttpsCaptureServer::new(200, &[]);
+        let test_host = TestSecretsHttpHost::new(
+            "phase0.test",
+            server.address(),
+            BTreeMap::from([(
+                "provider.api-key".to_string(),
+                TestEnvironmentValue::unicode("post-auth-collision-secret".to_string()),
+            )]),
+        );
+        let port = server.address().port();
+        let request =
+            deferred_environment_request(format!("https://phase0.test:{port}/post-auth-collision"));
+        request.remove(DEFERRED_HTTP_CREDENTIALS_FIELD);
+
+        let mut auth_vm = Vm::default();
+        auth_vm.push_value(Value::Map(request));
+        auth_vm.push_value(Value::String("provider.api-key".to_string()));
+        auth_vm
+            .call_secret_env("secret_env")
+            .expect("environment reference should construct");
+        auth_vm
+            .call_http_bearer_auth("http_bearer_auth")
+            .expect("deferred auth should install before the collision");
+        let request = successful_http_request(&auth_vm);
+        assert_no_public_authorization_header(&request);
+
+        let request = http_request_header_put(
+            request,
+            "aUtHoRiZaTiOn".to_string(),
+            "Bearer ordinary-post-auth-value".to_string(),
+        );
+        let Value::Result(RicochetResult::Ok(request)) = request else {
+            panic!("post-auth header insertion should construct a request");
+        };
+        let Value::Map(request) = *request else {
+            panic!("post-auth header insertion should return a request map");
+        };
+
+        let mut send_vm = deferred_send_vm(&test_host, port);
+        send_vm.push_value(Value::Map(request));
+        let result = send_vm
+            .method_http_request(Value::Capability(Capability::Http), "request")
+            .expect("post-auth collision should return a permission result");
+
+        assert_http_error_kind(&result, "PermissionError");
+        assert_eq!(test_host.credential_resolution_count(), 0);
+        assert_eq!(test_host.environment_source_access_count(), 0);
+        assert!(server.wait_for_requests(0).is_empty());
+    }
+
+    #[test]
     fn deferred_http_send_task_and_stream_denials_never_touch_the_source() {
         let server = TestHttpsCaptureServer::new(200, &[]);
         let test_host = TestSecretsHttpHost::new(
