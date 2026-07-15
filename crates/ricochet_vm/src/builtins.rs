@@ -4928,10 +4928,26 @@ impl Vm {
         let bridge = self.require_secret_session_bridge(word)?;
         let stack_before = self.stack.clone();
         self.ensure_stack(word, 4)?;
-        let callback_word = self.pop_string(word, "callback word string")?;
-        let prompt_label = self.pop_string(word, "secure prompt label string")?;
-        let slot_name = self.pop_string(word, "session secret name string")?;
-        let button_label = self.pop_string(word, "button label string")?;
+        let callback_word = self
+            .pop_string(word, "callback word string")
+            .inspect_err(|_| {
+                self.stack = stack_before.clone();
+            })?;
+        let prompt_label = self
+            .pop_string(word, "secure prompt label string")
+            .inspect_err(|_| {
+                self.stack = stack_before.clone();
+            })?;
+        let slot_name = self
+            .pop_string(word, "session secret name string")
+            .inspect_err(|_| {
+                self.stack = stack_before.clone();
+            })?;
+        let button_label = self
+            .pop_string(word, "button label string")
+            .inspect_err(|_| {
+                self.stack = stack_before.clone();
+            })?;
         let button_label = HostDisplayLabel::parse(&button_label).map_err(|_| {
             self.stack = stack_before.clone();
             VmError::InvalidArgument {
@@ -14295,5 +14311,33 @@ mod secure_session_tests {
         assert!(rendered.contains("<secure-session-action>"));
         assert_eq!(bridge.issues.load(Ordering::Acquire), 1);
         let _ = HostDisplayLabel::parse("type proof").expect("shared label type");
+    }
+
+    #[test]
+    fn secure_session_action_type_errors_restore_the_complete_argument_stack() {
+        for malformed_index in 0..4 {
+            let (mut vm, bridge, _session, _guard) = vm_with_session();
+            let mut arguments = vec![
+                Value::String("Store session key".to_string()),
+                Value::String("provider.openai".to_string()),
+                Value::String("OpenAI session key".to_string()),
+                Value::String("after_secret".to_string()),
+            ];
+            arguments[malformed_index] = Value::Number(17);
+            for value in arguments {
+                vm.push_value(value);
+            }
+            let stack_before = vm.stack().to_vec();
+
+            vm.call_webview_secure_session_action("webview_secure_session_action")
+                .expect_err("malformed secure action arguments must fail");
+
+            assert_eq!(
+                vm.stack(),
+                stack_before.as_slice(),
+                "argument at stack index {malformed_index} consumed part of the stack"
+            );
+            assert_eq!(bridge.issues.load(Ordering::Acquire), 0);
+        }
     }
 }
