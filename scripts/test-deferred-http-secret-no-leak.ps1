@@ -55,19 +55,35 @@ function Assert-ClearedBytes {
 function Read-ExactBytes {
     param(
         [System.IO.Stream]$Stream,
-        [int]$Count
+        [int]$Count,
+        [System.Exception]$InjectedFailure = $null,
+        [hashtable]$ClearedFailureCapture = $null
     )
     $buffer = New-Object byte[] $Count
     $offset = 0
-    while ($offset -lt $Count) {
-        $read = $Stream.Read($buffer, $offset, $Count - $offset)
-        if ($read -le 0) {
-            Clear-Bytes $buffer
-            throw 'anonymous audit pipe closed before the checked frame was complete'
+    $completed = $false
+    try {
+        while ($offset -lt $Count) {
+            $read = $Stream.Read($buffer, $offset, $Count - $offset)
+            if ($read -le 0) {
+                throw 'anonymous audit pipe closed before the checked frame was complete'
+            }
+            $offset += $read
         }
-        $offset += $read
+        if ($null -ne $InjectedFailure) {
+            throw $InjectedFailure
+        }
+        $completed = $true
+        return ,$buffer
     }
-    return ,$buffer
+    finally {
+        if (-not $completed) {
+            Clear-Bytes $buffer
+            if ($null -ne $ClearedFailureCapture) {
+                $ClearedFailureCapture.Buffer = [object]$buffer
+            }
+        }
+    }
 }
 
 function Start-CapturedProcess {
@@ -141,14 +157,28 @@ function Test-SamePath {
     )
 }
 
+function Resolve-CargoTargetRootFromMetadataJson {
+    param([string]$MetadataJson)
+    try {
+        $metadata = $MetadataJson | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw 'Cargo metadata output was not valid JSON'
+    }
+    if (-not (Test-JsonProperty $metadata 'target_directory') -or
+        [string]::IsNullOrWhiteSpace([string]$metadata.target_directory)) {
+        throw 'Cargo metadata did not provide target_directory'
+    }
+    return [System.IO.Path]::GetFullPath([string]$metadata.target_directory)
+}
+
 function Get-CargoTargetRoot {
-    if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
-        return [System.IO.Path]::GetFullPath((Join-Path $root 'target'))
+    $rtkCommand = Get-Command rtk -ErrorAction Stop
+    $metadata = Start-CapturedProcess $rtkCommand.Source 'proxy cargo metadata --format-version=1 --no-deps' 120000
+    if ($metadata.ExitCode -ne 0) {
+        throw 'Cargo metadata failed while resolving the configured target directory'
     }
-    if ([System.IO.Path]::IsPathRooted($env:CARGO_TARGET_DIR)) {
-        return [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
-    }
-    return [System.IO.Path]::GetFullPath((Join-Path $root $env:CARGO_TARGET_DIR))
+    return Resolve-CargoTargetRootFromMetadataJson $metadata.Stdout
 }
 
 function Resolve-CargoTestExecutableFromJson {
@@ -215,8 +245,15 @@ function Resolve-CargoTestExecutableFromJson {
 
     $artifact = $matches[0]
     $executable = [System.IO.Path]::GetFullPath([string]$artifact.executable)
-    $expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $TargetRoot 'debug\deps'))
-    if (-not (Test-SamePath ([System.IO.Path]::GetDirectoryName($executable)) $expectedDirectory)) {
+    $depsDirectory = [System.IO.Path]::GetDirectoryName($executable)
+    $profileDirectory = [System.IO.Path]::GetDirectoryName($depsDirectory)
+    $layoutRoot = [System.IO.Path]::GetDirectoryName($profileDirectory)
+    $directLayout = Test-SamePath $layoutRoot $TargetRoot
+    $targetTripleLayout = -not $directLayout -and
+        (Test-SamePath ([System.IO.Path]::GetDirectoryName($layoutRoot)) $TargetRoot)
+    if ([System.IO.Path]::GetFileName($depsDirectory) -cne 'deps' -or
+        [System.IO.Path]::GetFileName($profileDirectory) -cne 'debug' -or
+        (-not $directLayout -and -not $targetTripleLayout)) {
         throw 'Cargo selected a deferred HTTP audit artifact outside the exact target directory'
     }
     $expectedFileName = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
@@ -261,10 +298,21 @@ function Invoke-ArtifactSelectionSelfCheck {
         throw ("artifact selection self-test compilation failed: {0}" -f $compile.Stderr.Trim())
     }
     $targetRoot = Get-CargoTargetRoot
+    $metadataTargetRoot = Resolve-CargoTargetRootFromMetadataJson (
+        @{ target_directory = $targetRoot } | ConvertTo-Json -Compress
+    )
+    if (-not (Test-SamePath $metadataTargetRoot $targetRoot)) {
+        throw 'artifact selection self-test did not preserve Cargo metadata target_directory'
+    }
     $targetName = 'deferred_http_secret_no_leak'
     $manifestPath = Join-Path $root 'crates\ricochet_cli\Cargo.toml'
     $sourcePath = Join-Path $root 'crates\ricochet_cli\tests\deferred_http_secret_no_leak.rs'
     $executable = Resolve-CargoTestExecutableFromJson $compile.Stdout $targetName $manifestPath $sourcePath $targetRoot
+    $syntheticTripleTargetRoot = [System.IO.Path]::GetDirectoryName($targetRoot)
+    $tripleExecutable = Resolve-CargoTestExecutableFromJson $compile.Stdout $targetName $manifestPath $sourcePath $syntheticTripleTargetRoot
+    if (-not (Test-SamePath $tripleExecutable $executable)) {
+        throw 'artifact selection self-test changed the Cargo executable in a target-triple layout'
+    }
 
     $exactLines = @()
     foreach ($line in $compile.Stdout -split "`r?`n") {
@@ -350,17 +398,34 @@ function Count-Pattern {
 function ConvertTo-HexBytes {
     param(
         [byte[]]$Buffer,
-        [bool]$Uppercase
+        [bool]$Uppercase,
+        [System.Exception]$InjectedFailure = $null,
+        [hashtable]$ClearedFailureCapture = $null
     )
     $letterBase = if ($Uppercase) { 55 } else { 87 }
     $hex = New-Object byte[] ($Buffer.Length * 2)
-    for ($index = 0; $index -lt $Buffer.Length; $index++) {
-        $high = ($Buffer[$index] -shr 4) -band 0x0f
-        $low = $Buffer[$index] -band 0x0f
-        $hex[$index * 2] = if ($high -lt 10) { 48 + $high } else { $letterBase + $high }
-        $hex[($index * 2) + 1] = if ($low -lt 10) { 48 + $low } else { $letterBase + $low }
+    $completed = $false
+    try {
+        for ($index = 0; $index -lt $Buffer.Length; $index++) {
+            $high = ($Buffer[$index] -shr 4) -band 0x0f
+            $low = $Buffer[$index] -band 0x0f
+            $hex[$index * 2] = if ($high -lt 10) { 48 + $high } else { $letterBase + $high }
+            $hex[($index * 2) + 1] = if ($low -lt 10) { 48 + $low } else { $letterBase + $low }
+        }
+        if ($null -ne $InjectedFailure) {
+            throw $InjectedFailure
+        }
+        $completed = $true
+        return ,$hex
     }
-    return ,$hex
+    finally {
+        if (-not $completed) {
+            Clear-Bytes $hex
+            if ($null -ne $ClearedFailureCapture) {
+                $ClearedFailureCapture.Buffer = [object]$hex
+            }
+        }
+    }
 }
 
 function Invoke-ByteBufferSelfCheck {
@@ -399,22 +464,59 @@ function Invoke-ByteBufferSelfCheck {
     Assert-ClearedBytes $lower 'lowercase digest self-check'
     Assert-ClearedBytes $upper 'uppercase digest self-check'
 
-    foreach ($exception in @(
-        (New-Object System.InvalidOperationException('injected failure')),
-        (New-Object System.OperationCanceledException('injected cancellation'))
+    foreach ($case in @(
+        @{ Exception = New-Object System.InvalidOperationException('injected failure'); Label = 'failure' },
+        @{ Exception = New-Object System.OperationCanceledException('injected cancellation'); Label = 'cancellation' }
     )) {
-        $failureBuffer = [byte[]](0xaa, 0xbb, 0xcc, 0xdd)
+        $readSource = [byte[]](0xaa, 0xbb, 0xcc, 0xdd)
+        $failureStream = New-Object System.IO.MemoryStream(, $readSource)
+        $observedReadBuffer = @{ Buffer = $null }
+        $readThrew = $false
         try {
-            throw $exception
+            $null = Read-ExactBytes `
+                -Stream $failureStream `
+                -Count $readSource.Length `
+                -InjectedFailure $case.Exception `
+                -ClearedFailureCapture $observedReadBuffer
         }
         catch [System.InvalidOperationException] {
+            $readThrew = $true
         }
         catch [System.OperationCanceledException] {
+            $readThrew = $true
         }
         finally {
-            Clear-Bytes $failureBuffer
+            $failureStream.Dispose()
+            Clear-Bytes $readSource
         }
-        Assert-ClearedBytes $failureBuffer 'failure-path self-check'
+        if (-not $readThrew) {
+            throw ("read helper did not execute its injected {0} path" -f $case.Label)
+        }
+        Assert-ClearedBytes $observedReadBuffer.Buffer ("read helper {0}-path buffer" -f $case.Label)
+
+        $hexSource = [byte[]](0x01, 0x23, 0x45, 0x67)
+        $observedHexBuffer = @{ Buffer = $null }
+        $hexThrew = $false
+        try {
+            $null = ConvertTo-HexBytes `
+                -Buffer $hexSource `
+                -Uppercase $false `
+                -InjectedFailure $case.Exception `
+                -ClearedFailureCapture $observedHexBuffer
+        }
+        catch [System.InvalidOperationException] {
+            $hexThrew = $true
+        }
+        catch [System.OperationCanceledException] {
+            $hexThrew = $true
+        }
+        finally {
+            Clear-Bytes $hexSource
+        }
+        if (-not $hexThrew) {
+            throw ("hex helper did not execute its injected {0} path" -f $case.Label)
+        }
+        Assert-ClearedBytes $observedHexBuffer.Buffer ("hex helper {0}-path buffer" -f $case.Label)
     }
 }
 
@@ -455,13 +557,13 @@ function Scan-Files {
 
 if ($ByteBufferSelfTestOnly) {
     Invoke-ByteBufferSelfCheck
-    Write-Output 'byte_buffer_self_check=success;runtime_type=System.Byte[];success_zeroized=5;failure_zeroized=1;cancellation_zeroized=1'
+    Write-Output 'byte_buffer_self_check=success;runtime_type=System.Byte[];success_zeroized=5;failure_zeroized=2;cancellation_zeroized=2'
     return
 }
 
 if ($ArtifactSelectionSelfTestOnly) {
     $selectedArtifact = Invoke-ArtifactSelectionSelfCheck
-    Write-Output ("artifact_selection_self_check=success;exact_artifact={0};missing_rejected=1;ambiguous_rejected=1;wrong_target_rejected=1;sidecar_rejected=1" -f $selectedArtifact)
+    Write-Output ("artifact_selection_self_check=success;exact_artifact={0};metadata_target_directory=1;target_triple_layout=1;missing_rejected=1;ambiguous_rejected=1;wrong_target_rejected=1;sidecar_rejected=1" -f $selectedArtifact)
     return
 }
 
