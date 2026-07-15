@@ -4,6 +4,8 @@ use std::sync::Arc;
 use ricochet_application::SecretName;
 use zeroize::Zeroizing;
 
+use crate::SecretRef;
+
 pub struct DeferredSecretSource(DeferredSecretSourceValue);
 
 enum DeferredSecretSourceValue {
@@ -13,6 +15,9 @@ enum DeferredSecretSourceValue {
     },
     Literal {
         value: Zeroizing<String>,
+    },
+    Opaque {
+        reference: SecretRef,
     },
 }
 
@@ -49,11 +54,16 @@ impl DeferredSecretSource {
             value: Zeroizing::new(value),
         }))
     }
+
+    pub fn opaque(reference: SecretRef) -> Self {
+        Self(DeferredSecretSourceValue::Opaque { reference })
+    }
 }
 
 pub(crate) enum DeferredSecretSourceRef<'a> {
     Environment { environment_key: &'a str },
     Literal { value: &'a str },
+    Opaque { reference: &'a SecretRef },
 }
 
 impl DeferredSecretSource {
@@ -64,6 +74,9 @@ impl DeferredSecretSource {
             } => DeferredSecretSourceRef::Environment { environment_key },
             DeferredSecretSourceValue::Literal { value } => {
                 DeferredSecretSourceRef::Literal { value }
+            }
+            DeferredSecretSourceValue::Opaque { reference } => {
+                DeferredSecretSourceRef::Opaque { reference }
             }
         }
     }
@@ -83,6 +96,10 @@ impl fmt::Debug for DeferredSecretSourceValue {
             Self::Literal { value } => {
                 let _ = value;
                 formatter.write_str("<literal-secret-source>")
+            }
+            Self::Opaque { reference } => {
+                let _ = reference;
+                formatter.write_str("<opaque-secret-source>")
             }
         }
     }
@@ -208,7 +225,8 @@ mod tests {
                 let _: &zeroize::Zeroizing<String> = value;
                 assert_eq!(value.as_str(), "synthetic-secret-value");
             }
-            DeferredSecretSourceValue::Environment { .. } => {
+            DeferredSecretSourceValue::Environment { .. }
+            | DeferredSecretSourceValue::Opaque { .. } => {
                 panic!("literal constructor should store a literal source")
             }
         }

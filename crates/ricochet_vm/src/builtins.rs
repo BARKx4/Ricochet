@@ -6,6 +6,7 @@ use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,7 +29,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use regex::Match as RegexMatch;
-use ricochet_application::SecretName;
+use ricochet_application::{HostDisplayLabel, SecretName};
 use ricochet_bytecode::Chunk;
 use ricochet_secrets::{
     DeferredHttpCredentials, DeferredSecretSource, PreparedSecretHttpRequest, SecretHttpResponse,
@@ -1646,7 +1647,10 @@ impl Vm {
 
     pub(super) fn call_type(&mut self, word: &str) -> Result<(), VmError> {
         let value = self.pop(word)?;
-        if matches!(value, Value::DeferredHttpCredentials(_)) {
+        if matches!(
+            value,
+            Value::DeferredHttpCredentials(_) | Value::SecretRef(_) | Value::SecureSessionAction(_)
+        ) {
             return Err(method_type_error(word, "language value", &value));
         }
         self.stack
@@ -1675,6 +1679,9 @@ impl Vm {
             Value::Regex(_) => "Regex".to_string(),
             Value::Capability(_) => "Capability".to_string(),
             Value::DeferredHttpCredentials(_) => {
+                return Err(method_type_error(word, "language value", &value));
+            }
+            Value::SecretRef(_) | Value::SecureSessionAction(_) => {
                 return Err(method_type_error(word, "language value", &value));
             }
         };
@@ -1919,6 +1926,13 @@ impl Vm {
 
     pub(super) fn call_secret_resolve(&mut self, word: &str) -> Result<(), VmError> {
         let reference = self.pop(word)?;
+        if matches!(reference, Value::SecretRef(_)) {
+            self.stack.push(Value::result_err(
+                "SecretReferenceError",
+                "session secret references cannot be resolved by Ricochet source",
+            ));
+            return Ok(());
+        }
         let Value::Map(reference) = reference else {
             self.stack.push(Value::result_err(
                 "SecretReferenceError",
@@ -1982,6 +1996,72 @@ impl Vm {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn call_secret_session_get(&mut self, word: &str) -> Result<(), VmError> {
+        let bridge = self.require_secret_session_bridge(word)?;
+        let name = self.pop_string(word, "session secret name string")?;
+        let name = match SecretName::parse(&name) {
+            Ok(name) => name,
+            Err(_) => {
+                self.stack.push(Value::result_err(
+                    "SecretReferenceError",
+                    "invalid session secret name",
+                ));
+                return Ok(());
+            }
+        };
+        let value = match bridge.session_context().reference(&name) {
+            Ok(reference) => Value::result_ok(Value::SecretRef(reference)),
+            Err(error) if error.kind() == ricochet_secrets::SecretSessionErrorKind::Missing => {
+                Value::result_err("secret_missing", "session secret is not present")
+            }
+            Err(_) => Value::result_err(
+                "SecretReferenceError",
+                "session secret reference is unavailable",
+            ),
+        };
+        self.stack.push(value);
+        Ok(())
+    }
+
+    pub(super) fn call_secret_session_present(&mut self, word: &str) -> Result<(), VmError> {
+        let bridge = self.require_secret_session_bridge(word)?;
+        let name = self.pop_string(word, "session secret name string")?;
+        let name = match SecretName::parse(&name) {
+            Ok(name) => name,
+            Err(_) => {
+                self.stack.push(Value::result_err(
+                    "SecretReferenceError",
+                    "invalid session secret name",
+                ));
+                return Ok(());
+            }
+        };
+        let value = bridge
+            .session_context()
+            .present(&name)
+            .map(|present| Value::result_ok(Value::Bool(present)))
+            .unwrap_or_else(|_| {
+                Value::result_err(
+                    "SecretReferenceError",
+                    "session secret presence is unavailable",
+                )
+            });
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn require_secret_session_bridge(
+        &self,
+        word: &str,
+    ) -> Result<Arc<dyn crate::HostSecureSessionBridge>, VmError> {
+        self.secret_session_bridge
+            .clone()
+            .ok_or_else(|| VmError::HostError {
+                word: word.to_string(),
+                message: "callback GUI secure session capability is not installed".to_string(),
+            })
     }
 
     pub(super) fn call_password_hash(&mut self, word: &str) -> Result<(), VmError> {
@@ -2174,6 +2254,19 @@ impl Vm {
                 request.insert(
                     DEFERRED_HTTP_CREDENTIALS_FIELD.to_string(),
                     Value::DeferredHttpCredentials(DeferredHttpCredentials::bearer(source)),
+                );
+                self.stack.push(Value::result_ok(Value::Map(request)));
+            }
+            Value::SecretRef(reference) => {
+                if let Err(error) = http_request_remove_authorization(&request) {
+                    self.stack.push(error);
+                    return Ok(());
+                }
+                request.insert(
+                    DEFERRED_HTTP_CREDENTIALS_FIELD.to_string(),
+                    Value::DeferredHttpCredentials(DeferredHttpCredentials::bearer(
+                        DeferredSecretSource::opaque(reference),
+                    )),
                 );
                 self.stack.push(Value::result_ok(Value::Map(request)));
             }
@@ -4831,6 +4924,52 @@ impl Vm {
         ))
     }
 
+    pub(super) fn call_webview_secure_session_action(&mut self, word: &str) -> Result<(), VmError> {
+        let bridge = self.require_secret_session_bridge(word)?;
+        let stack_before = self.stack.clone();
+        self.ensure_stack(word, 4)?;
+        let callback_word = self.pop_string(word, "callback word string")?;
+        let prompt_label = self.pop_string(word, "secure prompt label string")?;
+        let slot_name = self.pop_string(word, "session secret name string")?;
+        let button_label = self.pop_string(word, "button label string")?;
+        let button_label = HostDisplayLabel::parse(&button_label).map_err(|_| {
+            self.stack = stack_before.clone();
+            VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "invalid secure action button label".to_string(),
+            }
+        })?;
+        let prompt_label = HostDisplayLabel::parse(&prompt_label).map_err(|_| {
+            self.stack = stack_before.clone();
+            VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "invalid secure action prompt label".to_string(),
+            }
+        })?;
+        let slot_name = SecretName::parse(&slot_name).map_err(|_| {
+            self.stack = stack_before.clone();
+            VmError::InvalidArgument {
+                word: word.to_string(),
+                message: "invalid session secret name".to_string(),
+            }
+        })?;
+        let request = crate::SecureSessionActionRequest::new(
+            button_label,
+            slot_name,
+            prompt_label,
+            callback_word,
+        );
+        let descriptor = bridge.issue_action(request).map_err(|_| {
+            self.stack = stack_before;
+            VmError::HostError {
+                word: word.to_string(),
+                message: "secure session action registration failed".to_string(),
+            }
+        })?;
+        self.stack.push(Value::SecureSessionAction(descriptor));
+        Ok(())
+    }
+
     fn method_webview_input(&mut self, receiver: Value, method: &str) -> Result<Value, VmError> {
         require_capability(receiver, Capability::Webview, method)?;
         let value = self.pop_string(method, "input value string")?;
@@ -5995,7 +6134,7 @@ fn webview_document_html(
     actions: &Value,
 ) -> Result<String, VmError> {
     let state_json = webview_json_literal("state", state)?;
-    let actions_json = webview_json_literal("actions", actions)?;
+    let actions_json = webview_actions_json_literal(actions)?;
     Ok(format!(
         r##"<!doctype html>
 <html lang="en">
@@ -6090,6 +6229,7 @@ fn webview_document_html(
   </style>
 </head>
 <body>
+<section id="rco-secure-actions" aria-label="Ephemeral session controls"></section>
 <main id="rco-root" class="rco-root">
 {}
 </main>
@@ -6098,6 +6238,7 @@ fn webview_document_html(
   window.__RICOCHET_STATE__ = {};
   window.__RICOCHET_ACTIONS__ = {};
   const root = () => document.getElementById("rco-root");
+  const secureActionsRoot = () => document.getElementById("rco-secure-actions");
   const cssEscape = (value) => {{
     if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(value);
     return String(value).replace(/["\\]/g, "\\$&");
@@ -6147,6 +6288,7 @@ fn webview_document_html(
     }}
     if (documentUpdate.actions !== undefined) {{
       window.__RICOCHET_ACTIONS__ = documentUpdate.actions;
+      renderSecureActions(documentUpdate.actions);
     }}
     const appRoot = root();
     if (appRoot && typeof documentUpdate.body === "string") {{
@@ -6159,9 +6301,37 @@ fn webview_document_html(
       window.ipc.postMessage(JSON.stringify(message));
     }}
   }};
+  const renderSecureActions = (actions) => {{
+    const hostRoot = secureActionsRoot();
+    if (!hostRoot) return;
+    hostRoot.replaceChildren();
+    const secure = Array.isArray(actions)
+      ? actions.filter((action) => action && action.type === "secure_session_action")
+      : [];
+    if (secure.length === 0) return;
+    const banner = document.createElement("strong");
+    banner.textContent = "Unverified ephemeral session";
+    hostRoot.appendChild(banner);
+    for (const action of secure) {{
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = action.label;
+      button.setAttribute("data-rco-secure-action", action.action);
+      hostRoot.appendChild(button);
+    }}
+  }};
+  renderSecureActions(window.__RICOCHET_ACTIONS__);
   document.addEventListener("click", (event) => {{
-    const target = event.target.closest("[data-rco-action]");
+    const target = event.target.closest("[data-rco-action], [data-rco-secure-action]");
     if (!target) return;
+    const secureAction = target.getAttribute("data-rco-secure-action");
+    if (secureAction) {{
+      window.__ricochetDispatch({{
+        type: "secure_session_action",
+        action: secureAction
+      }});
+      return;
+    }}
     const message = {{
       type: "action",
       action: target.getAttribute("data-rco-action"),
@@ -6178,6 +6348,46 @@ fn webview_document_html(
         state_json,
         actions_json
     ))
+}
+
+fn webview_actions_json_literal(actions: &Value) -> Result<String, VmError> {
+    let values = match actions {
+        Value::Array(values) => values.snapshot(),
+        Value::List(values) => values.snapshot(),
+        value => {
+            return Err(VmError::InvalidArgument {
+                word: "webview_window_state".to_string(),
+                message: format!(
+                    "webview actions must be an array or list, got {}",
+                    value_kind(value)
+                ),
+            });
+        }
+    };
+    let mut encoded = Vec::with_capacity(values.len());
+    for value in values {
+        match value {
+            Value::SecureSessionAction(action) => encoded.push(serde_json::json!({
+                "type": "secure_session_action",
+                "action": action.action_id(),
+                "label": action.button_label().as_str(),
+            })),
+            value => {
+                encoded.push(
+                    value_to_json(&value).map_err(|message| VmError::InvalidArgument {
+                        word: "webview_window_state".to_string(),
+                        message: format!("webview actions cannot be encoded as JSON: {message}"),
+                    })?,
+                )
+            }
+        }
+    }
+    serde_json::to_string(&encoded)
+        .map(|json| script_safe_json_literal(&json))
+        .map_err(|_| VmError::InvalidArgument {
+            word: "webview_window_state".to_string(),
+            message: "webview actions cannot be encoded as JSON".to_string(),
+        })
 }
 
 fn webview_json_literal(name: &str, value: &Value) -> Result<String, VmError> {
@@ -6223,7 +6433,10 @@ fn builtin_class_name(value: &Value) -> Option<&'static str> {
         Value::Result(_) => Some("Result"),
         Value::Regex(_) => Some("Regex"),
         Value::Capability(_) => Some("Capability"),
-        Value::Instance(_) | Value::DeferredHttpCredentials(_) => None,
+        Value::Instance(_)
+        | Value::DeferredHttpCredentials(_)
+        | Value::SecretRef(_)
+        | Value::SecureSessionAction(_) => None,
     }
 }
 
@@ -10646,7 +10859,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Barrier, Mutex};
 
-    fn synthetic_http_request() -> MapValue {
+    pub(super) fn synthetic_http_request() -> MapValue {
         let mut vm = Vm::default();
         vm.push_value(Value::String("POST".to_string()));
         vm.push_value(Value::String(
@@ -10664,7 +10877,7 @@ mod tests {
         request.clone()
     }
 
-    fn successful_http_request(vm: &Vm) -> MapValue {
+    pub(super) fn successful_http_request(vm: &Vm) -> MapValue {
         let [Value::Result(RicochetResult::Ok(request))] = vm.stack() else {
             panic!("HTTP credential construction should leave one successful request result");
         };
@@ -13889,5 +14102,198 @@ $request "synthetic-plaintext-token" http_bearer_auth
             process.env.get("ALLOWED_CHILD_ENV"),
             Some(&"safe".to_string())
         );
+    }
+}
+
+#[cfg(test)]
+mod secure_session_tests {
+    use super::*;
+    use crate::{
+        HostSecureSessionBridge, SecretSessionBridgeError, SecureSessionActionDescriptor,
+        SecureSessionActionRequest,
+    };
+    use ricochet_application::{HostDisplayLabel, SecretName};
+    use ricochet_secrets::{HostTokenSource, SecretSession, SecretSessionContext};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use zeroize::Zeroizing;
+
+    struct TestBridge {
+        context: SecretSessionContext,
+        issues: AtomicUsize,
+    }
+
+    impl HostSecureSessionBridge for TestBridge {
+        fn session_context(&self) -> SecretSessionContext {
+            self.context.clone()
+        }
+
+        fn issue_action(
+            &self,
+            request: SecureSessionActionRequest,
+        ) -> Result<SecureSessionActionDescriptor, SecretSessionBridgeError> {
+            self.issues.fetch_add(1, Ordering::AcqRel);
+            assert_eq!(request.callback_word(), "after_secret");
+            assert_eq!(request.button_label().as_str(), "Store session key");
+            assert_eq!(request.prompt_label().as_str(), "OpenAI session key");
+            SecureSessionActionDescriptor::from_host(
+                "ab".repeat(32),
+                request.button_label().clone(),
+            )
+        }
+    }
+
+    fn vm_with_session() -> (
+        Vm,
+        Arc<TestBridge>,
+        SecretSession,
+        ricochet_secrets::SecretSessionGuard,
+    ) {
+        let tokens = HostTokenSource::system();
+        let mut vm = Vm::default();
+        let (session, guard) = SecretSession::create(&tokens, vm.security_domain_id())
+            .expect("test session should construct");
+        let bridge = Arc::new(TestBridge {
+            context: session.context(),
+            issues: AtomicUsize::new(0),
+        });
+        vm.install_secret_session_bridge(bridge.clone());
+        (vm, bridge, session, guard)
+    }
+
+    fn bind_fixture(context: &SecretSessionContext, slot: &str) -> ricochet_secrets::SecretRef {
+        context
+            .prompt(SecretName::parse(slot).expect("slot name"))
+            .expect("prebound prompt")
+            .bind(Zeroizing::new("synthetic-session-value".to_string()))
+            .expect("fixture bind")
+    }
+
+    #[test]
+    fn secure_session_bootstrap_is_unavailable_without_fresh_callback_host_bridge() {
+        for word in ["secret_session_get", "secret_session_present?"] {
+            let mut vm = Vm::default();
+            vm.push_value(Value::String("INVALID SLOT".to_string()));
+            let error = if word == "secret_session_get" {
+                vm.call_secret_session_get(word)
+            } else {
+                vm.call_secret_session_present(word)
+            }
+            .expect_err("ordinary VM must fail capability before parsing the slot");
+            assert!(error.to_string().contains("callback GUI secure session"));
+        }
+
+        let mut vm = Vm::default();
+        for value in ["Store key", "provider.openai", "OpenAI key", "after_secret"] {
+            vm.push_value(Value::String(value.to_string()));
+        }
+        let error = vm
+            .call_webview_secure_session_action("webview_secure_session_action")
+            .expect_err("ordinary VM must not create secure host actions");
+        assert!(error.to_string().contains("callback GUI secure session"));
+    }
+
+    #[test]
+    fn secure_session_get_present_and_spawn_share_only_the_root_security_domain() {
+        let (mut vm, bridge, _session, _guard) = vm_with_session();
+        let _reference = bind_fixture(&bridge.context, "provider.openai");
+        vm.push_value(Value::String("provider.openai".to_string()));
+        vm.call_secret_session_present("secret_session_present?")
+            .expect("host presence word");
+        assert_eq!(vm.stack.pop(), Some(Value::result_ok(Value::Bool(true))));
+
+        vm.push_value(Value::String("provider.openai".to_string()));
+        vm.call_secret_session_get("secret_session_get")
+            .expect("host get word");
+        let acquired = vm.stack.pop().expect("get result");
+        assert!(
+            matches!(acquired, Value::Result(RicochetResult::Ok(value)) if matches!(*value, Value::SecretRef(_)))
+        );
+
+        let source = r#"[ "provider.openai" secret_session_get ] spawn await"#;
+        let chunk = ricochet_compiler::compile_source("secure-session-task.rco", source)
+            .expect("task fixture should compile");
+        vm.run_chunk(&chunk)
+            .expect("spawned task must inherit the root session security domain");
+        assert!(format!("{:?}", vm.stack()).contains("<secret-ref>"));
+
+        let mut sibling = Vm::default();
+        sibling.push_value(Value::String("provider.openai".to_string()));
+        assert!(sibling
+            .call_secret_session_get("secret_session_get")
+            .is_err());
+    }
+
+    #[test]
+    fn secure_session_ref_is_opaque_to_resolve_equality_json_image_and_callback_state() {
+        let (mut vm, bridge, session, _guard) = vm_with_session();
+        let reference = bind_fixture(&bridge.context, "provider.openai");
+        let value = Value::SecretRef(reference.clone());
+        assert!(format!("{value:?}").contains("<secret-ref>"));
+
+        vm.push_value(value.clone());
+        vm.call_secret_resolve("secret_resolve")
+            .expect("secret_resolve returns a sanitized result");
+        assert!(
+            matches!(vm.stack.pop(), Some(Value::Result(RicochetResult::Err(error))) if error.kind == "SecretReferenceError")
+        );
+        assert_eq!(session.test_resolution_count(), 0);
+
+        vm.set_variable("opaque", value.clone());
+        let equality =
+            ricochet_compiler::compile_source("secure-session-equality.rco", "$opaque $opaque =")
+                .expect("equality fixture compiles");
+        assert!(vm.run_chunk(&equality).is_err());
+        vm.stack.clear();
+        assert!(value_to_json(&value).is_err());
+        assert!(crate::image::value_to_image(&value, "stack[0]").is_err());
+
+        let state = Value::Map(BTreeMap::from([("secret".to_string(), value)]).into());
+        assert!(webview_json_literal("state", &state).is_err());
+
+        vm.push_value(Value::Map(super::tests::synthetic_http_request()));
+        vm.push_value(Value::SecretRef(reference));
+        vm.call_http_bearer_auth("http_bearer_auth")
+            .expect("session ref attaches without plaintext resolution");
+        let request = super::tests::successful_http_request(&vm);
+        assert!(matches!(
+            request.get(DEFERRED_HTTP_CREDENTIALS_FIELD),
+            Some(Value::DeferredHttpCredentials(_))
+        ));
+        assert_eq!(session.test_resolution_count(), 0);
+    }
+
+    #[test]
+    fn secure_session_action_validates_labels_before_registering_and_exposes_only_descriptor() {
+        let (mut vm, bridge, _session, _guard) = vm_with_session();
+        for value in [
+            "Store session key",
+            "provider.openai",
+            "bad\nlabel",
+            "after_secret",
+        ] {
+            vm.push_value(Value::String(value.to_string()));
+        }
+        assert!(vm
+            .call_webview_secure_session_action("webview_secure_session_action")
+            .is_err());
+        assert_eq!(bridge.issues.load(Ordering::Acquire), 0);
+
+        for value in [
+            "Store session key",
+            "provider.openai",
+            "OpenAI session key",
+            "after_secret",
+        ] {
+            vm.push_value(Value::String(value.to_string()));
+        }
+        vm.call_webview_secure_session_action("webview_secure_session_action")
+            .expect("valid host action");
+        let action = vm.stack.pop().expect("secure action descriptor");
+        assert!(matches!(action, Value::SecureSessionAction(_)));
+        let rendered = format!("{action:?}");
+        assert!(rendered.contains("<secure-session-action>"));
+        assert_eq!(bridge.issues.load(Ordering::Acquire), 1);
+        let _ = HostDisplayLabel::parse("type proof").expect("shared label type");
     }
 }

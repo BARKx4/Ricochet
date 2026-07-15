@@ -218,6 +218,8 @@ fn value_to_image_inner(
         Value::DeferredHttpCredentials(_) => {
             Err(non_serializable(path, "deferred HTTP credentials"))
         }
+        Value::SecretRef(_) => Err(non_serializable(path, "secret reference")),
+        Value::SecureSessionAction(_) => Err(non_serializable(path, "secure session action")),
     }
 }
 

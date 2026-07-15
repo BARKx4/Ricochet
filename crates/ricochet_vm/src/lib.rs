@@ -34,6 +34,10 @@ pub use pty_runtime::PtyRegistry;
 pub use regex_value::RegexValue;
 pub use result::{RicochetError, RicochetResult};
 pub use ricochet_secrets::DeferredHttpCredentials;
+pub use runtime_state::{
+    HostSecureSessionBridge, SecretSessionBridgeError, SecretSessionBridgeErrorKind,
+    SecureSessionActionDescriptor, SecureSessionActionRequest,
+};
 pub use socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };

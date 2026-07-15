@@ -28,6 +28,8 @@
 
 mod deferred_http;
 mod http_executor;
+mod opaque;
+mod session;
 
 pub use deferred_http::{DeferredHttpCredentials, DeferredSecretSource, DeferredSecretSourceError};
 #[cfg(feature = "test-host")]
@@ -35,4 +37,9 @@ pub use http_executor::test_host;
 pub use http_executor::{
     EnvironmentCredentialPolicy, PreparedSecretHttpRequest, SecretHttpError,
     SecretHttpPolicySnapshot, SecretHttpResponse, SecretHttpResponseStream, SecretsHttpExecutor,
+};
+pub use opaque::{HostTokenError, HostTokenSource, SecretRef, SecurityDomainId};
+pub use session::{
+    SecretSession, SecretSessionContext, SecretSessionError, SecretSessionErrorKind,
+    SecretSessionGuard, SessionSecretPrompt,
 };

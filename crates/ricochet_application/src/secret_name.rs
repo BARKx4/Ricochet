@@ -2,6 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SecretName(String);
 
 pub struct SecretNameError;
@@ -20,6 +21,10 @@ impl SecretName {
             return Err(SecretNameError);
         }
         Ok(Self(value.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

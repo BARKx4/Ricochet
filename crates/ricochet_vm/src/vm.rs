@@ -12,7 +12,8 @@ use std::thread;
 use ricochet_bytecode::{ArgsSpec, Chunk, Op, SourceSpan};
 use ricochet_sandbox::DestinationGrant;
 use ricochet_secrets::{
-    EnvironmentCredentialPolicy, SecretHttpPolicySnapshot, SecretsHttpExecutor,
+    EnvironmentCredentialPolicy, HostTokenSource, SecretHttpPolicySnapshot, SecretsHttpExecutor,
+    SecurityDomainId,
 };
 use thiserror::Error;
 
@@ -31,7 +32,7 @@ use crate::object::Instance;
 use crate::process_runtime::ProcessRegistry;
 use crate::pty_runtime::PtyRegistry;
 use crate::result::RicochetResult;
-use crate::runtime_state::{HostRuntimeState, SharedRuntimeState};
+use crate::runtime_state::{HostRuntimeState, HostSecureSessionBridge, SharedRuntimeState};
 use crate::socket_runtime::{
     TcpListenerRegistry, TcpSocketRegistry, WebSocketListenerRegistry, WebSocketRegistry,
 };
@@ -227,6 +228,8 @@ pub struct Vm {
     http_allowed_hosts: Option<BTreeSet<String>>,
     http_allowed_destinations: BTreeSet<DestinationGrant>,
     secrets_http_executor: SecretsHttpExecutor,
+    security_domain_id: SecurityDomainId,
+    pub(super) secret_session_bridge: Option<Arc<dyn HostSecureSessionBridge>>,
     http_stream_registry: HttpStreamRegistry,
     upload_stream_registry: UploadStreamRegistry,
     socket_enabled: bool,
@@ -297,6 +300,9 @@ impl Default for Vm {
             http_allowed_hosts: None,
             http_allowed_destinations: BTreeSet::new(),
             secrets_http_executor: SecretsHttpExecutor::new(),
+            security_domain_id: SecurityDomainId::generate(&HostTokenSource::system())
+                .expect("secure VM security-domain token generation failed"),
+            secret_session_bridge: None,
             http_stream_registry: HttpStreamRegistry::default(),
             upload_stream_registry: UploadStreamRegistry::default(),
             socket_enabled: false,
@@ -598,6 +604,8 @@ fn run_task_to_completion(
         http_allowed_hosts: host_runtime.http_allowed_hosts,
         http_allowed_destinations: shared_runtime.http_allowed_destinations,
         secrets_http_executor: shared_runtime.secrets_http_executor,
+        security_domain_id: shared_runtime.security_domain_id,
+        secret_session_bridge: shared_runtime.secret_session_bridge,
         http_stream_registry: shared_runtime.http_stream_registry,
         upload_stream_registry: shared_runtime.upload_stream_registry,
         socket_enabled: host_runtime.socket_enabled,
@@ -995,7 +1003,7 @@ impl Vm {
     }
 
     pub(crate) fn secret_http_policy_snapshot(&self) -> SecretHttpPolicySnapshot {
-        SecretHttpPolicySnapshot::new(
+        let policy = SecretHttpPolicySnapshot::new(
             self.http_enabled,
             self.http_allowed_hosts.clone(),
             self.http_allowed_destinations.clone(),
@@ -1004,6 +1012,12 @@ impl Vm {
                 self.environment_allowed_names.clone(),
             ),
         )
+        .with_security_domain(self.security_domain_id.clone());
+        match &self.secret_session_bridge {
+            Some(bridge) => policy
+                .with_secret_session(bridge.session_context(), self.security_domain_id.clone()),
+            None => policy,
+        }
     }
 
     pub(crate) fn secrets_http_executor(&self) -> SecretsHttpExecutor {
@@ -1017,6 +1031,18 @@ impl Vm {
 
     pub fn set_webview_enabled(&mut self, enabled: bool) {
         self.webview_enabled = enabled;
+    }
+
+    pub fn security_domain_id(&self) -> SecurityDomainId {
+        self.security_domain_id.clone()
+    }
+
+    pub fn install_secret_session_bridge(&mut self, bridge: Arc<dyn HostSecureSessionBridge>) {
+        self.secret_session_bridge = Some(bridge);
+    }
+
+    pub fn clear_secret_session_bridge(&mut self) {
+        self.secret_session_bridge = None;
     }
 
     pub fn set_instruction_limit(&mut self, limit: u64) {
@@ -1930,6 +1956,8 @@ impl Vm {
             "secret_env" => self.call_secret_env(word),
             "secret_literal" => self.call_secret_literal(word),
             "secret_resolve" => self.call_secret_resolve(word),
+            "secret_session_get" => self.call_secret_session_get(word),
+            "secret_session_present?" => self.call_secret_session_present(word),
             "password_hash" => self.call_password_hash(word),
             "password_verify" => self.call_password_verify(word),
             "http_request_new" => self.call_http_request_new(word),
@@ -2038,6 +2066,7 @@ impl Vm {
             "webview_action" => {
                 self.call_capability_method_word(word, Capability::Webview, "action")
             }
+            "webview_secure_session_action" => self.call_webview_secure_session_action(word),
             "webview_input" => self.call_capability_method_word(word, Capability::Webview, "input"),
             "webview_link" => self.call_capability_method_word(word, Capability::Webview, "link"),
             "webview_container" => {
@@ -3776,6 +3805,8 @@ impl Vm {
 
     fn shared_runtime_state(&self) -> SharedRuntimeState {
         SharedRuntimeState {
+            security_domain_id: self.security_domain_id.clone(),
+            secret_session_bridge: self.secret_session_bridge.clone(),
             http_allowed_destinations: self.http_allowed_destinations.clone(),
             secrets_http_executor: self.secrets_http_executor.clone(),
             http_stream_registry: self.http_stream_registry.clone(),
@@ -4922,21 +4953,19 @@ pub(super) fn value_kind(value: &Value) -> &'static str {
         Value::Regex(_) => "regex",
         Value::Capability(_) => "capability",
         Value::DeferredHttpCredentials(_) => "deferred HTTP credentials",
+        Value::SecretRef(_) => "secret reference",
+        Value::SecureSessionAction(_) => "secure session action",
     }
 }
 
 fn opaque_equality_error(word: &str, left: &Value, right: &Value) -> Option<VmError> {
-    if contains_deferred_http_credentials(left, &mut Vec::new())
-        || contains_deferred_http_credentials(right, &mut Vec::new())
-    {
-        Some(VmError::TypeError {
-            word: word.to_string(),
-            expected: "comparable values".to_string(),
-            actual: "deferred HTTP credentials".to_string(),
-        })
-    } else {
-        None
-    }
+    let actual = contains_opaque_value(left, &mut Vec::new())
+        .or_else(|| contains_opaque_value(right, &mut Vec::new()))?;
+    Some(VmError::TypeError {
+        word: word.to_string(),
+        expected: "comparable values".to_string(),
+        actual: actual.to_string(),
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4947,12 +4976,14 @@ enum OpaqueEqualityVisit {
     Set(usize),
 }
 
-fn contains_deferred_http_credentials(
+fn contains_opaque_value(
     value: &Value,
     visits: &mut Vec<OpaqueEqualityVisit>,
-) -> bool {
+) -> Option<&'static str> {
     let (visit, values) = match value {
-        Value::DeferredHttpCredentials(_) => return true,
+        Value::DeferredHttpCredentials(_) => return Some("deferred HTTP credentials"),
+        Value::SecretRef(_) => return Some("secret reference"),
+        Value::SecureSessionAction(_) => return Some("secure session action"),
         Value::Array(values) => (
             OpaqueEqualityVisit::Array(values.identity()),
             values.snapshot(),
@@ -4970,10 +5001,10 @@ fn contains_deferred_http_credentials(
             return instance
                 .fields
                 .values()
-                .any(|value| contains_deferred_http_credentials(value, visits));
+                .find_map(|value| contains_opaque_value(value, visits));
         }
         Value::Result(RicochetResult::Ok(value)) => {
-            return contains_deferred_http_credentials(value, visits);
+            return contains_opaque_value(value, visits);
         }
         Value::Nil
         | Value::Bool(_)
@@ -4986,16 +5017,16 @@ fn contains_deferred_http_credentials(
         | Value::Task(_)
         | Value::Result(RicochetResult::Err(_))
         | Value::Regex(_)
-        | Value::Capability(_) => return false,
+        | Value::Capability(_) => return None,
     };
 
     if visits.contains(&visit) {
-        return false;
+        return None;
     }
     visits.push(visit);
     values
         .iter()
-        .any(|value| contains_deferred_http_credentials(value, visits))
+        .find_map(|value| contains_opaque_value(value, visits))
 }
 
 fn accessor_get(field: &str, receiver: &Value) -> Result<Value, VmError> {

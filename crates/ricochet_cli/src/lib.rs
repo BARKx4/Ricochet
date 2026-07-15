@@ -60,6 +60,8 @@ mod hosted_registry;
 mod hosted_registry_server;
 mod lsp;
 mod migration_dsl;
+pub mod secure_action;
+pub mod secure_prompt;
 mod static_registry;
 
 use commands::package::{EmbeddedAppKind, EmbeddedAppPayload, LinuxPackageFormat, PackageOptions};

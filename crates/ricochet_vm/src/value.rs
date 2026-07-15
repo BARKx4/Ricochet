@@ -1,5 +1,5 @@
 use ricochet_bytecode::Chunk;
-use ricochet_secrets::DeferredHttpCredentials;
+use ricochet_secrets::{DeferredHttpCredentials, SecretRef};
 use thiserror::Error;
 
 use crate::capability::Capability;
@@ -7,6 +7,7 @@ use crate::collection::{ArrayValue, ListValue, MapValue, SetValue};
 use crate::object::Instance;
 use crate::regex_value::RegexValue;
 use crate::result::{RicochetError, RicochetResult};
+use crate::SecureSessionActionDescriptor;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -28,6 +29,8 @@ pub enum Value {
     Regex(RegexValue),
     Capability(Capability),
     DeferredHttpCredentials(DeferredHttpCredentials),
+    SecretRef(SecretRef),
+    SecureSessionAction(SecureSessionActionDescriptor),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -36,6 +39,10 @@ pub enum TruthinessError {
     ResultRequiresExplicitOk,
     #[error("deferred HTTP credentials cannot be used as a condition")]
     OpaqueDeferredHttpCredentials,
+    #[error("secret references cannot be used as a condition")]
+    OpaqueSecretRef,
+    #[error("secure session actions cannot be used as a condition")]
+    OpaqueSecureSessionAction,
 }
 
 impl Value {
@@ -59,6 +66,8 @@ impl Value {
             Value::Regex(_) => true,
             Value::Capability(_) => true,
             Value::DeferredHttpCredentials(_) => true,
+            Value::SecretRef(_) => true,
+            Value::SecureSessionAction(_) => true,
         }
     }
 
@@ -68,6 +77,8 @@ impl Value {
             Value::DeferredHttpCredentials(_) => {
                 Err(TruthinessError::OpaqueDeferredHttpCredentials)
             }
+            Value::SecretRef(_) => Err(TruthinessError::OpaqueSecretRef),
+            Value::SecureSessionAction(_) => Err(TruthinessError::OpaqueSecureSessionAction),
             _ => Ok(self.truthy()),
         }
     }

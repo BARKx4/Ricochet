@@ -12,6 +12,7 @@ use serde_json::Value as JsonValue;
 use zeroize::Zeroizing;
 
 use crate::deferred_http::{DeferredHttpCredentials, DeferredSecretSourceRef};
+use crate::{SecretSessionContext, SecurityDomainId};
 
 const PERMISSION_ERROR: &str = "PermissionError";
 const SECRET_REFERENCE_ERROR: &str = "SecretReferenceError";
@@ -43,6 +44,8 @@ pub struct SecretHttpPolicySnapshot {
     allowed_destinations: BTreeSet<DestinationGrant>,
     environment: EnvironmentCredentialPolicy,
     address_policy: SecretHttpAddressPolicy,
+    secret_session: Option<SecretSessionContext>,
+    security_domain_id: Option<SecurityDomainId>,
 }
 
 #[derive(Clone, Copy)]
@@ -92,6 +95,8 @@ pub struct PreparedSecretHttpRequest {
     max_response_bytes: usize,
     resolved_host: String,
     resolved_addresses: Vec<SocketAddr>,
+    secret_session: Option<SecretSessionContext>,
+    security_domain_id: Option<SecurityDomainId>,
 }
 
 enum ResolvedHttpCredential {
@@ -150,7 +155,24 @@ impl SecretHttpPolicySnapshot {
             allowed_destinations,
             environment,
             address_policy: SecretHttpAddressPolicy::PublicOnly,
+            secret_session: None,
+            security_domain_id: None,
         }
+    }
+
+    pub fn with_security_domain(mut self, security_domain_id: SecurityDomainId) -> Self {
+        self.security_domain_id = Some(security_domain_id);
+        self
+    }
+
+    pub fn with_secret_session(
+        mut self,
+        context: SecretSessionContext,
+        security_domain_id: SecurityDomainId,
+    ) -> Self {
+        self.secret_session = Some(context);
+        self.security_domain_id = Some(security_domain_id);
+        self
     }
 }
 
@@ -277,6 +299,11 @@ impl SecretsHttpExecutor {
             )));
         }
         preflight_environment(&credentials, &policy.environment)?;
+        preflight_secret_session(
+            &credentials,
+            policy.secret_session.as_ref(),
+            policy.security_domain_id.as_ref(),
+        )?;
 
         Ok(PreparedSecretHttpRequest {
             credentials,
@@ -289,6 +316,8 @@ impl SecretsHttpExecutor {
             max_response_bytes,
             resolved_host: host,
             resolved_addresses,
+            secret_session: policy.secret_session,
+            security_domain_id: policy.security_domain_id,
         })
     }
 
@@ -330,7 +359,11 @@ impl SecretsHttpExecutor {
     }
 
     fn send_once(&self, request: PreparedSecretHttpRequest) -> Result<Response, SecretHttpError> {
-        let credential = self.resolve_credential(&request.credentials)?;
+        let credential = self.resolve_credential(
+            &request.credentials,
+            request.secret_session.as_ref(),
+            request.security_domain_id.as_ref(),
+        )?;
         let mut headers = request.headers;
         credential.apply(&mut headers)?;
         let client = Client::builder()
@@ -362,6 +395,8 @@ impl SecretsHttpExecutor {
     fn resolve_credential(
         &self,
         credentials: &DeferredHttpCredentials,
+        session: Option<&SecretSessionContext>,
+        security_domain_id: Option<&SecurityDomainId>,
     ) -> Result<ResolvedHttpCredential, SecretHttpError> {
         #[cfg(feature = "test-host")]
         if let Some(metrics) = &self.inner.metrics {
@@ -376,6 +411,25 @@ impl SecretsHttpExecutor {
                 .resolve_environment(environment_key)
                 .map_err(SecretHttpError::secret_reference)?,
             DeferredSecretSourceRef::Literal { value } => Zeroizing::new(value.to_string()),
+            DeferredSecretSourceRef::Opaque { reference } => {
+                let session = session.ok_or_else(|| {
+                    SecretHttpError::secret_reference_message(
+                        "session credential has no active host session",
+                    )
+                })?;
+                let security_domain_id = security_domain_id.ok_or_else(|| {
+                    SecretHttpError::secret_reference_message(
+                        "session credential has no active security domain",
+                    )
+                })?;
+                session
+                    .resolve_reference(reference, security_domain_id)
+                    .map_err(|_| {
+                        SecretHttpError::secret_reference_message(
+                            "session credential is unavailable",
+                        )
+                    })?
+            }
         };
         if value.is_empty() {
             return Err(SecretHttpError::secret_reference_message(
@@ -622,6 +676,28 @@ fn preflight_environment(
         ));
     }
     Ok(())
+}
+
+fn preflight_secret_session(
+    credentials: &DeferredHttpCredentials,
+    session: Option<&SecretSessionContext>,
+    security_domain_id: Option<&SecurityDomainId>,
+) -> Result<(), SecretHttpError> {
+    let DeferredSecretSourceRef::Opaque { reference } = credentials.bearer_source().source_ref()
+    else {
+        return Ok(());
+    };
+    let session = session.ok_or_else(|| {
+        SecretHttpError::secret_reference_message("session credential has no active host session")
+    })?;
+    let security_domain_id = security_domain_id.ok_or_else(|| {
+        SecretHttpError::secret_reference_message(
+            "session credential has no active security domain",
+        )
+    })?;
+    session
+        .validate_reference(reference, security_domain_id)
+        .map_err(|_| SecretHttpError::secret_reference_message("session credential is unavailable"))
 }
 
 fn sanitized_response_headers(headers: &HeaderMap) -> BTreeMap<String, String> {

@@ -9,6 +9,7 @@ default = []
 test-host = []
 
 [dependencies]
+getrandom.workspace = true
 ricochet_application = { path = "../ricochet_application" }
 ricochet_sandbox = { path = "../ricochet_sandbox" }
 reqwest = { workspace = true, features = ["http2"] }
