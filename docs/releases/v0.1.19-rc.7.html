@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.7 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.7 Release Candidate Notes</h1>
+          <p class="lede">A security-focused candidate with host-owned credentials, deferred HTTP secret resolution, stronger Windows PTY behavior, and two language-tooling compatibility fixes.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+            <a href="#release-identity">Release Identity</a>
+            <a href="#host-owned-secrets">Host-Owned Secrets And HTTP Boundaries</a>
+            <a href="#runtime-and-cli-corrections">Runtime And CLI Corrections</a>
+            <a href="#governance-and-packaging">Governance And Packaging</a>
+            <a href="#ci-and-update-channel">CI And Update Channel</a>
+            <a href="#current-boundaries">Current Boundaries</a>
+            <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+            <p>Date: 2026-07-17</p>
+            <p>Ricochet v0.1.19-rc.7 advances the candidate line with a host-owned secret lifecycle and exact deferred-HTTP destination controls. It also carries Windows PTY reliability fixes, restores the documented <code>!=</code> operator, and makes migration and seed commands resolve database URL environment placeholders consistently with <code>serve</code>.</p>
+
+            <h2 id="release-identity">Release Identity</h2>
+            <ul>
+              <li>The Ricochet release and tag identity is <code>0.1.19-rc.7</code> and <code>v0.1.19-rc.7</code>.</li>
+              <li>The public GitHub Debian asset is <code>ricochet_0.1.19.rc.7_amd64.deb</code>. Inside the package, Debian control metadata retains <code>0.1.19~rc.7</code> so exact prerelease ordering remains older than stable <code>0.1.19</code>.</li>
+              <li>The supported desktop application lineage remains the native host shell with a WebView body and Ricochet-managed state. Public entry points remain <code>rco gui</code>, <code>rco package --gui</code>, and <code>rco-gui</code>.</li>
+              <li>The withdrawn native-control renderer experiment remains outside the supported WebView-only application surface.</li>
+            </ul>
+
+            <h2 id="host-owned-secrets">Host-Owned Secrets And HTTP Boundaries</h2>
+            <ul>
+              <li>Host-owned session credentials are represented by opaque references rather than plaintext VM values. Secure action and prompt boundaries keep secret bytes outside ordinary Ricochet stack inspection and serialization.</li>
+              <li>Deferred HTTP credentials bind to exact destinations and resolve only inside the native send path. Failed requests, equality checks, diagnostics, and response handling do not disclose the underlying credential.</li>
+              <li>HTTP destination validation rejects documentation-only address ranges, fails closed when IPv6 allocation cannot be validated, and preserves the existing bounded host allowlist.</li>
+              <li>Credential scanners, session ownership checks, release-artifact resolution, and test-host gates fail loudly when their security assumptions are not met.</li>
+              <li>No production credential is embedded in this release. Live credentials remain external host inputs and are never release assets.</li>
+            </ul>
+
+            <h2 id="runtime-and-cli-corrections">Runtime And CLI Corrections</h2>
+            <ul>
+              <li>Windows PTY creation no longer inherits an unrelated cursor state, and an explicitly empty environment serializes as a valid empty Windows environment block.</li>
+              <li>The lexer once again accepts <code>!=</code> as the documented alias for <code>not_equals?</code> while continuing to reject removed leading-<code>!</code> word syntax.</li>
+              <li><code>rco migrate</code> and <code>rco seed</code> resolve <code>${DATABASE_URL}</code>-style placeholders through the same manifest resolver used by <code>serve</code>. Packaged SQLite keeps its raw literal-path safety check.</li>
+              <li>Secure-action type errors preserve their arguments, and equality rejects nested deferred credentials instead of accidentally traversing protected values.</li>
+              <li>The candidate retains exact mixed numeric comparison, bounded cycle handling for structural values, and the release probe coverage established by the prior runtime hardening pass.</li>
+            </ul>
+
+            <h2 id="governance-and-packaging">Governance And Packaging</h2>
+            <ul>
+              <li>Ricochet first-party source, documentation, assets, crates, packages, and editor metadata remain under the Apache License 2.0 (<code>Apache-2.0</code>).</li>
+              <li>Locked dependency disclosures continue to ship as <code>THIRD_PARTY_LICENSES.html</code> and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
+              <li>The public Learn manual, Reference Docs, packages, examples, and editor support remain part of package validation.</li>
+              <li>Release staging uses a clean tracked-source inventory so local untracked files cannot silently enter an archive or installer.</li>
+              <li>The Windows installer continues to reject foreign non-empty destinations, preserve unrelated user files, and validate installed binaries, docs, examples, notices, registration, shortcuts, and uninstall cleanup.</li>
+            </ul>
+
+            <h2 id="ci-and-update-channel">CI And Update Channel</h2>
+            <ul>
+              <li>CI builds and smokes Windows, Linux, Debian, macOS arm64, and macOS x64 artifacts before publication.</li>
+              <li>The release workflow creates a draft, audits exact asset names, sizes, SHA-256 digests, checksums, manifests, and freshly downloaded bytes, then publishes only after the audit passes.</li>
+              <li>SemVer prerelease tag <code>v0.1.19-rc.7</code> is published as a GitHub prerelease, is not marked latest, and writes <code>UPDATE-CHANNEL-candidate.json</code>.</li>
+              <li>Candidate artifacts retain dry-run signing and notarization reports. Stable production signing still requires external Windows, Linux, and macOS credentials.</li>
+            </ul>
+
+            <h2 id="current-boundaries">Current Boundaries</h2>
+            <ul>
+              <li>This repository commit prepares a candidate identity; the hosted workflow must still prove the exact tag, artifacts, and release state.</li>
+              <li>The candidate channel remains separate from the stable channel and does not replace the latest stable release.</li>
+              <li>Host-owned secret support is an infrastructure boundary, not permission for application code to print, persist, or serialize credentials.</li>
+            </ul>
+
+            <h2 id="verification-checklist">Verification Checklist</h2>
+            <p>Before creating the <code>v0.1.19-rc.7</code> tag, run the repository gates from a clean checkout:</p>
+            <pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.7"
+
+cargo metadata --locked --format-version 1
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+pwsh -NoProfile -File .\scripts\validate-release-version.ps1
+pwsh -NoProfile -File .\docs\reference\validate.ps1
+pwsh -NoProfile -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
+pwsh -NoProfile -File .\scripts\validate-license-governance.ps1
+pwsh -NoProfile -File .\scripts\acceptance.ps1
+
+$releaseOut = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version\release-windows"
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode dry-run
+pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
+pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+            <p>After the release workflow completes, separately verify the published prerelease, tag commit, uploaded assets, combined checksums, platform manifests, signing-status reports, Debian control version, and candidate update-channel metadata.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

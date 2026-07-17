@@ -7,7 +7,7 @@ Targets:
 - x86_64-apple-darwin
 - aarch64-apple-darwin
 
-Dependencies: 419
+Dependencies: 427
 Notice files: 29
 
 ===============================================================================

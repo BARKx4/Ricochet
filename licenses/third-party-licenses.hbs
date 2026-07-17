@@ -26,14 +26,12 @@
       </thead>
       <tbody>
       {{#each crates}}
-        {{#if package.source}}
         <tr>
           <td><code>{{package.name}}</code></td>
           <td><code>{{package.version}}</code></td>
           <td><code>{{license}}</code></td>
           <td>{{#if package.repository}}<a href="{{package.repository}}">{{package.repository}}</a>{{else}}Not provided{{/if}}</td>
         </tr>
-        {{/if}}
       {{/each}}
       </tbody>
     </table>
@@ -45,9 +43,7 @@
       <p>Used by:</p>
       <ul>
       {{#each used_by}}
-        {{#if crate.source}}
         <li><code>{{crate.name}} {{crate.version}}</code>{{#if crate.repository}} — <a href="{{crate.repository}}">{{crate.repository}}</a>{{/if}}</li>
-        {{/if}}
       {{/each}}
       </ul>
       <pre>{{text}}</pre>

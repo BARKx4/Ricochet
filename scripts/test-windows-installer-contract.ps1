@@ -47,6 +47,9 @@ foreach ($requirement in @(
         @('$NsisManifestEvidenceRoot = Join-Path $RepoRoot "target\nsis-install-manifests"', 'Windows packager must retain generated NSIS include evidence outside the release output directory.'),
         @('$NsisManifestEvidenceDir = Join-Path $NsisManifestEvidenceRoot ([guid]::NewGuid().ToString("N"))', 'Windows packager must isolate retained NSIS evidence for each packaging run.'),
         @('$NsisInstallManifestPath = Join-Path $NsisManifestEvidenceDir "$PackageName-installed-files.nsh"', 'Windows packager must bind the generated include to the internal evidence directory.'),
+        @('[string] $CargoTargetDir,', 'Windows packager must support an isolated Cargo target directory.'),
+        @('throw "cargo build failed with exit code $LASTEXITCODE"', 'Windows packager must fail instead of packaging stale binaries after a Cargo build error.'),
+        @('$TargetDir = Join-Path $CargoTargetDirPath $Configuration', 'Windows packager must package binaries from the selected Cargo target directory.'),
         @('Write-NsisInstallManifest -PackageDir $PackageDir -Path $NsisInstallManifestPath', 'Windows packager must generate the uninstall manifest from the staged package.'),
         @('"/DINSTALL_MANIFEST=$NsisInstallManifestPath"', 'Windows packager must pass the generated manifest to NSIS.'),
         @('"/DLEGACY_CLEANUP_MANIFEST=$NsisLegacyCleanupPath"', 'Windows packager must pass the reviewed rc.4 cleanup manifest to NSIS.')

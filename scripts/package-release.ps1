@@ -3,6 +3,7 @@ param(
     [string] $Target = "windows-x64",
     [string] $OutDir = "dist",
     [string] $Configuration = "release",
+    [string] $CargoTargetDir,
     [string] $NsisPath,
     [switch] $SkipBuild,
     [switch] $RequireInstaller,
@@ -410,6 +411,14 @@ $OutDirPath = if ([System.IO.Path]::IsPathRooted($OutDir)) {
 } else {
     Join-Path $RepoRoot $OutDir
 }
+$CargoTargetDirPath = if ([string]::IsNullOrWhiteSpace($CargoTargetDir)) {
+    Join-Path $RepoRoot "target"
+} elseif ([System.IO.Path]::IsPathRooted($CargoTargetDir)) {
+    $CargoTargetDir
+} else {
+    Join-Path $RepoRoot $CargoTargetDir
+}
+$CargoTargetDirPath = [System.IO.Path]::GetFullPath($CargoTargetDirPath)
 $PackageDir = Join-Path $OutDirPath $PackageName
 $ArchivePath = Join-Path $OutDirPath "$PackageName.zip"
 $InstallerPath = Join-Path $OutDirPath "$PackageName-setup.exe"
@@ -433,7 +442,10 @@ Assert-NewPath $NsisInstallManifestPath
 if (-not $SkipBuild) {
     Push-Location $RepoRoot
     try {
-        cargo build -p ricochet_cli --$Configuration --locked
+        & cargo build -p ricochet_cli "--$Configuration" --locked --target-dir $CargoTargetDirPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "cargo build failed with exit code $LASTEXITCODE"
+        }
     } finally {
         Pop-Location
     }
@@ -443,7 +455,7 @@ $IsWindowsHost = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatfo
     [System.Runtime.InteropServices.OSPlatform]::Windows
 )
 $ExeSuffix = if ($IsWindowsHost) { ".exe" } else { "" }
-$TargetDir = Join-Path $RepoRoot "target\$Configuration"
+$TargetDir = Join-Path $CargoTargetDirPath $Configuration
 $Binaries = @(
     (Join-Path $TargetDir "rco$ExeSuffix")
     (Join-Path $TargetDir "rco-gui$ExeSuffix")
