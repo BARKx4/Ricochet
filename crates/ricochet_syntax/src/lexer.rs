@@ -141,7 +141,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                         position: start,
                     });
                 }
-                let kind = if word.starts_with('!') {
+                let kind = if word.starts_with('!') && word != "!=" {
                     return Err(LexError::LeadingExclamationWord {
                         word,
                         position: start,
@@ -333,6 +333,13 @@ mod tests {
             lex(&word),
             Err(LexError::LeadingExclamationWord { word, position: 0 })
         );
+    }
+
+    #[test]
+    fn lexes_not_equals_operator() {
+        let tokens = lex("!=").expect("lexing succeeds");
+
+        assert_eq!(tokens[0].kind, TokenKind::Symbol("!=".to_string()));
     }
 
     #[test]
