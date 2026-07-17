@@ -423,6 +423,8 @@ Require-PatternSet `
         'gh api',
         'releases\?per_page=100',
         'tag_name',
+        '\$maxDraftLookupAttempts = 10',
+        'Start-Sleep -Seconds 2',
         'Invoke-WebRequest',
         'application/octet-stream',
         '\$asset\.url',

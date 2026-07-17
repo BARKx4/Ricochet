@@ -1106,16 +1106,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $releaseJson = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-draft.json"
-          $releaseListJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not list draft GitHub releases."
-          }
-          $releaseCandidates = @($releaseListJson | ConvertFrom-Json | ForEach-Object { $_ })
-          $releaseMatches = @(
-            $releaseCandidates | Where-Object {
-              [string]$_.tag_name -ceq $env:GITHUB_REF_NAME -and [bool]$_.draft
+          $maxDraftLookupAttempts = 10
+          $releaseMatches = @()
+          for ($attempt = 1; $attempt -le $maxDraftLookupAttempts; $attempt++) {
+            $releaseListJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not list draft GitHub releases."
             }
-          )
+            $releaseCandidates = @($releaseListJson | ConvertFrom-Json | ForEach-Object { $_ })
+            $releaseMatches = @(
+              $releaseCandidates | Where-Object {
+                [string]$_.tag_name -ceq $env:GITHUB_REF_NAME -and [bool]$_.draft
+              }
+            )
+            if ($releaseMatches.Count -eq 1) {
+              break
+            }
+            if ($releaseMatches.Count -gt 1) {
+              throw "Expected exactly one draft for $env:GITHUB_REF_NAME; found $($releaseMatches.Count)."
+            }
+            if ($attempt -lt $maxDraftLookupAttempts) {
+              Start-Sleep -Seconds 2
+            }
+          }
           if ($releaseMatches.Count -ne 1) {
             throw "Expected exactly one draft for $env:GITHUB_REF_NAME; found $($releaseMatches.Count)."
           }
