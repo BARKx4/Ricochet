@@ -43,8 +43,8 @@ use ricochet_vm::{
     Vm, VmImage,
 };
 use ricochet_web::{
-    install_project_database_runtime, DatabaseBackend, MysqlDatabase, PostgresDatabase,
-    SqliteDatabase,
+    install_project_database_runtime, DatabaseBackend, DatabaseDefault, MysqlDatabase,
+    PostgresDatabase, SqliteDatabase,
 };
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -3211,7 +3211,7 @@ async fn migrate(command: MigrateCommand) -> Result<()> {
 
 async fn seed(path: &Path) -> Result<()> {
     let project_root = migration_project_root_for_command("seed", path)?;
-    let Some(database) = project_database_config(&project_root)? else {
+    let Some(database) = resolved_project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
     };
     let seed_files = discover_seed_files(&project_root)?;
@@ -3257,7 +3257,7 @@ fn migrate_new(path: &Path, name: &str, dsl: bool) -> Result<()> {
 
 async fn migrate_status(path: &Path) -> Result<()> {
     let project_root = migration_project_root(path)?;
-    let Some(database) = project_database_config(&project_root)? else {
+    let Some(database) = resolved_project_database_config(&project_root)? else {
         println!("No [database.default] configured.");
         return Ok(());
     };
@@ -3283,7 +3283,7 @@ async fn migrate_status(path: &Path) -> Result<()> {
 
 async fn migrate_apply(path: &Path) -> Result<()> {
     let project_root = migration_project_root(path)?;
-    let Some(database) = project_database_config(&project_root)? else {
+    let Some(database) = resolved_project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
     };
     let migrations = discover_migrations(&project_root)?;
@@ -3308,7 +3308,7 @@ async fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
         bail!("rollback --steps must be greater than 0");
     }
     let project_root = migration_project_root(path)?;
-    let Some(database) = project_database_config(&project_root)? else {
+    let Some(database) = resolved_project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
     };
     let migrations = discover_migrations(&project_root)?;
@@ -3325,7 +3325,7 @@ async fn migrate_rollback(path: &Path, steps: usize) -> Result<()> {
 
 async fn migrate_dump(path: &Path, output: &Path) -> Result<()> {
     let project_root = migration_project_root(path)?;
-    let Some(database) = project_database_config(&project_root)? else {
+    let Some(database) = resolved_project_database_config(&project_root)? else {
         bail!("No [database.default] configured.");
     };
 
@@ -4122,6 +4122,21 @@ fn project_database_config(project_root: &Path) -> Result<Option<MigrationDataba
         .context("database.default.url must be a string")?
         .to_string();
     Ok(Some(MigrationDatabase { adapter, url }))
+}
+
+fn resolved_project_database_config(project_root: &Path) -> Result<Option<MigrationDatabase>> {
+    let Some(database) = project_database_config(project_root)? else {
+        return Ok(None);
+    };
+    let database = DatabaseDefault {
+        adapter: database.adapter,
+        url: database.url,
+    };
+    let url = database.resolved_url()?;
+    Ok(Some(MigrationDatabase {
+        adapter: database.adapter,
+        url,
+    }))
 }
 
 fn migration_target(project_root: &Path, database: &MigrationDatabase) -> String {
@@ -11503,6 +11518,32 @@ end
         };
 
         assert_eq!(module_id_for_path(path), "macro_test.rco");
+    }
+
+    #[test]
+    fn migration_database_url_expands_environment_variables() {
+        const VARIABLE: &str = "RICOCHET_TEST_MIGRATION_DATABASE_URL";
+        const URL: &str = "postgres://app:test@localhost/app";
+        std::env::set_var(VARIABLE, URL);
+        let project = tempfile::tempdir().expect("temporary migration project");
+        fs::write(
+            project.path().join("ricochet.toml"),
+            r#"[database.default]
+adapter = "postgres"
+url = "${RICOCHET_TEST_MIGRATION_DATABASE_URL}"
+"#,
+        )
+        .expect("migration manifest");
+
+        let raw = project_database_config(project.path())
+            .expect("raw database config")
+            .expect("database config");
+        let resolved = resolved_project_database_config(project.path())
+            .expect("resolved database config")
+            .expect("database config");
+
+        assert_eq!(raw.url, "${RICOCHET_TEST_MIGRATION_DATABASE_URL}");
+        assert_eq!(resolved.url, URL);
     }
 
     #[test]
