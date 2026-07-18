@@ -43,6 +43,8 @@ use crate::router::{parse_routes, Route};
 use crate::template::{render_template, EscapeMode};
 use crate::value_json::{value_to_json, SetMode};
 
+pub const DEFAULT_MAX_CONTROLLER_INSTRUCTIONS: u64 = 1_000_000;
+
 #[derive(Clone)]
 struct AppState {
     runtime: RuntimeSource,
@@ -360,6 +362,7 @@ pub struct ServeOptions {
     pub http_destinations: Vec<DestinationGrant>,
     pub ai_allow_hosts: Vec<String>,
     pub database_allow_hosts: Vec<String>,
+    pub max_controller_instructions: u64,
 }
 
 impl fmt::Debug for ServeOptions {
@@ -382,6 +385,10 @@ impl fmt::Debug for ServeOptions {
             .field("http_destination_count", &self.http_destinations.len())
             .field("ai_allow_hosts", &self.ai_allow_hosts)
             .field("database_allow_hosts", &self.database_allow_hosts)
+            .field(
+                "max_controller_instructions",
+                &self.max_controller_instructions,
+            )
             .finish()
     }
 }
@@ -405,6 +412,7 @@ impl Default for ServeOptions {
             http_destinations: Vec::new(),
             ai_allow_hosts: Vec::new(),
             database_allow_hosts: Vec::new(),
+            max_controller_instructions: DEFAULT_MAX_CONTROLLER_INSTRUCTIONS,
         }
     }
 }
@@ -415,6 +423,9 @@ impl ServeOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if self.max_controller_instructions == 0 {
+            bail!("--max-controller-instructions must be greater than 0");
+        }
         if self.fs_readonly && self.fs_root.is_none() {
             bail!("--fs-readonly requires --fs-root");
         }
@@ -695,7 +706,18 @@ fn build_runtime_from_dir_internal_with_options(
         .map(|config| resolve_ai_provider_config(config, options).map(AiProvider::new))
         .transpose()?;
     let vm_setup = compose_ai_vm_setup(vm_setup, ai_provider);
-    let controllers = build_controller_registry(project_root, &routes, vm_setup)?;
+    let controller_instruction_limit = validate_controller_instruction_limit(
+        manifest.web.controller_instruction_limit,
+        options
+            .map(|options| options.max_controller_instructions)
+            .unwrap_or(DEFAULT_MAX_CONTROLLER_INSTRUCTIONS),
+    )?;
+    let controllers = build_controller_registry(
+        project_root,
+        &routes,
+        vm_setup,
+        controller_instruction_limit,
+    )?;
 
     let session_encryption_key = manifest
         .web
@@ -943,6 +965,21 @@ fn validate_upload_config(config: &Uploads) -> Result<()> {
         bail!("web.uploads.max_retained_streams must be greater than 0");
     }
     Ok(())
+}
+
+fn validate_controller_instruction_limit(limit: u64, deployment_maximum: u64) -> Result<u64> {
+    if deployment_maximum == 0 {
+        bail!("--max-controller-instructions must be greater than 0");
+    }
+    if limit == 0 {
+        bail!("web.controller_instruction_limit must be greater than 0");
+    }
+    if limit > deployment_maximum {
+        bail!(
+            "web.controller_instruction_limit {limit} exceeds deployment maximum {deployment_maximum} from --max-controller-instructions"
+        );
+    }
+    Ok(limit)
 }
 
 fn static_file_config(project_root: &Path, config: &StaticFiles) -> Result<StaticFileConfig> {
@@ -1398,8 +1435,9 @@ fn build_controller_registry(
     project_root: &Path,
     routes: &[Route],
     vm_setup: Option<VmSetup>,
+    instruction_limit: u64,
 ) -> Result<ControllerRegistry> {
-    let mut registry = ControllerRegistry::default();
+    let mut registry = ControllerRegistry::with_instruction_limit(instruction_limit);
     let dynamic_import_parent = fs::canonicalize(project_root)
         .with_context(|| format!("failed to resolve project root {}", project_root.display()))?;
     registry.set_vm_setup(move |vm| {
@@ -3424,6 +3462,24 @@ end
         options
             .validate()
             .expect("watch should be a valid serve option");
+    }
+
+    #[test]
+    fn controller_instruction_limit_respects_deployment_maximum() {
+        assert_eq!(
+            validate_controller_instruction_limit(250_000, 1_000_000)
+                .expect("default controller budget should fit"),
+            250_000
+        );
+
+        let error = validate_controller_instruction_limit(1_000_001, 1_000_000)
+            .expect_err("application budget must not exceed the operator ceiling");
+        assert!(
+            error
+                .to_string()
+                .contains("exceeds deployment maximum 1000000"),
+            "unexpected budget error: {error:#}"
+        );
     }
 
     #[test]

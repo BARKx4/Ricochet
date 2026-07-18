@@ -26,6 +26,8 @@ pub struct Web {
     pub mode: String,
     pub routes: String,
     pub views: Views,
+    #[serde(default = "default_controller_instruction_limit")]
+    pub controller_instruction_limit: u64,
     #[serde(default)]
     pub uploads: Uploads,
     #[serde(default, rename = "static")]
@@ -121,6 +123,10 @@ fn default_static_mount() -> String {
 
 fn default_upload_max_request_bytes() -> usize {
     16 * 1024 * 1024
+}
+
+pub(crate) fn default_controller_instruction_limit() -> u64 {
+    250_000
 }
 
 fn default_upload_max_file_bytes() -> usize {
@@ -336,6 +342,7 @@ api_key = "${RICOCHET_TEST_OPENAI_API_KEY}"
         assert_eq!(manifest.web.mode, "mvc");
         assert_eq!(manifest.web.routes, "config/routes.rco");
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::Html);
+        assert_eq!(manifest.web.controller_instruction_limit, 250_000);
         assert_eq!(manifest.web.uploads, Uploads::default());
         assert_eq!(manifest.web.static_files, StaticFiles::default());
         assert_eq!(
@@ -382,6 +389,7 @@ escape = "none"
         assert!(manifest.database.default.is_none());
         assert!(manifest.ai.default.is_none());
         assert_eq!(manifest.web.views.escape, crate::template::EscapeMode::None);
+        assert_eq!(manifest.web.controller_instruction_limit, 250_000);
         assert_eq!(manifest.web.uploads, Uploads::default());
         assert_eq!(manifest.web.static_files.dir, "public");
         assert_eq!(manifest.web.static_files.mount, "/assets");
@@ -443,6 +451,26 @@ max_retained_streams = 8
                 max_retained_streams: 8,
             }
         );
+    }
+
+    #[test]
+    fn manifest_parses_controller_instruction_limit() {
+        let source = r#"
+[package]
+name = "budgeted_app"
+
+[web]
+mode = "mvc"
+routes = "config/routes.rco"
+controller_instruction_limit = 400000
+
+[web.views]
+escape = "html"
+"#;
+
+        let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+
+        assert_eq!(manifest.web.controller_instruction_limit, 400_000);
     }
 
     #[test]

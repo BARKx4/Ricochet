@@ -652,7 +652,7 @@ if ($failures.Count -eq 0) {
         "rco add github:BARKx4/ricochet_auth@v0.1.0 --no-fetch",
         "`"/dashboard`" redirect",
         "rco routes [path]",
-        "rco serve [--host HOST] [--port PORT] [--debug] [--watch] [--allow-env] [--no-env] [--env-allow NAME] [--allow-process] [--process-root PATH] [--allow-pty] [--fs-root PATH] [--fs-readonly] [--http-allow-host HOST]",
+        "rco serve [--host HOST] [--port PORT] [--debug] [--watch] [--max-controller-instructions N] [--allow-env] [--no-env] [--env-allow NAME] [--allow-process] [--process-root PATH] [--allow-pty] [--fs-root PATH] [--fs-readonly] [--http-allow-host HOST]",
         "rco test [--debug] [--filter PATTERN] [--capability-profile trusted|sandboxed] [--no-fs] [--fs-root PATH] [--fs-readonly] [--no-http] [--allow-process] [--process-root PATH] [--allow-pty] [--no-tui] [--allow-tui] [--no-webview] [--allow-webview] [--no-env] [--env-allow NAME] [--no-sleep] [--http-allow-host HOST] [--allow-sockets] [--socket-allow-host HOST] [path]",
         "`$task task_status",
         "`$task info",

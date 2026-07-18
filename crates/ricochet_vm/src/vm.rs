@@ -106,8 +106,8 @@ pub enum VmError {
     AssertionFailed { expected: String, actual: String },
     #[error("execution aborted in {frame} at {location}")]
     ExecutionAborted { frame: String, location: String },
-    #[error("instruction limit exceeded after {limit} instructions")]
-    InstructionLimitExceeded { limit: u64 },
+    #[error("instruction limit exceeded: used {used} instructions, configured limit {limit}")]
+    InstructionLimitExceeded { used: u64, limit: u64 },
     #[error("unknown task: {0}")]
     UnknownTask(u64),
 }
@@ -1055,6 +1055,10 @@ impl Vm {
         self.instructions_executed = 0;
     }
 
+    pub fn instructions_executed(&self) -> u64 {
+        self.instructions_executed
+    }
+
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
     }
@@ -1553,7 +1557,10 @@ impl Vm {
     fn consume_instruction_budget(&mut self) -> Result<(), VmError> {
         if let Some(limit) = self.instruction_limit {
             if self.instructions_executed >= limit {
-                return Err(VmError::InstructionLimitExceeded { limit });
+                return Err(VmError::InstructionLimitExceeded {
+                    used: self.instructions_executed,
+                    limit,
+                });
             }
         }
         self.instructions_executed += 1;
@@ -8066,7 +8073,10 @@ mod tests {
 
         assert_eq!(
             vm.run_chunk(&chunk),
-            Err(VmError::InstructionLimitExceeded { limit: 16 })
+            Err(VmError::InstructionLimitExceeded {
+                used: 16,
+                limit: 16,
+            })
         );
     }
 
@@ -8273,7 +8283,10 @@ mod tests {
 
         assert_eq!(vm.stack(), &[Value::Task(0)]);
 
-        let expected = Err(VmError::InstructionLimitExceeded { limit: 16 });
+        let expected = Err(VmError::InstructionLimitExceeded {
+            used: 16,
+            limit: 16,
+        });
         assert_eq!(vm.call_word("await"), expected);
         assert_eq!(vm.stack(), &[Value::Task(0)]);
         assert_eq!(vm.task_status(0), "failed");
@@ -8367,7 +8380,10 @@ mod tests {
 
         assert_eq!(
             vm.call_word("await_all"),
-            Err(VmError::InstructionLimitExceeded { limit: 16 })
+            Err(VmError::InstructionLimitExceeded {
+                used: 16,
+                limit: 16,
+            })
         );
         assert_eq!(
             vm.stack(),

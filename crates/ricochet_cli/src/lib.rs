@@ -462,6 +462,12 @@ enum Command {
         #[arg(long)]
         watch: bool,
         #[arg(
+            long,
+            default_value_t = ricochet_web::server::DEFAULT_MAX_CONTROLLER_INSTRUCTIONS,
+            help = "Set the deployment ceiling for per-request MVC controller instructions"
+        )]
+        max_controller_instructions: u64,
+        #[arg(
             long = "allow-env",
             help = "Enable MVC process environment access for trusted local apps"
         )]
@@ -1159,6 +1165,7 @@ pub async fn run_cli() -> Result<()> {
             port,
             debug,
             watch,
+            max_controller_instructions,
             allow_env,
             no_env,
             env_allow,
@@ -1186,6 +1193,7 @@ pub async fn run_cli() -> Result<()> {
                 port,
                 debug,
                 watch,
+                max_controller_instructions,
                 allow_env,
                 env_allow,
                 allow_process,

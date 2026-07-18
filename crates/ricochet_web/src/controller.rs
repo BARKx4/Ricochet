@@ -6,6 +6,7 @@ use ricochet_bytecode::Chunk;
 use ricochet_compiler::compile_source;
 use ricochet_vm::{UploadStreamRegistry, Value, Vm};
 
+use crate::manifest::default_controller_instruction_limit;
 use crate::value_json::{value_to_json, SetMode};
 
 #[derive(Default)]
@@ -63,15 +64,31 @@ pub enum ActionResult {
 
 type Action = Box<dyn Fn(&mut RequestContext) -> Result<ActionResult> + Send + Sync>;
 type VmSetup = Arc<dyn Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync>;
-const WEB_CONTROLLER_INSTRUCTION_LIMIT: u64 = 50_000;
 
-#[derive(Default)]
 pub struct ControllerRegistry {
     actions: BTreeMap<(String, String), Action>,
     vm_setup: Option<VmSetup>,
+    instruction_limit: u64,
+}
+
+impl Default for ControllerRegistry {
+    fn default() -> Self {
+        Self {
+            actions: BTreeMap::new(),
+            vm_setup: None,
+            instruction_limit: default_controller_instruction_limit(),
+        }
+    }
 }
 
 impl ControllerRegistry {
+    pub fn with_instruction_limit(instruction_limit: u64) -> Self {
+        Self {
+            instruction_limit,
+            ..Self::default()
+        }
+    }
+
     pub fn set_vm_setup<F>(&mut self, setup: F)
     where
         F: Fn(&mut Vm) -> Result<BTreeMap<String, Value>> + Send + Sync + 'static,
@@ -104,10 +121,11 @@ impl ControllerRegistry {
         let controller_name = controller.to_string();
         let action_name = action.to_string();
         let vm_setup = self.vm_setup.clone();
+        let instruction_limit = self.instruction_limit;
 
         self.register_static(controller, action, move |ctx| {
             let mut vm = Vm::default();
-            vm.set_instruction_limit(WEB_CONTROLLER_INSTRUCTION_LIMIT);
+            vm.set_instruction_limit(instruction_limit);
             vm.set_upload_stream_registry(ctx.upload_streams.clone());
             let capabilities = match &vm_setup {
                 Some(setup) => setup(&mut vm)?,
@@ -131,11 +149,20 @@ impl ControllerRegistry {
             let result = vm
                 .call_method_value_with_args(instance, &action_name, arg_values)
                 .with_context(|| format!("failed to call {controller_name}.{action_name}"))?;
+            let action_result = action_result_from_value(result)?;
+
+            record_instruction_budget_warning(
+                &controller_name,
+                &action_name,
+                vm.instructions_executed(),
+                instruction_limit,
+                &log_entries,
+            );
 
             copy_session(&context, ctx)?;
             copy_logs(&log_entries, ctx)?;
             copy_view_data(&vm, ctx);
-            action_result_from_value(result)
+            Ok(action_result)
         });
     }
 
@@ -152,6 +179,39 @@ impl ControllerRegistry {
 
         action_fn(ctx)
     }
+}
+
+fn record_instruction_budget_warning(
+    controller: &str,
+    action: &str,
+    used: u64,
+    limit: u64,
+    entries: &Arc<Mutex<Vec<LogEntry>>>,
+) {
+    let Some(message) = instruction_budget_warning(controller, action, used, limit) else {
+        return;
+    };
+    if let Ok(mut entries) = entries.lock() {
+        entries.push(LogEntry {
+            level: "warn".to_string(),
+            message: message.clone(),
+        });
+    }
+    eprintln!("Ricochet warning: {message}");
+}
+
+fn instruction_budget_warning(
+    controller: &str,
+    action: &str,
+    used: u64,
+    limit: u64,
+) -> Option<String> {
+    if limit == 0 || used < limit - limit / 5 {
+        return None;
+    }
+    Some(format!(
+        "controller {controller}.{action} used {used} of {limit} configured VM instructions (80% warning threshold)"
+    ))
 }
 
 fn context_value(ctx: &RequestContext, capabilities: &BTreeMap<String, Value>) -> Value {
@@ -549,6 +609,27 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unknown action HomeController.missing"));
+    }
+
+    #[test]
+    fn instruction_budget_warning_starts_at_eighty_percent() {
+        assert!(instruction_budget_warning("HomeController", "index", 799, 1_000).is_none());
+        assert_eq!(
+            instruction_budget_warning("HomeController", "index", 800, 1_000).as_deref(),
+            Some(
+                "controller HomeController.index used 800 of 1000 configured VM instructions (80% warning threshold)"
+            )
+        );
+
+        let entries = Arc::new(Mutex::new(Vec::new()));
+        record_instruction_budget_warning("HomeController", "index", 800, 1_000, &entries);
+        assert_eq!(
+            entries.lock().expect("warning entries should lock").as_slice(),
+            &[LogEntry {
+                level: "warn".to_string(),
+                message: "controller HomeController.index used 800 of 1000 configured VM instructions (80% warning threshold)".to_string(),
+            }]
+        );
     }
 
     #[test]

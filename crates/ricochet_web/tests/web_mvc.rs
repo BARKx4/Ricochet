@@ -1623,6 +1623,38 @@ end
 }
 
 #[tokio::test]
+async fn controller_default_budget_allows_previous_50000_instruction_workload() {
+    let project_root = temp_project_path();
+    write_basic_mvc_project(
+        &project_root,
+        "practical_controller_budget",
+        r#"
+HomeController Controller Subclass
+  [
+    0 counter var
+    counter get 10000 < while
+      counter get 1 + counter set
+    end
+    "done" text
+  ] "index" Method
+end
+"#,
+    );
+
+    let app = ricochet_web::server::build_app_from_dir(&project_root).expect("build app");
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    assert_eq!(&body[..], b"done");
+}
+
+#[tokio::test]
 async fn controller_execution_budget_returns_server_error_for_runaway_work() {
     let project_root = temp_project_path();
     fs::create_dir_all(project_root.join("config")).expect("config directory should be created");
@@ -1637,6 +1669,7 @@ name = "budgeted_controller"
 [web]
 mode = "mvc"
 routes = "config/routes.rco"
+controller_instruction_limit = 1000
 
 [web.views]
 escape = "html"
@@ -1653,11 +1686,9 @@ escape = "html"
         r#"
 HomeController Controller Subclass
   [
-    0 counter var
-    counter get 10000 < while
-      counter get 1 + counter set
+    ctx get "session" at "partial" "must-not-commit" put drop
+    true while
     end
-    "done" text
   ] "index" Method
 end
 "#,
@@ -1671,13 +1702,17 @@ end
         .expect("response");
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        response.headers().get(header::SET_COOKIE).is_none(),
+        "aborted controller session effects must not be committed"
+    );
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("body bytes");
     let body = std::str::from_utf8(&body).expect("body should be UTF-8");
 
     assert!(
-        body.contains("instruction limit exceeded"),
+        body.contains("instruction limit exceeded: used 1000 instructions, configured limit 1000"),
         "expected instruction budget error, got: {body}"
     );
 }
