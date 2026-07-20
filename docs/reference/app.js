@@ -648,6 +648,46 @@ const WORDS = [
     "example": "updates map\n$updates \"email\" \"grace@example.com\" put drop\n42 $updates User update"
   },
   {
+    "word": "transaction",
+    "aliases": ["application transaction", "DatabaseCapability"],
+    "group": "web",
+    "stack": "body:block DatabaseCapability -> result",
+    "body": "Runs the block in one database transaction. The block must return a Result: Ok commits, Err rolls back, and the original Result is preserved unless commit or rollback itself fails. An uncaught VM error triggers best-effort rollback when the database session is discarded.",
+    "example": "[\n  attributes map\n  $attributes \"email\" \"ada@example.com\" put drop\n  $attributes User insert\n] $db transaction"
+  },
+  {
+    "word": "begin",
+    "aliases": ["application transaction", "DatabaseCapability"],
+    "group": "web",
+    "stack": "DatabaseCapability -> result(bool)",
+    "body": "Begins a manual database transaction on the MVC database capability. A second begin fails; use savepoint for nested work.",
+    "example": "$db begin"
+  },
+  {
+    "word": "commit",
+    "aliases": ["application transaction", "DatabaseSavepoint"],
+    "group": "web",
+    "stack": "DatabaseCapability|DatabaseSavepoint -> result(bool)",
+    "body": "Commits the active database transaction. On a DatabaseSavepoint receiver, releases only that savepoint; the outer transaction remains active.",
+    "example": "$db commit\n$checkpoint commit"
+  },
+  {
+    "word": "rollback",
+    "aliases": ["application transaction", "DatabaseSavepoint"],
+    "group": "web",
+    "stack": "DatabaseCapability|DatabaseSavepoint -> result(bool)",
+    "body": "Rolls back the active database transaction. On a DatabaseSavepoint receiver, rolls back to and releases that savepoint; the outer transaction remains active.",
+    "example": "$db rollback\n$checkpoint rollback"
+  },
+  {
+    "word": "savepoint",
+    "aliases": ["application transaction", "DatabaseCapability"],
+    "group": "web",
+    "stack": "DatabaseCapability -> result(DatabaseSavepoint)",
+    "body": "Creates a savepoint in the active transaction. Savepoints must be committed or rolled back in last-created, first-completed order.",
+    "example": "$db savepoint value checkpoint var"
+  },
+  {
     "word": "*",
     "aliases": ["multiply"],
     "group": "math",

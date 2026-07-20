@@ -3,7 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use bytes::BytesMut;
 use mysql_async::prelude::Queryable;
@@ -486,6 +487,8 @@ impl ModelMapping {
 #[derive(Clone)]
 pub struct PostgresDatabase {
     client: Arc<Client>,
+    config: Arc<PostgresConfig>,
+    transaction_active: Option<Arc<AtomicBool>>,
 }
 
 impl fmt::Debug for PostgresDatabase {
@@ -500,20 +503,104 @@ impl PostgresDatabase {
             .parse::<PostgresConfig>()
             .map_err(|error| database_error("parse connection string", error))?;
         apply_postgres_tls_policy(&mut config)?;
-        let (client, connection) = config
-            .connect(postgres_tls_connector())
-            .await
-            .map_err(|error| database_error("connect", error))?;
-
-        tokio::spawn(async move {
-            if let Err(error) = connection.await {
-                eprintln!("Ricochet PostgreSQL connection failed: {error}");
-            }
-        });
+        let client = connect_postgres_client(&config).await?;
 
         Ok(Self {
             client: Arc::new(client),
+            config: Arc::new(config),
+            transaction_active: None,
         })
+    }
+
+    pub async fn begin_transaction(&self) -> Result<Self, ActiveRecordError> {
+        if self.transaction_active.is_some() {
+            return Err(transaction_error(
+                "begin transaction",
+                "a transaction is already active",
+            ));
+        }
+        let client = connect_postgres_client(&self.config).await?;
+        client
+            .batch_execute("begin")
+            .await
+            .map_err(|error| database_error("begin transaction", error))?;
+        Ok(Self {
+            client: Arc::new(client),
+            config: self.config.clone(),
+            transaction_active: Some(Arc::new(AtomicBool::new(true))),
+        })
+    }
+
+    pub async fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.finish_transaction("commit", "commit transaction")
+            .await
+    }
+
+    pub async fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.finish_transaction("rollback", "rollback transaction")
+            .await
+    }
+
+    pub async fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "create savepoint",
+            &format!("savepoint {}", savepoint_name(name)?),
+        )
+        .await
+    }
+
+    pub async fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "release savepoint",
+            &format!("release savepoint {}", savepoint_name(name)?),
+        )
+        .await
+    }
+
+    pub async fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        let name = savepoint_name(name)?;
+        self.transaction_control(
+            "rollback to savepoint",
+            &format!("rollback to savepoint {name}; release savepoint {name}"),
+        )
+        .await
+    }
+
+    async fn finish_transaction(
+        &self,
+        sql: &str,
+        operation: &'static str,
+    ) -> Result<(), ActiveRecordError> {
+        self.transaction_control(operation, sql).await?;
+        self.transaction_active(operation)?
+            .store(false, Ordering::Release);
+        Ok(())
+    }
+
+    async fn transaction_control(
+        &self,
+        operation: &'static str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        if !self.transaction_active(operation)?.load(Ordering::Acquire) {
+            return Err(transaction_error(
+                operation,
+                "transaction is already complete",
+            ));
+        }
+        self.client
+            .batch_execute(sql)
+            .await
+            .map_err(|error| database_error(operation, error))
+    }
+
+    fn transaction_active(
+        &self,
+        operation: &'static str,
+    ) -> Result<&AtomicBool, ActiveRecordError> {
+        self.transaction_active
+            .as_deref()
+            .ok_or_else(|| transaction_error(operation, "no transaction is active"))
     }
 
     pub async fn ping(&self) -> Result<(), ActiveRecordError> {
@@ -1070,6 +1157,19 @@ order by table_class.relname, index_class.relname
     }
 }
 
+async fn connect_postgres_client(config: &PostgresConfig) -> Result<Client, ActiveRecordError> {
+    let (client, connection) = config
+        .connect(postgres_tls_connector())
+        .await
+        .map_err(|error| database_error("connect", error))?;
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            eprintln!("Ricochet PostgreSQL connection failed: {error}");
+        }
+    });
+    Ok(client)
+}
+
 fn postgres_tls_connector() -> MakeRustlsConnect {
     let _ = rustls::crypto::ring::default_provider().install_default();
     MakeRustlsConnect::with_webpki_roots()
@@ -1316,7 +1416,18 @@ fn normalize_mysql_create_table(sql: &str) -> String {
 
 #[derive(Clone)]
 pub struct SqliteDatabase {
-    connection: Arc<Mutex<Connection>>,
+    connection: Arc<SqliteConnectionSlot>,
+    transaction: Option<Arc<SqliteTransactionState>>,
+}
+
+struct SqliteConnectionSlot {
+    connection: Mutex<Option<Connection>>,
+    ready: Condvar,
+}
+
+struct SqliteTransactionState {
+    connection: Mutex<Option<Connection>>,
+    parent: Arc<SqliteConnectionSlot>,
 }
 
 impl fmt::Debug for SqliteDatabase {
@@ -1333,8 +1444,87 @@ impl SqliteDatabase {
             .map_err(|error| sqlite_error("configure", error))?;
 
         Ok(Self {
-            connection: Arc::new(Mutex::new(connection)),
+            connection: Arc::new(SqliteConnectionSlot {
+                connection: Mutex::new(Some(connection)),
+                ready: Condvar::new(),
+            }),
+            transaction: None,
         })
+    }
+
+    pub fn begin_transaction(&self) -> Result<Self, ActiveRecordError> {
+        if self.transaction.is_some() {
+            return Err(transaction_error(
+                "begin transaction",
+                "a transaction is already active",
+            ));
+        }
+        let connection = self.connection.take("begin transaction")?;
+        if let Err(error) = connection.execute_batch("begin") {
+            self.connection.put(connection);
+            return Err(sqlite_error("begin transaction", error));
+        }
+        Ok(Self {
+            connection: self.connection.clone(),
+            transaction: Some(Arc::new(SqliteTransactionState {
+                connection: Mutex::new(Some(connection)),
+                parent: self.connection.clone(),
+            })),
+        })
+    }
+
+    pub fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.transaction_state("commit transaction")?
+            .finish("commit", "commit transaction")
+    }
+
+    pub fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.transaction_state("rollback transaction")?
+            .finish("rollback", "rollback transaction")
+    }
+
+    pub fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "create savepoint",
+            &format!("savepoint {}", savepoint_name(name)?),
+        )
+    }
+
+    pub fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "release savepoint",
+            &format!("release savepoint {}", savepoint_name(name)?),
+        )
+    }
+
+    pub fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        let name = savepoint_name(name)?;
+        self.transaction_control(
+            "rollback to savepoint",
+            &format!("rollback to savepoint {name}; release savepoint {name}"),
+        )
+    }
+
+    fn transaction_control(
+        &self,
+        operation: &'static str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        self.transaction_state(operation)?
+            .with_connection(operation, |connection| {
+                connection
+                    .execute_batch(sql)
+                    .map_err(|error| sqlite_error(operation, error))
+            })
+    }
+
+    fn transaction_state(
+        &self,
+        operation: &'static str,
+    ) -> Result<&SqliteTransactionState, ActiveRecordError> {
+        self.transaction
+            .as_deref()
+            .ok_or_else(|| transaction_error(operation, "no transaction is active"))
     }
 
     pub fn ping(&self) -> Result<(), ActiveRecordError> {
@@ -1600,20 +1790,145 @@ impl SqliteDatabase {
         operation: &'static str,
         callback: impl FnOnce(&Connection) -> Result<T, ActiveRecordError>,
     ) -> Result<T, ActiveRecordError> {
+        match &self.transaction {
+            Some(transaction) => transaction.with_connection(operation, callback),
+            None => self.connection.with_connection(operation, callback),
+        }
+    }
+}
+
+impl SqliteConnectionSlot {
+    fn with_connection<T>(
+        &self,
+        operation: &'static str,
+        callback: impl FnOnce(&Connection) -> Result<T, ActiveRecordError>,
+    ) -> Result<T, ActiveRecordError> {
+        let mut connection = self.lock(operation)?;
+        while connection.is_none() {
+            connection = self
+                .ready
+                .wait(connection)
+                .map_err(|_| transaction_error(operation, "SQLite connection lock was poisoned"))?;
+        }
+        callback(
+            connection
+                .as_ref()
+                .expect("connection availability checked"),
+        )
+    }
+
+    fn take(&self, operation: &'static str) -> Result<Connection, ActiveRecordError> {
+        let mut connection = self.lock(operation)?;
+        while connection.is_none() {
+            connection = self
+                .ready
+                .wait(connection)
+                .map_err(|_| transaction_error(operation, "SQLite connection lock was poisoned"))?;
+        }
+        Ok(connection.take().expect("connection availability checked"))
+    }
+
+    fn put(&self, returned: Connection) {
+        let mut connection = self
+            .connection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *connection = Some(returned);
+        self.ready.notify_one();
+    }
+
+    fn lock(
+        &self,
+        operation: &'static str,
+    ) -> Result<std::sync::MutexGuard<'_, Option<Connection>>, ActiveRecordError> {
+        self.connection
+            .lock()
+            .map_err(|_| transaction_error(operation, "SQLite connection lock was poisoned"))
+    }
+}
+
+impl SqliteTransactionState {
+    fn with_connection<T>(
+        &self,
+        operation: &'static str,
+        callback: impl FnOnce(&Connection) -> Result<T, ActiveRecordError>,
+    ) -> Result<T, ActiveRecordError> {
         let connection = self
             .connection
             .lock()
-            .map_err(|_| ActiveRecordError::Database {
-                operation,
-                message: "SQLite connection lock was poisoned".to_string(),
-            })?;
-        callback(&connection)
+            .map_err(|_| transaction_error(operation, "SQLite transaction lock was poisoned"))?;
+        let connection = connection
+            .as_ref()
+            .ok_or_else(|| transaction_error(operation, "transaction is already complete"))?;
+        callback(connection)
+    }
+
+    fn finish(&self, sql: &str, operation: &'static str) -> Result<(), ActiveRecordError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| transaction_error(operation, "SQLite transaction lock was poisoned"))?;
+        let active = connection
+            .as_ref()
+            .ok_or_else(|| transaction_error(operation, "transaction is already complete"))?;
+        active
+            .execute_batch(sql)
+            .map_err(|error| sqlite_error(operation, error))?;
+        self.parent.put(
+            connection
+                .take()
+                .expect("active transaction has a connection"),
+        );
+        Ok(())
+    }
+}
+
+impl Drop for SqliteTransactionState {
+    fn drop(&mut self) {
+        let connection = self
+            .connection
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(connection) = connection.take() {
+            let _ = connection.execute_batch("rollback");
+            self.parent.put(connection);
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct MysqlDatabase {
     pool: MysqlPool,
+    transaction: Option<Arc<tokio::sync::Mutex<Option<MysqlConn>>>>,
+}
+
+enum MysqlConnection {
+    Pooled(MysqlConn),
+    Transaction(tokio::sync::OwnedMutexGuard<Option<MysqlConn>>),
+}
+
+impl std::ops::Deref for MysqlConnection {
+    type Target = MysqlConn;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            MysqlConnection::Pooled(connection) => connection,
+            MysqlConnection::Transaction(connection) => connection
+                .as_ref()
+                .expect("transaction connection availability checked"),
+        }
+    }
+}
+
+impl std::ops::DerefMut for MysqlConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            MysqlConnection::Pooled(connection) => connection,
+            MysqlConnection::Transaction(connection) => connection
+                .as_mut()
+                .expect("transaction connection availability checked"),
+        }
+    }
 }
 
 impl fmt::Debug for MysqlDatabase {
@@ -1626,17 +1941,130 @@ impl MysqlDatabase {
     pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
         apply_mysql_tls_policy(url)?;
         let pool = MysqlPool::from_url(url).map_err(|error| mysql_error("connect", error))?;
-        let database = Self { pool };
+        let database = Self {
+            pool,
+            transaction: None,
+        };
         database.ping().await?;
         Ok(database)
     }
 
-    pub async fn ping(&self) -> Result<(), ActiveRecordError> {
+    pub async fn begin_transaction(&self) -> Result<Self, ActiveRecordError> {
+        if self.transaction.is_some() {
+            return Err(transaction_error(
+                "begin transaction",
+                "a transaction is already active",
+            ));
+        }
         let mut connection = self
             .pool
             .get_conn()
             .await
-            .map_err(|error| mysql_error("ping", error))?;
+            .map_err(|error| mysql_error("begin transaction", error))?;
+        connection
+            .query_drop("start transaction")
+            .await
+            .map_err(|error| mysql_error("begin transaction", error))?;
+        Ok(Self {
+            pool: self.pool.clone(),
+            transaction: Some(Arc::new(tokio::sync::Mutex::new(Some(connection)))),
+        })
+    }
+
+    pub async fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.finish_transaction("commit", "commit transaction")
+            .await
+    }
+
+    pub async fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        self.finish_transaction("rollback", "rollback transaction")
+            .await
+    }
+
+    pub async fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "create savepoint",
+            &format!("savepoint {}", savepoint_name(name)?),
+        )
+        .await
+    }
+
+    pub async fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.transaction_control(
+            "release savepoint",
+            &format!("release savepoint {}", savepoint_name(name)?),
+        )
+        .await
+    }
+
+    pub async fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        let name = savepoint_name(name)?;
+        self.transaction_control(
+            "rollback to savepoint",
+            &format!("rollback to savepoint {name}; release savepoint {name}"),
+        )
+        .await
+    }
+
+    async fn finish_transaction(
+        &self,
+        sql: &str,
+        operation: &'static str,
+    ) -> Result<(), ActiveRecordError> {
+        let transaction = self
+            .transaction
+            .as_ref()
+            .ok_or_else(|| transaction_error(operation, "no transaction is active"))?;
+        let mut connection = transaction.clone().lock_owned().await;
+        let active = connection
+            .as_mut()
+            .ok_or_else(|| transaction_error(operation, "transaction is already complete"))?;
+        active
+            .query_drop(sql)
+            .await
+            .map_err(|error| mysql_error(operation, error))?;
+        drop(connection.take());
+        Ok(())
+    }
+
+    async fn transaction_control(
+        &self,
+        operation: &'static str,
+        sql: &str,
+    ) -> Result<(), ActiveRecordError> {
+        let mut connection = self.connection(operation).await?;
+        connection
+            .query_drop(sql)
+            .await
+            .map_err(|error| mysql_error(operation, error))
+    }
+
+    async fn connection(
+        &self,
+        operation: &'static str,
+    ) -> Result<MysqlConnection, ActiveRecordError> {
+        match &self.transaction {
+            Some(transaction) => {
+                let connection = transaction.clone().lock_owned().await;
+                if connection.is_none() {
+                    return Err(transaction_error(
+                        operation,
+                        "transaction is already complete",
+                    ));
+                }
+                Ok(MysqlConnection::Transaction(connection))
+            }
+            None => self
+                .pool
+                .get_conn()
+                .await
+                .map(MysqlConnection::Pooled)
+                .map_err(|error| mysql_error(operation, error)),
+        }
+    }
+
+    pub async fn ping(&self) -> Result<(), ActiveRecordError> {
+        let mut connection = self.connection("ping").await?;
         connection
             .query_drop("select 1")
             .await
@@ -1645,20 +2073,12 @@ impl MysqlDatabase {
     }
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("execute migration", error))?;
+        let mut connection = self.connection("execute migration").await?;
         execute_mysql_batch(&mut connection, "execute migration", sql).await
     }
 
     pub async fn migration_versions(&self) -> Result<Option<Vec<String>>, ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("list migrations", error))?;
+        let mut connection = self.connection("list migrations").await?;
         let exists: Option<u8> = connection
             .exec_first(
                 "select 1 from information_schema.tables where table_schema = database() and table_name = 'schema_migrations'",
@@ -1693,11 +2113,7 @@ create table if not exists schema_migrations (
         version: &str,
         applied_at: &str,
     ) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("record migration", error))?;
+        let mut connection = self.connection("record migration").await?;
         connection
             .exec_drop(
                 "insert into schema_migrations (version, applied_at) values (?, ?)",
@@ -1709,11 +2125,7 @@ create table if not exists schema_migrations (
     }
 
     pub async fn forget_migration(&self, version: &str) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("forget migration", error))?;
+        let mut connection = self.connection("forget migration").await?;
         connection
             .exec_drop(
                 "delete from schema_migrations where version = ?",
@@ -1730,11 +2142,7 @@ create table if not exists schema_migrations (
         applied_at: &str,
         sql: &str,
     ) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("apply migration", error))?;
+        let mut connection = self.connection("apply migration").await?;
         connection
             .query_drop("start transaction")
             .await
@@ -1768,11 +2176,7 @@ create table if not exists schema_migrations (
         version: &str,
         sql: &str,
     ) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("rollback migration", error))?;
+        let mut connection = self.connection("rollback migration").await?;
         connection
             .query_drop("start transaction")
             .await
@@ -1802,11 +2206,7 @@ create table if not exists schema_migrations (
     }
 
     pub async fn execute_seed(&self, sql: &str) -> Result<(), ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("seed", error))?;
+        let mut connection = self.connection("seed").await?;
         connection
             .query_drop("start transaction")
             .await
@@ -1825,11 +2225,7 @@ create table if not exists schema_migrations (
     }
 
     pub async fn schema_dump(&self) -> Result<String, ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("dump schema", error))?;
+        let mut connection = self.connection("dump schema").await?;
         let tables: Vec<String> = connection
             .exec_map(
                 r#"
@@ -1885,11 +2281,7 @@ order by table_name
     }
 
     pub async fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("count", error))?;
+        let mut connection = self.connection("count").await?;
         let count: Option<u64> = connection
             .exec_first(
                 mapping.select_count_sql().as_str(),
@@ -1964,11 +2356,7 @@ order by table_name
         id: &Value,
     ) -> Result<bool, ActiveRecordError> {
         let parameters = mysql_parameters([id])?;
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("exists", error))?;
+        let mut connection = self.connection("exists").await?;
         let row: Option<MysqlRow> = connection
             .exec_first(
                 mapping.exists_by_id_sql_for(SqlDialect::Mysql).as_str(),
@@ -2074,11 +2462,7 @@ order by table_name
     ) -> Result<Value, ActiveRecordError> {
         let values = mapping.insert_values(attributes)?;
         let parameters = mysql_parameters(values.iter())?;
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("insert", error))?;
+        let mut connection = self.connection("insert").await?;
         connection
             .exec_drop(
                 mapping
@@ -2119,11 +2503,7 @@ order by table_name
     ) -> Result<Value, ActiveRecordError> {
         let values = mapping.update_values(id.clone(), attributes)?;
         let parameters = mysql_parameters(values.iter())?;
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error("update", error))?;
+        let mut connection = self.connection("update").await?;
         connection
             .exec_drop(
                 mapping
@@ -2152,11 +2532,7 @@ order by table_name
         values: Vec<Value>,
     ) -> Result<Vec<Value>, ActiveRecordError> {
         let parameters = mysql_parameters(values.iter())?;
-        let mut connection = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|error| mysql_error(operation, error))?;
+        let mut connection = self.connection(operation).await?;
         let rows: Vec<MysqlRow> = connection
             .exec(sql.as_str(), parameters)
             .await
@@ -2664,6 +3040,24 @@ fn validate_field_identifier(name: &str) -> Result<(), ActiveRecordError> {
             kind: "field",
             name: name.to_string(),
         })
+    }
+}
+
+fn savepoint_name(name: &str) -> Result<&str, ActiveRecordError> {
+    if is_postgres_identifier(name) {
+        Ok(name)
+    } else {
+        Err(ActiveRecordError::InvalidIdentifier {
+            kind: "savepoint",
+            name: name.to_string(),
+        })
+    }
+}
+
+fn transaction_error(operation: &'static str, message: impl Into<String>) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation,
+        message: message.into(),
     }
 }
 

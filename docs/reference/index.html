@@ -570,6 +570,24 @@ updates get "email" "grace@example.com" put drop
           </article>
 
           <article class="example-panel wide">
+            <h3>Application Transactions</h3>
+            <p><code>transaction</code> commits when its block returns an Ok Result and rolls back when the block returns an Err Result. The block Result is preserved unless transaction control itself fails.</p>
+            <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy application transaction example" title="Copy">copy</button><code>[
+  attributes map
+  attributes get "email" "ada@example.com" put drop
+  attributes get "name" "Ada" put drop
+  attributes get User insert
+] $db transaction
+
+$db begin value drop
+$db savepoint value checkpoint var
+(( perform work that may be discarded ))
+$checkpoint rollback value drop
+$db commit</code></pre>
+            <p><code>begin</code>, <code>commit</code>, <code>rollback</code>, and <code>savepoint</code> return Results. Committing a savepoint releases it; rolling one back restores and releases it without ending the outer transaction. Complete savepoints last-created first. Uncaught VM failures trigger best-effort rollback, but cookies, logs, HTTP calls, and filesystem effects are outside the database transaction.</p>
+          </article>
+
+          <article class="example-panel wide">
             <h3>Controller With Stack Result Handling</h3>
             <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy Active Record controller example" title="Copy">copy</button><code>(( app/Controllers/UserController.rco ))
 UserController Controller Subclass

@@ -486,6 +486,36 @@
     "status": "drafted"
   },
   {
+    "word": "transaction",
+    "detail": "web",
+    "primary_chapter": "26-data-active-record-and-migrations",
+    "status": "drafted"
+  },
+  {
+    "word": "begin",
+    "detail": "web",
+    "primary_chapter": "26-data-active-record-and-migrations",
+    "status": "drafted"
+  },
+  {
+    "word": "commit",
+    "detail": "web",
+    "primary_chapter": "26-data-active-record-and-migrations",
+    "status": "drafted"
+  },
+  {
+    "word": "rollback",
+    "detail": "web",
+    "primary_chapter": "26-data-active-record-and-migrations",
+    "status": "drafted"
+  },
+  {
+    "word": "savepoint",
+    "detail": "web",
+    "primary_chapter": "26-data-active-record-and-migrations",
+    "status": "drafted"
+  },
+  {
     "word": "*",
     "detail": "math",
     "primary_chapter": "06-numbers-math-and-truth",

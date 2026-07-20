@@ -42,6 +42,7 @@
           <a href="#postgresql">PostgreSQL</a>
           <a href="#mysql-and-mariadb">MySQL And MariaDB</a>
           <a href="#templates">Templates</a>
+          <a href="#application-transactions">Application Transactions</a>
           <a href="#migrations-and-seeds">Migrations And Seeds</a>
           <a href="#request-data">Request Data</a>
         </aside>
@@ -98,6 +99,21 @@ url = &quot;${DATABASE_URL}&quot; # use sslmode=require for remote databases</co
 adapter = &quot;mysql&quot;
 url = &quot;${MYSQL_URL}&quot;</code></pre>
           <p>Active Record maps model declarations to existing tables, and <code>rco migrate</code> applies ordered SQL or Ricochet DSL migrations from <code>db/migrations</code> while recording applied versions in <code>schema_migrations</code>.</p>
+          <h2 id="application-transactions">Application Transactions</h2>
+          <p>Use <code>transaction</code> for the usual all-or-nothing path. The block must return a Result. An Ok Result commits, an Err Result rolls back, and that block Result is returned unless commit or rollback itself fails:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy transaction example" title="Copy">copy</button><code>[
+  attributes map
+  $attributes &quot;email&quot; &quot;ada@example.com&quot; put drop
+  $attributes &quot;name&quot; &quot;Ada&quot; put drop
+  $attributes User insert
+] $db transaction</code></pre>
+          <p>For manual control, <code>begin</code>, <code>commit</code>, and <code>rollback</code> operate on the database capability. <code>savepoint</code> returns a <code>DatabaseSavepoint</code>; committing it releases only that savepoint, while rolling it back restores and releases it without ending the outer transaction:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy savepoint example" title="Copy">copy</button><code>$db begin value drop
+$db savepoint value checkpoint var
+(( perform work that may be discarded ))
+$checkpoint rollback value drop
+$db commit</code></pre>
+          <p>Every manual transaction word returns a Result, nested <code>begin</code> calls fail, and savepoints must be completed last-created first. Active Record calls and direct <code>$db</code> calls in the same VM use the active transaction. SQLite pins its connection, while PostgreSQL and MySQL/MariaDB use a dedicated connection for the transaction. An uncaught VM failure triggers best-effort rollback when the database session is discarded. Database rollback does not undo cookies, session edits, logs, HTTP calls, filesystem writes, or other external effects.</p>
           <h2 id="migrations-and-seeds">Migrations And Seeds</h2>
           <p>Use <code>rco migrate new NAME [path]</code> to create an apply-only SQL migration, or <code>rco migrate new NAME --dsl [path]</code> to create paired Ricochet migration DSL files. Use <code>rco migrate status [path]</code> to list ordered migration files and <code>rco migrate apply [path]</code> to apply pending SQL or DSL. Existing <code>VERSION_name.sql</code> files remain compatible. For reversible migrations, use paired SQL or DSL files such as <code>VERSION_name.up.sql</code>, <code>VERSION_name.down.sql</code>, <code>VERSION_name.up.rco</code>, and <code>VERSION_name.down.rco</code>.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco migrate status

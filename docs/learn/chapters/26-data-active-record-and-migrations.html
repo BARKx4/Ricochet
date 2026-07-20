@@ -93,7 +93,7 @@
 <h2>What you will build</h2>
 <p>You will build the data layer for a contacts MVC app: a model, a reversible
 SQLite migration, seed files, and controller actions that use Active Record
-query and write words. The runnable self-check path is read-only and checks
+query, write, and transaction words. The runnable self-check path is read-only and checks
 migration status without creating <code>db/development.sqlite3</code>.</p>
 <h2>Concepts in plain English</h2>
 <p>Active Record maps a class to a table. A migration changes schema in an ordered, repeatable way.</p>
@@ -105,10 +105,11 @@ migration status without creating <code>db/development.sqlite3</code>.</p>
 <li>Read words: <code>all</code>, <code>find_record</code>, <code>default_page</code>, <code>where</code>, <code>limit</code>,
 <code>count_records</code>, <code>first_record</code>, and <code>exists?</code>.</li>
 <li>Write words: <code>insert</code> and <code>update</code>.</li>
+<li>Transaction words: <code>transaction</code>, <code>begin</code>, <code>commit</code>, <code>rollback</code>, and <code>savepoint</code>.</li>
 <li>Notes for PostgreSQL and MySQL deployment.</li>
 </ul>
 <h2>Vocabulary and commands</h2>
-<p>Primary coverage: Active Record web words and the migration CLI family:
+<p>Primary coverage: Active Record web words, application transaction words, and the migration CLI family:
 <code>rco migrate new</code>, <code>rco migrate status</code>, <code>rco migrate apply</code>,
 <code>rco migrate rollback</code>, <code>rco migrate dump</code>, and <code>rco seed</code>.</p>
 <h2>Guided example</h2>
@@ -192,6 +193,23 @@ $changes &quot;email&quot; $email put drop
 $changes &quot;status&quot; $state put drop
 $id $changes Contact update
 </code></pre>
+<p>When several writes must succeed or fail together, put the work in a block and pass it to the database capability. The block must return a Result. An Ok Result commits, while an Err Result rolls back and is returned to the caller:</p>
+<pre><code>[
+  contact map
+  $contact &quot;name&quot; $name put drop
+  $contact &quot;email&quot; $email put drop
+  $contact &quot;status&quot; &quot;active&quot; put drop
+  $contact Contact insert
+] $db transaction
+</code></pre>
+<p>Use the manual words only when the transaction spans more control flow. Each word returns a Result. A savepoint is a capability inside the current transaction: <code>commit</code> releases it, and <code>rollback</code> restores and releases it without ending the outer transaction.</p>
+<pre><code>$db begin value drop
+$db savepoint value checkpoint var
+(( perform work that may be discarded ))
+$checkpoint rollback value drop
+$db commit
+</code></pre>
+<p>A second <code>begin</code> fails; use savepoints for nested work and complete them last-created first. Active Record calls in the same VM automatically use the active transaction. An uncaught VM failure triggers best-effort rollback when its database session is discarded.</p>
 <h2>How to read the example</h2>
 <p>Read the MVC example in layers. First identify the route or command that enters the app. Then find the controller action. Then follow the data into the response, view, model, or database boundary. Each layer is still ordinary Ricochet: values first, words second, and explicit results at boundaries.</p>
 <h2>Try it</h2>
@@ -221,6 +239,8 @@ intentionally reversing the newest applied migration.</p>
 <li>Describing Active Record as a schema-definition ORM; it maps models to
 existing schemas.</li>
 <li>Running seeds repeatedly and expecting them to be idempotent.</li>
+<li>Returning a plain value from a <code>transaction</code> block instead of an Ok or Err Result.</li>
+<li>Expecting a database rollback to undo cookies, logs, HTTP calls, or filesystem writes.</li>
 <li>Serving before checking migration status.</li>
 </ul>
 <h2>Safety notes</h2>
@@ -229,6 +249,7 @@ read-only when the SQLite database file is absent. <code>migrate apply</code>, <
 <code>dump</code>, and <code>rollback</code> create or modify local database/schema files. Do not
 delete or prune generated database state without explicit confirmation.</p>
 <h2>Production guidance</h2>
+<p>Application transactions cover database operations through the same MVC database capability. SQLite pins its connection for the transaction; PostgreSQL and MySQL/MariaDB use a dedicated connection. MySQL/MariaDB DDL may auto-commit, so keep application transactions focused on ordinary data changes and use migration tooling for schema changes.</p>
 <p>Production apps should document database configuration, migration order, backup
 and restore expectations, rollback policy, seed idempotency, and adapter
 differences. <code>rco migrate dump</code> is a Ricochet beta schema snapshot, not a
@@ -240,7 +261,7 @@ replacement for <code>pg_dump</code>, <code>mysqldump</code>, or an operator’s
 </ul>
 <h2>What you know now</h2>
 <p>You know how Ricochet models map to tables, how migrations and seeds fit the
-local SQLite workflow, and how Active Record read/write words keep database
+local SQLite workflow, and how Active Record read/write and transaction words keep database
 operations in postfix order.</p>
 <h2>Next step</h2>
 <p>Continue to <a href="27-sessions-forms-auth-and-passwords.html">Chapter 27: Sessions, Forms, Auth, And Passwords</a>.</p>

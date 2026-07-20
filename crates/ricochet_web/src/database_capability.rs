@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use ricochet_vm::{Value, Vm, VmError};
+use ricochet_vm::{Instance, Value, Vm, VmError};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
 use crate::active_record::{
@@ -73,6 +73,48 @@ pub trait DatabaseBackend: Send + Sync {
         id: Value,
         attributes: &BTreeMap<String, Value>,
     ) -> Result<Value, ActiveRecordError>;
+
+    fn start_transaction(&self) -> Result<Arc<dyn DatabaseBackend>, ActiveRecordError> {
+        Err(transaction_error(
+            "begin transaction",
+            "this database backend does not support application transactions",
+        ))
+    }
+
+    fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        Err(transaction_error(
+            "commit transaction",
+            "this database handle is not an active transaction",
+        ))
+    }
+
+    fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        Err(transaction_error(
+            "rollback transaction",
+            "this database handle is not an active transaction",
+        ))
+    }
+
+    fn create_savepoint(&self, _name: &str) -> Result<(), ActiveRecordError> {
+        Err(transaction_error(
+            "create savepoint",
+            "this database handle is not an active transaction",
+        ))
+    }
+
+    fn release_savepoint(&self, _name: &str) -> Result<(), ActiveRecordError> {
+        Err(transaction_error(
+            "release savepoint",
+            "this database handle is not an active transaction",
+        ))
+    }
+
+    fn rollback_to_savepoint(&self, _name: &str) -> Result<(), ActiveRecordError> {
+        Err(transaction_error(
+            "rollback to savepoint",
+            "this database handle is not an active transaction",
+        ))
+    }
 }
 
 impl DatabaseBackend for PostgresDatabase {
@@ -194,6 +236,48 @@ impl DatabaseBackend for PostgresDatabase {
             PostgresDatabase::update_by_id(self, mapping, id, attributes),
         )
     }
+
+    fn start_transaction(&self) -> Result<Arc<dyn DatabaseBackend>, ActiveRecordError> {
+        Ok(Arc::new(block_on_postgres(
+            "begin transaction",
+            PostgresDatabase::begin_transaction(self),
+        )?))
+    }
+
+    fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        block_on_postgres(
+            "commit transaction",
+            PostgresDatabase::commit_transaction(self),
+        )
+    }
+
+    fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        block_on_postgres(
+            "rollback transaction",
+            PostgresDatabase::rollback_transaction(self),
+        )
+    }
+
+    fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_postgres(
+            "create savepoint",
+            PostgresDatabase::create_savepoint(self, name),
+        )
+    }
+
+    fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_postgres(
+            "release savepoint",
+            PostgresDatabase::release_savepoint(self, name),
+        )
+    }
+
+    fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_postgres(
+            "rollback to savepoint",
+            PostgresDatabase::rollback_to_savepoint(self, name),
+        )
+    }
 }
 
 impl DatabaseBackend for MysqlDatabase {
@@ -312,6 +396,48 @@ impl DatabaseBackend for MysqlDatabase {
             MysqlDatabase::update_by_id(self, mapping, id, attributes),
         )
     }
+
+    fn start_transaction(&self) -> Result<Arc<dyn DatabaseBackend>, ActiveRecordError> {
+        Ok(Arc::new(block_on_database_async(
+            "begin transaction",
+            MysqlDatabase::begin_transaction(self),
+        )?))
+    }
+
+    fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        block_on_database_async(
+            "commit transaction",
+            MysqlDatabase::commit_transaction(self),
+        )
+    }
+
+    fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        block_on_database_async(
+            "rollback transaction",
+            MysqlDatabase::rollback_transaction(self),
+        )
+    }
+
+    fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_database_async(
+            "create savepoint",
+            MysqlDatabase::create_savepoint(self, name),
+        )
+    }
+
+    fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_database_async(
+            "release savepoint",
+            MysqlDatabase::release_savepoint(self, name),
+        )
+    }
+
+    fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        block_on_database_async(
+            "rollback to savepoint",
+            MysqlDatabase::rollback_to_savepoint(self, name),
+        )
+    }
 }
 
 impl DatabaseBackend for SqliteDatabase {
@@ -412,6 +538,309 @@ impl DatabaseBackend for SqliteDatabase {
     ) -> Result<Value, ActiveRecordError> {
         SqliteDatabase::update_by_id(self, mapping, id, attributes)
     }
+
+    fn start_transaction(&self) -> Result<Arc<dyn DatabaseBackend>, ActiveRecordError> {
+        Ok(Arc::new(SqliteDatabase::begin_transaction(self)?))
+    }
+
+    fn commit_transaction(&self) -> Result<(), ActiveRecordError> {
+        SqliteDatabase::commit_transaction(self)
+    }
+
+    fn rollback_transaction(&self) -> Result<(), ActiveRecordError> {
+        SqliteDatabase::rollback_transaction(self)
+    }
+
+    fn create_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        SqliteDatabase::create_savepoint(self, name)
+    }
+
+    fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        SqliteDatabase::release_savepoint(self, name)
+    }
+
+    fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        SqliteDatabase::rollback_to_savepoint(self, name)
+    }
+}
+
+#[derive(Clone)]
+struct SessionDatabase {
+    session: Arc<DatabaseSession>,
+}
+
+struct DatabaseSession {
+    backend: Arc<dyn DatabaseBackend>,
+    transaction: Mutex<TransactionState>,
+}
+
+#[derive(Default)]
+struct TransactionState {
+    backend: Option<Arc<dyn DatabaseBackend>>,
+    savepoints: Vec<String>,
+    next_savepoint: u64,
+}
+
+impl SessionDatabase {
+    fn new(backend: Arc<dyn DatabaseBackend>) -> Self {
+        Self {
+            session: Arc::new(DatabaseSession {
+                backend,
+                transaction: Mutex::new(TransactionState::default()),
+            }),
+        }
+    }
+
+    fn with_backend<T>(
+        &self,
+        operation: &'static str,
+        callback: impl FnOnce(&dyn DatabaseBackend) -> Result<T, ActiveRecordError>,
+    ) -> Result<T, ActiveRecordError> {
+        // ponytail: One VM owns one database session, so serialize its calls until
+        // controller-level concurrent database work has an explicit ownership model.
+        let state = self
+            .session
+            .transaction
+            .lock()
+            .map_err(|_| transaction_error(operation, "transaction state lock was poisoned"))?;
+        callback(
+            state
+                .backend
+                .as_deref()
+                .unwrap_or(self.session.backend.as_ref()),
+        )
+    }
+
+    fn begin(&self) -> Result<(), ActiveRecordError> {
+        let mut state = self.session.transaction.lock().map_err(|_| {
+            transaction_error("begin transaction", "transaction state lock was poisoned")
+        })?;
+        if state.backend.is_some() {
+            return Err(transaction_error(
+                "begin transaction",
+                "a transaction is already active; use a savepoint for nested work",
+            ));
+        }
+        state.backend = Some(self.session.backend.start_transaction()?);
+        state.savepoints.clear();
+        Ok(())
+    }
+
+    fn commit(&self) -> Result<(), ActiveRecordError> {
+        let mut state = self.session.transaction.lock().map_err(|_| {
+            transaction_error("commit transaction", "transaction state lock was poisoned")
+        })?;
+        let backend = state
+            .backend
+            .as_ref()
+            .ok_or_else(|| transaction_error("commit transaction", "no transaction is active"))?;
+        backend.commit_transaction()?;
+        state.backend = None;
+        state.savepoints.clear();
+        Ok(())
+    }
+
+    fn rollback(&self) -> Result<(), ActiveRecordError> {
+        let mut state = self.session.transaction.lock().map_err(|_| {
+            transaction_error(
+                "rollback transaction",
+                "transaction state lock was poisoned",
+            )
+        })?;
+        let backend = state
+            .backend
+            .as_ref()
+            .ok_or_else(|| transaction_error("rollback transaction", "no transaction is active"))?;
+        backend.rollback_transaction()?;
+        state.backend = None;
+        state.savepoints.clear();
+        Ok(())
+    }
+
+    fn savepoint(&self) -> Result<String, ActiveRecordError> {
+        let mut state = self.session.transaction.lock().map_err(|_| {
+            transaction_error("create savepoint", "transaction state lock was poisoned")
+        })?;
+        let backend = state
+            .backend
+            .as_ref()
+            .ok_or_else(|| transaction_error("create savepoint", "no transaction is active"))?
+            .clone();
+        state.next_savepoint = state
+            .next_savepoint
+            .checked_add(1)
+            .ok_or_else(|| transaction_error("create savepoint", "savepoint counter overflowed"))?;
+        let name = format!("ricochet_savepoint_{}", state.next_savepoint);
+        backend.create_savepoint(&name)?;
+        state.savepoints.push(name.clone());
+        Ok(name)
+    }
+
+    fn release_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.finish_savepoint(name, false)
+    }
+
+    fn rollback_to_savepoint(&self, name: &str) -> Result<(), ActiveRecordError> {
+        self.finish_savepoint(name, true)
+    }
+
+    fn finish_savepoint(&self, name: &str, rollback: bool) -> Result<(), ActiveRecordError> {
+        let operation = if rollback {
+            "rollback to savepoint"
+        } else {
+            "release savepoint"
+        };
+        let mut state = self
+            .session
+            .transaction
+            .lock()
+            .map_err(|_| transaction_error(operation, "transaction state lock was poisoned"))?;
+        let backend = state
+            .backend
+            .as_ref()
+            .ok_or_else(|| transaction_error(operation, "no transaction is active"))?
+            .clone();
+        if state.savepoints.last().map(String::as_str) != Some(name) {
+            return Err(transaction_error(
+                operation,
+                "savepoints must be completed in last-created, first-completed order",
+            ));
+        }
+        if rollback {
+            backend.rollback_to_savepoint(name)?;
+        } else {
+            backend.release_savepoint(name)?;
+        }
+        state.savepoints.pop();
+        Ok(())
+    }
+}
+
+impl Drop for DatabaseSession {
+    fn drop(&mut self) {
+        let state = self
+            .transaction
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(backend) = state.backend.take() {
+            let _ = backend.rollback_transaction();
+        }
+    }
+}
+
+impl DatabaseBackend for SessionDatabase {
+    fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError> {
+        self.with_backend("find", |backend| backend.find(mapping, id))
+    }
+
+    fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("all", |backend| backend.all(mapping))
+    }
+
+    fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
+        self.with_backend("count", |backend| backend.count(mapping))
+    }
+
+    fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
+        self.with_backend("first", |backend| backend.first(mapping))
+    }
+
+    fn limit(&self, mapping: &ModelMapping, limit: i64) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("limit", |backend| backend.limit(mapping, limit))
+    }
+
+    fn page(
+        &self,
+        mapping: &ModelMapping,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("page", |backend| backend.page(mapping, limit, offset))
+    }
+
+    fn order_page(
+        &self,
+        mapping: &ModelMapping,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("order_page", |backend| backend.order_page(mapping, order))
+    }
+
+    fn exists_by_id(&self, mapping: &ModelMapping, id: &Value) -> Result<bool, ActiveRecordError> {
+        self.with_backend("exists", |backend| backend.exists_by_id(mapping, id))
+    }
+
+    fn where_eq(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("where", |backend| backend.where_eq(mapping, field, value))
+    }
+
+    fn where_eq_limit(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("where_limit", |backend| {
+            backend.where_eq_limit(mapping, field, value, limit)
+        })
+    }
+
+    fn where_eq_page(
+        &self,
+        mapping: &ModelMapping,
+        field: &str,
+        value: &Value,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("where_page", |backend| {
+            backend.where_eq_page(mapping, field, value, limit, offset)
+        })
+    }
+
+    fn where_eq_order_page(
+        &self,
+        mapping: &ModelMapping,
+        where_field: &str,
+        value: &Value,
+        order: OrderPage<'_>,
+    ) -> Result<Vec<Value>, ActiveRecordError> {
+        self.with_backend("where_order_page", |backend| {
+            backend.where_eq_order_page(mapping, where_field, value, order)
+        })
+    }
+
+    fn insert(
+        &self,
+        mapping: &ModelMapping,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        self.with_backend("insert", |backend| backend.insert(mapping, attributes))
+    }
+
+    fn update_by_id(
+        &self,
+        mapping: &ModelMapping,
+        id: Value,
+        attributes: &BTreeMap<String, Value>,
+    ) -> Result<Value, ActiveRecordError> {
+        self.with_backend("update", |backend| {
+            backend.update_by_id(mapping, id, attributes)
+        })
+    }
+}
+
+fn transaction_error(operation: &'static str, message: impl Into<String>) -> ActiveRecordError {
+    ActiveRecordError::Database {
+        operation,
+        message: message.into(),
+    }
 }
 
 pub fn install_database_capability(
@@ -419,9 +848,37 @@ pub fn install_database_capability(
     backend: Arc<dyn DatabaseBackend>,
     mappings: BTreeMap<String, ModelMapping>,
 ) -> Result<Value, VmError> {
+    let session = Arc::new(SessionDatabase::new(backend));
+    let backend: Arc<dyn DatabaseBackend> = session.clone();
     install_model_active_record_methods(vm, backend.clone(), &mappings)?;
     let mappings = Arc::new(mappings);
     vm.define_class("DatabaseCapability", "Capability")?;
+
+    let begin_session = session.clone();
+    vm.add_native_method("begin", move |_| {
+        Ok(database_unit_result(begin_session.begin()))
+    })?;
+
+    let commit_session = session.clone();
+    vm.add_native_method("commit", move |_| {
+        Ok(database_unit_result(commit_session.commit()))
+    })?;
+
+    let rollback_session = session.clone();
+    vm.add_native_method("rollback", move |_| {
+        Ok(database_unit_result(rollback_session.rollback()))
+    })?;
+
+    let savepoint_session = session.clone();
+    vm.add_native_method("savepoint", move |_| {
+        Ok(match savepoint_session.savepoint() {
+            Ok(name) => Value::result_ok(Value::Instance(Instance::new(
+                "DatabaseSavepoint",
+                BTreeMap::from([("name".to_string(), Value::String(name))]),
+            ))),
+            Err(error) => database_result_error(error),
+        })
+    })?;
 
     let all_backend = backend.clone();
     let all_mappings = mappings.clone();
@@ -745,6 +1202,22 @@ pub fn install_database_capability(
     })?;
 
     vm.end_class();
+
+    vm.define_class("DatabaseSavepoint", "Capability")?;
+    let release_session = session.clone();
+    vm.add_native_method("commit", move |arguments| {
+        let name = savepoint_name(&arguments, "DatabaseSavepoint.commit")?;
+        Ok(database_unit_result(
+            release_session.release_savepoint(&name),
+        ))
+    })?;
+    vm.add_native_method("rollback", move |arguments| {
+        let name = savepoint_name(&arguments, "DatabaseSavepoint.rollback")?;
+        Ok(database_unit_result(session.rollback_to_savepoint(&name)))
+    })?;
+    vm.end_class();
+
+    install_transaction_method(vm)?;
     vm.new_instance("DatabaseCapability")
 }
 
@@ -1018,6 +1491,76 @@ fn default_page(
         )
     } else {
         backend.page(mapping, DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET)
+    }
+}
+
+fn install_transaction_method(vm: &mut Vm) -> Result<(), VmError> {
+    let chunk = ricochet_compiler::compile_source(
+        "<database transaction>",
+        r#"
+DatabaseCapability Capability Subclass
+  ( body -> result ) [
+    body var
+    self begin
+    dup ok? if
+      value drop
+      $body call
+      dup ok? if
+        self commit
+        dup ok? if
+          value drop
+        else
+          swap drop
+        end
+      else
+        self rollback
+        dup ok? if
+          value drop
+        else
+          swap drop
+        end
+      end
+    end
+  ] "transaction" Method
+end
+"#,
+    )
+    .map_err(|error| VmError::HostError {
+        word: "install database transaction".to_string(),
+        message: error.to_string(),
+    })?;
+    vm.run_chunk(&chunk)
+}
+
+fn database_unit_result(result: Result<(), ActiveRecordError>) -> Value {
+    match result {
+        Ok(()) => Value::result_ok(Value::Bool(true)),
+        Err(error) => database_result_error(error),
+    }
+}
+
+fn savepoint_name(arguments: &[Value], method: &str) -> Result<String, VmError> {
+    match arguments.last() {
+        Some(Value::Instance(instance)) if instance.class_name == "DatabaseSavepoint" => {
+            match instance.fields.get("name") {
+                Some(Value::String(name)) => Ok(name.clone()),
+                Some(value) => Err(VmError::TypeError {
+                    word: method.to_string(),
+                    expected: "savepoint name string".to_string(),
+                    actual: value_kind(value).to_string(),
+                }),
+                None => Err(VmError::InvalidArgument {
+                    word: method.to_string(),
+                    message: "savepoint has no name".to_string(),
+                }),
+            }
+        }
+        Some(value) => Err(VmError::TypeError {
+            word: method.to_string(),
+            expected: "DatabaseSavepoint".to_string(),
+            actual: value_kind(value).to_string(),
+        }),
+        None => Err(missing_native_argument(method, 1, 0)),
     }
 }
 
@@ -2011,5 +2554,170 @@ mod tests {
             [Value::Result(RicochetResult::Err(error))]
                 if error.kind == "DatabaseError" && error.message.contains("Missing")
         ));
+    }
+
+    fn sqlite_vm_with_transactions() -> (tempfile::TempDir, std::path::PathBuf, Vm) {
+        let temp = tempfile::tempdir().expect("temporary database directory");
+        let path = temp.path().join("transactions.sqlite3");
+        let connection = rusqlite::Connection::open(&path).expect("SQLite setup connection");
+        connection
+            .execute_batch(
+                "create table users (id integer primary key autoincrement, email text not null);",
+            )
+            .expect("users table should be created");
+        drop(connection);
+
+        let mut vm = Vm::default();
+        let model = ricochet_compiler::compile_source(
+            "app/Models/User.rco",
+            "User Model Subclass\n  \"users\" Table\n  \"id\" Accessor\n  \"email\" Accessor\nend\n",
+        )
+        .expect("model compiles");
+        vm.run_chunk(&model).expect("model loads");
+        let database = SqliteDatabase::connect(path.to_str().expect("UTF-8 database path"))
+            .expect("SQLite connects");
+        let capability = install_database_capability(
+            &mut vm,
+            Arc::new(database),
+            BTreeMap::from([("User".to_string(), user_mapping())]),
+        )
+        .expect("database capability installs");
+        vm.set_variable("db", capability);
+        (temp, path, vm)
+    }
+
+    #[test]
+    fn application_transaction_rolls_back_an_error_result() {
+        let (_temp, _path, mut vm) = sqlite_vm_with_transactions();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            r#"
+[
+  map "email" "ada@example.com" put User insert
+  dup ok? if
+    value drop
+    "ForcedRollback" "do not commit" fail
+  end
+] $db transaction
+User count_records
+"#,
+        )
+        .expect("transaction source compiles");
+
+        vm.run_chunk(&chunk)
+            .expect("transaction returns the application error");
+
+        assert!(matches!(
+            vm.stack(),
+            [
+                Value::Result(RicochetResult::Err(error)),
+                Value::Result(RicochetResult::Ok(count))
+            ] if error.kind == "ForcedRollback"
+                && matches!(count.as_ref(), Value::Number(0))
+        ));
+    }
+
+    #[test]
+    fn application_transaction_commits_an_ok_result() {
+        let (_temp, _path, mut vm) = sqlite_vm_with_transactions();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            r#"
+[
+  map "email" "ada@example.com" put User insert
+] $db transaction
+User count_records
+"#,
+        )
+        .expect("transaction source compiles");
+
+        vm.run_chunk(&chunk).expect("transaction commits");
+
+        assert!(matches!(
+            vm.stack(),
+            [
+                Value::Result(RicochetResult::Ok(record)),
+                Value::Result(RicochetResult::Ok(count))
+            ] if matches!(record.as_ref(), Value::Map(_))
+                && matches!(count.as_ref(), Value::Number(1))
+        ));
+    }
+
+    #[test]
+    fn manual_transaction_can_rollback_to_a_savepoint() {
+        let (_temp, _path, mut vm) = sqlite_vm_with_transactions();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            r#"
+$db begin value drop
+map "email" "ada@example.com" put User insert value drop
+$db savepoint value "checkpoint" var
+map "email" "grace@example.com" put User insert value drop
+$checkpoint rollback value drop
+$db commit value drop
+User count_records
+"#,
+        )
+        .expect("savepoint source compiles");
+
+        vm.run_chunk(&chunk).expect("savepoint rolls back");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(count))]
+                if matches!(count.as_ref(), Value::Number(1))
+        ));
+    }
+
+    #[test]
+    fn releasing_a_savepoint_does_not_commit_the_outer_transaction() {
+        let (_temp, _path, mut vm) = sqlite_vm_with_transactions();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            r#"
+$db begin value drop
+map "email" "ada@example.com" put User insert value drop
+$db savepoint value "checkpoint" var
+map "email" "grace@example.com" put User insert value drop
+$checkpoint commit value drop
+$db rollback value drop
+User count_records
+"#,
+        )
+        .expect("savepoint source compiles");
+
+        vm.run_chunk(&chunk).expect("outer transaction rolls back");
+
+        assert!(matches!(
+            vm.stack(),
+            [Value::Result(RicochetResult::Ok(count))]
+                if matches!(count.as_ref(), Value::Number(0))
+        ));
+    }
+
+    #[test]
+    fn dropping_a_failed_vm_rolls_back_its_open_transaction() {
+        let (_temp, path, mut vm) = sqlite_vm_with_transactions();
+        let chunk = ricochet_compiler::compile_source(
+            "test.rco",
+            r#"
+$db begin value drop
+map "email" "ada@example.com" put User insert value drop
+missing_transaction_word
+"#,
+        )
+        .expect("failure source compiles");
+
+        assert!(matches!(
+            vm.run_chunk(&chunk),
+            Err(VmError::UnknownWord(word)) if word == "missing_transaction_word"
+        ));
+        drop(vm);
+
+        let connection = rusqlite::Connection::open(path).expect("SQLite verification connection");
+        let count: i64 = connection
+            .query_row("select count(*) from users", [], |row| row.get(0))
+            .expect("user count should be readable");
+        assert_eq!(count, 0);
     }
 }
