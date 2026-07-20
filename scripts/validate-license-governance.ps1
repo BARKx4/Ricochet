@@ -330,8 +330,8 @@ foreach ($target in @(
     Require-Match $aboutConfigPath $aboutConfig ([regex]::Escape($target)) "include target $target in cargo-about generation"
     Require-Match $noticeGeneratorPath $noticeGenerator ([regex]::Escape($target)) "include target $target in the dependency union"
 }
-Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+about\s+generate[\s\S]+?--locked[\s\S]+?--workspace' 'generate the locked workspace license report with cargo-about'
-Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+about\s+generate[^\r\n]*--fail(?:\s|$)' 'fail on unresolved cargo-about license or clarification errors'
+Require-Match $noticeGeneratorPath $noticeGenerator '(?:cargo\s+about|cargo-about)\s+generate[\s\S]+?--locked[\s\S]+?--workspace' 'generate the locked workspace license report with cargo-about'
+Require-Match $noticeGeneratorPath $noticeGenerator '(?:cargo\s+about|cargo-about)\s+generate[^\r\n]*--fail(?:\s|$)' 'fail on unresolved cargo-about license or clarification errors'
 Require-Match $noticeGeneratorPath $noticeGenerator 'Normalize-Text\s+\(\[System\.IO\.File\]::ReadAllText\(\$licensesOutput\)\)' 'normalize generated cargo-about HTML to LF before snapshot comparison'
 Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+metadata[\s\S]+?--locked[\s\S]+?--filter-platform' 'derive the union from locked target-specific Cargo metadata'
 Require-Match $noticeGeneratorPath $noticeGenerator 'cargo\s+tree[\s\S]+?--locked[\s\S]+?--workspace[\s\S]+?--target[\s\S]+?--edges\s+"normal,build"' 'select the feature-aware active non-dev graph for each target'

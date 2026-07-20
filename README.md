@@ -31,9 +31,9 @@ On Linux, install the Debian package with:
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
 
-The official GitHub asset for Ricochet `0.1.19-rc.7` is
-`ricochet_0.1.19.rc.7_amd64.deb`. Inside the package, the Debian control
-metadata records `Version: 0.1.19~rc.7`; that internal version keeps the
+The official GitHub asset for Ricochet `0.1.19-rc.8` is
+`ricochet_0.1.19.rc.8_amd64.deb`. Inside the package, the Debian control
+metadata records `Version: 0.1.19~rc.8`; that internal version keeps the
 candidate older than the eventual stable `0.1.19` package so normal upgrades
 work.
 

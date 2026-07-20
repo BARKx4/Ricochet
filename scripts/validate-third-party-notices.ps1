@@ -11,7 +11,7 @@ $Generator = Join-Path $Root "scripts/generate-third-party-notices.ps1"
 function Assert-CargoAboutVersion {
     $install = "cargo install cargo-about --version $CargoAboutVersion --locked --features cli"
     try {
-        $reported = @(& cargo about --version 2>$null)
+        $reported = @(& cargo-about --version 2>$null)
         $exitCode = $LASTEXITCODE
     }
     catch {

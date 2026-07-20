@@ -48,7 +48,7 @@
           <h2 id="supported-release-inputs">Supported Release Inputs</h2>
           <p>Windows releases provide a portable ZIP, an NSIS setup executable, Authenticode signing for production tags, an artifact manifest, a signing report, and checksums.</p>
           <p>Linux releases provide a portable tarball, a Debian package, desktop launcher metadata, SVG icon, AppStream metainfo, changelog, maintainer metadata, bundled docs/examples/packages, detached GPG signatures for production tags, a manifest, a signing report, and checksums.</p>
-          <p>The official GitHub Debian asset for Ricochet <code>0.1.19-rc.7</code> is <code>ricochet_0.1.19.rc.7_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 0.1.19~rc.7</code>; that internal version preserves Debian prerelease ordering and upgrades normally to stable <code>0.1.19</code>.</p>
+          <p>The official GitHub Debian asset for Ricochet <code>0.1.19-rc.8</code> is <code>ricochet_0.1.19.rc.8_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 0.1.19~rc.8</code>; that internal version preserves Debian prerelease ordering and upgrades normally to stable <code>0.1.19</code>.</p>
           <p>macOS releases provide Apple Silicon and Intel tarballs, codesigned binaries, accepted notarization reports for production tags, manifests, signing reports, notary reports, and checksums.</p>
           <p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
 
@@ -56,15 +56,15 @@
           <p>Run the store packaging validator after artifact manifest validation:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 0.1.19-rc.7
+  -PackageVersion 0.1.19-rc.8
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 0.1.19-rc.7
+  -PackageVersion 0.1.19-rc.8
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 0.1.19-rc.7</code></pre>
+  -PackageVersion 0.1.19-rc.8</code></pre>
           <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
           <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball metadata and Debian package metadata, macOS tarball contents plus accepted notarization reports for production tags, and the required license and notice files in every package.</p>
 

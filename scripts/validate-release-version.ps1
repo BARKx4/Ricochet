@@ -4,9 +4,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$ExpectedVersion = "0.1.19-rc.7"
+$ExpectedVersion = "0.1.19-rc.8"
 $ExpectedTag = "v$ExpectedVersion"
-$StaleVersion = "0.1.19-rc." + "6"
+$StaleVersion = "0.1.19-rc." + "7"
 $StaleHistoricalReleasePath = "docs/releases/v$StaleVersion.html"
 $HistoricalReleases = @(
     [pscustomobject]@{
@@ -25,9 +25,14 @@ $HistoricalReleases = @(
         Sha256 = "b495f9bdb591ca35c0d66837fcbbd0215b0d91a7e8eeec06828fd0a7a4c7cc8c"
     },
     [pscustomobject]@{
-        Path = $StaleHistoricalReleasePath
+        Path = "docs/releases/v0.1.19-rc.6.html"
         # Normalized UTF-8 SHA-256 of the immediately previous immutable candidate page.
         Sha256 = "85292c76ef0e03c80bab38549e1b3a5d99be8e85ece97bd44ac02456b321e542"
+    },
+    [pscustomobject]@{
+        Path = $StaleHistoricalReleasePath
+        # Normalized UTF-8 SHA-256 of the immediately previous immutable candidate page.
+        Sha256 = "4888b16c778b2f010f1d284f111b0dd0dd6d8e009f902a225c61285bae2511f2"
     }
 )
 $Failures = [System.Collections.Generic.List[string]]::new()

@@ -114,7 +114,7 @@ function Copy-ReleaseDirectory {
         throw "Release source directory must be inside the repository: $Source"
     }
 
-    $relativeSource = [System.IO.Path]::GetRelativePath($repoRootPath, $sourcePath).Replace("\", "/")
+    $relativeSource = $sourcePath.Substring($repoPrefix.Length).Replace("\", "/")
     $trackedFiles = @(& git -C $repoRootPath ls-files -- $relativeSource)
     if ($LASTEXITCODE -ne 0) {
         throw "git ls-files failed while enumerating release source directory $relativeSource"

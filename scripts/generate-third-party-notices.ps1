@@ -21,7 +21,7 @@ $Ordinal = [System.StringComparer]::Ordinal
 function Assert-CargoAboutVersion {
     $install = "cargo install cargo-about --version $CargoAboutVersion --locked --features cli"
     try {
-        $reported = @(& cargo about --version 2>$null)
+        $reported = @(& cargo-about --version 2>$null)
         $exitCode = $LASTEXITCODE
     }
     catch {
@@ -280,7 +280,7 @@ try {
     # cargo-about evaluates all configured targets simultaneously, which can
     # cross-pollinate target-specific dependency edges. Filter its fully
     # resolved report to the same per-target Cargo feature union used below.
-    $aboutLog = @(& cargo about generate --locked --workspace --fail --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
+    $aboutLog = @(& cargo-about generate --locked --workspace --fail --config $aboutConfig --output-file $licensesOutput $aboutTemplate)
     if ($LASTEXITCODE -ne 0) {
         throw "cargo-about generation failed with exit code $LASTEXITCODE`n$($aboutLog -join "`n")"
     }

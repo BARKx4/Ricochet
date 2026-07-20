@@ -16,7 +16,7 @@ function Add-Failure {
 function New-Fixture {
     param(
         [string] $RootPath,
-        [string] $AssetName = "ricochet_0.1.19.rc.7_amd64.deb",
+        [string] $AssetName = "ricochet_0.1.19.rc.8_amd64.deb",
         [bool] $Draft = $true,
         [bool] $Prerelease = $true,
         [string] $ApiAssetName = $AssetName,
@@ -51,7 +51,7 @@ function New-Fixture {
     })
 
     $release = [pscustomobject][ordered]@{
-        tag_name = "v0.1.19-rc.7"
+        tag_name = "v0.1.19-rc.8"
         draft = $Draft
         prerelease = $Prerelease
         assets = @($assets)
@@ -83,7 +83,7 @@ function Invoke-Case {
         $parameters = @{
             ReleaseJsonPath = $Fixture.ReleaseJsonPath
             AssetDir = $Fixture.AssetDir
-            ExpectedTag = "v0.1.19-rc.7"
+            ExpectedTag = "v0.1.19-rc.8"
         }
         if ($RequireStable) {
             $parameters.RequireStable = $true
@@ -115,12 +115,12 @@ Invoke-Case "exact draft inventory" (New-Fixture (Join-Path $FixtureRoot "draft-
 Invoke-Case "exact published inventory" (New-Fixture (Join-Path $FixtureRoot "published-ok") -Draft $false) $true -RequirePublished
 Invoke-Case "exact stable inventory" (New-Fixture (Join-Path $FixtureRoot "stable-ok") -Draft $false -Prerelease $false) $true -RequirePublished -RequireStable
 Invoke-Case "stable release marked prerelease" (New-Fixture (Join-Path $FixtureRoot "stable-wrong") -Draft $false) $false -RequirePublished -RequireStable
-Invoke-Case "GitHub-renamed asset" (New-Fixture (Join-Path $FixtureRoot "renamed") -ApiAssetName "ricochet_0.1.19~rc.7_amd64.deb") $false
-Invoke-Case "API asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "api-case") -ApiAssetName "Ricochet_0.1.19.rc.7_amd64.deb") $false
-Invoke-Case "checksum asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "checksum-case") -ChecksumAssetName "Ricochet_0.1.19.rc.7_amd64.deb") $false
+Invoke-Case "GitHub-renamed asset" (New-Fixture (Join-Path $FixtureRoot "renamed") -ApiAssetName "ricochet_0.1.19~rc.8_amd64.deb") $false
+Invoke-Case "API asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "api-case") -ApiAssetName "Ricochet_0.1.19.rc.8_amd64.deb") $false
+Invoke-Case "checksum asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "checksum-case") -ChecksumAssetName "Ricochet_0.1.19.rc.8_amd64.deb") $false
 Invoke-Case "incorrect API digest" (New-Fixture (Join-Path $FixtureRoot "bad-digest") -CorruptDigest) $false
 Invoke-Case "missing API asset" (New-Fixture (Join-Path $FixtureRoot "missing") -OmitApiAsset) $false
-Invoke-Case "unsafe local filename" (New-Fixture (Join-Path $FixtureRoot "unsafe") -AssetName "ricochet_0.1.19~rc.7_amd64.deb") $false
+Invoke-Case "unsafe local filename" (New-Fixture (Join-Path $FixtureRoot "unsafe") -AssetName "ricochet_0.1.19~rc.8_amd64.deb") $false
 Invoke-Case "wrong draft state" (New-Fixture (Join-Path $FixtureRoot "wrong-state") -Draft $false) $false
 
 if ($Failures.Count -gt 0) {

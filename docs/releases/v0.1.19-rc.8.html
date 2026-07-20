@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v0.1.19-rc.8 Release Candidate Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v0.1.19-rc.8 Release Candidate Notes</h1>
+          <p class="lede">A database-transaction and request-budget candidate for safer MVC application work.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+            <a href="#release-identity">Release Identity</a>
+            <a href="#application-transactions">Application Transactions</a>
+            <a href="#controller-budgets">Controller Instruction Budgets</a>
+            <a href="#governance-and-packaging">Governance And Packaging</a>
+            <a href="#ci-and-update-channel">CI And Update Channel</a>
+            <a href="#current-boundaries">Current Boundaries</a>
+            <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+            <p>Date: 2026-07-20</p>
+            <p>Ricochet v0.1.19-rc.8 advances the candidate line with application-level database transactions and configurable MVC controller instruction budgets. It supersedes RC7 without moving or rewriting that historical release.</p>
+
+            <h2 id="release-identity">Release Identity</h2>
+            <ul>
+              <li>The Ricochet release and tag identity is <code>0.1.19-rc.8</code> and <code>v0.1.19-rc.8</code>.</li>
+              <li>The public GitHub Debian asset is <code>ricochet_0.1.19.rc.8_amd64.deb</code>. Its Debian control version is <code>0.1.19~rc.8</code>, preserving exact prerelease ordering before stable <code>0.1.19</code>.</li>
+              <li>The supported desktop application lineage remains the native host shell with a WebView body and Ricochet-managed state. The withdrawn native-control renderer experiment remains outside the supported WebView-only application surface.</li>
+            </ul>
+
+            <h2 id="application-transactions">Application Transactions</h2>
+            <ul>
+              <li>MVC database capabilities now expose postfix <code>transaction</code>, <code>begin</code>, <code>commit</code>, <code>rollback</code>, and <code>savepoint</code> methods.</li>
+              <li><code>transaction</code> commits when its block returns an Ok Result and rolls back when the block returns an Err Result. Transaction-control failures remain explicit Results.</li>
+              <li>Savepoints are completed last-created first. Committing a savepoint releases it; rolling it back restores and releases it without ending the outer transaction.</li>
+              <li>Active Record and direct database-capability calls in one request use the same transaction. SQLite pins its existing connection; PostgreSQL and MySQL/MariaDB use a dedicated transaction connection.</li>
+              <li>An uncaught VM fault triggers best-effort rollback when the request database session is discarded. Database rollback does not undo cookies, logs, HTTP calls, filesystem writes, or other external effects.</li>
+            </ul>
+
+            <h2 id="controller-budgets">Controller Instruction Budgets</h2>
+            <ul>
+              <li>MVC controllers default to <code>250000</code> VM instructions per request, configured with <code>controller_instruction_limit</code> under <code>[web]</code>.</li>
+              <li>Operators retain a deployment ceiling through <code>rco serve --max-controller-instructions</code>, which defaults to <code>1000000</code>. An app cannot raise its own budget above that ceiling.</li>
+              <li>Limit faults report used and configured instructions. Successful actions emit a warning at 80 percent usage, and staged response, session, and log effects are copied out only after controller success.</li>
+            </ul>
+
+            <h2 id="governance-and-packaging">Governance And Packaging</h2>
+            <ul>
+              <li>Ricochet first-party source, documentation, assets, crates, packages, and editor metadata remain under the Apache License 2.0 (<code>Apache-2.0</code>).</li>
+              <li>Locked dependency disclosures continue to ship as <code>THIRD_PARTY_LICENSES.html</code> and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
+              <li>Third-party notice generation invokes the installed <code>cargo-about</code> executable directly so strict PowerShell validation is not derailed by unrelated Cargo warnings.</li>
+              <li>Windows release packaging now derives tracked documentation paths without requiring the PowerShell 7-only <code>Path.GetRelativePath</code> API.</li>
+              <li>The public Learn manual now covers 372 live words, including all five application transaction methods.</li>
+              <li>The candidate retains mixed numeric correctness, bounded cycle handling, release probe coverage, and clean tracked-source packaging from prior hardening.</li>
+              <li>The Windows installer continues to validate installed binaries, docs, examples, notices, registration, shortcuts, and uninstall ownership boundaries.</li>
+            </ul>
+
+            <h2 id="ci-and-update-channel">CI And Update Channel</h2>
+            <ul>
+              <li>CI builds and smokes Windows, Linux, Debian, macOS arm64, and macOS x64 artifacts before publication.</li>
+              <li>The release workflow audits exact asset names, sizes, SHA-256 digests, checksums, manifests, and freshly downloaded bytes before publishing its draft.</li>
+              <li><code>v0.1.19-rc.8</code> is a GitHub prerelease, is not marked latest, and publishes <code>UPDATE-CHANNEL-candidate.json</code>.</li>
+              <li>Candidate artifacts use dry-run signing and notarization reports. Stable production signing remains gated by external Windows, Linux, and macOS credentials.</li>
+            </ul>
+
+            <h2 id="current-boundaries">Current Boundaries</h2>
+            <ul>
+              <li>The hosted workflow must still prove the exact tag, public prerelease state, platform artifacts, checksums, manifests, and candidate update metadata.</li>
+              <li>SQLite transaction behavior is exercised locally. Live PostgreSQL and MySQL/MariaDB acceptance requires separately configured provider endpoints and credentials.</li>
+              <li>Application transactions cover database state only; coordinated transactions across HTTP, files, cookies, sessions, and logs are not implied.</li>
+            </ul>
+
+            <h2 id="verification-checklist">Verification Checklist</h2>
+            <p>Before creating the <code>v0.1.19-rc.8</code> tag, run the repository gates from a clean checkout:</p>
+            <pre class="code-block"><code class="language-powershell">$version = "0.1.19-rc.8"
+
+cargo metadata --locked --format-version 1
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+pwsh -NoProfile -File .\scripts\validate-release-version.ps1
+pwsh -NoProfile -File .\docs\reference\validate.ps1
+pwsh -NoProfile -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
+pwsh -NoProfile -File .\scripts\validate-license-governance.ps1
+pwsh -NoProfile -File .\scripts\acceptance.ps1
+
+$releaseOut = Join-Path (Resolve-Path .\target).Path "rc-prep-smoke\$version\release-windows"
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode dry-run
+pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
+pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+            <p>After the release workflow completes, separately verify the published prerelease, tag commit, uploaded assets, combined checksums, platform manifests, signing-status reports, Debian control version, and candidate update-channel metadata.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>
