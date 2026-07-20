@@ -99,6 +99,7 @@ struct PlatformPromptControl {
 
 #[derive(Clone, Copy)]
 pub(crate) struct NativePromptParent {
+    #[cfg_attr(not(windows), allow(dead_code))]
     raw: isize,
 }
 

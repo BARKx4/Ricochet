@@ -1,0 +1,19 @@
+"2026-06-18T13:14:15.250Z" timestamp_parse value timestamp var
+$timestamp date_from_timestamp value date var
+
+"2026-06-18T13:14:15.250Z" timestamp_parse value start var
+"2026-06-18T15:14:15.250Z" timestamp_parse value end var
+
+"2026-02-28" date_parse value startDate var
+"2026-03-02" date_parse value endDate var
+
+2 duration_hours value duration var
+
+parts map
+$parts "year" 2026 put drop
+$parts "month" 6 put drop
+$parts "day" 18 put drop
+$parts "hour" 13 put drop
+$parts "minute" 14 put drop
+$parts "second" 15 put drop
+$parts "millisecond" 250 put drop

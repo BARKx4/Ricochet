@@ -89,6 +89,11 @@
 <h2>Run one example</h2>
 <pre><code class="language-bash">rco run examples/learn/01-hello-world/main.rco
 </code></pre>
+<h2>Find the example for one word</h2>
+<p>The source tree includes <code>examples/words/manifest.json</code> and one numbered <code>.rco</code> app for every case-sensitive entry reported by <code>rco words --json</code>. Numbered names keep symbols and pairs such as <code>get</code>/<code>GET</code> portable across filesystems.</p>
+<pre><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-word-examples.ps1
+</code></pre>
+<p>The validator compiles the complete corpus and runs deterministic examples with bounded capabilities. Apps that need MVC/database state, filesystem mutation, a loopback peer, uploads, a TUI, a native dialog, or an operating-system process declare that host context in the manifest and link to the corresponding integration example.</p>
 <h2>Make one small change</h2>
 <p>Change a string, number, route, or assertion. Run the example again and compare the output. Small edits build confidence faster than rewriting the file from scratch.</p>
 <h2>Keep a scratch copy</h2>

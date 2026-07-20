@@ -69,6 +69,11 @@ rco serve
 For native desktop UI previews and packaging, see
 [How to Install and Run Ricochet](https://barkx4.github.io/Ricochet/learn/how-to/install-and-run.html#native-desktop-ui).
 
+For a focused example of every case-sensitive language word, use the generated
+[per-word example corpus](examples/words/README.md). Its manifest follows the
+live `rco words --json` inventory, and the validator compiles every app while
+running all examples that are safe and deterministic without an external host.
+
 ## Documentation
 
 Start with the published HTML docs:
@@ -118,7 +123,8 @@ cargo run -p ricochet_cli --bin rco -- run examples/basic-oop.rco
 
 When adding or renaming public words, follow
 [docs/adding-words.html](docs/adding-words.html) so VM dispatch, tests, reference
-docs, LSP completions, editor grammar, validators, and examples stay in sync.
+docs, LSP completions, editor grammar, validators, and the per-word corpus stay
+in sync.
 
 ## License and project policies
 

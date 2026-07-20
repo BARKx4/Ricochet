@@ -95,3 +95,19 @@ $streamId http_stream_release value println
 
 "Streams retained after release:" print
 http_streams count println
+
+"GET" $baseUrl "/stream" concat http_request_new value cancelRequest var
+$cancelRequest http_stream_start value cancelStream var
+$cancelStream "id" at cancelStreamId var
+
+"Cancel requested:" print
+$cancelStreamId http_stream_cancel value "cancelled" at println
+
+$cancelStreamId http_stream value cancelState var
+$cancelState "running" at while
+  25 sleep
+  $cancelStreamId http_stream value cancelState set
+end
+
+"Cancelled stream released:" print
+$cancelStreamId http_stream_release value println

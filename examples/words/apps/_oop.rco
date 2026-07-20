@@ -1,0 +1,9 @@
+User Object Subclass
+  "email" Accessor
+  "name" Accessor
+  [ self email.get ] "displayName" Method
+end
+
+User new user var
+"ada@example.com" $user email.set user set
+"Ada" $user name.set user set

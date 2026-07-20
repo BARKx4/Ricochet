@@ -1546,6 +1546,24 @@ fn words_json_lists_builtin_editor_inventory() {
             "inventory should include token alias {alias}\nstdout:\n{stdout}"
         );
     }
+    for (alias, example) in [
+        ("env", "\"DATABASE_URL\" env"),
+        ("GET", "GET \"/\" HomeController"),
+        ("POST", "POST \"/users\" UserController"),
+        ("multiply", "6 7 multiply"),
+        ("length", "\"Ada\" length"),
+        ("webview_document", "webview_document value"),
+    ] {
+        let documentation = words
+            .iter()
+            .find(|entry| entry["word"] == alias)
+            .and_then(|entry| entry["documentation"].as_str())
+            .unwrap_or_else(|| panic!("inventory should document token alias {alias}"));
+        assert!(
+            documentation.contains(example),
+            "alias {alias} should show itself in its example, got:\n{documentation}"
+        );
+    }
     for prose_alias in ["Active Record", "collection", "HTTP"] {
         assert!(
             words.iter().all(|entry| entry["word"] != prose_alias),

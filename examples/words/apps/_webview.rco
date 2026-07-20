@@ -1,0 +1,39 @@
+"<main>Body</main>" body var
+
+"<button>Save</button>" buttons var
+
+"<nav>Navigation</nav>" nav var
+
+tabs array
+tab map
+$tab "label" "One" put drop
+$tab "body" "<section>One</section>" put drop
+$tabs $tab push drop
+
+"<aside>Sidebar</aside>" sidebar var
+"<section>Content</section>" content var
+
+rows array
+row map
+$row "Name" "Ada" put drop
+$rows $row push drop
+
+"<input name=\"name\">" input var
+
+commands array
+command map
+$command "id" "save" put drop
+$command "label" "Save" put drop
+$commands $command push drop
+
+menus array
+menu map
+$menu "label" "File" put drop
+$menu "commands" $commands put drop
+$menus $menu push drop
+
+state map
+actions array
+menuBar map
+$menuBar "type" "menu_bar" put drop
+$menuBar "menus" $menus put drop

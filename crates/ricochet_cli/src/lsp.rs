@@ -658,7 +658,7 @@ fn build_word_docs() -> Vec<WordDoc> {
                         documentation: Cow::Owned(format!(
                             "Alias for `{}`.\n\n{}",
                             entry.word,
-                            reference_word_markdown(entry)
+                            reference_alias_word_markdown(entry, alias)
                         )),
                     });
                 }
@@ -695,6 +695,30 @@ fn is_lsp_word_alias(alias: &str) -> bool {
 }
 
 fn reference_word_markdown(entry: &ReferenceWordDoc) -> String {
+    reference_word_markdown_with_example(entry, &entry.example)
+}
+
+fn reference_alias_word_markdown(entry: &ReferenceWordDoc, alias: &str) -> String {
+    let example = match alias {
+        "multiply" => Cow::Borrowed("6 7 multiply"),
+        "divide" => Cow::Borrowed("22 5 divide"),
+        "modulo" => Cow::Borrowed("22 5 modulo"),
+        "GET" => Cow::Borrowed("GET \"/\" HomeController \"index\" route"),
+        "POST" => Cow::Borrowed("POST \"/users\" UserController \"create\" route"),
+        "PUT" => Cow::Borrowed("PUT \"/users/:id\" UserController \"replace\" route"),
+        "PATCH" => Cow::Borrowed("PATCH \"/users/:id\" UserController \"update\" route"),
+        "DELETE" => Cow::Borrowed("DELETE \"/users/:id\" UserController \"destroy\" route"),
+        "length" => Cow::Borrowed("\"Ada\" length"),
+        "env" => Cow::Borrowed("\"DATABASE_URL\" env"),
+        "webview_document" => {
+            Cow::Borrowed("\"Counter\" \"<main>Ready</main>\" webview_document value")
+        }
+        _ => Cow::Borrowed(entry.example.as_str()),
+    };
+    reference_word_markdown_with_example(entry, example.as_ref())
+}
+
+fn reference_word_markdown_with_example(entry: &ReferenceWordDoc, example: &str) -> String {
     let mut documentation = String::new();
     documentation.push_str(&entry.body);
     if !entry.stack.is_empty() {
@@ -702,9 +726,9 @@ fn reference_word_markdown(entry: &ReferenceWordDoc) -> String {
         documentation.push_str(&entry.stack);
         documentation.push('`');
     }
-    if !entry.example.is_empty() {
+    if !example.is_empty() {
         documentation.push_str("\n\n```ricochet\n");
-        documentation.push_str(&entry.example);
+        documentation.push_str(example);
         documentation.push_str("\n```");
     }
     documentation

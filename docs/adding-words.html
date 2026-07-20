@@ -69,7 +69,8 @@
 <li>Add the token to the VS Code grammar in <code>editors/vscode/syntaxes/ricochet.tmLanguage.json</code>.</li>
 <li>Update <code>README.md</code> when the word changes a headline workflow, security model, release promise, or common user-facing example.</li>
 <li>Update the internal language design spec when the word changes or clarifies the language design contract.</li>
-<li>Update examples or package docs that should demonstrate the new word.</li>
+<li>Rebuild <code>rco</code>, regenerate <code>examples/words</code> with <code>scripts/generate-word-examples.ps1</code>, and give host-bound examples an integration-evidence path.</li>
+<li>Update other examples or package docs that should demonstrate the new word.</li>
 </ul>
 <h2 id="verification">Verification</h2>
 <p>From the repository root, run:</p>
@@ -78,7 +79,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docs\reference\validate.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-editor-assets.ps1
-cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json</code></pre>
+cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/app.js --grammar editors/vscode/syntaxes/ricochet.tmLanguage.json
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate-word-examples.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-word-examples.ps1</code></pre>
 <p>For release-facing changes, also run:</p>
 <pre class="code-block"><code class="language-powershell">powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance.ps1</code></pre>
 <h2 id="common-drift-symptoms">Common Drift Symptoms</h2>
@@ -86,6 +89,7 @@ cargo run -p ricochet_cli --bin rco -- words --check --docs-app docs/reference/a
 <li><code>rco words --check</code> reports a documented word missing from LSP or grammar: update <code>lsp.rs</code> or <code>ricochet.tmLanguage.json</code>.</li>
 <li><code>docs/reference/validate.ps1</code> reports missing example text: update <code>docs/reference/index.html</code> or <code>docs/reference/app.js</code>.</li>
 <li>The editor validator fails after a word rename: update both the reference catalog and TextMate grammar.</li>
+<li>The per-word validator reports inventory drift: rebuild <code>rco</code>, regenerate the corpus, and inspect any stale numbered file before removing it.</li>
 <li>A CLI smoke test passes but acceptance fails: check static docs, examples, scaffold behavior, and live <code>rco serve</code> smoke coverage.</li>
 </ul>
           </article>

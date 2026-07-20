@@ -1,0 +1,3193 @@
+{
+    "schema":  "ricochet.word-examples.v1",
+    "inventory":  "rco words --json",
+    "count":  372,
+    "examples":  [
+                     {
+                         "word":  "+",
+                         "group":  "math",
+                         "path":  "apps/0001-plus.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "+"
+                     },
+                     {
+                         "word":  "add",
+                         "group":  "math",
+                         "path":  "apps/0002-add.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "add"
+                     },
+                     {
+                         "word":  "-",
+                         "group":  "math",
+                         "path":  "apps/0003-minus.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "-"
+                     },
+                     {
+                         "word":  "subtract",
+                         "group":  "math",
+                         "path":  "apps/0004-subtract.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "subtract"
+                     },
+                     {
+                         "word":  "equals",
+                         "group":  "math",
+                         "path":  "apps/0005-equals.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "equals"
+                     },
+                     {
+                         "word":  "=",
+                         "group":  "math",
+                         "path":  "apps/0006-equals-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "="
+                     },
+                     {
+                         "word":  "not_equals?",
+                         "group":  "math",
+                         "path":  "apps/0007-not-equals-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "not_equals?"
+                     },
+                     {
+                         "word":  "!=",
+                         "group":  "math",
+                         "path":  "apps/0008-not-equals-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "!="
+                     },
+                     {
+                         "word":  "assert_equals",
+                         "group":  "math",
+                         "path":  "apps/0009-assert-equals.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert_equals"
+                     },
+                     {
+                         "word":  "assert",
+                         "group":  "math",
+                         "path":  "apps/0010-assert.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert"
+                     },
+                     {
+                         "word":  "assert_true",
+                         "group":  "math",
+                         "path":  "apps/0011-assert-true.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert_true"
+                     },
+                     {
+                         "word":  "assert_false",
+                         "group":  "math",
+                         "path":  "apps/0012-assert-false.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert_false"
+                     },
+                     {
+                         "word":  "assert_ok",
+                         "group":  "result",
+                         "path":  "apps/0013-assert-ok.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert_ok"
+                     },
+                     {
+                         "word":  "assert_error",
+                         "group":  "result",
+                         "path":  "apps/0014-assert-error.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "assert_error"
+                     },
+                     {
+                         "word":  "less_than?",
+                         "group":  "math",
+                         "path":  "apps/0015-less-than-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "less_than?"
+                     },
+                     {
+                         "word":  "\u003c",
+                         "group":  "math",
+                         "path":  "apps/0016-less-than-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "\u003c"
+                     },
+                     {
+                         "word":  "greater_than?",
+                         "group":  "math",
+                         "path":  "apps/0017-greater-than-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "greater_than?"
+                     },
+                     {
+                         "word":  "\u003e",
+                         "group":  "math",
+                         "path":  "apps/0018-greater-than-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "\u003e"
+                     },
+                     {
+                         "word":  "less_or_equals?",
+                         "group":  "math",
+                         "path":  "apps/0019-less-or-equals-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "less_or_equals?"
+                     },
+                     {
+                         "word":  "\u003c=",
+                         "group":  "math",
+                         "path":  "apps/0020-less-or-equals-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "\u003c="
+                     },
+                     {
+                         "word":  "greater_or_equals?",
+                         "group":  "math",
+                         "path":  "apps/0021-greater-or-equals-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "greater_or_equals?"
+                     },
+                     {
+                         "word":  "\u003e=",
+                         "group":  "math",
+                         "path":  "apps/0022-greater-or-equals-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "\u003e="
+                     },
+                     {
+                         "word":  "swap",
+                         "group":  "stack",
+                         "path":  "apps/0023-swap.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "swap"
+                     },
+                     {
+                         "word":  "dup",
+                         "group":  "stack",
+                         "path":  "apps/0024-dup.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "dup"
+                     },
+                     {
+                         "word":  "drop",
+                         "group":  "stack",
+                         "path":  "apps/0025-drop.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "drop"
+                     },
+                     {
+                         "word":  "over",
+                         "group":  "stack",
+                         "path":  "apps/0026-over.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "over"
+                     },
+                     {
+                         "word":  "rot",
+                         "group":  "stack",
+                         "path":  "apps/0027-rot.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "rot"
+                     },
+                     {
+                         "word":  "nil",
+                         "group":  "data",
+                         "path":  "apps/0028-nil.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "nil"
+                     },
+                     {
+                         "word":  "true",
+                         "group":  "data",
+                         "path":  "apps/0029-true.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "true"
+                     },
+                     {
+                         "word":  "false",
+                         "group":  "data",
+                         "path":  "apps/0030-false.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "false"
+                     },
+                     {
+                         "word":  "array",
+                         "group":  "data",
+                         "path":  "apps/0031-array.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "array"
+                     },
+                     {
+                         "word":  "map",
+                         "group":  "data",
+                         "path":  "apps/0032-map.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "map"
+                     },
+                     {
+                         "word":  "var",
+                         "group":  "data",
+                         "path":  "apps/0033-var.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "var"
+                     },
+                     {
+                         "word":  "get",
+                         "group":  "data",
+                         "path":  "apps/0034-get.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "get"
+                     },
+                     {
+                         "word":  "set",
+                         "group":  "data",
+                         "path":  "apps/0035-set.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "set"
+                     },
+                     {
+                         "word":  "empty?",
+                         "group":  "data",
+                         "path":  "apps/0036-empty-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "empty?"
+                     },
+                     {
+                         "word":  "nil?",
+                         "group":  "data",
+                         "path":  "apps/0037-nil-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "nil?"
+                     },
+                     {
+                         "word":  "Subclass",
+                         "group":  "oop",
+                         "path":  "apps/0038-subclass.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Subclass"
+                     },
+                     {
+                         "word":  "Field",
+                         "group":  "oop",
+                         "path":  "apps/0039-field.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Field"
+                     },
+                     {
+                         "word":  "Accessor",
+                         "group":  "oop",
+                         "path":  "apps/0040-accessor.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Accessor"
+                     },
+                     {
+                         "word":  "Table",
+                         "group":  "oop",
+                         "path":  "apps/0041-table.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Table"
+                     },
+                     {
+                         "word":  "new",
+                         "group":  "oop",
+                         "path":  "apps/0042-new.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "new"
+                     },
+                     {
+                         "word":  "self",
+                         "group":  "oop",
+                         "path":  "apps/0043-self.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "self"
+                     },
+                     {
+                         "word":  "Method",
+                         "group":  "oop",
+                         "path":  "apps/0044-method.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Method"
+                     },
+                     {
+                         "word":  "send",
+                         "group":  "oop",
+                         "path":  "apps/0045-send.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "send"
+                     },
+                     {
+                         "word":  "field.get / field.set",
+                         "group":  "oop",
+                         "path":  "apps/0046-field-get-set.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  [
+                                        "email.get",
+                                        "email.set"
+                                    ]
+                     },
+                     {
+                         "word":  "function",
+                         "group":  "control",
+                         "path":  "apps/0047-function.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "function"
+                     },
+                     {
+                         "word":  "Macro",
+                         "group":  "control",
+                         "path":  "apps/0048-macro.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Macro"
+                     },
+                     {
+                         "word":  "return",
+                         "group":  "control",
+                         "path":  "apps/0049-return.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "return"
+                     },
+                     {
+                         "word":  "if",
+                         "group":  "control",
+                         "path":  "apps/0050-if.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "if"
+                     },
+                     {
+                         "word":  "call",
+                         "group":  "control",
+                         "path":  "apps/0051-call.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "call"
+                     },
+                     {
+                         "word":  "spawn",
+                         "group":  "control",
+                         "path":  "apps/0052-spawn.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "spawn"
+                     },
+                     {
+                         "word":  "await",
+                         "group":  "control",
+                         "path":  "apps/0053-await.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "await"
+                     },
+                     {
+                         "word":  "await_all",
+                         "group":  "control",
+                         "path":  "apps/0054-await-all.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "await_all"
+                     },
+                     {
+                         "word":  "release_task",
+                         "group":  "control",
+                         "path":  "apps/0055-release-task.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "release_task"
+                     },
+                     {
+                         "word":  "tasks",
+                         "group":  "inspect",
+                         "path":  "apps/0056-tasks.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "tasks"
+                     },
+                     {
+                         "word":  "task_status",
+                         "group":  "inspect",
+                         "path":  "apps/0057-task-status.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "task_status"
+                     },
+                     {
+                         "word":  "while",
+                         "group":  "control",
+                         "path":  "apps/0058-while.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "while"
+                     },
+                     {
+                         "word":  "break",
+                         "group":  "control",
+                         "path":  "apps/0059-break.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "break"
+                     },
+                     {
+                         "word":  "continue",
+                         "group":  "control",
+                         "path":  "apps/0060-continue.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "continue"
+                     },
+                     {
+                         "word":  "println",
+                         "group":  "web",
+                         "path":  "apps/0061-println.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "println"
+                     },
+                     {
+                         "word":  "view",
+                         "group":  "web",
+                         "path":  "apps/0062-view.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "view"
+                     },
+                     {
+                         "word":  "text",
+                         "group":  "web",
+                         "path":  "apps/0063-text.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "text"
+                     },
+                     {
+                         "word":  "json",
+                         "group":  "web",
+                         "path":  "apps/0064-json.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "json"
+                     },
+                     {
+                         "word":  "redirect",
+                         "group":  "web",
+                         "path":  "apps/0065-redirect.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "redirect"
+                     },
+                     {
+                         "word":  "status",
+                         "group":  "web",
+                         "path":  "apps/0066-status.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "status"
+                     },
+                     {
+                         "word":  "header",
+                         "group":  "web",
+                         "path":  "apps/0067-header.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "header"
+                     },
+                     {
+                         "word":  "route",
+                         "group":  "web",
+                         "path":  "apps/0068-route.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "route",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "ok?",
+                         "group":  "result",
+                         "path":  "apps/0069-ok-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "ok?"
+                     },
+                     {
+                         "word":  "value",
+                         "group":  "result",
+                         "path":  "apps/0070-value.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "value"
+                     },
+                     {
+                         "word":  "error",
+                         "group":  "result",
+                         "path":  "apps/0071-error.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "error"
+                     },
+                     {
+                         "word":  "all",
+                         "group":  "web",
+                         "path":  "apps/0072-all.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "all",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "find_record",
+                         "group":  "web",
+                         "path":  "apps/0073-find-record.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "find_record",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "default_page",
+                         "group":  "web",
+                         "path":  "apps/0074-default-page.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "default_page",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "where",
+                         "group":  "web",
+                         "path":  "apps/0075-where.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "where",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "limit",
+                         "group":  "web",
+                         "path":  "apps/0076-limit.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "limit",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "count_records",
+                         "group":  "web",
+                         "path":  "apps/0077-count-records.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "count_records",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "first_record",
+                         "group":  "web",
+                         "path":  "apps/0078-first-record.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "first_record",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "exists?",
+                         "group":  "web",
+                         "path":  "apps/0079-exists-predicate.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "exists?",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "insert",
+                         "group":  "web",
+                         "path":  "apps/0080-insert.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "insert",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "update",
+                         "group":  "web",
+                         "path":  "apps/0081-update.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "update",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "transaction",
+                         "group":  "web",
+                         "path":  "apps/0082-transaction.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "transaction",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "begin",
+                         "group":  "web",
+                         "path":  "apps/0083-begin.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "begin",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "commit",
+                         "group":  "web",
+                         "path":  "apps/0084-commit.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "commit",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "rollback",
+                         "group":  "web",
+                         "path":  "apps/0085-rollback.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "rollback",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "savepoint",
+                         "group":  "web",
+                         "path":  "apps/0086-savepoint.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "savepoint",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "*",
+                         "group":  "math",
+                         "path":  "apps/0087-multiply-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "*"
+                     },
+                     {
+                         "word":  "/",
+                         "group":  "math",
+                         "path":  "apps/0088-divide-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "/"
+                     },
+                     {
+                         "word":  "%",
+                         "group":  "math",
+                         "path":  "apps/0089-modulo-symbol.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "%"
+                     },
+                     {
+                         "word":  "negate",
+                         "group":  "math",
+                         "path":  "apps/0090-negate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "negate"
+                     },
+                     {
+                         "word":  "abs",
+                         "group":  "math",
+                         "path":  "apps/0091-abs.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "abs"
+                     },
+                     {
+                         "word":  "min",
+                         "group":  "math",
+                         "path":  "apps/0092-min.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "min"
+                     },
+                     {
+                         "word":  "max",
+                         "group":  "math",
+                         "path":  "apps/0093-max.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "max"
+                     },
+                     {
+                         "word":  "clamp",
+                         "group":  "math",
+                         "path":  "apps/0094-clamp.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "clamp"
+                     },
+                     {
+                         "word":  "not",
+                         "group":  "math",
+                         "path":  "apps/0095-not.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "not"
+                     },
+                     {
+                         "word":  "and",
+                         "group":  "math",
+                         "path":  "apps/0096-and.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "and"
+                     },
+                     {
+                         "word":  "or",
+                         "group":  "math",
+                         "path":  "apps/0097-or.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "or"
+                     },
+                     {
+                         "word":  "nip",
+                         "group":  "stack",
+                         "path":  "apps/0098-nip.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "nip"
+                     },
+                     {
+                         "word":  "tuck",
+                         "group":  "stack",
+                         "path":  "apps/0099-tuck.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "tuck"
+                     },
+                     {
+                         "word":  "pick",
+                         "group":  "stack",
+                         "path":  "apps/0100-pick.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "pick"
+                     },
+                     {
+                         "word":  "roll",
+                         "group":  "stack",
+                         "path":  "apps/0101-roll.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "roll"
+                     },
+                     {
+                         "word":  "depth",
+                         "group":  "stack",
+                         "path":  "apps/0102-depth.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "depth"
+                     },
+                     {
+                         "word":  "clear",
+                         "group":  "stack",
+                         "path":  "apps/0103-clear.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "clear"
+                     },
+                     {
+                         "word":  "list",
+                         "group":  "collection",
+                         "path":  "apps/0104-list.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "list"
+                     },
+                     {
+                         "word":  "Set",
+                         "group":  "collection",
+                         "path":  "apps/0105-set.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "Set"
+                     },
+                     {
+                         "word":  "range",
+                         "group":  "collection",
+                         "path":  "apps/0106-range.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "range"
+                     },
+                     {
+                         "word":  "push",
+                         "group":  "collection",
+                         "path":  "apps/0107-push.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "push"
+                     },
+                     {
+                         "word":  "put",
+                         "group":  "collection",
+                         "path":  "apps/0108-put.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "put"
+                     },
+                     {
+                         "word":  "insert_at",
+                         "group":  "collection",
+                         "path":  "apps/0109-insert-at.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "insert_at"
+                     },
+                     {
+                         "word":  "remove",
+                         "group":  "collection",
+                         "path":  "apps/0110-remove.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "remove"
+                     },
+                     {
+                         "word":  "remove_at",
+                         "group":  "collection",
+                         "path":  "apps/0111-remove-at.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "remove_at"
+                     },
+                     {
+                         "word":  "clear_items",
+                         "group":  "collection",
+                         "path":  "apps/0112-clear-items.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "clear_items"
+                     },
+                     {
+                         "word":  "at",
+                         "group":  "collection",
+                         "path":  "apps/0113-at.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "at"
+                     },
+                     {
+                         "word":  "count",
+                         "group":  "collection",
+                         "path":  "apps/0114-count.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "count"
+                     },
+                     {
+                         "word":  "first",
+                         "group":  "collection",
+                         "path":  "apps/0115-first.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "first"
+                     },
+                     {
+                         "word":  "last",
+                         "group":  "collection",
+                         "path":  "apps/0116-last.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "last"
+                     },
+                     {
+                         "word":  "take",
+                         "group":  "collection",
+                         "path":  "apps/0117-take.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "take"
+                     },
+                     {
+                         "word":  "skip",
+                         "group":  "collection",
+                         "path":  "apps/0118-skip.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "skip"
+                     },
+                     {
+                         "word":  "reverse",
+                         "group":  "collection",
+                         "path":  "apps/0119-reverse.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "reverse"
+                     },
+                     {
+                         "word":  "has?",
+                         "group":  "collection",
+                         "path":  "apps/0120-has-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "has?"
+                     },
+                     {
+                         "word":  "keys",
+                         "group":  "collection",
+                         "path":  "apps/0121-keys.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "keys"
+                     },
+                     {
+                         "word":  "values",
+                         "group":  "collection",
+                         "path":  "apps/0122-values.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "values"
+                     },
+                     {
+                         "word":  "each",
+                         "group":  "collection",
+                         "path":  "apps/0123-each.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "each"
+                     },
+                     {
+                         "word":  "transform",
+                         "group":  "collection",
+                         "path":  "apps/0124-transform.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "transform"
+                     },
+                     {
+                         "word":  "select",
+                         "group":  "collection",
+                         "path":  "apps/0125-select.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "select"
+                     },
+                     {
+                         "word":  "reduce",
+                         "group":  "collection",
+                         "path":  "apps/0126-reduce.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "reduce"
+                     },
+                     {
+                         "word":  "find",
+                         "group":  "collection",
+                         "path":  "apps/0127-find.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "find"
+                     },
+                     {
+                         "word":  "any?",
+                         "group":  "collection",
+                         "path":  "apps/0128-any-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "any?"
+                     },
+                     {
+                         "word":  "all?",
+                         "group":  "collection",
+                         "path":  "apps/0129-all-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "all?"
+                     },
+                     {
+                         "word":  "join",
+                         "group":  "collection",
+                         "path":  "apps/0130-join.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "join"
+                     },
+                     {
+                         "word":  "trim",
+                         "group":  "string",
+                         "path":  "apps/0131-trim.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "trim"
+                     },
+                     {
+                         "word":  "trim_start",
+                         "group":  "string",
+                         "path":  "apps/0132-trim-start.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "trim_start"
+                     },
+                     {
+                         "word":  "trim_end",
+                         "group":  "string",
+                         "path":  "apps/0133-trim-end.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "trim_end"
+                     },
+                     {
+                         "word":  "blank?",
+                         "group":  "string",
+                         "path":  "apps/0134-blank-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "blank?"
+                     },
+                     {
+                         "word":  "slice",
+                         "group":  "string",
+                         "path":  "apps/0135-slice.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "slice"
+                     },
+                     {
+                         "word":  "index_of",
+                         "group":  "string",
+                         "path":  "apps/0136-index-of.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "index_of"
+                     },
+                     {
+                         "word":  "last_index_of",
+                         "group":  "string",
+                         "path":  "apps/0137-last-index-of.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "last_index_of"
+                     },
+                     {
+                         "word":  "repeat",
+                         "group":  "string",
+                         "path":  "apps/0138-repeat.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "repeat"
+                     },
+                     {
+                         "word":  "lines",
+                         "group":  "string",
+                         "path":  "apps/0139-lines.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "lines"
+                     },
+                     {
+                         "word":  "chars",
+                         "group":  "string",
+                         "path":  "apps/0140-chars.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "chars"
+                     },
+                     {
+                         "word":  "split",
+                         "group":  "string",
+                         "path":  "apps/0141-split.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "split"
+                     },
+                     {
+                         "word":  "replace",
+                         "group":  "string",
+                         "path":  "apps/0142-replace.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "replace"
+                     },
+                     {
+                         "word":  "contains?",
+                         "group":  "string",
+                         "path":  "apps/0143-contains-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "contains?"
+                     },
+                     {
+                         "word":  "starts_with?",
+                         "group":  "string",
+                         "path":  "apps/0144-starts-with-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "starts_with?"
+                     },
+                     {
+                         "word":  "ends_with?",
+                         "group":  "string",
+                         "path":  "apps/0145-ends-with-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "ends_with?"
+                     },
+                     {
+                         "word":  "uppercase",
+                         "group":  "string",
+                         "path":  "apps/0146-uppercase.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "uppercase"
+                     },
+                     {
+                         "word":  "lowercase",
+                         "group":  "string",
+                         "path":  "apps/0147-lowercase.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "lowercase"
+                     },
+                     {
+                         "word":  "concat",
+                         "group":  "string",
+                         "path":  "apps/0148-concat.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "concat"
+                     },
+                     {
+                         "word":  "to_number",
+                         "group":  "math",
+                         "path":  "apps/0149-to-number.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_number"
+                     },
+                     {
+                         "word":  "to_integer",
+                         "group":  "math",
+                         "path":  "apps/0150-to-integer.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_integer"
+                     },
+                     {
+                         "word":  "to_bigint",
+                         "group":  "math",
+                         "path":  "apps/0151-to-bigint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_bigint"
+                     },
+                     {
+                         "word":  "to_int",
+                         "group":  "math",
+                         "path":  "apps/0152-to-int.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_int"
+                     },
+                     {
+                         "word":  "to_mediumint",
+                         "group":  "math",
+                         "path":  "apps/0153-to-mediumint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_mediumint"
+                     },
+                     {
+                         "word":  "to_smallint",
+                         "group":  "math",
+                         "path":  "apps/0154-to-smallint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_smallint"
+                     },
+                     {
+                         "word":  "to_tinyint",
+                         "group":  "math",
+                         "path":  "apps/0155-to-tinyint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_tinyint"
+                     },
+                     {
+                         "word":  "to_bit",
+                         "group":  "math",
+                         "path":  "apps/0156-to-bit.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_bit"
+                     },
+                     {
+                         "word":  "to_unsigned_int",
+                         "group":  "math",
+                         "path":  "apps/0157-to-unsigned-int.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_unsigned_int"
+                     },
+                     {
+                         "word":  "to_unsigned_mediumint",
+                         "group":  "math",
+                         "path":  "apps/0158-to-unsigned-mediumint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_unsigned_mediumint"
+                     },
+                     {
+                         "word":  "to_unsigned_smallint",
+                         "group":  "math",
+                         "path":  "apps/0159-to-unsigned-smallint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_unsigned_smallint"
+                     },
+                     {
+                         "word":  "to_unsigned_tinyint",
+                         "group":  "math",
+                         "path":  "apps/0160-to-unsigned-tinyint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_unsigned_tinyint"
+                     },
+                     {
+                         "word":  "to_unsigned_bigint",
+                         "group":  "math",
+                         "path":  "apps/0161-to-unsigned-bigint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_unsigned_bigint"
+                     },
+                     {
+                         "word":  "to_float",
+                         "group":  "math",
+                         "path":  "apps/0162-to-float.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_float"
+                     },
+                     {
+                         "word":  "to_float32",
+                         "group":  "math",
+                         "path":  "apps/0163-to-float32.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_float32"
+                     },
+                     {
+                         "word":  "to_float64",
+                         "group":  "math",
+                         "path":  "apps/0164-to-float64.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_float64"
+                     },
+                     {
+                         "word":  "to_double",
+                         "group":  "math",
+                         "path":  "apps/0165-to-double.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_double"
+                     },
+                     {
+                         "word":  "to_real",
+                         "group":  "math",
+                         "path":  "apps/0166-to-real.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_real"
+                     },
+                     {
+                         "word":  "to_string",
+                         "group":  "string",
+                         "path":  "apps/0167-to-string.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "to_string"
+                     },
+                     {
+                         "word":  "json_encode",
+                         "group":  "string",
+                         "path":  "apps/0168-json-encode.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "json_encode"
+                     },
+                     {
+                         "word":  "json_decode",
+                         "group":  "string",
+                         "path":  "apps/0169-json-decode.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "json_decode"
+                     },
+                     {
+                         "word":  "regex",
+                         "group":  "string",
+                         "path":  "apps/0170-regex.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "regex"
+                     },
+                     {
+                         "word":  "matches?",
+                         "group":  "string",
+                         "path":  "apps/0171-matches-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "matches?"
+                     },
+                     {
+                         "word":  "regex_find",
+                         "group":  "string",
+                         "path":  "apps/0172-regex-find.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "regex_find"
+                     },
+                     {
+                         "word":  "regex_replace",
+                         "group":  "string",
+                         "path":  "apps/0173-regex-replace.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "regex_replace"
+                     },
+                     {
+                         "word":  "captures",
+                         "group":  "string",
+                         "path":  "apps/0174-captures.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "captures"
+                     },
+                     {
+                         "word":  "ok",
+                         "group":  "result",
+                         "path":  "apps/0175-ok.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "ok"
+                     },
+                     {
+                         "word":  "fail",
+                         "group":  "result",
+                         "path":  "apps/0176-fail.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "fail"
+                     },
+                     {
+                         "word":  "error?",
+                         "group":  "result",
+                         "path":  "apps/0177-error-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "error?"
+                     },
+                     {
+                         "word":  "unwrap_or",
+                         "group":  "result",
+                         "path":  "apps/0178-unwrap-or.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "unwrap_or"
+                     },
+                     {
+                         "word":  "map_result",
+                         "group":  "result",
+                         "path":  "apps/0179-map-result.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "map_result"
+                     },
+                     {
+                         "word":  "and_then",
+                         "group":  "result",
+                         "path":  "apps/0180-and-then.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "and_then"
+                     },
+                     {
+                         "word":  "result_envelope",
+                         "group":  "result",
+                         "path":  "apps/0181-result-envelope.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "result_envelope"
+                     },
+                     {
+                         "word":  "print",
+                         "group":  "system",
+                         "path":  "apps/0182-print.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "print"
+                     },
+                     {
+                         "word":  "eprint",
+                         "group":  "system",
+                         "path":  "apps/0183-eprint.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "eprint"
+                     },
+                     {
+                         "word":  "read_line",
+                         "group":  "system",
+                         "path":  "apps/0184-read-line.rco",
+                         "validation":  "run-stdin",
+                         "tokens":  "read_line"
+                     },
+                     {
+                         "word":  "args",
+                         "group":  "system",
+                         "path":  "apps/0185-args.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "args"
+                     },
+                     {
+                         "word":  "env_get",
+                         "group":  "system",
+                         "path":  "apps/0186-env-get.rco",
+                         "validation":  "run-environment",
+                         "tokens":  "env_get"
+                     },
+                     {
+                         "word":  "env_set",
+                         "group":  "system",
+                         "path":  "apps/0187-env-set.rco",
+                         "validation":  "run-environment",
+                         "tokens":  "env_set"
+                     },
+                     {
+                         "word":  "secret_env",
+                         "group":  "system",
+                         "path":  "apps/0188-secret-env.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "secret_env"
+                     },
+                     {
+                         "word":  "secret_literal",
+                         "group":  "system",
+                         "path":  "apps/0189-secret-literal.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "secret_literal"
+                     },
+                     {
+                         "word":  "secret_resolve",
+                         "group":  "system",
+                         "path":  "apps/0190-secret-resolve.rco",
+                         "validation":  "run-environment",
+                         "tokens":  "secret_resolve"
+                     },
+                     {
+                         "word":  "password_hash",
+                         "group":  "system",
+                         "path":  "apps/0191-password-hash.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "password_hash"
+                     },
+                     {
+                         "word":  "password_verify",
+                         "group":  "system",
+                         "path":  "apps/0192-password-verify.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "password_verify"
+                     },
+                     {
+                         "word":  "config_get",
+                         "group":  "system",
+                         "path":  "apps/0193-config-get.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "config_get"
+                     },
+                     {
+                         "word":  "cwd",
+                         "group":  "system",
+                         "path":  "apps/0194-cwd.rco",
+                         "validation":  "run-environment",
+                         "tokens":  "cwd"
+                     },
+                     {
+                         "word":  "runtime_capabilities",
+                         "group":  "system",
+                         "path":  "apps/0195-runtime-capabilities.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "runtime_capabilities"
+                     },
+                     {
+                         "word":  "process_spawn",
+                         "group":  "system",
+                         "path":  "apps/0196-process-spawn.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_spawn",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_spawn_task",
+                         "group":  "system",
+                         "path":  "apps/0197-process-spawn-task.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_spawn_task",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_start",
+                         "group":  "system",
+                         "path":  "apps/0198-process-start.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_start",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_jobs",
+                         "group":  "system",
+                         "path":  "apps/0199-process-jobs.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_jobs",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_job",
+                         "group":  "system",
+                         "path":  "apps/0200-process-job.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_job",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_cancel",
+                         "group":  "system",
+                         "path":  "apps/0201-process-cancel.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_cancel",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_release",
+                         "group":  "system",
+                         "path":  "apps/0202-process-release.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_release",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_write",
+                         "group":  "system",
+                         "path":  "apps/0203-process-write.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_write",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_read",
+                         "group":  "system",
+                         "path":  "apps/0204-process-read.rco",
+                         "validation":  "check-process",
+                         "tokens":  "process_read",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "process_env_put",
+                         "group":  "system",
+                         "path":  "apps/0205-process-env-put.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "process_env_put"
+                     },
+                     {
+                         "word":  "pty_start",
+                         "group":  "system",
+                         "path":  "apps/0206-pty-start.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_start",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_write",
+                         "group":  "system",
+                         "path":  "apps/0207-pty-write.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_write",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_read",
+                         "group":  "system",
+                         "path":  "apps/0208-pty-read.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_read",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_resize",
+                         "group":  "system",
+                         "path":  "apps/0209-pty-resize.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_resize",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_stop",
+                         "group":  "system",
+                         "path":  "apps/0210-pty-stop.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_stop",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_release",
+                         "group":  "system",
+                         "path":  "apps/0211-pty-release.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_release",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_list",
+                         "group":  "system",
+                         "path":  "apps/0212-pty-list.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_list",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "pty_detail",
+                         "group":  "system",
+                         "path":  "apps/0213-pty-detail.rco",
+                         "validation":  "check-process",
+                         "tokens":  "pty_detail",
+                         "reason":  "Starts or controls an operating-system process or PTY.",
+                         "evidence":  [
+                                          "examples/learn/20-processes-and-ptys/tool-runner.rco",
+                                          "crates/ricochet_cli/tests/cli_smoke.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "approval_create",
+                         "group":  "system",
+                         "path":  "apps/0214-approval-create.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_create"
+                     },
+                     {
+                         "word":  "approval_claim",
+                         "group":  "system",
+                         "path":  "apps/0215-approval-claim.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_claim"
+                     },
+                     {
+                         "word":  "approval_complete",
+                         "group":  "system",
+                         "path":  "apps/0216-approval-complete.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_complete"
+                     },
+                     {
+                         "word":  "approval_reject",
+                         "group":  "system",
+                         "path":  "apps/0217-approval-reject.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_reject"
+                     },
+                     {
+                         "word":  "approval_detail",
+                         "group":  "system",
+                         "path":  "apps/0218-approval-detail.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_detail"
+                     },
+                     {
+                         "word":  "approval_release",
+                         "group":  "system",
+                         "path":  "apps/0219-approval-release.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "approval_release"
+                     },
+                     {
+                         "word":  "now",
+                         "group":  "system",
+                         "path":  "apps/0220-now.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "now"
+                     },
+                     {
+                         "word":  "timestamp_now",
+                         "group":  "system",
+                         "path":  "apps/0221-timestamp-now.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_now"
+                     },
+                     {
+                         "word":  "timestamp_parse",
+                         "group":  "system",
+                         "path":  "apps/0222-timestamp-parse.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_parse"
+                     },
+                     {
+                         "word":  "timestamp_format",
+                         "group":  "system",
+                         "path":  "apps/0223-timestamp-format.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_format"
+                     },
+                     {
+                         "word":  "timestamp_format_pattern",
+                         "group":  "system",
+                         "path":  "apps/0224-timestamp-format-pattern.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_format_pattern"
+                     },
+                     {
+                         "word":  "timestamp_parts",
+                         "group":  "system",
+                         "path":  "apps/0225-timestamp-parts.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_parts"
+                     },
+                     {
+                         "word":  "timestamp_from_parts",
+                         "group":  "system",
+                         "path":  "apps/0226-timestamp-from-parts.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_from_parts"
+                     },
+                     {
+                         "word":  "timestamp_add",
+                         "group":  "system",
+                         "path":  "apps/0227-timestamp-add.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_add"
+                     },
+                     {
+                         "word":  "timestamp_diff",
+                         "group":  "system",
+                         "path":  "apps/0228-timestamp-diff.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "timestamp_diff"
+                     },
+                     {
+                         "word":  "date_from_timestamp",
+                         "group":  "system",
+                         "path":  "apps/0229-date-from-timestamp.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_from_timestamp"
+                     },
+                     {
+                         "word":  "date_to_timestamp",
+                         "group":  "system",
+                         "path":  "apps/0230-date-to-timestamp.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_to_timestamp"
+                     },
+                     {
+                         "word":  "date_parse",
+                         "group":  "system",
+                         "path":  "apps/0231-date-parse.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_parse"
+                     },
+                     {
+                         "word":  "date_format",
+                         "group":  "system",
+                         "path":  "apps/0232-date-format.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_format"
+                     },
+                     {
+                         "word":  "date_add_days",
+                         "group":  "system",
+                         "path":  "apps/0233-date-add-days.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_add_days"
+                     },
+                     {
+                         "word":  "date_diff_days",
+                         "group":  "system",
+                         "path":  "apps/0234-date-diff-days.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "date_diff_days"
+                     },
+                     {
+                         "word":  "duration_millis",
+                         "group":  "system",
+                         "path":  "apps/0235-duration-millis.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_millis"
+                     },
+                     {
+                         "word":  "duration_seconds",
+                         "group":  "system",
+                         "path":  "apps/0236-duration-seconds.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_seconds"
+                     },
+                     {
+                         "word":  "duration_minutes",
+                         "group":  "system",
+                         "path":  "apps/0237-duration-minutes.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_minutes"
+                     },
+                     {
+                         "word":  "duration_hours",
+                         "group":  "system",
+                         "path":  "apps/0238-duration-hours.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_hours"
+                     },
+                     {
+                         "word":  "duration_days",
+                         "group":  "system",
+                         "path":  "apps/0239-duration-days.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_days"
+                     },
+                     {
+                         "word":  "duration_weeks",
+                         "group":  "system",
+                         "path":  "apps/0240-duration-weeks.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_weeks"
+                     },
+                     {
+                         "word":  "duration_parts",
+                         "group":  "system",
+                         "path":  "apps/0241-duration-parts.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "duration_parts"
+                     },
+                     {
+                         "word":  "sleep",
+                         "group":  "system",
+                         "path":  "apps/0242-sleep.rco",
+                         "validation":  "run-sleep",
+                         "tokens":  "sleep"
+                     },
+                     {
+                         "word":  "random",
+                         "group":  "system",
+                         "path":  "apps/0243-random.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "random"
+                     },
+                     {
+                         "word":  "exit",
+                         "group":  "system",
+                         "path":  "apps/0244-exit.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "exit"
+                     },
+                     {
+                         "word":  "fs_read_text",
+                         "group":  "system",
+                         "path":  "apps/0245-fs-read-text.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "fs_read_text"
+                     },
+                     {
+                         "word":  "fs_write_text",
+                         "group":  "system",
+                         "path":  "apps/0246-fs-write-text.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "fs_write_text",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "fs_exists?",
+                         "group":  "system",
+                         "path":  "apps/0247-fs-exists-predicate.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "fs_exists?"
+                     },
+                     {
+                         "word":  "fs_list",
+                         "group":  "system",
+                         "path":  "apps/0248-fs-list.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "fs_list"
+                     },
+                     {
+                         "word":  "fs_create_dir",
+                         "group":  "system",
+                         "path":  "apps/0249-fs-create-dir.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "fs_create_dir",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "fs_delete",
+                         "group":  "system",
+                         "path":  "apps/0250-fs-delete.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "fs_delete",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "workspace_resolve",
+                         "group":  "system",
+                         "path":  "apps/0251-workspace-resolve.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_resolve"
+                     },
+                     {
+                         "word":  "workspace_contains?",
+                         "group":  "system",
+                         "path":  "apps/0252-workspace-contains-predicate.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_contains?"
+                     },
+                     {
+                         "word":  "workspace_metadata",
+                         "group":  "system",
+                         "path":  "apps/0253-workspace-metadata.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_metadata"
+                     },
+                     {
+                         "word":  "workspace_list",
+                         "group":  "system",
+                         "path":  "apps/0254-workspace-list.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_list"
+                     },
+                     {
+                         "word":  "workspace_read_text",
+                         "group":  "system",
+                         "path":  "apps/0255-workspace-read-text.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_read_text"
+                     },
+                     {
+                         "word":  "workspace_read_text_snapshot",
+                         "group":  "system",
+                         "path":  "apps/0256-workspace-read-text-snapshot.rco",
+                         "validation":  "run-filesystem-readonly",
+                         "tokens":  "workspace_read_text_snapshot"
+                     },
+                     {
+                         "word":  "workspace_write_text",
+                         "group":  "system",
+                         "path":  "apps/0257-workspace-write-text.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "workspace_write_text",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "workspace_mkdir",
+                         "group":  "system",
+                         "path":  "apps/0258-workspace-mkdir.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "workspace_mkdir",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "workspace_delete",
+                         "group":  "system",
+                         "path":  "apps/0259-workspace-delete.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "workspace_delete",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "workspace_copy",
+                         "group":  "system",
+                         "path":  "apps/0260-workspace-copy.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "workspace_copy",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "workspace_move",
+                         "group":  "system",
+                         "path":  "apps/0261-workspace-move.rco",
+                         "validation":  "check-filesystem-write",
+                         "tokens":  "workspace_move",
+                         "reason":  "Mutates or deletes files; compile-checked by default.",
+                         "evidence":  [
+                                          "crates/ricochet_cli/tests/cli_smoke.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "http_request_new",
+                         "group":  "system",
+                         "path":  "apps/0262-http-request-new.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "http_request_new"
+                     },
+                     {
+                         "word":  "http_header_put",
+                         "group":  "system",
+                         "path":  "apps/0263-http-header-put.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "http_header_put"
+                     },
+                     {
+                         "word":  "http_bearer_auth",
+                         "group":  "system",
+                         "path":  "apps/0264-http-bearer-auth.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "http_bearer_auth"
+                     },
+                     {
+                         "word":  "http_json_body",
+                         "group":  "system",
+                         "path":  "apps/0265-http-json-body.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "http_json_body"
+                     },
+                     {
+                         "word":  "http_timeout",
+                         "group":  "system",
+                         "path":  "apps/0266-http-timeout.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "http_timeout"
+                     },
+                     {
+                         "word":  "http_get",
+                         "group":  "system",
+                         "path":  "apps/0267-http-get.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_get",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_get_task",
+                         "group":  "system",
+                         "path":  "apps/0268-http-get-task.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_get_task",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_request",
+                         "group":  "system",
+                         "path":  "apps/0269-http-request.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_request",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_post_json",
+                         "group":  "system",
+                         "path":  "apps/0270-http-post-json.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_post_json",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_post_json_task",
+                         "group":  "system",
+                         "path":  "apps/0271-http-post-json-task.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_post_json_task",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_request_task",
+                         "group":  "system",
+                         "path":  "apps/0272-http-request-task.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_request_task",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_stream_start",
+                         "group":  "system",
+                         "path":  "apps/0273-http-stream-start.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_stream_start",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_streams",
+                         "group":  "system",
+                         "path":  "apps/0274-http-streams.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_streams",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_stream",
+                         "group":  "system",
+                         "path":  "apps/0275-http-stream.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_stream",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_stream_read",
+                         "group":  "system",
+                         "path":  "apps/0276-http-stream-read.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_stream_read",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_stream_cancel",
+                         "group":  "system",
+                         "path":  "apps/0277-http-stream-cancel.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_stream_cancel",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "http_stream_release",
+                         "group":  "system",
+                         "path":  "apps/0278-http-stream-release.rco",
+                         "validation":  "check-http-loopback",
+                         "tokens":  "http_stream_release",
+                         "reason":  "Requires a bounded loopback HTTP peer.",
+                         "evidence":  [
+                                          "examples/learn/18-http-streams/api-client.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "upload_streams",
+                         "group":  "system",
+                         "path":  "apps/0279-upload-streams.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "upload_streams"
+                     },
+                     {
+                         "word":  "upload_stream",
+                         "group":  "system",
+                         "path":  "apps/0280-upload-stream.rco",
+                         "validation":  "check-upload-context",
+                         "tokens":  "upload_stream",
+                         "reason":  "Requires an MVC upload stream supplied by a request.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/templates_uploads"
+                                      ]
+                     },
+                     {
+                         "word":  "upload_read",
+                         "group":  "system",
+                         "path":  "apps/0281-upload-read.rco",
+                         "validation":  "check-upload-context",
+                         "tokens":  "upload_read",
+                         "reason":  "Requires an MVC upload stream supplied by a request.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/templates_uploads"
+                                      ]
+                     },
+                     {
+                         "word":  "upload_release",
+                         "group":  "system",
+                         "path":  "apps/0282-upload-release.rco",
+                         "validation":  "check-upload-context",
+                         "tokens":  "upload_release",
+                         "reason":  "Requires an MVC upload stream supplied by a request.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/templates_uploads"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_listen",
+                         "group":  "system",
+                         "path":  "apps/0283-tcp-listen.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_listen",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_listeners",
+                         "group":  "system",
+                         "path":  "apps/0284-tcp-listeners.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_listeners",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_listener",
+                         "group":  "system",
+                         "path":  "apps/0285-tcp-listener.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_listener",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_accept",
+                         "group":  "system",
+                         "path":  "apps/0286-tcp-accept.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_accept",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_listener_close",
+                         "group":  "system",
+                         "path":  "apps/0287-tcp-listener-close.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_listener_close",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_listener_release",
+                         "group":  "system",
+                         "path":  "apps/0288-tcp-listener-release.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_listener_release",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_connect",
+                         "group":  "system",
+                         "path":  "apps/0289-tcp-connect.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_connect",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_connections",
+                         "group":  "system",
+                         "path":  "apps/0290-tcp-connections.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_connections",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_connection",
+                         "group":  "system",
+                         "path":  "apps/0291-tcp-connection.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_connection",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_write",
+                         "group":  "system",
+                         "path":  "apps/0292-tcp-write.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_write",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_read",
+                         "group":  "system",
+                         "path":  "apps/0293-tcp-read.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_read",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_close",
+                         "group":  "system",
+                         "path":  "apps/0294-tcp-close.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_close",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tcp_release",
+                         "group":  "system",
+                         "path":  "apps/0295-tcp-release.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "tcp_release",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_listen",
+                         "group":  "system",
+                         "path":  "apps/0296-ws-listen.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_listen",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_listeners",
+                         "group":  "system",
+                         "path":  "apps/0297-ws-listeners.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_listeners",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_listener",
+                         "group":  "system",
+                         "path":  "apps/0298-ws-listener.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_listener",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_accept",
+                         "group":  "system",
+                         "path":  "apps/0299-ws-accept.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_accept",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_listener_close",
+                         "group":  "system",
+                         "path":  "apps/0300-ws-listener-close.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_listener_close",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_listener_release",
+                         "group":  "system",
+                         "path":  "apps/0301-ws-listener-release.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_listener_release",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_connect",
+                         "group":  "system",
+                         "path":  "apps/0302-ws-connect.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_connect",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_connections",
+                         "group":  "system",
+                         "path":  "apps/0303-ws-connections.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_connections",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_connection",
+                         "group":  "system",
+                         "path":  "apps/0304-ws-connection.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_connection",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_send",
+                         "group":  "system",
+                         "path":  "apps/0305-ws-send.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_send",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_read",
+                         "group":  "system",
+                         "path":  "apps/0306-ws-read.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_read",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_close",
+                         "group":  "system",
+                         "path":  "apps/0307-ws-close.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_close",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "ws_release",
+                         "group":  "system",
+                         "path":  "apps/0308-ws-release.rco",
+                         "validation":  "check-socket-loopback",
+                         "tokens":  "ws_release",
+                         "reason":  "Requires a coordinated loopback socket peer.",
+                         "evidence":  [
+                                          "examples/learn/19-sockets/tcp_echo.rco",
+                                          "examples/learn/19-sockets/ws_echo.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_enter",
+                         "group":  "system",
+                         "path":  "apps/0309-tui-enter.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_enter",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_leave",
+                         "group":  "system",
+                         "path":  "apps/0310-tui-leave.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_leave",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_clear",
+                         "group":  "system",
+                         "path":  "apps/0311-tui-clear.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_clear",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_move_to",
+                         "group":  "system",
+                         "path":  "apps/0312-tui-move-to.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_move_to",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_write",
+                         "group":  "system",
+                         "path":  "apps/0313-tui-write.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_write",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_flush",
+                         "group":  "system",
+                         "path":  "apps/0314-tui-flush.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_flush",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_size",
+                         "group":  "system",
+                         "path":  "apps/0315-tui-size.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_size",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_poll_key",
+                         "group":  "system",
+                         "path":  "apps/0316-tui-poll-key.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_poll_key",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "tui_read_key",
+                         "group":  "system",
+                         "path":  "apps/0317-tui-read-key.rco",
+                         "validation":  "check-tui",
+                         "tokens":  "tui_read_key",
+                         "reason":  "Requires an interactive terminal.",
+                         "evidence":  [
+                                          "examples/learn/21-tui/task-dashboard.rco",
+                                          "examples/tui_counter.rco"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_text",
+                         "group":  "system",
+                         "path":  "apps/0318-webview-text.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_text"
+                     },
+                     {
+                         "word":  "webview_heading",
+                         "group":  "system",
+                         "path":  "apps/0319-webview-heading.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_heading"
+                     },
+                     {
+                         "word":  "webview_button",
+                         "group":  "system",
+                         "path":  "apps/0320-webview-button.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_button"
+                     },
+                     {
+                         "word":  "web_command",
+                         "group":  "system",
+                         "path":  "apps/0321-web-command.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_command"
+                     },
+                     {
+                         "word":  "web_command_button",
+                         "group":  "system",
+                         "path":  "apps/0322-web-command-button.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_command_button"
+                     },
+                     {
+                         "word":  "webview_action",
+                         "group":  "system",
+                         "path":  "apps/0323-webview-action.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_action"
+                     },
+                     {
+                         "word":  "webview_input",
+                         "group":  "system",
+                         "path":  "apps/0324-webview-input.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_input"
+                     },
+                     {
+                         "word":  "webview_link",
+                         "group":  "system",
+                         "path":  "apps/0325-webview-link.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_link"
+                     },
+                     {
+                         "word":  "webview_container",
+                         "group":  "system",
+                         "path":  "apps/0326-webview-container.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_container"
+                     },
+                     {
+                         "word":  "web_toolbar",
+                         "group":  "system",
+                         "path":  "apps/0327-web-toolbar.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_toolbar"
+                     },
+                     {
+                         "word":  "web_sidebar",
+                         "group":  "system",
+                         "path":  "apps/0328-web-sidebar.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_sidebar"
+                     },
+                     {
+                         "word":  "web_tabs",
+                         "group":  "system",
+                         "path":  "apps/0329-web-tabs.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_tabs"
+                     },
+                     {
+                         "word":  "web_split_pane",
+                         "group":  "system",
+                         "path":  "apps/0330-web-split-pane.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_split_pane"
+                     },
+                     {
+                         "word":  "web_table",
+                         "group":  "system",
+                         "path":  "apps/0331-web-table.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_table"
+                     },
+                     {
+                         "word":  "web_form_row",
+                         "group":  "system",
+                         "path":  "apps/0332-web-form-row.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_form_row"
+                     },
+                     {
+                         "word":  "web_status_bar",
+                         "group":  "system",
+                         "path":  "apps/0333-web-status-bar.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_status_bar"
+                     },
+                     {
+                         "word":  "web_menu",
+                         "group":  "system",
+                         "path":  "apps/0334-web-menu.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_menu"
+                     },
+                     {
+                         "word":  "web_menu_bar",
+                         "group":  "system",
+                         "path":  "apps/0335-web-menu-bar.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "web_menu_bar"
+                     },
+                     {
+                         "word":  "webview_window",
+                         "group":  "system",
+                         "path":  "apps/0336-webview-window.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_window"
+                     },
+                     {
+                         "word":  "webview_window_state",
+                         "group":  "system",
+                         "path":  "apps/0337-webview-window-state.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_window_state"
+                     },
+                     {
+                         "word":  "webview_window_app",
+                         "group":  "system",
+                         "path":  "apps/0338-webview-window-app.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_window_app"
+                     },
+                     {
+                         "word":  "webview_open_file",
+                         "group":  "system",
+                         "path":  "apps/0339-webview-open-file.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_open_file",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_save_file",
+                         "group":  "system",
+                         "path":  "apps/0340-webview-save-file.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_save_file",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_choose_folder",
+                         "group":  "system",
+                         "path":  "apps/0341-webview-choose-folder.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_choose_folder",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_clipboard_read",
+                         "group":  "system",
+                         "path":  "apps/0342-webview-clipboard-read.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_clipboard_read",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_clipboard_write",
+                         "group":  "system",
+                         "path":  "apps/0343-webview-clipboard-write.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_clipboard_write",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "webview_open_url",
+                         "group":  "system",
+                         "path":  "apps/0344-webview-open-url.rco",
+                         "validation":  "check-webview-interactive",
+                         "tokens":  "webview_open_url",
+                         "reason":  "Opens a native dialog, clipboard, or external URL surface.",
+                         "evidence":  [
+                                          "crates/ricochet_vm/src/vm.rs",
+                                          "crates/ricochet_vm/src/builtins.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "inspect",
+                         "group":  "inspect",
+                         "path":  "apps/0345-inspect.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "inspect"
+                     },
+                     {
+                         "word":  "debug",
+                         "group":  "inspect",
+                         "path":  "apps/0346-debug.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "debug"
+                     },
+                     {
+                         "word":  "type",
+                         "group":  "inspect",
+                         "path":  "apps/0347-type.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "type"
+                     },
+                     {
+                         "word":  "class_of",
+                         "group":  "inspect",
+                         "path":  "apps/0348-class-of.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "class_of"
+                     },
+                     {
+                         "word":  "instance_of?",
+                         "group":  "inspect",
+                         "path":  "apps/0349-instance-of-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "instance_of?"
+                     },
+                     {
+                         "word":  "responds_to?",
+                         "group":  "inspect",
+                         "path":  "apps/0350-responds-to-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "responds_to?"
+                     },
+                     {
+                         "word":  "id",
+                         "group":  "inspect",
+                         "path":  "apps/0351-id.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "id"
+                     },
+                     {
+                         "word":  "info",
+                         "group":  "inspect",
+                         "path":  "apps/0352-info.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "info"
+                     },
+                     {
+                         "word":  "pending?",
+                         "group":  "inspect",
+                         "path":  "apps/0353-pending-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "pending?"
+                     },
+                     {
+                         "word":  "running?",
+                         "group":  "inspect",
+                         "path":  "apps/0354-running-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "running?"
+                     },
+                     {
+                         "word":  "completed?",
+                         "group":  "inspect",
+                         "path":  "apps/0355-completed-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "completed?"
+                     },
+                     {
+                         "word":  "failed?",
+                         "group":  "inspect",
+                         "path":  "apps/0356-failed-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "failed?"
+                     },
+                     {
+                         "word":  "fields",
+                         "group":  "inspect",
+                         "path":  "apps/0357-fields.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "fields"
+                     },
+                     {
+                         "word":  "methods",
+                         "group":  "inspect",
+                         "path":  "apps/0358-methods.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "methods"
+                     },
+                     {
+                         "word":  "callable?",
+                         "group":  "inspect",
+                         "path":  "apps/0359-callable-predicate.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "callable?"
+                     },
+                     {
+                         "word":  "else",
+                         "group":  "control",
+                         "path":  "apps/0360-else.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "else"
+                     },
+                     {
+                         "word":  "end",
+                         "group":  "control",
+                         "path":  "apps/0361-end.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "end"
+                     },
+                     {
+                         "word":  "GET",
+                         "group":  "web",
+                         "path":  "apps/0362-get.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "GET",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "POST",
+                         "group":  "web",
+                         "path":  "apps/0363-post.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "POST",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "PUT",
+                         "group":  "web",
+                         "path":  "apps/0364-put.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "PUT",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "PATCH",
+                         "group":  "web",
+                         "path":  "apps/0365-patch.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "PATCH",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "DELETE",
+                         "group":  "web",
+                         "path":  "apps/0366-delete.rco",
+                         "validation":  "check-mvc",
+                         "tokens":  "DELETE",
+                         "reason":  "Requires the MVC route or database runtime.",
+                         "evidence":  [
+                                          "examples/learn/23-mvc/first_app",
+                                          "examples/learn/23-mvc/controllers",
+                                          "examples/learn/26-data/contacts_app",
+                                          "crates/ricochet_web/src/router.rs",
+                                          "crates/ricochet_web/src/database_capability.rs",
+                                          "crates/ricochet_web/tests/web_mvc.rs"
+                                      ]
+                     },
+                     {
+                         "word":  "multiply",
+                         "group":  "math",
+                         "path":  "apps/0367-multiply.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "multiply"
+                     },
+                     {
+                         "word":  "divide",
+                         "group":  "math",
+                         "path":  "apps/0368-divide.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "divide"
+                     },
+                     {
+                         "word":  "modulo",
+                         "group":  "math",
+                         "path":  "apps/0369-modulo.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "modulo"
+                     },
+                     {
+                         "word":  "length",
+                         "group":  "collection",
+                         "path":  "apps/0370-length.rco",
+                         "validation":  "run-sandboxed",
+                         "tokens":  "length"
+                     },
+                     {
+                         "word":  "env",
+                         "group":  "system",
+                         "path":  "apps/0371-env.rco",
+                         "validation":  "run-environment",
+                         "tokens":  "env"
+                     },
+                     {
+                         "word":  "webview_document",
+                         "group":  "system",
+                         "path":  "apps/0372-webview-document.rco",
+                         "validation":  "run-webview",
+                         "tokens":  "webview_document"
+                     }
+                 ]
+}

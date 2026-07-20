@@ -1,0 +1,5 @@
+[ 42 ] spawn task var
+
+handles array
+$handles [ 1 ] spawn push drop
+$handles [ 2 ] spawn push drop

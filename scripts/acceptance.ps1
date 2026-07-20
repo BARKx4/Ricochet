@@ -90,6 +90,10 @@ Invoke-Rco "word inventory drift check" @(
     (Join-Path $Root "editors\vscode\syntaxes\ricochet.tmLanguage.json")
 )
 
+$wordExamplesValidator = Join-Path $Root "scripts\validate-word-examples.ps1"
+Write-Host "==> per-word example corpus"
+& $wordExamplesValidator -Rco $Rco
+
 $examplesRoot = Join-Path $Root "examples"
 $examples = @(
     "basic-oop.rco",

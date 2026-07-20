@@ -301,7 +301,7 @@ const WORDS = [
     "group": "oop",
     "stack": "className:string superclass:class|string ->",
     "body": "Creates a class. Static declarations use `User Model Subclass`; runtime declarations can use strings and variables.",
-    "example": "User Model Subclass\nend\n\n\"Widget\" \"Object\" Subclass"
+    "example": "User Object Subclass\nend\n\n\"Widget\" \"Object\" Subclass\nend"
   },
   {
     "word": "Field",
@@ -309,7 +309,7 @@ const WORDS = [
     "group": "oop",
     "stack": "class:string|class fieldName:string ->",
     "body": "Adds storage to a runtime class without generating accessor selectors. Inside a class body, use a string field name followed by `Field`.",
-    "example": "\"email\" Field\nUser \"email\" Field"
+    "example": "User Object Subclass\n  \"email\" Field\nend\nUser \"name\" Field"
   },
   {
     "word": "Accessor",
@@ -317,7 +317,7 @@ const WORDS = [
     "group": "oop",
     "stack": "class:string|class fieldName:string ->",
     "body": "Adds storage to a class and generates `field.get` and `field.set` selectors.",
-    "example": "\"email\" Accessor\nUser \"email\" Accessor"
+    "example": "User Object Subclass\n  \"email\" Accessor\nend\nUser \"name\" Accessor"
   },
   {
     "word": "Table",
@@ -325,7 +325,7 @@ const WORDS = [
     "group": "oop",
     "stack": "class:string|class tableName:string ->",
     "body": "Sets a model table name. Inside a class body, use a string table name followed by `Table`.",
-    "example": "\"users\" Table\nUser \"users\" Table"
+    "example": "User Object Subclass\n  \"users\" Table\nend\nUser \"archived_users\" Table"
   },
   {
     "word": "new",
@@ -469,7 +469,7 @@ const WORDS = [
     "group": "control",
     "stack": "-> exits nearest loop",
     "body": "Exits the nearest enclosing `while`. Using it outside a loop is a compile error.",
-    "example": "done? if break end"
+    "example": "0 count var\n$count 1 < while\n  break\nend"
   },
   {
     "word": "continue",
@@ -477,7 +477,7 @@ const WORDS = [
     "group": "control",
     "stack": "-> rechecks nearest loop",
     "body": "Jumps to the condition of the nearest enclosing `while`. Using it outside a loop is a compile error.",
-    "example": "skip? if continue end"
+    "example": "0 count var\n$count 1 < while\n  1 count set\n  continue\nend"
   },
   {
     "word": "println",
@@ -1379,9 +1379,9 @@ const WORDS = [
     "word": "regex_replace",
     "aliases": ["regex"],
     "group": "string",
-    "stack": "haystack:string replacement:string regex -> string",
+    "stack": "regex haystack:string replacement:string -> string",
     "body": "Replaces all regex matches in a string.",
-    "example": "$digits \"abc123\" \"#\" regex_replace"
+    "example": "\"[0-9]+\" regex value digits var\n$digits \"abc123\" \"#\" regex_replace"
   },
   {
     "word": "captures",
@@ -1421,7 +1421,7 @@ const WORDS = [
     "group": "result",
     "stack": "fallback:any result -> value",
     "body": "Returns the ok value or a fallback.",
-    "example": "$maybeName \"guest\" unwrap_or"
+    "example": "\"guest\" \"NotFound\" \"name missing\" fail unwrap_or"
   },
   {
     "word": "map_result",
@@ -1429,7 +1429,7 @@ const WORDS = [
     "group": "result",
     "stack": "block result -> result",
     "body": "Transforms an ok value and passes error results through unchanged.",
-    "example": "21 ok [ 2 * ] map_result value"
+    "example": "[ 2 * ] 21 ok map_result value"
   },
   {
     "word": "and_then",
@@ -1437,7 +1437,7 @@ const WORDS = [
     "group": "result",
     "stack": "block result -> result",
     "body": "Runs a block that must itself return a result when the receiver is ok.",
-    "example": "$value [ ok ] and_then"
+    "example": "[ ok ] 42 ok and_then value"
   },
   {
     "word": "result_envelope",
@@ -2245,7 +2245,7 @@ const WORDS = [
     "group": "system",
     "stack": "id:number options:map -> result(map)",
     "body": "Reads a bounded chunk from a retained MVC upload stream. Options may include `offset` and `max_bytes`; the result includes upload metadata plus `offset`, `next_offset`, `eof`, `bytes_len`, `data_base64`, and UTF-8 `text` when available.",
-    "example": "options map\noptions \"max_bytes\" 4096 put drop\n$file \"stream_id\" at $options upload_read value"
+    "example": "options map\n$options \"max_bytes\" 4096 put drop\n$file \"stream_id\" at $options upload_read value"
   },
   {
     "word": "upload_release",

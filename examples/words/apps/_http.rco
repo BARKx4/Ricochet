@@ -1,0 +1,5 @@
+payload map
+$payload "message" "hello" put drop
+
+"POST" "https://api.example/v1" http_request_new value request var
+"dry-run-token" secret_literal token var
