@@ -31,11 +31,9 @@ On Linux, install the Debian package with:
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
 
-The official GitHub asset for Ricochet `0.1.19-rc.8` is
-`ricochet_0.1.19.rc.8_amd64.deb`. Inside the package, the Debian control
-metadata records `Version: 0.1.19~rc.8`; that internal version keeps the
-candidate older than the eventual stable `0.1.19` package so normal upgrades
-work.
+The official GitHub asset for Ricochet `1.0.0` is
+`ricochet_1.0.0_amd64.deb`. Inside the package, the Debian control metadata
+records `Version: 1.0.0`.
 
 The Debian package declares the current Linux launcher runtime packages:
 `libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `libxdo3`. Install those packages
@@ -44,11 +42,12 @@ manually before using the portable tarball.
 Portable Linux tarballs are also available. Extract the tarball and run
 `./install.sh`, or add the extracted folder to your `PATH`.
 
-On macOS, choose the unsigned tarball for your Mac:
+On macOS, choose the stable tarball for your Mac:
 `ricochet-vX.Y.Z-macos-arm64.tar.gz` for Apple Silicon or
 `ricochet-vX.Y.Z-macos-x64.tar.gz` for Intel. Extract it and run
-`./install.sh`, or add the extracted folder to your `PATH`. These beta tarballs
-are not notarized by Apple.
+`./install.sh`, or add the extracted folder to your `PATH`. Official stable
+artifacts contain codesigned binaries and include an accepted Apple
+notarization report beside the archive.
 
 For an uninstalled source checkout, install the CLI once:
 

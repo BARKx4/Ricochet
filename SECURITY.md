@@ -2,13 +2,12 @@
 
 ## Supported versions
 
-Ricochet is prerelease software. Security fixes are developed on the current
-development line and released forward in a new release candidate when
-appropriate. Older release candidates, nightly builds, and source snapshots do
-not receive guaranteed backports.
+Ricochet 1.x is stable software. Security fixes are developed on the current
+supported line and released forward in a patch or minor release when
+appropriate. Older release lines, release candidates, nightly builds, and
+source snapshots do not receive guaranteed backports.
 
-Use the newest published release candidate when evaluating or reporting an
-issue.
+Use the newest published stable release when evaluating or reporting an issue.
 
 ## Reporting a vulnerability
 

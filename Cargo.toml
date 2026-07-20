@@ -16,7 +16,7 @@ exclude = ["third_party/portable-pty"]
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-version = "0.1.19-rc.8"
+version = "1.0.0"
 
 [workspace.dependencies]
 anyhow = "1"

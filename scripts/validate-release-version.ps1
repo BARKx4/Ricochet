@@ -4,9 +4,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$ExpectedVersion = "0.1.19-rc.8"
+$ExpectedVersion = "1.0.0"
 $ExpectedTag = "v$ExpectedVersion"
-$StaleVersion = "0.1.19-rc." + "7"
+$StaleVersion = "0.1.19-rc." + "8"
 $StaleHistoricalReleasePath = "docs/releases/v$StaleVersion.html"
 $HistoricalReleases = @(
     [pscustomobject]@{
@@ -30,9 +30,14 @@ $HistoricalReleases = @(
         Sha256 = "85292c76ef0e03c80bab38549e1b3a5d99be8e85ece97bd44ac02456b321e542"
     },
     [pscustomobject]@{
-        Path = $StaleHistoricalReleasePath
+        Path = "docs/releases/v0.1.19-rc.7.html"
         # Normalized UTF-8 SHA-256 of the immediately previous immutable candidate page.
         Sha256 = "4888b16c778b2f010f1d284f111b0dd0dd6d8e009f902a225c61285bae2511f2"
+    },
+    [pscustomobject]@{
+        Path = $StaleHistoricalReleasePath
+        # Normalized UTF-8 SHA-256 of the final immutable candidate page.
+        Sha256 = "69c5b6902c98047174ad113627af654825b2d0118bca2b1c87c3b8efe1d53408"
     }
 )
 $Failures = [System.Collections.Generic.List[string]]::new()
@@ -193,7 +198,7 @@ foreach ($relativePath in $tagExampleFiles) {
 
 $releasePagePath = "docs/releases/$ExpectedTag.html"
 $releasePage = Read-RequiredFile $releasePagePath
-Require-Match $releasePagePath $releasePage ([regex]::Escape($ExpectedVersion)) "identify release candidate $ExpectedVersion"
+Require-Match $releasePagePath $releasePage ([regex]::Escape($ExpectedVersion)) "identify stable release $ExpectedVersion"
 Require-Match $releasePagePath $releasePage ([regex]::Escape($ExpectedTag)) "use tag spelling $ExpectedTag"
 foreach ($releaseRequirement in @(
     [pscustomobject]@{ Pattern = '(?i)WebView-only'; Description = 'describe the reconciled WebView-only application surface' },
@@ -203,15 +208,15 @@ foreach ($releaseRequirement in @(
     [pscustomobject]@{ Pattern = '(?i)probe'; Description = 'describe probe fixes' },
     [pscustomobject]@{ Pattern = '(?i)Learn'; Description = 'describe Learn coverage' },
     [pscustomobject]@{ Pattern = '(?i)tracked[- ]source'; Description = 'describe clean tracked-source packaging' },
-    [pscustomobject]@{ Pattern = '(?i)prerelease ordering'; Description = 'describe exact prerelease ordering' },
+    [pscustomobject]@{ Pattern = '(?i)stable upgrade'; Description = 'describe the stable package upgrade path' },
     [pscustomobject]@{ Pattern = 'THIRD_PARTY_LICENSES\.html'; Description = 'name the generated third-party license bundle' },
     [pscustomobject]@{ Pattern = 'THIRD_PARTY_NOTICES\.txt'; Description = 'name the supplemental third-party notice bundle' },
     [pscustomobject]@{ Pattern = '(?i)Windows installer'; Description = 'describe Windows installer verification' },
     [pscustomobject]@{ Pattern = '(?i)\bCI\b'; Description = 'describe CI verification' },
     [pscustomobject]@{ Pattern = '(?i)production signing'; Description = 'state the production-signing boundary' },
     [pscustomobject]@{ Pattern = '(?i)credential'; Description = 'state the external credential requirement' },
-    [pscustomobject]@{ Pattern = 'UPDATE-CHANNEL-candidate\.json'; Description = 'identify the candidate update channel' },
-    [pscustomobject]@{ Pattern = '(?i)dry-run'; Description = 'retain candidate dry-run signing semantics' }
+    [pscustomobject]@{ Pattern = 'UPDATE-CHANNEL-stable\.json'; Description = 'identify the stable update channel' },
+    [pscustomobject]@{ Pattern = '(?i)notarization'; Description = 'state the stable notarization requirement' }
 )) {
     Require-Match $releasePagePath $releasePage $releaseRequirement.Pattern $releaseRequirement.Description
 }
@@ -227,7 +232,7 @@ Require-Match $acceptancePath $acceptance 'validate-release-version\.ps1' 'run r
 
 $trackedFiles = @(& git -C $Root ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) {
-    Add-Failure "git ls-files failed while scanning for stale release-candidate references"
+    Add-Failure "git ls-files failed while scanning for stale release references"
 }
 else {
     $stalePattern = [regex]::Escape($StaleVersion)

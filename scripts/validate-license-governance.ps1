@@ -196,6 +196,7 @@ $approvedPublicMarkdownPaths = @(
     "editors/vscode/README.md",
     "examples/learn/README.md",
     "examples/showcase/README.md",
+    "examples/words/README.md",
     "packages/README.md",
     "packages/ricochet_ai/README.md",
     "packages/ricochet_auth/README.md",
@@ -265,7 +266,7 @@ $securityPath = "SECURITY.md"
 $security = Read-RequiredFile $securityPath
 Require-Match $securityPath $security 'https://github\.com/BARKx4/Ricochet/security/advisories/new' 'link the enabled private vulnerability-reporting form'
 Require-Match $securityPath $security '(?i)do not.*public GitHub issue' 'tell reporters not to disclose suspected vulnerabilities publicly'
-Require-Match $securityPath $security '(?i)newest published release candidate' 'state the supported prerelease line'
+Require-Match $securityPath $security '(?i)newest published stable release' 'state the supported stable line'
 Require-Match $securityPath $security '(?i)best-effort' 'avoid implying a response or remediation SLA'
 Require-Match $securityPath $security '(?i)sandboxed' 'describe the opt-in untrusted-code capability boundary'
 
@@ -276,7 +277,8 @@ Require-Match $supportPath $support '\[SECURITY\.md\]\(SECURITY\.md\)' 'route su
 Require-Match $supportPath $support '(?i)Windows x64' 'name the official Windows artifact target'
 Require-Match $supportPath $support '(?i)Linux x64' 'name the official Linux artifact target'
 Require-Match $supportPath $support '(?i)macOS arm64 and x64' 'name both official macOS artifact targets'
-Require-Match $supportPath $support '(?i)best-effort' 'state the prerelease support boundary without an SLA'
+Require-Match $supportPath $support '(?i)newest published\s+stable release' 'state the supported stable line'
+Require-Match $supportPath $support '(?i)best-effort' 'state the support boundary without an SLA'
 
 $readme = Read-RequiredFile "README.md"
 Require-Match "README.md" $readme '\[Apache License 2\.0\]\(LICENSE\)' 'link the repository license'

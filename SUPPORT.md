@@ -1,6 +1,6 @@
 # Support
 
-Ricochet is developer-facing prerelease software.
+Ricochet 1.x is developer-facing stable software.
 
 ## Documentation
 
@@ -45,10 +45,10 @@ are best-effort and are not guaranteed.
 
 Fixes are developed on the current development line and released forward.
 Before reporting a release problem, reproduce it on the newest published
-release candidate when possible.
+stable release when possible.
 
-Older release candidates, nightly artifacts, and downstream modifications do
-not receive guaranteed maintenance or backports.
+Older release lines, release candidates, nightly artifacts, and downstream
+modifications do not receive guaranteed maintenance or backports.
 
 ## Expectations
 

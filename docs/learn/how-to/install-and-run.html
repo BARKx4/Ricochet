@@ -92,10 +92,10 @@
 <p>On Linux, install the Debian package with:</p>
 <pre><code class="language-bash">sudo apt install ./ricochet_X.Y.Z_amd64.deb
 </code></pre>
-<p>The official GitHub asset for Ricochet <code>0.1.19-rc.8</code> is <code>ricochet_0.1.19.rc.8_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 0.1.19~rc.8</code>; that internal version sorts before the eventual stable <code>0.1.19</code> package so normal upgrades work.</p>
+<p>The official GitHub asset for Ricochet <code>1.0.0</code> is <code>ricochet_1.0.0_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 1.0.0</code>.</p>
 <p>The Debian package declares <code>libgtk-3-0</code>, <code>libwebkit2gtk-4.1-0</code>, and <code>libxdo3</code>. Install those runtime packages manually before using the portable Linux tarball.</p>
 <p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
-<p>On macOS, choose the unsigned tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. These beta tarballs are not notarized by Apple.</p>
+<p>On macOS, choose the stable tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. Official stable artifacts contain codesigned binaries and include an accepted Apple notarization report beside the archive.</p>
 <h2>Check your install</h2>
 <pre><code class="language-bash">rco --help
 rco repl
@@ -123,7 +123,7 @@ cd my_app
 rco serve
 </code></pre>
 <h2 id="desktop-webview-ui">Desktop WebView UI</h2>
-<p>Desktop UI work starts with the built-in WebView document words. These are the supported app path for the current release candidate:</p>
+<p>Desktop UI work starts with the built-in WebView document words. These are the supported app path for the stable release:</p>
 <pre><code class="language-powershell">rco gui examples/webview_ui.rco
 rco package examples/webview_ui.rco --gui --output WebviewUi.exe
 rco package examples/learn/38-capstone-gui/personal_ledger --gui --mvc --output PersonalLedger.exe

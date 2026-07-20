@@ -11,7 +11,7 @@ For an ordered learning path, start with the Learn Ricochet manual:
 
 ## Start Here
 
-- [Feature Overview](features.html) - current release-candidate surface area and project scope.
+- [Feature Overview](features.html) - current stable surface area and project scope.
 - [Learn Ricochet](../learn/) - beginner manual path from the stack model through apps, packages, and release workflows.
 - [Getting Started](getting-started.html) - common `rco` workflows after install.
 - [Language And Runtime](language-runtime.html) - postfix syntax, runtime values,
@@ -41,4 +41,4 @@ For an ordered learning path, start with the Learn Ricochet manual:
 - [Reference Website Notes](../reference/README.html)
 - [Adding Public Words](../adding-words.html)
 - [Debugger Integrations](../debugger-integrations.html)
-- [Current Release Candidate Notes](../releases/v0.1.19-rc.8.html)
+- [Current Stable Release Notes](../releases/v1.0.0.html)

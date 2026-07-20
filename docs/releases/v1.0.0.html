@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v1.0.0 Release Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v1.0.0 Release Notes</h1>
+          <p class="lede">The first stable language, application, and packaging contract for Ricochet.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+            <a href="#release-identity">Release Identity</a>
+            <a href="#language-contract">Language Contract</a>
+            <a href="#application-platform">Application Platform</a>
+            <a href="#security-and-correctness">Security And Correctness</a>
+            <a href="#packaging-and-updates">Packaging And Updates</a>
+            <a href="#current-boundaries">Current Boundaries</a>
+            <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+            <p>Date: 2026-07-20</p>
+            <p>Ricochet 1.0.0 promotes the hardened candidate line to a stable public contract. From this release onward, incompatible public language or application changes require a new major version under Semantic Versioning.</p>
+
+            <h2 id="release-identity">Release Identity</h2>
+            <ul>
+              <li>The stable release and tag identities are <code>1.0.0</code> and <code>v1.0.0</code>.</li>
+              <li>The Linux package is <code>ricochet_1.0.0_amd64.deb</code> with Debian control version <code>1.0.0</code>, providing a direct stable upgrade from the candidate line.</li>
+              <li>The supported desktop application lineage is the native host shell with a WebView body and Ricochet-managed state. The withdrawn native-control renderer experiment remains outside the supported WebView-only application surface.</li>
+            </ul>
+
+            <h2 id="language-contract">Language Contract</h2>
+            <ul>
+              <li>The postfix stack model, receiver-before-selector convention, underscore-separated public words, capitalized class declarations, and lowercase <code>end</code> form the stable source contract.</li>
+              <li>Exact symbolic operators such as <code>!=</code> remain supported while obsolete bang-suffixed collection mutators stay removed.</li>
+              <li>The generated <code>examples/words</code> corpus contains one short app for every case-sensitive word in <code>rco words --json</code>. CI compiles all 372 apps, executes bounded deterministic examples, and links host-bound words to integration evidence.</li>
+              <li>The Learn manual covers the complete live word inventory and the reference, LSP, TextMate grammar, examples, and validator inventory are checked together.</li>
+            </ul>
+
+            <h2 id="application-platform">Application Platform</h2>
+            <ul>
+              <li>MVC database capabilities expose postfix <code>transaction</code>, <code>begin</code>, <code>commit</code>, <code>rollback</code>, and <code>savepoint</code> methods with explicit Result behavior.</li>
+              <li>Configurable controller instruction budgets enforce a deployment ceiling, report usage, and publish staged cookies, sessions, and logs only after successful controller completion.</li>
+              <li>First-party packages cover portable UI documents, native WebView hosting, AI provider contracts, HTTP, processes and PTYs, sockets, approvals, filesystem/workspace access, packages, and SQLite-backed MVC applications.</li>
+            </ul>
+
+            <h2 id="security-and-correctness">Security And Correctness</h2>
+            <ul>
+              <li>Host-owned credential sessions, deferred secret references, exact network destinations, and bounded native send paths keep credentials out of Ricochet values and serialized task state.</li>
+              <li>Workspace operations enforce physical containment across links, and the sandbox protocol validates immutable policy, authenticated frames, coherent termination events, and backend conformance.</li>
+              <li>The stable line retains mixed numeric correctness, bounded cycle handling, release probe coverage, deterministic parser behavior, and clean tracked-source packaging.</li>
+            </ul>
+
+            <h2 id="packaging-and-updates">Packaging And Updates</h2>
+            <ul>
+              <li>Ricochet source, documentation, assets, crates, packages, and editor metadata are licensed under the Apache License 2.0 (<code>Apache-2.0</code>).</li>
+              <li>Official packages include <code>LICENSE</code>, <code>THIRD_PARTY_LICENSES.html</code>, and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
+              <li>The Windows installer, Linux tarball and Debian package, and macOS arm64/x64 archives are built, smoked, and audited before publication.</li>
+              <li>Stable publication requires production signing credentials: Windows Authenticode, Linux GPG signatures, and macOS codesigning plus Apple notarization.</li>
+              <li>The release is published as the latest non-prerelease GitHub release with <code>UPDATE-CHANNEL-stable.json</code> and production verification metadata.</li>
+            </ul>
+
+            <h2 id="current-boundaries">Current Boundaries</h2>
+            <ul>
+              <li>The stable tag is not published until all platform signing and notarization credentials are configured and the hosted workflow proves the final assets.</li>
+              <li>SQLite transaction behavior is exercised locally. Live PostgreSQL and MySQL/MariaDB acceptance requires separately configured provider endpoints and credentials.</li>
+              <li>Application transactions cover database state only; coordinated transactions across HTTP, files, cookies, sessions, and logs are not implied.</li>
+            </ul>
+
+            <h2 id="verification-checklist">Verification Checklist</h2>
+            <p>Before creating the <code>v1.0.0</code> tag, run the repository gates from a clean checkout and perform the platform package check with production credentials:</p>
+            <pre class="code-block"><code class="language-powershell">$version = "1.0.0"
+
+cargo metadata --locked --format-version 1
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+pwsh -NoProfile -File .\scripts\validate-release-version.ps1
+pwsh -NoProfile -File .\docs\reference\validate.ps1
+pwsh -NoProfile -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
+pwsh -NoProfile -File .\scripts\validate-license-governance.ps1
+pwsh -NoProfile -File .\scripts\acceptance.ps1
+
+$releaseOut = Join-Path (Resolve-Path .\target).Path "release-prep-smoke\$version\release-windows"
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode require
+pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
+pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireProduction
+pwsh -NoProfile -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -OutDir $releaseOut -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
+            <p>After the workflow completes, independently verify the stable tag commit, latest published state, exact assets, combined checksums, platform manifests, production signing reports, Debian version, notarization reports, and stable update-channel metadata.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>
