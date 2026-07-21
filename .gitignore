@@ -10,6 +10,11 @@ hosts/**/obj/
 __pycache__/
 *.pyc
 
+# Example applications create local SQLite state when their database-backed
+# tests or servers start. Keep that generated state out of source control.
+examples/**/db/*.sqlite3
+examples/**/db/*.sqlite3-*
+
 .env
 .env.*
 !.env.example

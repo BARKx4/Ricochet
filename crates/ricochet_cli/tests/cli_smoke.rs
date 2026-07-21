@@ -484,6 +484,19 @@ map "body" "from rco seed" put Note insert value drop
         "SQLite scaffold should check\nstdout:\n{check_stdout}\nstderr:\n{check_stderr}"
     );
 
+    fs::write(
+        project_path.join("tests").join("DatabaseTest.rco"),
+        r#"
+DatabaseTest TestCase Subclass
+  [
+    User all value count
+    2 assert_equals
+  ] "testAllUsesProjectDatabase" Method
+end
+"#,
+    )
+    .expect("database-backed test should be written");
+
     let test_output = Command::new(env!("CARGO_BIN_EXE_rco"))
         .arg("test")
         .arg(&project_path)
@@ -496,7 +509,7 @@ map "body" "from rco seed" put Note insert value drop
         "SQLite scaffolded tests should pass\nstdout:\n{test_stdout}\nstderr:\n{test_stderr}"
     );
     assert!(
-        test_stdout.contains("2 tests, 0 failed"),
+        test_stdout.contains("3 tests, 0 failed"),
         "SQLite scaffolded test summary should pass, got:\n{test_stdout}"
     );
 }

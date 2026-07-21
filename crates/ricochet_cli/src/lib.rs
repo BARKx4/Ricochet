@@ -1221,7 +1221,8 @@ pub async fn run_cli() -> Result<()> {
                 debug,
                 filter.as_deref(),
                 capabilities,
-            )?;
+            )
+            .await?;
         }
     }
     Ok(())
@@ -10224,7 +10225,7 @@ fn print_debug_task_locals(task: &DebugTask) {
     }
 }
 
-fn run_tests(
+async fn run_tests(
     path: &str,
     debug: bool,
     filter: Option<&str>,
@@ -10233,6 +10234,10 @@ fn run_tests(
     let path = Path::new(path);
     let project_root = find_project_root_for_tests(path);
     let files = collect_test_files_for_path(path, project_root.as_deref())?;
+    let database_backend = match project_root.as_deref() {
+        Some(project_root) => connect_project_test_database(project_root).await?,
+        None => None,
+    };
     let mut total = 0usize;
     let mut failed = 0usize;
 
@@ -10251,7 +10256,17 @@ fn run_tests(
         }
 
         if let Some(project_root) = project_root.as_deref() {
-            load_app_sources(&mut vm, project_root)?;
+            let models_loaded = if let Some(backend) = database_backend.as_ref() {
+                let project_capabilities =
+                    install_project_database_runtime(&mut vm, project_root, backend.clone())?;
+                for (name, value) in project_capabilities {
+                    vm.set_variable(name, value);
+                }
+                true
+            } else {
+                false
+            };
+            load_app_sources(&mut vm, project_root, models_loaded)?;
         }
 
         vm.run_chunk(&chunk)
@@ -10290,6 +10305,42 @@ fn run_tests(
     }
 
     Ok(())
+}
+
+async fn connect_project_test_database(
+    project_root: &Path,
+) -> Result<Option<Arc<dyn DatabaseBackend>>> {
+    let Some(database) = resolved_project_database_config(project_root)? else {
+        return Ok(None);
+    };
+    let adapter = database.adapter.trim().to_ascii_lowercase();
+    let backend: Arc<dyn DatabaseBackend> = match adapter.as_str() {
+        "sqlite" => {
+            let database_path = sqlite_database_path(project_root, &database.url);
+            let database_url = database_path.to_string_lossy();
+            Arc::new(SqliteDatabase::connect(&database_url).with_context(|| {
+                format!(
+                    "failed to connect to SQLite project database {} for tests",
+                    database_path.display()
+                )
+            })?)
+        }
+        "postgres" | "postgresql" => Arc::new(
+            PostgresDatabase::connect(&database.url)
+                .await
+                .context("failed to connect to PostgreSQL project database for tests")?,
+        ),
+        "mysql" | "mariadb" => Arc::new(
+            MysqlDatabase::connect(&database.url)
+                .await
+                .context("failed to connect to MySQL project database for tests")?,
+        ),
+        _ => bail!(
+            "rco test supports sqlite, postgres, and mysql project databases; found adapter {:?}",
+            database.adapter
+        ),
+    };
+    Ok(Some(backend))
 }
 
 fn test_file_may_match_filter(source: &str, filter: &str) -> bool {
@@ -10337,8 +10388,12 @@ fn paths_point_to_same_location(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn load_app_sources(vm: &mut Vm, project_root: &Path) -> Result<()> {
+fn load_app_sources(vm: &mut Vm, project_root: &Path, models_loaded: bool) -> Result<()> {
+    let models_path = project_root.join("app").join("Models");
     for file in collect_app_source_files(project_root)? {
+        if models_loaded && file.parent() == Some(models_path.as_path()) {
+            continue;
+        }
         let chunk = compile_source_file(&file)
             .with_context(|| format!("failed to compile app source {}", file.display()))?;
         vm.run_chunk(&chunk)
