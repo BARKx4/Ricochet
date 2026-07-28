@@ -111,16 +111,36 @@ function Get-FirstArtifactName {
 }
 
 function Get-RequiredVerification {
-    param([string] $Target)
+    param(
+        [string] $Target,
+        [string] $SigningReport
+    )
 
     if ($Channel -ne "stable") {
         return @("sha256")
     }
 
+    $report = Get-Content -LiteralPath (Get-TopLevelArtifactPath -Name $SigningReport) -Raw
+
     switch ($Target) {
-        "windows-x64" { @("authenticode", "sha256") }
+        "windows-x64" {
+            if ($report -match '(?im)^\s*status\s*=\s*signed\s*$') {
+                @("authenticode", "sha256")
+            }
+            else {
+                @("sha256")
+            }
+        }
         "linux-x64" { @("gpg-detached", "sha256") }
-        { $_ -in @("macos-arm64", "macos-x64") } { @("codesign", "notarytool-accepted", "sha256") }
+        { $_ -in @("macos-arm64", "macos-x64") } {
+            if ($report -match '(?im)^\s*status\s*=\s*signed\s*$') {
+                "codesign"
+            }
+            if ($report -match '(?im)^\s*status\s*=\s*notarized\s*$') {
+                "notarytool-accepted"
+            }
+            "sha256"
+        }
         default { @("sha256") }
     }
 }
@@ -188,7 +208,7 @@ $platforms = foreach ($manifestFile in $manifestFiles) {
         checksum_artifact = $checksums
         signing_report = $signingReport
         notary_report = $notaryReport
-        required_verification = @(Get-RequiredVerification -Target $target)
+        required_verification = @(Get-RequiredVerification -Target $target -SigningReport $signingReport)
         artifacts = @($artifacts | ForEach-Object { ConvertTo-ArtifactSummary $_ })
     }
 }

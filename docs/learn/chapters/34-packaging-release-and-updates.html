@@ -222,16 +222,18 @@ releases use platform-specific scripts:</p>
 bash scripts/package-release-macos.sh --target macos-arm64
 </code></pre>
 <p>Those scripts write release artifacts, checksums, signing-status reports, and
-per-target JSON manifests. The release workflow then validates store-ready
-packaging and verifies production signatures when a production tag requires
-them.</p>
+per-target JSON manifests. Stable release CI requires GPG signatures for Linux
+and the combined checksum inventory. Authenticode and Apple notarization are
+verified when their credentials are configured; otherwise their reports disclose
+the unsigned fallback.</p>
 <p>Update-channel files are release metadata:</p>
 <pre><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.0 -ReleaseTag v1.0.0 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.0
 pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.0 -RequireProduction
 </code></pre>
-<p>Stable channel metadata requires production signature or notarization evidence.
-Candidate channel metadata can record SHA-256 verification for dry-run signed
-candidate artifacts.</p>
+<p>Stable channel metadata always requires SHA-256 and Linux detached GPG
+verification. It advertises Authenticode, codesign, or notarization only when the
+corresponding report proves that evidence exists. Candidate metadata records
+SHA-256 verification for dry-run artifacts.</p>
 <h2>Reference links</h2>
 <ul>
 <li><code>docs/reference/index.html</code></li>

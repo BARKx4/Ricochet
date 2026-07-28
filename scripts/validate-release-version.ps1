@@ -213,10 +213,12 @@ foreach ($releaseRequirement in @(
     [pscustomobject]@{ Pattern = 'THIRD_PARTY_NOTICES\.txt'; Description = 'name the supplemental third-party notice bundle' },
     [pscustomobject]@{ Pattern = '(?i)Windows installer'; Description = 'describe Windows installer verification' },
     [pscustomobject]@{ Pattern = '(?i)\bCI\b'; Description = 'describe CI verification' },
-    [pscustomobject]@{ Pattern = '(?i)production signing'; Description = 'state the production-signing boundary' },
-    [pscustomobject]@{ Pattern = '(?i)credential'; Description = 'state the external credential requirement' },
+    [pscustomobject]@{ Pattern = '(?i)GPG-authenticated'; Description = 'state the stable GPG authentication boundary' },
+    [pscustomobject]@{ Pattern = 'SHA256SUMS\.txt\.asc'; Description = 'name the signed combined checksum inventory' },
+    [pscustomobject]@{ Pattern = '(?i)unsigned'; Description = 'disclose unsigned platform fallback artifacts' },
+    [pscustomobject]@{ Pattern = '(?i)Authenticode'; Description = 'state the optional Windows trust-signing boundary' },
     [pscustomobject]@{ Pattern = 'UPDATE-CHANNEL-stable\.json'; Description = 'identify the stable update channel' },
-    [pscustomobject]@{ Pattern = '(?i)notarization'; Description = 'state the stable notarization requirement' }
+    [pscustomobject]@{ Pattern = '(?i)notarization'; Description = 'state the optional Apple notarization boundary' }
 )) {
     Require-Match $releasePagePath $releasePage $releaseRequirement.Pattern $releaseRequirement.Description
 }

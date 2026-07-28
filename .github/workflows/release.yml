@@ -135,13 +135,19 @@ jobs:
 
       - name: Import Windows signing certificate
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        id: windows-signing
         shell: pwsh
         env:
           RICOCHET_WINDOWS_CERT_PFX_BASE64: ${{ secrets.RICOCHET_WINDOWS_CERT_PFX_BASE64 }}
           RICOCHET_WINDOWS_CERT_PASSWORD: ${{ secrets.RICOCHET_WINDOWS_CERT_PASSWORD }}
           RICOCHET_WINDOWS_CERT_SHA1: ${{ secrets.RICOCHET_WINDOWS_CERT_SHA1 }}
         run: |
-          .\scripts\setup-windows-signing-certificate.ps1 -Required
+          $configured = @(
+            $env:RICOCHET_WINDOWS_CERT_PFX_BASE64,
+            $env:RICOCHET_WINDOWS_CERT_PASSWORD,
+            $env:RICOCHET_WINDOWS_CERT_SHA1
+          ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          .\scripts\setup-windows-signing-certificate.ps1 -Required:($configured.Count -gt 0)
 
       - name: Build release package
         shell: pwsh
@@ -150,7 +156,7 @@ jobs:
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') {
-            $signingMode = 'require'
+            $signingMode = 'auto'
           } elseif ('${{ needs.resolve-version.outputs.is_nightly }}' -eq 'true') {
             $signingMode = 'auto'
           } else {
@@ -620,14 +626,14 @@ jobs:
       - name: Validate store-ready packaging
         shell: pwsh
         run: |
-          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true'
+          $requireProduction = '${{ steps.windows-signing.outputs.windows_cert_sha1 }}' -ne ''
           .\scripts\validate-store-packaging.ps1 `
             -Target windows-x64 `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
-        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true' && steps.windows-signing.outputs.windows_cert_sha1 != ''
         shell: pwsh
         run: |
           .\scripts\verify-release-signatures.ps1 `
@@ -868,6 +874,7 @@ jobs:
 
       - name: Prepare macOS signing keychain
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        id: macos-signing
         shell: bash
         env:
           RICOCHET_MACOS_CERT_P12_BASE64: ${{ secrets.RICOCHET_MACOS_CERT_P12_BASE64 }}
@@ -882,7 +889,13 @@ jobs:
           RICOCHET_MACOS_NOTARY_KEY_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_KEY_ID }}
           RICOCHET_MACOS_NOTARY_ISSUER_ID: ${{ secrets.RICOCHET_MACOS_NOTARY_ISSUER_ID }}
         run: |
+          if [[ -z "$RICOCHET_MACOS_CERT_P12_BASE64" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "macOS signing setup skipped because no Apple signing certificate is configured."
+            exit 0
+          fi
           bash scripts/setup-macos-signing-keychain.sh
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build release package
         shell: bash
@@ -891,8 +904,8 @@ jobs:
           signing_mode='dry-run'
           notarization_mode='dry-run'
           if [[ "$GITHUB_REF_TYPE" == "tag" && '${{ needs.resolve-version.outputs.is_prerelease }}' != "true" ]]; then
-            signing_mode='require'
-            notarization_mode='require'
+            signing_mode='auto'
+            notarization_mode='auto'
           elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
             signing_mode='auto'
             notarization_mode='auto'
@@ -901,7 +914,7 @@ jobs:
           bash scripts/package-release-macos.sh "${args[@]}"
 
       - name: Cleanup macOS signing keychain
-        if: always() && github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        if: always() && github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true' && steps.macos-signing.outputs.ready == 'true'
         shell: bash
         run: |
           bash scripts/cleanup-macos-signing-keychain.sh
@@ -945,14 +958,14 @@ jobs:
       - name: Validate store-ready packaging
         shell: pwsh
         run: |
-          $requireProduction = $env:GITHUB_REF_TYPE -eq 'tag' -and '${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true'
+          $requireProduction = '${{ steps.macos-signing.outputs.ready }}' -eq 'true'
           ./scripts/validate-store-packaging.ps1 `
             -Target '${{ matrix.target }}' `
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
       - name: Verify production release signatures
-        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true' && steps.macos-signing.outputs.ready == 'true'
         shell: pwsh
         run: |
           ./scripts/verify-release-signatures.ps1 `
@@ -1037,6 +1050,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Import release GPG signing key
+        if: needs.resolve-version.outputs.is_prerelease != 'true'
+        shell: bash
+        env:
+          RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64 }}
+          RICOCHET_LINUX_GPG_OWNERTRUST_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_OWNERTRUST_BASE64 }}
+          RICOCHET_LINUX_GPG_KEY: ${{ secrets.RICOCHET_LINUX_GPG_KEY }}
+        run: bash scripts/setup-linux-gpg-key.sh --required
+
+      - name: Verify signed release tag
+        if: needs.resolve-version.outputs.is_prerelease != 'true'
+        shell: bash
+        run: git tag -v "$GITHUB_REF_NAME"
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1062,9 +1089,20 @@ jobs:
         shell: bash
         run: |
           cd dist
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
+            gpg --batch --armor --export "$RICOCHET_LINUX_GPG_KEY" > RICOCHET-RELEASE-KEY.asc
+            [[ -s RICOCHET-RELEASE-KEY.asc ]]
+          fi
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' ! -name 'SHA256SUMS.txt.asc' -printf '%f\n' \
             | sort \
             | xargs sha256sum > SHA256SUMS.txt
+          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
+            gpg --batch --yes --armor --detach-sign \
+              --local-user "$RICOCHET_LINUX_GPG_KEY" \
+              --output SHA256SUMS.txt.asc \
+              SHA256SUMS.txt
+            gpg --batch --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+          fi
 
       - name: Revalidate finalized update channel
         shell: pwsh
@@ -1084,6 +1122,9 @@ jobs:
           release_flags=(--draft)
           if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' == 'true' ]]; then
             release_flags+=(--prerelease --latest=false)
+            release_notes="Audited Windows, Linux, and macOS candidate packages for Ricochet $GITHUB_REF_NAME with dry-run signing-status, artifact manifest, checksum, and update-channel reports."
+          else
+            release_notes="GPG-authenticated Ricochet $GITHUB_REF_NAME source and Linux packages, plus audited Windows and macOS packages with explicit platform signing-status reports. Verify SHA256SUMS.txt.asc before installation; Windows Authenticode and Apple notarization are included when project certificates are available."
           fi
           remote_tag_commit="$(
             git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" \
@@ -1098,7 +1139,7 @@ jobs:
             --verify-tag \
             --title "Ricochet $GITHUB_REF_NAME" \
             "${release_flags[@]}" \
-            --notes "Windows, Linux, and macOS release packages for Ricochet $GITHUB_REF_NAME, including checksum, signing-status, artifact manifest, and update-channel reports."
+            --notes "$release_notes"
 
       - name: Audit draft GitHub release
         shell: pwsh
@@ -1158,6 +1199,14 @@ jobs:
               -OutFile $destination `
               -MaximumRedirection 5
           }
+          if ('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') {
+            & gpg --batch --verify `
+              (Join-Path $downloadDir "SHA256SUMS.txt.asc") `
+              (Join-Path $downloadDir "SHA256SUMS.txt")
+            if ($LASTEXITCODE -ne 0) {
+              throw "Downloaded combined checksum signature verification failed."
+            }
+          }
           ./scripts/validate-published-release-assets.ps1 `
             -ReleaseJsonPath $releaseJson `
             -AssetDir $downloadDir `
@@ -1211,3 +1260,8 @@ jobs:
             -RequirePublished `
             -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
             -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+
+      - name: Cleanup release GPG signing key
+        if: always() && needs.resolve-version.outputs.is_prerelease != 'true'
+        shell: bash
+        run: bash scripts/cleanup-linux-gpg-key.sh

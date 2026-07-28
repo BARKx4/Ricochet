@@ -43,7 +43,7 @@
 <ul>
 <li>a portable <code>ricochet-v&lt;version&gt;-windows-x64.zip</code>.</li>
 <li>an NSIS <code>ricochet-v&lt;version&gt;-windows-x64-setup.exe</code> installer.</li>
-<li>Authenticode signing for the ZIP executables and installer on production tags.</li>
+<li>Authenticode signing when project credentials are configured; otherwise the signing report records an unsigned fallback.</li>
 <li><code>ARTIFACTS-windows-x64.json</code>, <code>SIGNING-windows-x64.txt</code>, and <code>SHA256SUMS-windows-x64.txt</code>.</li>
 </ul>
 <p>Linux releases provide:</p>
@@ -57,7 +57,7 @@
 <p>macOS releases provide:</p>
 <ul>
 <li>portable <code>ricochet-v&lt;version&gt;-macos-arm64.tar.gz</code> and <code>ricochet-v&lt;version&gt;-macos-x64.tar.gz</code> archives.</li>
-<li>codesigned binaries and accepted Apple notarization reports on production tags.</li>
+<li>codesigned binaries and accepted Apple notarization reports when credentials are configured; otherwise explicit unsigned/notarization-skipped statuses.</li>
 <li><code>ARTIFACTS-&lt;target&gt;.json</code>, <code>SIGNING-&lt;target&gt;.txt</code>, <code>NOTARY-&lt;target&gt;.json</code>, and target checksum files.</li>
 </ul>
 <p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
@@ -74,20 +74,20 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
   -PackageVersion 1.0.0</code></pre>
-<p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
+<p>Add <code>-RequireProduction</code> when the target must carry its platform production signature. Stable CI always uses it for Linux and uses it for Windows/macOS only when the corresponding credentials were imported. Ordinary validation still checks the complete package while permitting an explicit unsigned fallback report.</p>
 <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects:</p>
 <ul>
 <li>Windows ZIP contents and installer presence.</li>
 <li>Linux tarball metadata and Debian package control/filesystem metadata.</li>
-<li>macOS tarball contents and, for production tags, accepted notarization reports.</li>
+<li>macOS tarball contents and any claimed codesigning/notarization evidence.</li>
 <li>Required first-party and third-party license and notice files in every package.</li>
 </ul>
 <h2 id="marketplace-submission">Marketplace Submission</h2>
 <p>Marketplace submission starts from the validated GitHub release artifacts:</p>
 <ul>
-<li>Windows: upload the signed installer or use it as the source for a future Partner Center/MSIX packaging pass tied to the store publisher identity.</li>
+<li>Windows: use a credential-backed signed installer, not an unsigned fallback, or a future Partner Center/MSIX pass tied to the store publisher identity.</li>
 <li>Linux: use the Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging.</li>
-<li>macOS: distribute the signed and notarized tarballs directly. A Mac App Store SKU would need a separate sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</li>
+<li>macOS: direct distribution requires signed and notarized tarballs, not an unsigned fallback. A Mac App Store SKU also needs a sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</li>
 </ul>
 <p>Do not publish marketplace artifacts that failed manifest validation, store-packaging validation, signature verification, or update-channel validation.</p>
           </article>

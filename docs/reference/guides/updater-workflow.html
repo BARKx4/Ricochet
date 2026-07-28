@@ -46,7 +46,7 @@
           <p>Ricochet's production updater workflow is channel metadata plus platform verification. Ricochet 1.0 does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
 
           <h2 id="channel-metadata">Channel Metadata</h2>
-          <p>Production stable tag releases such as <code>v1.0.0</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside the release artifacts and require platform signature/notarization verification. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code>, are marked as GitHub prereleases, and record SHA-256 verification metadata for dry-run signed candidate artifacts. The file uses schema <code>ricochet.update-channel</code> version <code>1</code> and is written by:</p>
+          <p>Stable tags such as <code>v1.0.0</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside a GPG-signed combined checksum inventory. Stable metadata always requires SHA-256, requires detached GPG verification for Linux, and requires Authenticode or Apple verification only when the signing report proves it was produced. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code> with dry-run SHA-256 metadata.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel stable `
@@ -60,14 +60,14 @@
   -Channel stable `
   -Version 1.0.0 `
   -RequireProduction</code></pre>
-          <p>The release workflow writes and validates the channel document before writing the combined <code>SHA256SUMS.txt</code>, so the channel file is also included in the final release checksum bundle. It then revalidates the channel against the finalized files before publication.</p>
+          <p>The release workflow writes and validates the channel document before writing <code>SHA256SUMS.txt</code>, then signs that inventory as <code>SHA256SUMS.txt.asc</code> and verifies the downloaded draft again before publication.</p>
 
           <h2 id="update-check-contract">Update Check Contract</h2>
           <p>A Ricochet-compatible updater fetches the channel over HTTPS, requires the expected schema and channel such as <code>stable</code> or <code>candidate</code>, rejects older or equal versions unless an operator explicitly chooses a rollback, selects the local platform target, downloads the referenced manifest and artifacts, verifies all SHA-256 values, then runs platform verification before install.</p>
           <ul>
-            <li>Windows: Authenticode verification on the portable ZIP executables and installer.</li>
+            <li>Windows: require Authenticode only when <code>required_verification</code> includes it; otherwise the GPG-authenticated checksum plus the explicit unsigned report is the available trust boundary.</li>
             <li>Linux: detached GPG signature verification for the tarball and Debian package.</li>
-            <li>macOS: codesign verification for extracted binaries plus <code>NOTARY-&lt;target&gt;.json</code> with Apple notarytool status <code>Accepted</code>.</li>
+            <li>macOS: require codesign and an accepted <code>NOTARY-&lt;target&gt;.json</code> only when those methods appear in <code>required_verification</code>; otherwise use the signed checksum inventory and explicit fallback report.</li>
           </ul>
           <p>Installers should stage the new install outside the active installation path and keep a backup of the previous install until the new <code>rco --help</code> or a stronger product smoke test succeeds.</p>
 

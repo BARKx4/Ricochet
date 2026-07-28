@@ -272,7 +272,7 @@ sign_macos_binaries() {
       echo "macOS signing prerequisites missing: $reason" >&2
       exit 1
     fi
-    echo "Warning: macOS signing skipped: $reason. Continuing unsigned because --signing-mode auto permits beta/nightly fallback." >&2
+    echo "Warning: macOS signing skipped: $reason. Continuing unsigned because --signing-mode auto permits an explicit fallback." >&2
     append_signing_report "status = unsigned-fallback" "reason = $reason"
     return
   fi
@@ -327,7 +327,7 @@ notarize_macos_archive() {
       echo "macOS notarization prerequisites missing: $reason" >&2
       exit 1
     fi
-    echo "Warning: macOS notarization skipped: $reason. Continuing because --notarization-mode auto permits beta/nightly fallback." >&2
+    echo "Warning: macOS notarization skipped: $reason. Continuing because --notarization-mode auto permits an explicit fallback." >&2
     append_signing_report "status = skipped" "reason = $reason"
     return
   fi

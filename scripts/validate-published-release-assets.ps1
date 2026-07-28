@@ -73,6 +73,13 @@ foreach ($file in $localFiles) {
 $apiAssets = @($release.assets)
 $localNames = @($localFiles.Name)
 $apiNames = @($apiAssets | ForEach-Object { [string]$_.name })
+if ($RequireStable) {
+    foreach ($requiredName in @("RICOCHET-RELEASE-KEY.asc", "SHA256SUMS.txt.asc")) {
+        if ($localNames -cnotcontains $requiredName) {
+            Add-ValidationError "Stable release set is missing $requiredName."
+        }
+    }
+}
 $localNameSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $apiNameSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 foreach ($name in $localNames) {
@@ -138,7 +145,7 @@ else {
         $checksumEntries.Add($Matches.name, $Matches.hash)
     }
 
-    $checksummedNames = @($localNames | Where-Object { $_ -cne "SHA256SUMS.txt" })
+    $checksummedNames = @($localNames | Where-Object { $_ -cnotin @("SHA256SUMS.txt", "SHA256SUMS.txt.asc") })
     $checksummedNameSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($name in $checksummedNames) {
         $checksummedNameSet.Add($name) | Out-Null

@@ -374,7 +374,7 @@ function Invoke-WindowsSigning {
         if ($mode -eq "require") {
             throw "$message Import the production signing certificate into Cert:\CurrentUser\My before running with -SigningMode require."
         }
-        Write-Warning "$message Continuing unsigned because -SigningMode auto permits beta/nightly fallback."
+        Write-Warning "$message Continuing unsigned because -SigningMode auto permits an explicit fallback."
         $report += "status = unsigned-fallback"
         $report += "reason = $($missing -join '; ')"
         return $report

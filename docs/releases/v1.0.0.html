@@ -41,7 +41,7 @@
             <a href="#verification-checklist">Verification Checklist</a>
           </aside>
           <article class="guide-content">
-            <p>Date: 2026-07-20</p>
+            <p>Date: 2026-07-28</p>
             <p>Ricochet 1.0.0 promotes the hardened candidate line to a stable public contract. From this release onward, incompatible public language or application changes require a new major version under Semantic Versioning.</p>
 
             <h2 id="release-identity">Release Identity</h2>
@@ -79,19 +79,20 @@
               <li>Ricochet source, documentation, assets, crates, packages, and editor metadata are licensed under the Apache License 2.0 (<code>Apache-2.0</code>).</li>
               <li>Official packages include <code>LICENSE</code>, <code>THIRD_PARTY_LICENSES.html</code>, and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
               <li>The Windows installer, Linux tarball and Debian package, and macOS arm64/x64 archives are built, smoked, and audited before publication.</li>
-              <li>Stable publication requires production signing credentials: Windows Authenticode, Linux GPG signatures, and macOS codesigning plus Apple notarization.</li>
-              <li>The release is published as the latest non-prerelease GitHub release with <code>UPDATE-CHANNEL-stable.json</code> and production verification metadata.</li>
+              <li>The annotated release tag, Linux packages, and combined <code>SHA256SUMS.txt</code> inventory are GPG-authenticated. The release includes <code>SHA256SUMS.txt.asc</code> and <code>RICOCHET-RELEASE-KEY.asc</code> for independent verification.</li>
+              <li>Windows Authenticode and Apple codesigning/notarization are additive platform trust signals, not Semantic Versioning prerequisites. When those certificates are unavailable, CI publishes the audited packages with explicit unsigned fallback reports and does not claim platform signatures in <code>UPDATE-CHANNEL-stable.json</code>.</li>
+              <li>The release is published as the latest non-prerelease GitHub release with stable update metadata that always requires SHA-256, requires detached GPG verification for Linux, and advertises platform verification only when it was actually produced.</li>
             </ul>
 
             <h2 id="current-boundaries">Current Boundaries</h2>
             <ul>
-              <li>The stable tag is not published until all platform signing and notarization credentials are configured and the hosted workflow proves the final assets.</li>
+              <li>The 1.0.0 Windows and macOS packages may be unsigned because the project does not currently have paid platform certificates. Their <code>SIGNING-*.txt</code> reports are authoritative, and Windows SmartScreen or macOS Gatekeeper may warn.</li>
               <li>SQLite transaction behavior is exercised locally. Live PostgreSQL and MySQL/MariaDB acceptance requires separately configured provider endpoints and credentials.</li>
               <li>Application transactions cover database state only; coordinated transactions across HTTP, files, cookies, sessions, and logs are not implied.</li>
             </ul>
 
             <h2 id="verification-checklist">Verification Checklist</h2>
-            <p>Before creating the <code>v1.0.0</code> tag, run the repository gates from a clean checkout and perform the platform package check with production credentials:</p>
+            <p>Before creating the GPG-signed <code>v1.0.0</code> tag, run the repository gates from a clean checkout and perform the Windows package check through the same explicit fallback path used by CI:</p>
             <pre class="code-block"><code class="language-powershell">$version = "1.0.0"
 
 cargo metadata --locked --format-version 1
@@ -106,11 +107,10 @@ pwsh -NoProfile -File .\scripts\validate-license-governance.ps1
 pwsh -NoProfile -File .\scripts\acceptance.ps1
 
 $releaseOut = Join-Path (Resolve-Path .\target).Path "release-prep-smoke\$version\release-windows"
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode require
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode auto
 pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
-pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireProduction
-pwsh -NoProfile -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -OutDir $releaseOut -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
-            <p>After the workflow completes, independently verify the stable tag commit, latest published state, exact assets, combined checksums, platform manifests, production signing reports, Debian version, notarization reports, and stable update-channel metadata.</p>
+pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+            <p>After the workflow completes, independently verify the signed tag commit, latest published state, exact assets, <code>SHA256SUMS.txt.asc</code>, Linux package signatures, platform manifests and signing reports, Debian version, and stable update-channel metadata. Require Authenticode or Apple notarization only when the corresponding signing report claims it.</p>
           </article>
         </div>
       </section>

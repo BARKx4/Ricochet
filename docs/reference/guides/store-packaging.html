@@ -46,10 +46,10 @@
           <p>Ricochet publishes store-ready release inputs, not marketplace account uploads. The repository-owned boundary is packaging, metadata, signing, notarization, checksums, manifests, and update-channel metadata. Microsoft Partner Center, Apple App Store Connect, Flathub, Snapcraft, and distro repository uploads stay operator-owned because they require external publisher accounts, review flows, and account-specific legal metadata.</p>
 
           <h2 id="supported-release-inputs">Supported Release Inputs</h2>
-          <p>Windows releases provide a portable ZIP, an NSIS setup executable, Authenticode signing for production tags, an artifact manifest, a signing report, and checksums.</p>
+          <p>Windows releases provide a portable ZIP, an NSIS setup executable, an artifact manifest, a signing report, and checksums. Authenticode is included and verified when project credentials are configured; otherwise the report records an unsigned fallback.</p>
           <p>Linux releases provide a portable tarball, a Debian package, desktop launcher metadata, SVG icon, AppStream metainfo, changelog, maintainer metadata, bundled docs/examples/packages, detached GPG signatures for production tags, a manifest, a signing report, and checksums.</p>
           <p>The official GitHub Debian asset for Ricochet <code>1.0.0</code> is <code>ricochet_1.0.0_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 1.0.0</code>.</p>
-          <p>macOS releases provide Apple Silicon and Intel tarballs, codesigned binaries, accepted notarization reports for production tags, manifests, signing reports, notary reports, and checksums.</p>
+          <p>macOS releases provide Apple Silicon and Intel tarballs, manifests, signing reports, and checksums. Codesigning and accepted notarization reports are included when Apple credentials are configured; otherwise the report records the unsigned/notarization-skipped fallback.</p>
           <p>Every official package bundles the first-party <code>LICENSE</code>, the dependency license report <code>THIRD_PARTY_LICENSES.html</code>, and supplemental attributions in <code>THIRD_PARTY_NOTICES.txt</code>. Portable Linux and macOS install helpers copy all three files to <code>share/doc/ricochet</code> under the selected installation prefix; Debian packages install them under <code>/usr/share/doc/ricochet</code>.</p>
 
           <h2 id="store-readiness-gate">Store Readiness Gate</h2>
@@ -65,11 +65,11 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
   -PackageVersion 1.0.0</code></pre>
-          <p>Add <code>-RequireProduction</code> for production tag artifacts. That rejects dry-run, skipped, or unsigned fallback signing reports and requires the production signing/notarization state for the target.</p>
-          <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball metadata and Debian package metadata, macOS tarball contents plus accepted notarization reports for production tags, and the required license and notice files in every package.</p>
+          <p>Add <code>-RequireProduction</code> when the target must carry its platform production signature. Stable CI always uses it for Linux and uses it for Windows/macOS only when the corresponding credentials were imported. The ordinary validation path still rejects malformed manifests and packages while permitting an explicit unsigned fallback report.</p>
+          <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball and Debian metadata, macOS tarball contents, any claimed signature/notarization evidence, and the required license and notice files in every package.</p>
 
           <h2 id="marketplace-submission">Marketplace Submission</h2>
-          <p>Marketplace submission starts from the validated GitHub release artifacts. Windows uses the signed installer or a future Partner Center/MSIX pass tied to the publisher identity. Linux uses the Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging. macOS uses the signed and notarized tarballs for direct distribution; a Mac App Store SKU would need a separate sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</p>
+          <p>Marketplace submission starts from credential-backed artifacts, not an unsigned fallback. Windows needs the signed installer or a future Partner Center/MSIX pass tied to the publisher identity. Linux uses the GPG-signed Debian package and AppStream metadata. Direct macOS distribution needs signed and notarized tarballs; a Mac App Store SKU also needs a sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</p>
           <p>Do not publish marketplace artifacts that failed manifest validation, store-packaging validation, signature verification, or update-channel validation.</p>
         </article>
       </section>

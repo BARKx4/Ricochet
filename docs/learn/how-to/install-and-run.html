@@ -95,7 +95,12 @@
 <p>The official GitHub asset for Ricochet <code>1.0.0</code> is <code>ricochet_1.0.0_amd64.deb</code>. Inside the package, the Debian control metadata records <code>Version: 1.0.0</code>.</p>
 <p>The Debian package declares <code>libgtk-3-0</code>, <code>libwebkit2gtk-4.1-0</code>, and <code>libxdo3</code>. Install those runtime packages manually before using the portable Linux tarball.</p>
 <p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
-<p>On macOS, choose the stable tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>. Official stable artifacts contain codesigned binaries and include an accepted Apple notarization report beside the archive.</p>
+<p>On macOS, choose the stable tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
+<p>Stable releases include <code>SHA256SUMS.txt</code>, its detached GPG signature <code>SHA256SUMS.txt.asc</code>, and <code>RICOCHET-RELEASE-KEY.asc</code>. Linux archives and Debian packages also carry individual GPG signatures. Windows Authenticode and Apple codesigning/notarization are included when project certificates are available. Otherwise those audited packages remain unsigned, record that fact in <code>SIGNING-*.txt</code>, and may trigger Windows SmartScreen or macOS Gatekeeper warnings. Verify the GPG-signed checksum inventory or build the signed tag from source before installing.</p>
+<pre><code class="language-bash">gpg --import RICOCHET-RELEASE-KEY.asc
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt
+</code></pre>
 <h2>Check your install</h2>
 <pre><code class="language-bash">rco --help
 rco repl

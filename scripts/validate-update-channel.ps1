@@ -319,11 +319,19 @@ foreach ($platform in $platforms) {
         }
     }
 
+    $signingReportText = ""
+    if ($platform.signing_report) {
+        $signingReportPath = Resolve-TopLevelPath $errors ([string]$platform.signing_report) "Platform '$target' signing report"
+        if ($signingReportPath) {
+            $signingReportText = Get-Content -LiteralPath $signingReportPath -Raw
+        }
+    }
+
     $verification = @($platform.required_verification | ForEach-Object { [string]$_ })
     switch ($target) {
         "windows-x64" {
-            if ($RequireProduction -and -not $verification.Contains("authenticode")) {
-                Add-Error $errors "Windows update channel entry must require authenticode verification."
+            if ($verification.Contains("authenticode") -and $signingReportText -notmatch '(?im)^\s*status\s*=\s*signed\s*$') {
+                Add-Error $errors "Windows update channel entry claims authenticode verification without a signed status report."
             }
             if ($RequireProduction -and -not $platform.installer_artifact) {
                 Add-Error $errors "Windows production update channel entry must reference installer_artifact."
@@ -342,20 +350,19 @@ foreach ($platform in $platforms) {
             }
         }
         { $_ -in @("macos-arm64", "macos-x64") } {
-            foreach ($required in @("codesign", "notarytool-accepted")) {
-                if ($RequireProduction -and -not $verification.Contains($required)) {
-                    Add-Error $errors "macOS update channel entry '$target' must require $required verification."
-                }
+            if ($verification.Contains("codesign") -and $signingReportText -notmatch '(?im)^\s*status\s*=\s*signed\s*$') {
+                Add-Error $errors "macOS update channel entry '$target' claims codesign verification without a signed status report."
             }
-            if ($RequireProduction -and -not $platform.notary_report) {
-                Add-Error $errors "macOS production update channel entry '$target' must reference notary_report."
+            $requiresNotary = $verification.Contains("notarytool-accepted")
+            if ($requiresNotary -and -not $platform.notary_report) {
+                Add-Error $errors "macOS update channel entry '$target' claims notarization verification without a notary report."
             } elseif ($platform.notary_report) {
                 $notaryPath = Resolve-TopLevelPath $errors ([string]$platform.notary_report) "Platform '$target' notary report"
                 if ($notaryPath) {
                     try {
                         $notary = Get-Content -LiteralPath $notaryPath -Raw | ConvertFrom-Json
                         $notaryStatus = if (Test-JsonProperty $notary "status") { [string]$notary.status } else { "" }
-                        if ($RequireProduction -and $notaryStatus -ne "Accepted") {
+                        if ($requiresNotary -and $notaryStatus -ne "Accepted") {
                             Add-Error $errors "macOS notary report for '$target' must have status Accepted, found '$notaryStatus'."
                         }
                     } catch {

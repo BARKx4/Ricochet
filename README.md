@@ -45,9 +45,22 @@ Portable Linux tarballs are also available. Extract the tarball and run
 On macOS, choose the stable tarball for your Mac:
 `ricochet-vX.Y.Z-macos-arm64.tar.gz` for Apple Silicon or
 `ricochet-vX.Y.Z-macos-x64.tar.gz` for Intel. Extract it and run
-`./install.sh`, or add the extracted folder to your `PATH`. Official stable
-artifacts contain codesigned binaries and include an accepted Apple
-notarization report beside the archive.
+`./install.sh`, or add the extracted folder to your `PATH`.
+
+Stable releases include `SHA256SUMS.txt`, its detached GPG signature
+`SHA256SUMS.txt.asc`, and `RICOCHET-RELEASE-KEY.asc`. Linux archives and Debian
+packages also carry individual detached GPG signatures. Windows Authenticode
+and Apple codesigning/notarization are additive: when project certificates are
+not available, the audited packages remain unsigned and say so in their
+`SIGNING-*.txt` reports. Windows SmartScreen or macOS Gatekeeper may therefore
+warn; verify the GPG-signed checksum inventory or build the signed tag from
+source before installing.
+
+```bash
+gpg --import RICOCHET-RELEASE-KEY.asc
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt
+```
 
 For an uninstalled source checkout, install the CLI once:
 

@@ -22,7 +22,8 @@ function New-Fixture {
         [string] $ApiAssetName = $AssetName,
         [string] $ChecksumAssetName = $AssetName,
         [switch] $CorruptDigest,
-        [switch] $OmitApiAsset
+        [switch] $OmitApiAsset,
+        [switch] $OmitStableSignature
     )
 
     $assetDir = Join-Path $RootPath "assets"
@@ -30,8 +31,22 @@ function New-Fixture {
     $assetPath = Join-Path $assetDir $AssetName
     [IO.File]::WriteAllText($assetPath, "fixture artifact bytes`n", [Text.UTF8Encoding]::new($false))
     $assetHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stablePaths = @()
+    $checksumLines = @("$assetHash  $ChecksumAssetName")
+    if (-not $Prerelease) {
+        $keyPath = Join-Path $assetDir "RICOCHET-RELEASE-KEY.asc"
+        [IO.File]::WriteAllText($keyPath, "fixture public key`n", [Text.UTF8Encoding]::new($false))
+        $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $checksumLines += "$keyHash  RICOCHET-RELEASE-KEY.asc"
+        $stablePaths += $keyPath
+        if (-not $OmitStableSignature) {
+            $signaturePath = Join-Path $assetDir "SHA256SUMS.txt.asc"
+            [IO.File]::WriteAllText($signaturePath, "fixture detached signature`n", [Text.UTF8Encoding]::new($false))
+            $stablePaths += $signaturePath
+        }
+    }
     $checksumsPath = Join-Path $assetDir "SHA256SUMS.txt"
-    [IO.File]::WriteAllText($checksumsPath, "$assetHash  $ChecksumAssetName`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($checksumsPath, ($checksumLines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
     $checksumsHash = (Get-FileHash -LiteralPath $checksumsPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
     $assets = [System.Collections.Generic.List[object]]::new()
@@ -49,6 +64,15 @@ function New-Fixture {
         size = (Get-Item -LiteralPath $checksumsPath).Length
         digest = "sha256:$checksumsHash"
     })
+    foreach ($stablePath in $stablePaths) {
+        $stableHash = (Get-FileHash -LiteralPath $stablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $assets.Add([pscustomobject][ordered]@{
+            name = Split-Path -Leaf $stablePath
+            state = "uploaded"
+            size = (Get-Item -LiteralPath $stablePath).Length
+            digest = "sha256:$stableHash"
+        })
+    }
 
     $release = [pscustomobject][ordered]@{
         tag_name = "v1.0.0"
@@ -115,6 +139,7 @@ Invoke-Case "exact draft inventory" (New-Fixture (Join-Path $FixtureRoot "draft-
 Invoke-Case "exact published inventory" (New-Fixture (Join-Path $FixtureRoot "published-ok") -Draft $false) $true -RequirePublished
 Invoke-Case "exact stable inventory" (New-Fixture (Join-Path $FixtureRoot "stable-ok") -Draft $false -Prerelease $false) $true -RequirePublished -RequireStable
 Invoke-Case "stable release marked prerelease" (New-Fixture (Join-Path $FixtureRoot "stable-wrong") -Draft $false) $false -RequirePublished -RequireStable
+Invoke-Case "stable release missing checksum signature" (New-Fixture (Join-Path $FixtureRoot "stable-unsigned") -Draft $false -Prerelease $false -OmitStableSignature) $false -RequirePublished -RequireStable
 Invoke-Case "GitHub-renamed asset" (New-Fixture (Join-Path $FixtureRoot "renamed") -ApiAssetName "ricochet_1.0~0_amd64.deb") $false
 Invoke-Case "API asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "api-case") -ApiAssetName "Ricochet_1.0.0_amd64.deb") $false
 Invoke-Case "checksum asset case mismatch" (New-Fixture (Join-Path $FixtureRoot "checksum-case") -ChecksumAssetName "Ricochet_1.0.0_amd64.deb") $false

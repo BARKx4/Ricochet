@@ -282,6 +282,9 @@ Require-PatternSet `
     -Description "Manual Windows packaging must run once on windows-latest after version resolution."
 Require-Pattern $windowsJob 'package-release\.ps1[^\r\n]*-Target windows-x64' "Windows package job must build the windows-x64 logical target."
 Reject-Pattern $windowsJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Windows package job."
+Require-Pattern $windowsJob '(?m)^\s*\$signingMode = ''auto''\r?$' "Stable Windows packaging must permit an explicit unsigned fallback when no Authenticode certificate is configured."
+Reject-Pattern $windowsJob '(?m)^\s*\$signingMode = ''require''\r?$' "Stable Windows packaging must not make a paid Authenticode certificate a release prerequisite."
+Require-Pattern $windowsJob 'steps\.windows-signing\.outputs\.windows_cert_sha1' "Windows production signature validation must run when a certificate was imported."
 
 Require-PatternSet `
     -Text $linuxJobHeader `
@@ -292,6 +295,7 @@ Require-PatternSet `
     -Description "Manual Linux packaging must run once on ubuntu-latest after version resolution."
 Require-Pattern $linuxJob 'args=\(--target linux-x64 ' "Linux package job must build the linux-x64 logical target."
 Reject-Pattern $linuxJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Linux package job."
+Require-Pattern $linuxJob "(?m)^\s*signature_mode='require'\r?$" "Stable Linux packaging must retain required GPG signatures."
 Require-Pattern $linuxVersionGuardStep '(?m)^        run: bash scripts/test-linux-release-version\.sh\r?$' "Linux release packaging must execute the malformed-version behavior test."
 Require-PatternSet `
     -Text $linuxDependenciesStep `
@@ -317,6 +321,15 @@ Require-PatternSet `
 Require-Pattern $macosJob ([regex]::Escape('--target ''${{ matrix.target }}''')) "macOS package job must build its declared matrix target."
 Require-Pattern $macosSmokeStep ([regex]::Escape('tar -xzf dist/ricochet-v*-${{ matrix.target }}.tar.gz -C "$tmp"')) "macOS smoke must inspect the package for its declared matrix target."
 Reject-Pattern $macosJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the macOS package matrix."
+Require-PatternSet `
+    -Text $macosJob `
+    -Patterns @(
+        "(?m)^\s*signing_mode='auto'\r?$",
+        "(?m)^\s*notarization_mode='auto'\r?$",
+        'steps\.macos-signing\.outputs\.ready'
+    ) `
+    -Description "Stable macOS packaging must fall back explicitly without Apple credentials and fully validate signatures when credentials are available."
+Reject-Pattern $macosJob "(?m)^\s*(?:signing_mode|notarization_mode)='require'\r?$" "Stable macOS packaging must not make Apple Developer membership a release prerequisite."
 
 $actualMacosTargets = @(
     [regex]::Matches(
@@ -397,7 +410,18 @@ if (
 ) {
     Add-Failure "Publish must write the channel, finalize checksums, revalidate, create a draft, audit it, promote it, then verify public state."
 }
-Require-Pattern $publishChecksumsStep "! -name 'SHA256SUMS\.txt'" "Combined checksum generation must exclude only its own final output."
+Require-PatternSet `
+    -Text $publishChecksumsStep `
+    -Patterns @(
+        "! -name 'SHA256SUMS\.txt'",
+        "! -name 'SHA256SUMS\.txt\.asc'",
+        'RICOCHET-RELEASE-KEY\.asc',
+        'gpg --batch --yes --armor --detach-sign',
+        'gpg --batch --verify SHA256SUMS\.txt\.asc SHA256SUMS\.txt'
+    ) `
+    -Description "Stable publication must export the release key, sign the combined checksums, verify the signature, and avoid a circular checksum entry."
+Require-Pattern $publishJob 'setup-linux-gpg-key\.sh --required' "Stable publication must import the required GPG key before signing combined checksums."
+Require-Pattern $publishJob 'git tag -v "\$GITHUB_REF_NAME"' "Stable publication must verify the release tag against the isolated GPG release keyring."
 Require-Pattern $publishRevalidationStep 'validate-update-channel\.ps1' "The finalized release set must revalidate update-channel hashes after combined checksums are written."
 Require-PatternSet `
     -Text $publishDraftCreateStep `
@@ -431,7 +455,8 @@ Require-PatternSet `
         'validate-published-release-assets\.ps1',
         '-RequireDraft',
         '-RequireStable',
-        'validate-update-channel\.ps1'
+        'validate-update-channel\.ps1',
+        'gpg --batch --verify'
     ) `
     -Description "Draft audit must compare GitHub API/downloaded assets and revalidate the candidate channel before publication."
 if ($publishDraftAuditStep -match 'releases/tags/') {
