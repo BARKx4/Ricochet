@@ -9,6 +9,7 @@ skip_build=0
 build_deb=1
 signature_mode="auto"
 linux_gpg_key="${RICOCHET_LINUX_GPG_KEY:-}"
+linux_gpg_passphrase="${RICOCHET_LINUX_GPG_PASSPHRASE:-}"
 
 usage() {
   cat <<'EOF'
@@ -337,7 +338,11 @@ sign_linux_assets() {
   for path in "${paths[@]}"; do
     local signature_path="${path}.asc"
     assert_new_path "$signature_path"
-    gpg --batch --yes --armor --detach-sign --local-user "$linux_gpg_key" --output "$signature_path" "$path"
+    if [[ -n "$linux_gpg_passphrase" ]]; then
+      printf '%s\n' "$linux_gpg_passphrase" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign --local-user "$linux_gpg_key" --output "$signature_path" "$path"
+    else
+      gpg --batch --yes --armor --detach-sign --local-user "$linux_gpg_key" --output "$signature_path" "$path"
+    fi
     append_signing_report "signed = $path" "signature = $signature_path"
     signature_assets+=("$signature_path")
   done

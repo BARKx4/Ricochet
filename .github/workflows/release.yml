@@ -688,6 +688,8 @@ jobs:
 
       - name: Build release package
         shell: bash
+        env:
+          RICOCHET_LINUX_GPG_PASSPHRASE: ${{ secrets.RICOCHET_LINUX_GPG_PASSPHRASE }}
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
           signature_mode='dry-run'
@@ -1087,6 +1089,8 @@ jobs:
 
       - name: Write checksums
         shell: bash
+        env:
+          RICOCHET_LINUX_GPG_PASSPHRASE: ${{ secrets.RICOCHET_LINUX_GPG_PASSPHRASE }}
         run: |
           cd dist
           if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
@@ -1097,10 +1101,17 @@ jobs:
             | sort \
             | xargs sha256sum > SHA256SUMS.txt
           if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
-            gpg --batch --yes --armor --detach-sign \
-              --local-user "$RICOCHET_LINUX_GPG_KEY" \
-              --output SHA256SUMS.txt.asc \
-              SHA256SUMS.txt
+            if [[ -n "${RICOCHET_LINUX_GPG_PASSPHRASE:-}" ]]; then
+              printf '%s\n' "$RICOCHET_LINUX_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign \
+                --local-user "$RICOCHET_LINUX_GPG_KEY" \
+                --output SHA256SUMS.txt.asc \
+                SHA256SUMS.txt
+            else
+              gpg --batch --yes --armor --detach-sign \
+                --local-user "$RICOCHET_LINUX_GPG_KEY" \
+                --output SHA256SUMS.txt.asc \
+                SHA256SUMS.txt
+            fi
             gpg --batch --verify SHA256SUMS.txt.asc SHA256SUMS.txt
           fi
 

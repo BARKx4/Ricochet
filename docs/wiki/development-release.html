@@ -89,11 +89,13 @@ pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64
 <p>For production tag builds, GitHub Actions imports the GPG private key before packaging with <code>scripts/setup-linux-gpg-key.sh</code>. Configure these repository secrets:</p>
 <ul>
 <li><code>RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64</code>: base64 of an armored or binary GPG secret-key export.</li>
+<li><code>RICOCHET_LINUX_GPG_PASSPHRASE</code>: passphrase for a protected secret-key export; signing passes it to GPG over standard input rather than the command line.</li>
 <li><code>RICOCHET_LINUX_GPG_KEY</code>: optional key id or fingerprint to validate and use; when omitted and exactly one secret key is imported, the setup step writes the imported fingerprint to <code>RICOCHET_LINUX_GPG_KEY</code>.</li>
 <li><code>RICOCHET_LINUX_GPG_OWNERTRUST_BASE64</code>: optional base64 ownertrust export.</li>
 </ul>
 <p>Local credential setup uses the same environment variables:</p>
 <pre class="code-block"><code class="language-bash">export RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64="$(gpg --armor --export-secret-keys KEYID | base64 -w0)"
+export RICOCHET_LINUX_GPG_PASSPHRASE="&lt;key passphrase&gt;"
 export RICOCHET_LINUX_GPG_KEY="KEYID"
 env_file="$(mktemp)"
 bash scripts/setup-linux-gpg-key.sh --required --env-file "$env_file"

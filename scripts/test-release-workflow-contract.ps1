@@ -5,6 +5,7 @@ $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $workflowPath = Join-Path $root ".github\workflows\release.yml"
 $workflow = [System.IO.File]::ReadAllText($workflowPath)
 $windowsPackageScript = [System.IO.File]::ReadAllText((Join-Path $root "scripts\package-release.ps1"))
+$linuxPackageScript = [System.IO.File]::ReadAllText((Join-Path $root "scripts\package-release-linux.sh"))
 $releaseArtifactValidator = [System.IO.File]::ReadAllText((Join-Path $root "scripts\validate-release-artifacts.ps1"))
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -195,6 +196,7 @@ $windowsPortableStep = Get-StepText -JobText $windowsJob -Name "Smoke-test packa
 $windowsInstallerStep = Get-StepText -JobText $windowsJob -Name "Smoke-test Windows installer"
 $linuxVersionGuardStep = Get-StepText -JobText $linuxJob -Name "Test Linux release version guard"
 $linuxDependenciesStep = Get-StepText -JobText $linuxJob -Name "Install Linux GUI build dependencies"
+$linuxBuildStep = Get-StepText -JobText $linuxJob -Name "Build release package"
 $linuxSmokeStep = Get-StepText -JobText $linuxJob -Name "Smoke-test package executable"
 $macosSmokeStep = Get-StepText -JobText $macosJob -Name "Smoke-test package executable"
 $cleanLinuxSmokeStep = Get-StepText -JobText $cleanLinuxJob -Name "Install and smoke-test Debian package"
@@ -296,6 +298,15 @@ Require-PatternSet `
 Require-Pattern $linuxJob 'args=\(--target linux-x64 ' "Linux package job must build the linux-x64 logical target."
 Reject-Pattern $linuxJobHeader '(?m)^    if:' "Manual workflow execution must not filter out the Linux package job."
 Require-Pattern $linuxJob "(?m)^\s*signature_mode='require'\r?$" "Stable Linux packaging must retain required GPG signatures."
+Require-Pattern $linuxBuildStep 'RICOCHET_LINUX_GPG_PASSPHRASE: \$\{\{ secrets\.RICOCHET_LINUX_GPG_PASSPHRASE \}\}' "Linux package signing must receive the protected-key passphrase from repository secrets."
+Require-PatternSet `
+    -Text $linuxPackageScript `
+    -Patterns @(
+        'RICOCHET_LINUX_GPG_PASSPHRASE',
+        '--pinentry-mode loopback',
+        '--passphrase-fd 0'
+    ) `
+    -Description "Linux package signing must unlock protected keys over standard input."
 Require-Pattern $linuxVersionGuardStep '(?m)^        run: bash scripts/test-linux-release-version\.sh\r?$' "Linux release packaging must execute the malformed-version behavior test."
 Require-PatternSet `
     -Text $linuxDependenciesStep `
@@ -421,6 +432,14 @@ Require-PatternSet `
     ) `
     -Description "Stable publication must export the release key, sign the combined checksums, verify the signature, and avoid a circular checksum entry."
 Require-Pattern $publishJob 'setup-linux-gpg-key\.sh --required' "Stable publication must import the required GPG key before signing combined checksums."
+Require-PatternSet `
+    -Text $publishChecksumsStep `
+    -Patterns @(
+        'RICOCHET_LINUX_GPG_PASSPHRASE: \$\{\{ secrets\.RICOCHET_LINUX_GPG_PASSPHRASE \}\}',
+        '--pinentry-mode loopback',
+        '--passphrase-fd 0'
+    ) `
+    -Description "Combined checksum signing must unlock protected keys over standard input."
 Require-Pattern $publishJob 'git tag -v "\$GITHUB_REF_NAME"' "Stable publication must verify the release tag against the isolated GPG release keyring."
 Require-Pattern $publishRevalidationStep 'validate-update-channel\.ps1' "The finalized release set must revalidate update-channel hashes after combined checksums are written."
 Require-PatternSet `
