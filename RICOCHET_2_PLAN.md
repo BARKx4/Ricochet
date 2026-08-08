@@ -19,7 +19,7 @@ not two dialects of one language.
 | Line | Product | Canonical tool | Branch | Release tags | Compatibility promise |
 | --- | --- | --- | --- | --- | --- |
 | 1.x | Ricochet | `rco` | `main` | `v1.0.x` | Existing 1.x source and artifact contracts are maintained by patch releases. |
-| 2.x | Ricochet | `ricochet` | `ricochet-2` | `ricochet-v2.0.0-*` | No source, bytecode, image, manifest, lockfile, package, plugin, or runtime compatibility with 1.x. |
+| 2.x | Ricochet | `ricochet` | `ricochet-2` | `ricochet-v2.*` | No source, bytecode, image, manifest, lockfile, package, plugin, or runtime compatibility with 1.x. |
 
 The 1.0 source and published artifacts already contain a secondary `ricochet`
 launcher. It is a legacy 1.x alias, not the canonical 1.x tool. It remains
@@ -196,6 +196,7 @@ ADR before the first public alpha.
 | Bytecode container | `.ricbc`, with v2 magic and schema; no 1.x loader |
 | VM image, if retained | `.ricimg`, with a v2-only schema; no 1.x loader |
 | Package archive | `.ricpkg`, with a v2-only schema and integrity record |
+| Release artifacts | `ricochet-v2.<semver>-<target>.<format>` and v2-specific metadata names |
 | Update channels | v2-specific stable, candidate, and nightly documents |
 | Installer/application identity | Ricochet 2, isolated from installed Ricochet 1.x |
 
@@ -1102,3 +1103,16 @@ ordering defect: the test assumed two 50 ms sleepers must still be running when
 the host inspected them. The maintenance fix uses an explicit channel barrier
 for running-state coverage and makes lifecycle integration assertions valid for
 either scheduler state before `await`.
+
+The product-line governance established on 2026-08-08 adds:
+
+- remote protected `main` and `ricochet-2` branches with force-push and
+  deletion disabled for administrators as well as ordinary contributors;
+- the `line: 1.x LTS`, `line: 2.x`, and `roadmap: 2.0` issue labels;
+- distinct `CI`/`CodeQL Advanced` and `Ricochet 2 CI`/`Ricochet 2 CodeQL`
+  automation identities;
+- a fail-closed `Ricochet 2 Release Contract` lane that validates v2 naming but
+  cannot publish before the Phase 1 identity skeleton exists;
+- accepted compatibility and release policy in ADR-010;
+- concrete proposed designs and evidence gates in ADR-001 through ADR-003; and
+- open decision briefs for ADR-004 through ADR-009.

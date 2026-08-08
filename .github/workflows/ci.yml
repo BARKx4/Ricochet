@@ -1,4 +1,4 @@
-name: CI
+name: Ricochet 2 CI
 
 on:
   push:
@@ -15,6 +15,11 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v6
+
+      - name: Validate Ricochet 2 governance
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: .\scripts\validate-ricochet-2-governance.ps1
 
       - name: Test Linux release version guard
         if: matrix.os == 'ubuntu-latest'

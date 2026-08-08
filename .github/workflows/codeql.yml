@@ -9,13 +9,13 @@
 # the `language` matrix defined below to confirm you have the correct set of
 # supported CodeQL languages.
 #
-name: "CodeQL Advanced"
+name: "Ricochet 2 CodeQL"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "ricochet-2" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "ricochet-2" ]
   schedule:
     - cron: '20 4 * * 3'
 

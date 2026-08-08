@@ -28,6 +28,10 @@ obligation to 1.x. The two lines have separate release and artifact identities.
 Until a 2.x prerelease is published, the commands and documentation below
 describe Ricochet 1.x.
 
+The complete [Ricochet 2 product charter and roadmap](RICOCHET_2_PLAN.md) and
+the [architecture decision index](architecture/README.md) are maintained on
+the `ricochet-2` branch.
+
 ## Install
 
 Download published builds from the

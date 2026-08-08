@@ -1,0 +1,47 @@
+name: Ricochet 2 Release Contract
+
+on:
+  push:
+    branches: ["ricochet-2"]
+    paths:
+      - "RICOCHET_2_PLAN.md"
+      - "architecture/**"
+      - "scripts/validate-ricochet-2-governance.ps1"
+      - ".github/workflows/ricochet-2-release-contract.yml"
+  pull_request:
+    branches: ["ricochet-2"]
+    paths:
+      - "RICOCHET_2_PLAN.md"
+      - "architecture/**"
+      - "scripts/validate-ricochet-2-governance.ps1"
+      - ".github/workflows/ricochet-2-release-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate unpublished v2 release lane
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Validate Ricochet 2 identities and ADR states
+        shell: pwsh
+        run: ./scripts/validate-ricochet-2-governance.ps1
+
+      - name: Record release-lane state
+        shell: pwsh
+        run: |
+          @"
+          ## Ricochet 2 release contract
+
+          - Branch: ``ricochet-2``
+          - Tool: ``ricochet``
+          - Tags: ``ricochet-v2.*``
+          - Artifacts: ``ricochet-v2.<semver>-<target>.<format>``
+          - Publishing: deliberately disabled until the Phase 1 identity skeleton exists
+          "@ >> $env:GITHUB_STEP_SUMMARY
