@@ -1,0 +1,12 @@
+name: Ricochet 2 CI
+
+on:
+  push:
+    branches: ["ricochet-2"]
+  pull_request:
+    branches: ["ricochet-2"]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml

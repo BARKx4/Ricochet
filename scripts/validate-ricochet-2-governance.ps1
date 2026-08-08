@@ -7,6 +7,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 $requiredFiles = @(
     'RICOCHET_2_PLAN.md',
+    '.github/workflows/ricochet-2-ci.yml',
+    '.github/workflows/ricochet-2-codeql.yml',
+    '.github/workflows/ricochet-2-release-contract.yml',
     'architecture/README.md',
     'architecture/adr/ADR-001-typed-postfix-surface.md',
     'architecture/adr/ADR-002-type-and-stack-solver.md',
@@ -62,8 +65,31 @@ foreach ($entry in $expectedAdrStatuses.GetEnumerator()) {
 }
 
 $ci = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci.yml') -Raw
-if (-not $ci.Contains('name: Ricochet 2 CI')) {
+if (-not $ci.Contains('name: CI') -or
+    -not $ci.Contains('branches: ["main"]') -or
+    -not $ci.Contains('workflow_call:')) {
+    throw 'The inherited CI definition must be reusable and direct-run only on main.'
+}
+
+$v2Ci = Get-Content -LiteralPath (
+    Join-Path $repoRoot '.github/workflows/ricochet-2-ci.yml'
+) -Raw
+if (-not $v2Ci.Contains('name: Ricochet 2 CI')) {
     throw 'The ricochet-2 branch must retain the distinct Ricochet 2 CI identity.'
+}
+
+$codeql = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/codeql.yml') -Raw
+if (-not $codeql.Contains('name: "CodeQL Advanced"') -or
+    -not $codeql.Contains('branches: [ "main" ]') -or
+    -not $codeql.Contains('workflow_call:')) {
+    throw 'The inherited CodeQL definition must be reusable and direct-run only on main.'
+}
+
+$v2Codeql = Get-Content -LiteralPath (
+    Join-Path $repoRoot '.github/workflows/ricochet-2-codeql.yml'
+) -Raw
+if (-not $v2Codeql.Contains('name: Ricochet 2 CodeQL')) {
+    throw 'The ricochet-2 branch must retain the distinct Ricochet 2 CodeQL identity.'
 }
 
 $releaseContract = Get-Content -LiteralPath (

@@ -7,6 +7,10 @@ on:
       - "RICOCHET_2_PLAN.md"
       - "architecture/**"
       - "scripts/validate-ricochet-2-governance.ps1"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/codeql.yml"
+      - ".github/workflows/ricochet-2-ci.yml"
+      - ".github/workflows/ricochet-2-codeql.yml"
       - ".github/workflows/ricochet-2-release-contract.yml"
   pull_request:
     branches: ["ricochet-2"]
@@ -14,6 +18,10 @@ on:
       - "RICOCHET_2_PLAN.md"
       - "architecture/**"
       - "scripts/validate-ricochet-2-governance.ps1"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/codeql.yml"
+      - ".github/workflows/ricochet-2-ci.yml"
+      - ".github/workflows/ricochet-2-codeql.yml"
       - ".github/workflows/ricochet-2-release-contract.yml"
   workflow_dispatch:
 

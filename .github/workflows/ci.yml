@@ -1,8 +1,11 @@
-name: Ricochet 2 CI
+name: CI
 
 on:
   push:
+    branches: ["main"]
   pull_request:
+    branches: ["main"]
+  workflow_call:
 
 jobs:
   verify:
