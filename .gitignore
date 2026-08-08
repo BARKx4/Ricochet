@@ -28,6 +28,7 @@ examples/**/db/*.sqlite3-*
 !**/README.md
 !SECURITY.md
 !SUPPORT.md
+!RICOCHET_2_PLAN.md
 
 # Keep the source-controlled portable-pty patch auditable while ignoring files
 # generated when its standalone crate tests are run directly.

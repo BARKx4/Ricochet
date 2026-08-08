@@ -1,6 +1,11 @@
 # Support
 
-Ricochet 1.x is developer-facing stable software.
+Ricochet 1.0.x is the feature-locked Long Term Support line. The canonical
+1.x tool is `rco`.
+
+Ricochet 2 is an incompatible product line under development on the
+`ricochet-2` branch. Its canonical tool will be `ricochet`. A 2.x prerelease is
+not covered by the 1.x LTS compatibility promise.
 
 ## Documentation
 
@@ -43,14 +48,24 @@ are best-effort and are not guaranteed.
 
 ## Version policy
 
-Fixes are developed on the current development line and released forward.
-Before reporting a release problem, reproduce it on the newest published
-stable release when possible.
+Ricochet 1.x accepts correctness, security, crash, data-loss,
+supported-platform, packaging, installer, CI, and documentation fixes for
+existing behavior. It does not accept new syntax, public words, commands,
+packages, targets, or language features. Maintenance releases use `1.0.x`
+patch versions; there is no planned `1.1.0` feature line.
+
+Before reporting a 1.x release problem, reproduce it with `rco` on the
+newest published stable release in the `1.0.x` line when possible.
 
 Older release lines, release candidates, nightly artifacts, and downstream
 modifications do not receive guaranteed maintenance or backports.
 
+Ricochet 1.x remains supported through Ricochet 2.0.0 general availability and
+for at least twelve months afterward. Any end-of-life date will be announced
+at least ninety days in advance.
+
 ## Expectations
 
-Support is provided on a best-effort basis. There is no guaranteed response,
-resolution, compatibility, or backport timeline.
+Support is provided on a best-effort basis. LTS defines maintenance scope and
+duration; it does not provide a guaranteed response, resolution, or backport
+timeline.

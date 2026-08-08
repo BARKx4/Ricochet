@@ -2,10 +2,18 @@
 
 ## Supported versions
 
-Ricochet 1.x is stable software. Security fixes are developed on the current
-supported line and released forward in a patch or minor release when
-appropriate. Older release lines, release candidates, nightly builds, and
-source snapshots do not receive guaranteed backports.
+Ricochet 1.0.x is the feature-locked Long Term Support line. Security fixes are
+released as `1.0.x` patch releases. New language or platform features do not
+enter the LTS line.
+
+Ricochet 1.x remains supported through Ricochet 2.0.0 general availability and
+for at least twelve months afterward. Any end-of-life date will be announced
+at least ninety days in advance. Ricochet 2 prereleases are evaluated on a
+best-effort basis until the 2.x stable support policy takes effect.
+
+Older release lines, release candidates outside the active 2.x development
+line, nightly builds, and source snapshots do not receive guaranteed
+backports.
 
 Use the newest published stable release when evaluating or reporting an issue.
 
@@ -18,7 +26,8 @@ form](https://github.com/BARKx4/Ricochet/security/advisories/new).
 
 Include, when available:
 
-- the affected Ricochet version or commit;
+- the affected Ricochet product line, version, tool (`rco` or `ricochet`), or
+  commit;
 - operating system, architecture, and installation method;
 - the affected component;
 - prerequisites and a minimal reproduction;

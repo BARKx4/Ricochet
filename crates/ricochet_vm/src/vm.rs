@@ -8299,14 +8299,42 @@ mod tests {
     }
 
     #[test]
+    fn blocked_task_reports_running_until_worker_completion() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let permit = acquire_task_permit("test", usize::MAX).expect("task permit is available");
+        let task = RunningTask::spawn_value("test".to_string(), permit, move || {
+            started_tx
+                .send(())
+                .expect("test observes the worker starting");
+            release_rx.recv().expect("test releases the blocked worker");
+            Value::Number(7)
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker starts before status inspection");
+
+        let mut vm = Vm::default();
+        vm.tasks.insert(7, TaskState::Running(task.clone()));
+
+        assert_eq!(vm.task_status(7), "running");
+        assert!(vm.task_running(7));
+        assert_eq!(vm.pending_task_ids(), vec![7]);
+
+        release_tx.send(()).expect("blocked worker is released");
+        let completion = task.wait();
+
+        assert_eq!(completion.result, Ok(Value::Number(7)));
+        assert_eq!(vm.task_status(7), "completed");
+        assert!(!vm.task_running(7));
+        assert!(vm.pending_task_ids().is_empty());
+    }
+
+    #[test]
     fn await_all_resolves_tasks_in_order_and_retains_completed_status() {
         let mut first = Chunk::new("test.rco");
-        first.push(Op::PushNumber(50), span());
-        first.push(Op::CallWord("sleep".to_string()), span());
         first.push(Op::PushNumber(1), span());
         let mut second = Chunk::new("test.rco");
-        second.push(Op::PushNumber(50), span());
-        second.push(Op::CallWord("sleep".to_string()), span());
         second.push(Op::PushNumber(2), span());
 
         let mut chunk = Chunk::new("test.rco");
@@ -8318,13 +8346,9 @@ mod tests {
         chunk.push(Op::CallWord("spawn".to_string()), span());
 
         let mut vm = Vm::default();
-        vm.set_sleep_enabled(true);
         vm.run_chunk(&chunk).expect("spawn succeeds");
 
         assert_eq!(vm.stack(), &[Value::Task(0), Value::Task(1)]);
-        assert_eq!(vm.pending_task_ids(), vec![0, 1]);
-        assert_eq!(vm.task_status(0), "running");
-        assert!(vm.task_running(0));
 
         vm.stack.clear();
         vm.stack

@@ -14,6 +14,20 @@ support expected from a serious development platform.
 
 Website: [try.ricochet.today](https://try.ricochet.today/)
 
+## Product lines
+
+Ricochet 1.0 is now the feature-locked Long Term Support line. The canonical
+1.x tool remains `rco`; 1.x accepts bug, security, supported-platform,
+packaging, and documentation corrections, but no new language or platform
+features. Maintenance releases use `1.0.x` patch versions.
+
+The incompatible Ricochet 2 line is being designed on `ricochet-2`. Its
+canonical tool will be the full `ricochet` name. Ricochet 2 has no source,
+bytecode, image, manifest, lockfile, package, plugin, or runtime compatibility
+obligation to 1.x. The two lines have separate release and artifact identities.
+Until a 2.x prerelease is published, the commands and documentation below
+describe Ricochet 1.x.
+
 ## Install
 
 Download published builds from the
