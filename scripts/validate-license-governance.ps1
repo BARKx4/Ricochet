@@ -187,8 +187,9 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-$approvedPublicMarkdownPaths = @(
+$approvedTrackedMarkdownPaths = @(
     "README.md",
+    "RICOCHET_2_PLAN.md",
     "SECURITY.md",
     "SUPPORT.md",
     "docs/reference/README.md",
@@ -206,9 +207,32 @@ $approvedPublicMarkdownPaths = @(
     "third_party/portable-pty/LICENSE.md",
     "third_party/portable-pty/RICOCHET-PATCH.md"
 )
-$approvedPublicMarkdownSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-foreach ($approvedMarkdownPath in $approvedPublicMarkdownPaths) {
-    [void]$approvedPublicMarkdownSet.Add($approvedMarkdownPath)
+
+# Ricochet 2 ADR Markdown is tracked architecture source, not the rendered
+# public documentation surface. Require the complete known set whenever the v2
+# architecture index exists while keeping the 1.x main branch free of v2-only
+# path requirements.
+$v2ArchitectureMarkdownPaths = @(
+    "architecture/README.md",
+    "architecture/adr/ADR-001-typed-postfix-surface.md",
+    "architecture/adr/ADR-002-type-and-stack-solver.md",
+    "architecture/adr/ADR-003-managed-heap-and-resources.md",
+    "architecture/adr/ADR-004-object-and-value-representation.md",
+    "architecture/adr/ADR-005-effects-and-capability-authority.md",
+    "architecture/adr/ADR-006-async-runtime.md",
+    "architecture/adr/ADR-007-backend-bakeoff.md",
+    "architecture/adr/ADR-008-modules-environments-packages-and-trust.md",
+    "architecture/adr/ADR-009-application-platform-boundaries.md",
+    "architecture/adr/ADR-010-compatibility-and-release-policy.md"
+)
+$v2ArchitectureIndex = Join-Path $Root "architecture/README.md"
+if (Test-Path -LiteralPath $v2ArchitectureIndex -PathType Leaf) {
+    $approvedTrackedMarkdownPaths += $v2ArchitectureMarkdownPaths
+}
+
+$approvedTrackedMarkdownSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($approvedMarkdownPath in $approvedTrackedMarkdownPaths) {
+    [void]$approvedTrackedMarkdownSet.Add($approvedMarkdownPath)
 }
 $trackedMarkdownPaths = @(& git -C $Root ls-files --cached -- "*.md")
 if ($LASTEXITCODE -ne 0) {
@@ -219,13 +243,13 @@ if ($LASTEXITCODE -ne 0) {
         [void]$trackedMarkdownSet.Add($trackedMarkdownPath)
     }
     foreach ($trackedMarkdownPath in $trackedMarkdownPaths) {
-        if (-not $approvedPublicMarkdownSet.Contains($trackedMarkdownPath)) {
-            Add-Failure "tracked Markdown path is outside the approved public allowlist: $trackedMarkdownPath"
+        if (-not $approvedTrackedMarkdownSet.Contains($trackedMarkdownPath)) {
+            Add-Failure "tracked Markdown path is outside the approved allowlist: $trackedMarkdownPath"
         }
     }
-    foreach ($approvedMarkdownPath in $approvedPublicMarkdownPaths) {
+    foreach ($approvedMarkdownPath in $approvedTrackedMarkdownPaths) {
         if (-not $trackedMarkdownSet.Contains($approvedMarkdownPath)) {
-            Add-Failure "approved public Markdown path is not tracked: $approvedMarkdownPath"
+            Add-Failure "approved Markdown path is not tracked: $approvedMarkdownPath"
         }
     }
 }
