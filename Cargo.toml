@@ -10,6 +10,7 @@ members = [
   "crates/ricochet_web",
   "crates/ricochet_cli",
   "crates/ricochet_sandbox",
+  "prototypes/adr-001-surface",
 ]
 exclude = ["third_party/portable-pty"]
 

@@ -1,0 +1,13 @@
+[package]
+name = "ricochet2_surface_prototype"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ricochet2-surface-proof"
+path = "src/main.rs"

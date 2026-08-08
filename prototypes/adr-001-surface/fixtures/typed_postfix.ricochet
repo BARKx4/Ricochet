@@ -1,0 +1,78 @@
+(( ADR-001 evidence corpus: comments and odd trivia are intentionally retained. ))
+
+(  left: Int   right: Int -> Int  ) add_numbers public function
+  $left $right +
+end
+
+( dividend: Int divisor: Int -> quotient: Int remainder: Int ) div_rem public function
+  $dividend $divisor integer_div_rem
+end
+
+( url: Url -> Result<Response, HttpError> uses async network ) fetch public function
+  $url http_request await
+end
+
+<K: Hash + Equal, V>
+( source: Map<K, V> key: K fallback: V -> V ) value_or public function
+  $source $key at_option
+  match
+    Some(value) when
+      $value
+    None when
+      $fallback
+  end
+end
+
+User public Record
+  name String public Field
+  email Email public Field
+  joined_at Instant private Field
+end
+
+Option<T> public Enum
+  None Case
+  Some(T) Case
+end
+
+Display public Trait
+  ( -> String ) display_name public required Method
+end
+
+User Display Implements
+  ( -> String ) display_name public Method
+    self name.get
+  end
+end
+
+Account public abstract Class
+  id AccountId protected Field
+end
+
+User Account public final Subclass
+  email Email private Field
+
+  ( -> Email ) email public Method
+    self email.get
+  end
+end
+
+"Ada" name let
+0 retry_count: U32 var
+0 cache: Map<String, Int> var
+$retry_count 1 + retry_count set
+
+$user active.get if
+  $user welcome
+else
+  $user explain_inactive
+end
+
+"config/app.json" fs_open_read try file with
+  $file read_all try
+end
+
+[
+  $buffer pin pinned with
+    $pinned address.get foreign_write
+  end
+] unsafe

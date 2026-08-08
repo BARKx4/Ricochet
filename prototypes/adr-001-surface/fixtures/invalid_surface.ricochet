@@ -1,0 +1,12 @@
+( left: Int right: Int Int ) broken public function
+  $left $right +
+end
+
+( -> String ) wrong final public Method
+  "wrong"
+end
+
+user .email.get bad-name
+
+( value: Int -> Int ) never_ends public function
+  $value

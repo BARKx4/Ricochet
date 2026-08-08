@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ricochet 2 ADR-001 surface proof</title>
+  <style>
+    body { max-width: 76ch; margin: 3rem auto; padding: 0 1rem; font: 17px/1.55 system-ui, sans-serif; color: #17202a; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre { padding: 1rem; overflow: auto; background: #f3f5f7; border-left: 4px solid #6c4cff; }
+    .boundary { padding: 1rem; background: #fff8dc; border: 1px solid #d6b84b; }
+  </style>
+</head>
+<body>
+  <h1>Ricochet 2 ADR-001 typed-postfix surface proof</h1>
+  <p>This preserved prototype makes the first proposed-syntax claims executable:</p>
+  <ul>
+    <li>every source byte and comment survives the lossless CST round trip;</li>
+    <li>the formatter reaches a fixed point after one pass;</li>
+    <li>typed declarations become semantic AST declarations and explicit stack rows;</li>
+    <li>deliberate errors produce stable diagnostic codes and byte spans;</li>
+    <li>deterministic mutation fuzzing exercises recovery without panics.</li>
+  </ul>
+  <pre>cargo run -p ricochet2_surface_prototype --bin ricochet2-surface-proof -- demo
+cargo test -p ricochet2_surface_prototype</pre>
+  <p>The <code>inspect</code>, <code>check</code>, and <code>format</code> commands accept a source path. The valid and invalid source corpora live in the adjacent <code>fixtures</code> directory.</p>
+  <p class="boundary"><strong>Boundary:</strong> this is architecture evidence. It is not the production Ricochet 2 frontend, does not accept ADR-001, and does not create Ricochet 1 compatibility obligations. The source remains in the repository even if the proposal is rejected.</p>
+</body>
+</html>

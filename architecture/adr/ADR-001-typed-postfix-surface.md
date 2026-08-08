@@ -565,10 +565,38 @@ grammar chooses one canonical form before alpha.
 
 ## Prototype evidence
 
-No Ricochet 2 parser or formatter evidence exists yet. Ricochet 1 demonstrates
-that postfix function headers, `$name` reads, receiver-before-selector calls,
-and lowercase `end` can work in substantial examples, but 1.x behavior is
-prior art rather than proof of this incompatible grammar.
+The first preserved Ricochet 2 evidence now lives in
+`prototypes/adr-001-surface`. It is an isolated `0.0.0`, non-publishable Rust
+workspace member and deliberately does not reuse or modify the Ricochet 1
+parser. Its `ricochet2-surface-proof demo` command exercises a valid corpus and
+a deliberately invalid corpus through the same lexer, CST, parser, formatter,
+and diagnostic pipeline.
+
+The 2026-08-08 evidence run establishes:
+
+- byte-for-byte lossless CST recovery and token-identity round trips, including
+  retained comment and whitespace tokens;
+- an AST for all 27 Ricochet examples currently fenced in this ADR, with typed
+  declarations, bindings, control structures, match arms, and generic postfix
+  expressions represented explicitly;
+- idempotent formatting for every ADR example and the consolidated proof
+  corpus;
+- semantic lowering of callable signatures to visible input/output stack rows
+  and effect sets;
+- five deliberate failures with stable diagnostic codes, line/column
+  locations, and exact byte spans; and
+- 4,000 deterministic source mutations passing lexer, parser, CST recovery,
+  and formatting without a panic.
+
+The executable report is `prototypes/adr-001-surface/PROOF.html`, and CI runs
+the crate on Windows, Linux, and macOS because it is a workspace member. This
+is evidence for the proposal, not the production Ricochet 2 frontend and not a
+compatibility promise.
+
+This first slice does **not** finish the acceptance program. Module-specific
+syntax, broader recovery/property fuzzing, LSP fixtures, the independent
+readability comparison, and an independent implementation of the Phase 1 proof
+CLI remain open. ADR-001 therefore remains Proposed.
 
 ADR-001 cannot become Accepted until a throwaway prototype provides:
 

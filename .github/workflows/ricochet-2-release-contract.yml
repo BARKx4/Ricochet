@@ -5,7 +5,10 @@ on:
     branches: ["ricochet-2"]
     paths:
       - "RICOCHET_2_PLAN.md"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "architecture/**"
+      - "prototypes/adr-001-surface/**"
       - "scripts/validate-ricochet-2-governance.ps1"
       - ".github/workflows/ci.yml"
       - ".github/workflows/codeql.yml"
@@ -16,7 +19,10 @@ on:
     branches: ["ricochet-2"]
     paths:
       - "RICOCHET_2_PLAN.md"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "architecture/**"
+      - "prototypes/adr-001-surface/**"
       - "scripts/validate-ricochet-2-governance.ps1"
       - ".github/workflows/ci.yml"
       - ".github/workflows/codeql.yml"

@@ -20,7 +20,13 @@ $requiredFiles = @(
     'architecture/adr/ADR-007-backend-bakeoff.md',
     'architecture/adr/ADR-008-modules-environments-packages-and-trust.md',
     'architecture/adr/ADR-009-application-platform-boundaries.md',
-    'architecture/adr/ADR-010-compatibility-and-release-policy.md'
+    'architecture/adr/ADR-010-compatibility-and-release-policy.md',
+    'prototypes/adr-001-surface/Cargo.toml',
+    'prototypes/adr-001-surface/src/lib.rs',
+    'prototypes/adr-001-surface/src/main.rs',
+    'prototypes/adr-001-surface/fixtures/typed_postfix.ricochet',
+    'prototypes/adr-001-surface/fixtures/invalid_surface.ricochet',
+    'prototypes/adr-001-surface/PROOF.html'
 )
 
 foreach ($relativePath in $requiredFiles) {
@@ -69,6 +75,34 @@ if (-not $ci.Contains('name: CI') -or
     -not $ci.Contains('branches: ["main"]') -or
     -not $ci.Contains('workflow_call:')) {
     throw 'The inherited CI definition must be reusable and direct-run only on main.'
+}
+
+$workspaceManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'Cargo.toml') -Raw
+if (-not $workspaceManifest.Contains('"prototypes/adr-001-surface"')) {
+    throw 'The preserved ADR-001 surface proof must remain a tested workspace member.'
+}
+
+$prototypeManifest = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'prototypes/adr-001-surface/Cargo.toml'
+) -Raw
+$requiredPrototypeManifestText = @(
+    'name = "ricochet2_surface_prototype"',
+    'version = "0.0.0"',
+    'publish = false',
+    'name = "ricochet2-surface-proof"'
+)
+foreach ($expected in $requiredPrototypeManifestText) {
+    if (-not $prototypeManifest.Contains($expected)) {
+        throw "ADR-001 prototype manifest is missing its evidence boundary: $expected"
+    }
+}
+
+$prototypeProof = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'prototypes/adr-001-surface/PROOF.html'
+) -Raw
+if (-not $prototypeProof.Contains('architecture evidence') -or
+    -not $prototypeProof.Contains('not the production Ricochet 2 frontend')) {
+    throw 'The ADR-001 proof must state that it is preserved evidence, not the production frontend.'
 }
 
 $v2Ci = Get-Content -LiteralPath (

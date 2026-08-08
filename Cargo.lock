@@ -3309,6 +3309,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ricochet2_surface_prototype"
+version = "0.0.0"
+
+[[package]]
 name = "ricochet_application"
 version = "1.0.0"
 dependencies = [
