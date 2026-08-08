@@ -1,3 +1,4 @@
 /licenses/third-party-licenses.hbs text eol=lf
 /THIRD_PARTY_LICENSES.html text eol=lf -whitespace
 /THIRD_PARTY_NOTICES.txt text eol=lf -whitespace
+/prototypes/adr-001-surface/fixtures/*.ricochet text eol=lf

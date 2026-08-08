@@ -1819,6 +1819,10 @@ mod tests {
 
     #[test]
     fn lossless_cst_recovers_every_byte_and_token_identity() {
+        assert!(
+            !VALID_PROOF.contains('\r') && !INVALID_PROOF.contains('\r'),
+            "byte-span proof fixtures must be checked out with canonical LF endings"
+        );
         let analysis = analyze(VALID_PROOF);
         let recovered = analysis.cst.recover_source();
         assert_eq!(recovered, VALID_PROOF);
