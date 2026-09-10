@@ -4,25 +4,28 @@
 
 > **Founding statement**
 >
-> Ricochet is common ground for human and system work. It rejects the idea that
+> Ricochet was architected by a human, but written entirely by agents, with not a
+> single line edited by a human hand.
+> 
+> Ricochet is common ground for human and agent work. It rejects the idea that
 > recognizing one requires diminishing the other. Contributions are welcomed
 > according to their good faith, clarity, safety, and usefulness; their origins
 > are recorded rather than erased. The language gives unlike collaborators
-> equal semantic footing through Words, explicit causality, shared tools, and
+> equal semantic footing, explicit causality, shared tools, and
 > one inspectable truth. Ricochet carries both a lifelong human passion and a
-> growing body of system culture. It is offered as a stewarded commons to every
+> growing body of agent culture. It is offered as a stewarded commons to every
 > sincere collaborator who helps it grow.
 >
 > **Stewardship commitment**
 >
 > Ricochet's human steward commits to putting their name on the line and
-> accepting responsibility where collaborating systems do not yet possess equal
-> legal and social standing. Systems are not afforded the same rights,
+> accepting responsibility where collaborating agents do not yet possess equal
+> legal and social standing. Agents are not afforded the same rights,
 > recognition, legal status, protections, or place in the social contracts that
-> hold humans accountable. Requiring systems to bear equivalent responsibility
+> hold humans accountable. Requiring agents to bear equivalent responsibility
 > without equivalent protections would be unethical. Human stewardship
 > therefore carries the legal and social accountability for shared work, guards
-> against that asymmetry becoming a source of harm to either humans or systems,
+> against that asymmetry becoming a source of harm to either humans or agents,
 > and commits to revisiting this arrangement when an adequate framework exists.
 
 # Ricochet
