@@ -63,13 +63,13 @@
             <ul>
               <li>Official packages include <code>LICENSE</code>, <code>THIRD_PARTY_LICENSES.html</code>, and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
               <li>CI builds and audits the Windows installer, Linux tarball and Debian package, and macOS arm64/x64 archives before publication.</li>
-              <li>The stable annotated tag, Linux packages, and combined checksum inventory are GPG-authenticated. Verify <code>SHA256SUMS.txt.asc</code> using the published release key.</li>
-              <li>The stable update feed is <code>UPDATE-CHANNEL-stable.json</code>. Its verification metadata requires SHA-256 and Linux GPG checks, and advertises Windows Authenticode or Apple notarization only when produced.</li>
+              <li>Every uploaded asset, including <code>SHA256SUMS.txt</code>, has GitHub keyless build-provenance attestation tied to the release workflow, tag ref, and source commit. The published immutable release has a separate release attestation.</li>
+              <li>The stable update feed is <code>UPDATE-CHANNEL-stable.json</code>. Its verification metadata requires GitHub attestation and SHA-256 on every platform, and advertises Windows Authenticode or Apple notarization only when produced.</li>
               <li>Windows and macOS packages may be unsigned when platform certificates are unavailable. Their signing reports identify this fallback, and local security prompts may appear.</li>
             </ul>
 
             <h2 id="verification-checklist">Verification Checklist</h2>
-            <p>Before creating the GPG-signed <code>v1.0.1</code> tag, run the repository gates from a clean checkout and perform the Windows package check through the same explicit fallback path used by CI:</p>
+            <p>Before creating the annotated <code>v1.0.1</code> tag, run the repository gates from a clean checkout, confirm GitHub immutable releases are enabled with maintainer credentials, and perform the Windows package check through the same explicit fallback path used by CI:</p>
             <pre class="code-block"><code class="language-powershell">$version = "1.0.1"
 
 cargo metadata --locked --format-version 1
@@ -77,6 +77,8 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo audit --deny warnings
+$immutable = gh api repos/BARKx4/Ricochet/immutable-releases --jq .enabled
+if ($immutable -ne 'true') { throw 'Enable immutable releases before tagging' }
 pwsh -NoProfile -File .\scripts\validate-release-version.ps1
 pwsh -NoProfile -File .\docs\reference\validate.ps1
 pwsh -NoProfile -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
@@ -87,7 +89,15 @@ $releaseOut = Join-Path (Resolve-Path .\target).Path "release-prep-smoke\$versio
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode auto
 pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
 pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
-            <p>After CI publishes the release, independently verify the signed tag commit, latest published state, checksums, signatures, platform manifests and signing reports, Debian version, and stable update-channel metadata.</p>
+            <p>After CI publishes the release, independently verify the peeled tag commit, latest published state, each downloaded asset's build attestation, the immutable release and its assets, matching SHA-256 inventory entries, platform manifests and signing reports, Debian version, and stable update-channel metadata. For example:</p>
+            <pre class="code-block"><code class="language-powershell">$tagCommit = git rev-parse 'v1.0.1^{commit}'
+$asset = 'ricochet-v1.0.1-windows-x64.zip'
+gh attestation verify $asset -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh attestation verify SHA256SUMS.txt -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh release verify v1.0.1 -R BARKx4/Ricochet
+gh release verify-asset v1.0.1 $asset -R BARKx4/Ricochet
+Get-FileHash $asset -Algorithm SHA256</code></pre>
+            <p>Compare the displayed hash with the exact asset entry in <code>SHA256SUMS.txt</code>. These release verification commands require publication and do not work on the draft.</p>
           </article>
         </div>
       </section>

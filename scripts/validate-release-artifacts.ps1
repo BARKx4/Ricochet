@@ -182,6 +182,48 @@ foreach ($file in $topLevelFiles) {
     }
 }
 
+# The target checksum file must cover each packaged asset exactly once. The
+# manifest also hashes the checksum file, avoiding a circular checksum entry.
+$checksumArtifacts = @($artifacts | Where-Object { $_.kind -eq "checksums" })
+if ($checksumArtifacts.Count -eq 1 -and $checksumArtifacts[0].name -ceq "SHA256SUMS-$Target.txt") {
+    $checksumPath = Join-Path $OutDirPath ([string]$checksumArtifacts[0].path)
+    if (Test-Path -LiteralPath $checksumPath -PathType Leaf) {
+        $checksumEntries = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+        foreach ($line in (Get-Content -LiteralPath $checksumPath)) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                Add-Error $errors "Checksum file contains a blank line."
+                continue
+            }
+            if ($line -cnotmatch '^(?<hash>[0-9a-f]{64})  (?<name>[^/\\]+)$') {
+                Add-Error $errors "Checksum file contains an invalid SHA-256 entry: '$line'."
+                continue
+            }
+            $name = [string]$Matches['name']
+            if ($name -in @('.', '..') -or $checksumEntries.ContainsKey($name)) {
+                Add-Error $errors "Checksum file contains an invalid or duplicate name '$name'."
+                continue
+            }
+            $checksumEntries.Add($name, [string]$Matches['hash'])
+        }
+
+        foreach ($artifact in $artifacts | Where-Object { $_.kind -ne "checksums" }) {
+            $name = [string]$artifact.name
+            if (-not $checksumEntries.ContainsKey($name)) {
+                Add-Error $errors "Checksum file is missing artifact '$name'."
+            } elseif ($checksumEntries[$name] -cne [string]$artifact.sha256) {
+                Add-Error $errors "Checksum file SHA-256 for '$name' differs from the manifest."
+            }
+        }
+        foreach ($name in $checksumEntries.Keys) {
+            if (-not $artifactByName.ContainsKey($name) -or $artifactByName[$name].kind -eq "checksums") {
+                Add-Error $errors "Checksum file contains unexpected artifact '$name'."
+            }
+        }
+    }
+} else {
+    Add-Error $errors "Expected exactly one SHA256SUMS-$Target.txt checksum artifact, found $($checksumArtifacts.Count)."
+}
+
 $signingReports = @($artifacts | Where-Object { $_.kind -eq "signing-report" })
 foreach ($artifact in $artifacts) {
     if ($artifact.PSObject.Properties.Name -contains "signing_report") {

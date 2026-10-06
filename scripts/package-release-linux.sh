@@ -22,7 +22,7 @@ Options:
   --configuration <name>    Cargo profile directory. Defaults to release.
   --skip-build              Reuse existing target/<configuration> binaries.
   --no-deb                  Skip Debian package creation.
-  --signature-mode <mode>   auto, require, skip, or dry-run. Defaults to auto.
+  --signature-mode <mode>   auto, require, attestation, skip, or dry-run. Defaults to auto.
   --gpg-key <key-id>        GPG signing key. Defaults to RICOCHET_LINUX_GPG_KEY.
   -h, --help                Show this help.
 EOF
@@ -163,13 +163,31 @@ validate_mode() {
   local name="$1"
   local value="$2"
   case "$value" in
-    auto|require|skip|dry-run) ;;
+    auto|require|attestation|skip|dry-run) ;;
     *)
-      echo "$name must be one of: auto, require, skip, dry-run." >&2
+      echo "$name must be one of: auto, require, attestation, skip, dry-run." >&2
       exit 2
       ;;
   esac
 }
+
+validate_mode "--signature-mode" "$signature_mode"
+if [[ "$signature_mode" == "attestation" ]]; then
+  # v1.0.0 and earlier releases retain their documented GPG verification path.
+  precedence="${version%%+*}"
+  core_version="${precedence%%-*}"
+  IFS='.' read -r major minor patch <<< "$core_version"
+  keyless_supported=0
+  if (( major > 1 || (major == 1 && minor > 0) || (major == 1 && minor == 0 && patch > 1) )); then
+    keyless_supported=1
+  elif (( major == 1 && minor == 0 && patch == 1 )) && [[ "$precedence" != *-* ]]; then
+    keyless_supported=1
+  fi
+  if [[ "$keyless_supported" -ne 1 ]]; then
+    echo "GitHub attestation mode starts with stable release v1.0.1; older releases require their historical signing policy." >&2
+    exit 1
+  fi
+fi
 
 copy_release_directory() {
   local source="$1"
@@ -299,6 +317,10 @@ sign_linux_assets() {
   append_signing_report "mode = $signature_mode"
 
   case "$signature_mode" in
+    attestation)
+      append_signing_report "status = pending-attestation" "reason = GitHub Actions must attest and verify finalized release assets before publication"
+      return
+      ;;
     skip)
       append_signing_report "status = skipped" "reason = signature mode is skip"
       return
@@ -425,7 +447,6 @@ if [[ "$build_deb" -eq 1 ]]; then
 fi
 
 mkdir -p "$out_dir_path"
-validate_mode "--signature-mode" "$signature_mode"
 {
   echo "Ricochet Linux signing report"
   echo "version = $version"

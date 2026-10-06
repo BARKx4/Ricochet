@@ -65,6 +65,14 @@ $publishedReleaseAssetContract = Join-Path $Root "scripts\test-published-release
 Write-Host "==> published release asset contract tests"
 & $publishedReleaseAssetContract
 
+$releaseAttestationContract = Join-Path $Root "scripts\test-release-attestations.ps1"
+Write-Host "==> release attestation contract tests"
+& $releaseAttestationContract
+
+$updateChannelAttestationContract = Join-Path $Root "scripts\test-update-channel-attestation.ps1"
+Write-Host "==> update channel attestation contract tests"
+& $updateChannelAttestationContract
+
 $licenseGovernanceValidator = Join-Path $Root "scripts\validate-license-governance.ps1"
 Write-Host "==> license and governance validation"
 & $licenseGovernanceValidator

@@ -96,7 +96,17 @@
 <p>The Debian package declares <code>libgtk-3-0</code>, <code>libwebkit2gtk-4.1-0</code>, and <code>libxdo3</code>. Install those runtime packages manually before using the portable Linux tarball.</p>
 <p>Portable Linux tarballs are also available. Extract the tarball and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
 <p>On macOS, choose the stable tarball for your Mac: <code>ricochet-vX.Y.Z-macos-arm64.tar.gz</code> for Apple Silicon or <code>ricochet-vX.Y.Z-macos-x64.tar.gz</code> for Intel. Extract it and run <code>./install.sh</code>, or add the extracted folder to your <code>PATH</code>.</p>
-<p>Stable releases include <code>SHA256SUMS.txt</code>, its detached GPG signature <code>SHA256SUMS.txt.asc</code>, and <code>RICOCHET-RELEASE-KEY.asc</code>. Linux archives and Debian packages also carry individual GPG signatures. Windows Authenticode and Apple codesigning/notarization are included when project certificates are available. Otherwise those audited packages remain unsigned, record that fact in <code>SIGNING-*.txt</code>, and may trigger Windows SmartScreen or macOS Gatekeeper warnings. Verify the GPG-signed checksum inventory or build the signed tag from source before installing.</p>
+<p>From <code>v1.0.1</code> onward, download the asset and <code>SHA256SUMS.txt</code> from the same published release. Verify both files' GitHub build-provenance attestations against the release workflow, tag ref, and peeled tag commit; then compare the asset's SHA-256 with its exact checksum entry. Verify the published immutable release as a separate check. These commands work after publication, not on a draft:</p>
+<pre><code class="language-powershell">$tagCommit = ((git ls-remote https://github.com/BARKx4/Ricochet.git 'refs/tags/v1.0.1^{}') -split '\s+')[0]
+$asset = 'ricochet-v1.0.1-windows-x64.zip'
+gh attestation verify $asset -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh attestation verify SHA256SUMS.txt -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh release verify v1.0.1 -R BARKx4/Ricochet
+gh release verify-asset v1.0.1 $asset -R BARKx4/Ricochet
+Get-FileHash $asset -Algorithm SHA256
+</code></pre>
+<p>Use the commit SHA, not the annotated tag object or a pull request head. Windows Authenticode and Apple codesigning/notarization are included when project certificates are available. Otherwise the audited packages record an unsigned fallback in <code>SIGNING-*.txt</code> and may trigger Windows SmartScreen or macOS Gatekeeper warnings.</p>
+<p>The historical <code>v1.0.0</code> release instead used detached GPG signatures. For its assets, use its published release key and checksum signature:</p>
 <pre><code class="language-bash">gpg --import RICOCHET-RELEASE-KEY.asc
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
 sha256sum -c SHA256SUMS.txt

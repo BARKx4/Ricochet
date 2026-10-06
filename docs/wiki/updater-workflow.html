@@ -39,7 +39,7 @@
           <article class="guide-content">
 <p>Ricochet's production updater workflow is channel metadata plus platform verification. Ricochet 1.0 does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
 <h2 id="channel-metadata">Channel Metadata</h2>
-<p>Stable tags such as <code>v1.0.1</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside a GPG-signed combined checksum inventory. Stable metadata always requires SHA-256, requires detached GPG verification for Linux, and requires Authenticode or Apple verification only when the signing report proves it was produced. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code> with dry-run SHA-256 metadata.</p>
+<p>Stable tags from <code>v1.0.1</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside <code>SHA256SUMS.txt</code>. GitHub keyless attestations cover both files and every uploaded platform asset. Stable metadata requires <code>github-attestation</code> and <code>sha256</code> for every target, plus Authenticode or Apple verification only when the signing report proves it was produced. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code> with dry-run SHA-256 metadata. The historical <code>v1.0.0</code> release used GPG signatures.</p>
 <pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel stable `
@@ -60,23 +60,24 @@
   -Channel stable `
   -Version 1.0.1 `
   -RequireProduction</code></pre>
-<p>The release workflow writes and validates the channel document before writing <code>SHA256SUMS.txt</code>, then signs that inventory as <code>SHA256SUMS.txt.asc</code> and verifies the downloaded draft again before publication.</p>
+<p>The release workflow writes and validates the channel document before writing <code>SHA256SUMS.txt</code>, attests their exact bytes, and verifies downloaded draft assets against the release workflow, tag ref, and peeled source commit before publication. The operator checks that immutable releases are enabled before tagging; after publication, GitHub's separate release attestation can be checked with <code>gh release verify</code>.</p>
 <h2 id="update-check-contract">Update Check Contract</h2>
 <p>A Ricochet-compatible updater should:</p>
 <ol>
 <li>Fetch the channel file from an HTTPS release or channel URL.</li>
+<li>Verify the channel file's GitHub attestation against the expected repository, signer workflow, tag ref, and peeled source commit before trusting its metadata.</li>
 <li>Require <code>schema = "ricochet.update-channel"</code> and <code>schema_version = 1</code>.</li>
 <li>Require the expected channel name, such as <code>stable</code> or <code>candidate</code>.</li>
 <li>Reject channel versions less than or equal to the installed version unless the operator has explicitly chosen a manual rollback.</li>
 <li>Select the platform target for the current machine.</li>
 <li>Download the target manifest and all artifacts referenced by the selected platform entry.</li>
-<li>Verify every SHA-256 value against the channel metadata and target manifest.</li>
+<li>Verify the downloaded assets' GitHub attestations and every SHA-256 value against the channel metadata and target manifest.</li>
 <li>Run platform verification before install:</li>
 </ol>
 <ul>
-<li>Windows: require Authenticode only when <code>required_verification</code> includes it; otherwise use the GPG-authenticated checksum inventory and explicit unsigned report.</li>
-<li>Linux: detached GPG signature verification for the tarball and Debian package.</li>
-<li>macOS: require codesign and accepted notarization only when those methods appear in <code>required_verification</code>; otherwise use the signed checksum inventory and explicit fallback report.</li>
+<li>Windows: verify GitHub attestation and SHA-256; require Authenticode only when <code>required_verification</code> includes it, and check the explicit unsigned report otherwise.</li>
+<li>Linux: verify GitHub attestations and SHA-256 for the tarball and Debian package; the package signing report records <code>pending-attestation</code> during packaging.</li>
+<li>macOS: verify GitHub attestation and SHA-256; require codesign and accepted notarization only when those methods appear in <code>required_verification</code>, and check the explicit fallback report otherwise.</li>
 </ul>
 <ol>
 <li>Stage the new install outside the active installation path.</li>
@@ -84,7 +85,7 @@
 </ol>
 <h2 id="rollback-story">Rollback Story</h2>
 <p>Automatic rollback means reverting from a failed staged install back to the previous local install. It does not mean silently downgrading from the public channel.</p>
-<p>By default, channel consumers reject older or equal versions. Manual rollback uses the immutable GitHub release for the desired older version, then repeats the same manifest, checksum, signature, and notarization checks before installing.</p>
+<p>By default, channel consumers reject older or equal versions. Manual rollback uses the published GitHub release for the desired older version, then repeats its version-specific manifest, checksum, provenance, and platform checks before installing. The historical <code>v1.0.0</code> rollback path requires its GPG verification instructions.</p>
 <p>Updater state should live outside Ricochet VM images, application state, and project workspaces. A platform installer can keep its own backup directory or package-manager rollback metadata; Ricochet scripts should not delete an existing installation unless the updater has already staged and verified the replacement.</p>
           </article>
         </div>

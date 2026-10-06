@@ -51,7 +51,7 @@
 <li>a portable <code>ricochet-v&lt;version&gt;-linux-x64.tar.gz</code>.</li>
 <li>a Debian package; as a historical example, the official GitHub asset for Ricochet <code>1.0.0</code> is <code>ricochet_1.0.0_amd64.deb</code>, and its internal Debian control metadata records <code>Version: 1.0.0</code>.</li>
 <li><code>ricochet-repl.desktop</code>, <code>ricochet.svg</code>, AppStream metainfo, changelog, maintainer metadata, bundled docs, examples, and first-party packages.</li>
-<li>detached GPG signatures on production tags.</li>
+<li>GitHub keyless build-provenance attestations for uploaded assets from <code>v1.0.1</code>; the historical <code>v1.0.0</code> packages carried detached GPG signatures.</li>
 <li><code>ARTIFACTS-linux-x64.json</code>, <code>SIGNING-linux-x64.txt</code>, and <code>SHA256SUMS-linux-x64.txt</code>.</li>
 </ul>
 <p>macOS releases provide:</p>
@@ -74,7 +74,7 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
   -PackageVersion 1.0.1</code></pre>
-<p>Add <code>-RequireProduction</code> when the target must carry its platform production signature. Stable CI always uses it for Linux and uses it for Windows/macOS only when the corresponding credentials were imported. Ordinary validation still checks the complete package while permitting an explicit unsigned fallback report.</p>
+<p>Add <code>-RequireProduction</code> when a production signing or attestation mode must be verified. Stable CI uses it for Linux's <code>pending-attestation</code> mode and for Windows/macOS when platform credentials were imported. GitHub attestations and SHA-256 authenticate <code>v1.0.1</code> Linux release assets outside this package validator. Ordinary validation still checks the complete package while permitting an explicit unsigned fallback report.</p>
 <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects:</p>
 <ul>
 <li>Windows ZIP contents and installer presence.</li>
@@ -86,7 +86,7 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
 <p>Marketplace submission starts from the validated GitHub release artifacts:</p>
 <ul>
 <li>Windows: use a credential-backed signed installer, not an unsigned fallback, or a future Partner Center/MSIX pass tied to the store publisher identity.</li>
-<li>Linux: use the Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging.</li>
+<li>Linux: use the GitHub-attested Debian package and AppStream metadata for apt repositories or as source material for Flathub/Snapcraft packaging; an apt repository needs its own repository signing policy.</li>
 <li>macOS: direct distribution requires signed and notarized tarballs, not an unsigned fallback. A Mac App Store SKU also needs a sandboxed bundle, entitlements, product identity, and App Store Connect submission flow.</li>
 </ul>
 <p>Do not publish marketplace artifacts that failed manifest validation, store-packaging validation, signature verification, or update-channel validation.</p>

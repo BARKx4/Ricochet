@@ -328,6 +328,14 @@ foreach ($platform in $platforms) {
     }
 
     $verification = @($platform.required_verification | ForEach-Object { [string]$_ })
+    if ($Channel -eq "stable") {
+        if (-not $verification.Contains("sha256")) {
+            Add-Error $errors "Stable update channel entry '$target' must require sha256 verification."
+        }
+        if ($channelDocument.version -ne "1.0.0" -and -not $verification.Contains("github-attestation")) {
+            Add-Error $errors "Stable update channel entry '$target' must require github-attestation verification."
+        }
+    }
     switch ($target) {
         "windows-x64" {
             if ($verification.Contains("authenticode") -and $signingReportText -notmatch '(?im)^\s*status\s*=\s*signed\s*$') {
@@ -338,10 +346,10 @@ foreach ($platform in $platforms) {
             }
         }
         "linux-x64" {
-            if ($RequireProduction -and -not $verification.Contains("gpg-detached")) {
-                Add-Error $errors "Linux update channel entry must require gpg-detached verification."
+            if ($RequireProduction -and $Channel -eq "stable" -and $channelDocument.version -eq "1.0.0" -and -not $verification.Contains("gpg-detached")) {
+                Add-Error $errors "Historical 1.0.0 Linux update channel entry must require gpg-detached verification."
             }
-            if ($RequireProduction) {
+            if ($verification.Contains("gpg-detached")) {
                 foreach ($artifact in @($platform.artifacts | Where-Object { $_.kind -in @("archive", "debian-package") })) {
                     if (-not (Test-JsonProperty $artifact "signature") -or -not $artifactByName.ContainsKey([string]$artifact.signature)) {
                         Add-Error $errors "Linux update artifact '$($artifact.name)' must reference an included detached signature."
