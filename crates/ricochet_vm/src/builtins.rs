@@ -10893,23 +10893,28 @@ fn http_in_worker(request: impl FnOnce() -> Value + Send + 'static) -> Value {
 
 fn next_random() -> u64 {
     static STATE: AtomicU64 = AtomicU64::new(0);
-    let mut current = STATE.load(Ordering::Relaxed);
-    if current == 0 {
-        current = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos() as u64)
-            .unwrap_or(0x9e37_79b9_7f4a_7c15);
-    }
+    let mut stored = STATE.load(Ordering::Relaxed);
     loop {
-        let mut next = current;
+        // Zero means unseeded (xorshift maps 0 to 0), so step from a non-zero seed
+        // while the CAS still expects the value actually held in STATE.
+        let mut next = if stored == 0 { random_seed() } else { stored };
         next ^= next << 13;
         next ^= next >> 7;
         next ^= next << 17;
-        match STATE.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+        match STATE.compare_exchange_weak(stored, next, Ordering::Relaxed, Ordering::Relaxed) {
             Ok(_) => return next,
-            Err(observed) => current = observed,
+            Err(observed) => stored = observed,
         }
     }
+}
+
+fn random_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_nanos() as u64)
+        .filter(|&nanos| nanos != 0)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15)
 }
 
 #[cfg(test)]
@@ -14206,6 +14211,44 @@ $request "synthetic-plaintext-token" http_bearer_auth
         assert_eq!(
             process.env.get("ALLOWED_CHILD_ENV"),
             Some(&"safe".to_string())
+        );
+    }
+
+    #[test]
+    fn next_random_advances_and_never_yields_zero() {
+        let draws: Vec<u64> = (0..8).map(|_| next_random()).collect();
+        assert!(
+            draws.iter().all(|&draw| draw != 0),
+            "random draws must never be zero, got {draws:?}"
+        );
+        assert!(
+            draws.windows(2).any(|pair| pair[0] != pair[1]),
+            "consecutive random draws must not all be equal, got {draws:?}"
+        );
+    }
+
+    #[test]
+    fn random_word_yields_varied_values_below_upper_bound() {
+        let mut vm = Vm::default();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..50 {
+            vm.push_value(Value::Number(1000));
+            vm.call_random("random")
+                .expect("random with a positive upper bound should succeed");
+            let value = match vm.pop("random") {
+                Ok(Value::Number(value)) => value,
+                other => panic!("random should leave one number, got {other:?}"),
+            };
+            assert!(
+                (0..1000).contains(&value),
+                "random value {value} should be below the upper bound"
+            );
+            assert!(vm.stack().is_empty());
+            seen.insert(value);
+        }
+        assert!(
+            seen.len() > 1,
+            "50 draws of `1000 random` should not all be equal, got {seen:?}"
         );
     }
 }
