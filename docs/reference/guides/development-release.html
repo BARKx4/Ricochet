@@ -63,7 +63,7 @@ cargo audit --deny warnings
 pwsh -NoProfile -File .\scripts\acceptance.ps1</code></pre>
           <p>The acceptance suite validates the static reference docs, editor assets, word inventory drift check, examples, scaffolded project checks/tests, and a live <code>rco serve</code> smoke request against the generated no-database scaffold.</p>
           <h2 id="release-packaging">Release Packaging</h2>
-          <p>See <code>docs/releases/v1.0.0.html</code> for the current stable release notes, hardening checklist, and artifact smoke-test expectations.</p>
+          <p>See <code>docs/releases/v1.0.1.html</code> for the current stable release notes, hardening checklist, and artifact smoke-test expectations.</p>
           <p>Windows release packages are built from this repository with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File .\scripts\package-release.ps1</code></pre>
           <p>The script builds <code>rco.exe</code>, <code>rco-gui.exe</code>, and <code>ricochet.exe</code>, creates a portable ZIP, writes <code>SHA256SUMS-windows-x64.txt</code>, and creates a Windows <code>.exe</code> installer when NSIS <code>makensis.exe</code> is installed. It also writes <code>ARTIFACTS-windows-x64.json</code>, a machine-readable release manifest covering the ZIP, installer when present, checksum file, and signing-status report. GitHub Actions installs NSIS automatically in the release workflow.</p>
@@ -84,23 +84,13 @@ pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
           <p>Linux release packages are built on Linux with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>bash scripts/package-release-linux.sh</code></pre>
-          <p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, writes <code>SHA256SUMS-linux-x64.txt</code>, and creates a Debian <code>.deb</code> package with <code>dpkg-deb</code>. It also writes <code>ARTIFACTS-linux-x64.json</code>, including SHA-256, size, source, signing report, and detached <code>.asc</code> signature relationships when signatures are produced.</p>
+          <p>The script builds <code>rco</code>, <code>rco-gui</code>, and <code>ricochet</code>, creates a portable tarball with an <code>install.sh</code> helper, writes <code>SHA256SUMS-linux-x64.txt</code>, and creates a Debian <code>.deb</code> package with <code>dpkg-deb</code>. It also writes <code>ARTIFACTS-linux-x64.json</code>, including SHA-256, size, source, and a signing report. GitHub attests the final uploaded assets in the release workflow.</p>
           <p>Linux release packages include a terminal desktop launcher for <code>rco repl</code>, an SVG icon, AppStream metainfo, a changelog, maintainer metadata, and the bundled reference docs/packages/examples. GUI applications produced by <code>rco package --gui --linux-package tar|deb</code> include their own <code>.desktop</code>, AppStream, icon, and changelog metadata. They require <code>--package-license SPDX</code> so Ricochet records the author's license choice instead of assigning one.</p>
-          <p>Linux detached artifact signatures are controlled with <code>--signature-mode auto|require|skip|dry-run</code>. Dry-run mode writes <code>SIGNING-linux-x64.txt</code>; production tag releases use <code>require</code> in CI and expect <code>RICOCHET_LINUX_GPG_KEY</code> to name an imported GPG key.</p>
-          <p>For production tag builds, GitHub Actions imports the GPG private key before packaging with <code>scripts/setup-linux-gpg-key.sh</code>. Configure <code>RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64</code> for a base64 armored or binary secret-key export, <code>RICOCHET_LINUX_GPG_PASSPHRASE</code> when that export is protected, optional <code>RICOCHET_LINUX_GPG_KEY</code> to validate/select a key, and optional <code>RICOCHET_LINUX_GPG_OWNERTRUST_BASE64</code> for ownertrust. Signing passes the protected-key passphrase to GPG over standard input rather than the command line. When exactly one key is imported and no selector is provided, the setup step writes the imported fingerprint to <code>RICOCHET_LINUX_GPG_KEY</code>.</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>export RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64="$(gpg --armor --export-secret-keys KEYID | base64 -w0)"
-export RICOCHET_LINUX_GPG_PASSPHRASE="&lt;key passphrase&gt;"
-export RICOCHET_LINUX_GPG_KEY="KEYID"
-env_file="$(mktemp)"
-bash scripts/setup-linux-gpg-key.sh --required --env-file "$env_file"
-set -a
-. "$env_file"
-set +a</code></pre>
+          <p>From <code>v1.0.1</code>, stable Linux CI uses <code>--signature-mode attestation</code> and records <code>status = pending-attestation</code> in <code>SIGNING-linux-x64.txt</code>. The release workflow later attests the exact uploaded bytes. GitHub keyless attestation binds each asset to the release workflow, tag ref, and tagged source commit; SHA-256 checksums provide a separate bytes check. The historical <a href="https://github.com/BARKx4/Ricochet/blob/v1.0.0/docs/releases/v1.0.0.html">v1.0.0 release notes</a> retain the former GPG signing and verification instructions.</p>
           <p>Validate a Linux output directory with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -RequireDeb
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64</code></pre>
-          <p>For production tag outputs, verify every detached GPG signature against the selected signing key before upload:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey $env:RICOCHET_LINUX_GPG_KEY</code></pre>
+          <p>Release CI verifies attestations against the expected repository, signer workflow, tag ref, and peeled commit before publication with <code>scripts/verify-release-attestations.ps1</code>. For local Linux package checks, run the manifest and store validators above; a local dry run has no GitHub attestation until its final bytes are attested by the workflow.</p>
           <p>macOS release tarballs are built on macOS with:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>bash scripts/package-release-macos.sh --target macos-arm64
 bash scripts/package-release-macos.sh --target macos-x64</code></pre>
@@ -129,8 +119,8 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-x64</
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
           <h2 id="production-release-commands">Production Release Commands</h2>
-          <p>Production releases are tag-driven. Linux GPG credentials are required; Windows and Apple credentials are optional additive trust signals. The normal release path is:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>$version = "1.0.0"
+          <p>Production releases are tag-driven. GitHub keyless attestation is required for every uploaded asset; Windows and Apple platform credentials add optional trust signals. The maintainer must confirm GitHub immutable releases are enabled before pushing the tag. The normal release path is:</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>$version = "1.0.1"
 $tag = "v$version"
 
 git fetch origin
@@ -144,35 +134,37 @@ cargo test --workspace
 cargo audit --deny warnings
 pwsh -NoProfile -File .\scripts\acceptance.ps1
 
-git tag -s $tag -m "Ricochet $tag"
+$immutable = gh api repos/BARKx4/Ricochet/immutable-releases --jq .enabled
+if ($immutable -ne 'true') { throw 'Enable immutable releases before tagging' }
+
+git tag -a $tag -m "Ricochet $tag"
 git push origin $tag
 gh run list --workflow Release --limit 5
 gh run watch &lt;run-id&gt; --exit-status
 gh release view $tag --json tagName,name,isDraft,isPrerelease,url</code></pre>
-          <p>The release workflow builds and audits every platform package, requires detached GPG signatures for Linux, exports <code>RICOCHET-RELEASE-KEY.asc</code>, and GPG-signs the combined <code>SHA256SUMS.txt</code>. Stable Windows and macOS jobs sign and perform production verification when their credentials are present; otherwise their signing reports explicitly record the unsigned fallback and stable update metadata requires SHA-256 only for those targets. Semver prerelease tags remain GitHub prereleases with dry-run signing metadata.</p>
+          <p>From <code>v1.0.1</code>, the release workflow builds and audits every platform package, creates <code>SHA256SUMS.txt</code>, attests every uploaded asset with GitHub keyless build provenance, and verifies downloaded draft assets before publication. The maintainer checks the immutable release setting before tagging; the published release then receives a separate release attestation. Stable update metadata requires <code>github-attestation</code> and <code>sha256</code> for every target. Windows and macOS jobs sign and verify when their platform credentials are present; otherwise their signing reports explicitly record the unsigned fallback. Semver prerelease tags remain GitHub prereleases with dry-run platform signing metadata.</p>
           <p>For a manual production package dry run before tagging, run the platform packaging commands on their native operating systems with production modes:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># Windows, with NSIS and the Authenticode certificate already available.
-$version = "1.0.0"
+$version = "1.0.1"
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
 pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
 pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
 pwsh -NoProfile -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># Linux, with GPG credentials imported.
-version="1.0.0"
-bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode require
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># Linux; GitHub attestation is added by the release workflow.
+version="1.0.1"
+bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode attestation
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
-pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction
-pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target linux-x64 -RequireProduction -GpgKey "$RICOCHET_LINUX_GPG_KEY"</code></pre>
+pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction</code></pre>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code># macOS, once for each native target with the signing keychain prepared.
-version="1.0.0"
+version="1.0.1"
 bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
           <p>After all platform artifacts are collected in one <code>dist</code> directory, validate the release channel and combined artifact set:</p>
-          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.0 -ReleaseTag v1.0.0 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.0
-pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.0 -RequireProduction</code></pre>
-          <p>The release workflow packages the Windows, Linux, and macOS artifacts, writes validated update-channel metadata, exports the public release key, writes <code>SHA256SUMS.txt</code>, signs it as <code>SHA256SUMS.txt.asc</code>, and audits the uploaded draft before publication. Every platform manifest, package smoke, installer/deb requirement, signing report, and Linux detached signature is checked. Authenticode and Apple verification run only when their reports claim those signatures; the workflow never labels an unsigned fallback as signed. See <a href="store-packaging.html">Store Packaging</a> for marketplace handoff rules and <a href="updater-workflow.html">Updater Workflow</a> for channel metadata, verification, and rollback rules.</p>
+          <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.1 -ReleaseTag v1.0.1 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.1
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.1 -RequireProduction</code></pre>
+          <p>The release workflow packages the Windows, Linux, and macOS artifacts, writes validated update-channel metadata and <code>SHA256SUMS.txt</code>, attests the uploaded assets, then audits the downloaded draft before publication. After publication, verify the immutable release with <code>gh release verify</code> and an asset with <code>gh release verify-asset</code>. Every platform manifest, package smoke, installer/deb requirement, signing report, and attestation is checked. Authenticode and Apple verification run only when their reports claim those signatures. See <a href="store-packaging.html">Store Packaging</a> for marketplace handoff rules and <a href="updater-workflow.html">Updater Workflow</a> for channel metadata, verification, and rollback rules.</p>
           <p>The same workflow also runs nightly from <code>main</code>. Nightly packages, manifests, and binaries retain the exact compiled workspace version; only the GitHub Actions artifact label appends <code>-nightly.N</code> for run identification. The workflow builds the same Windows, Linux, and macOS packages and retains them for 30 days. Nightlies do not create public GitHub releases.</p>
           <h2 id="reference-docs">Reference Docs</h2>
           <p>The documentation website is static and lives at <code>docs/reference/index.html</code>. Open it directly in a browser; there is no build step.</p>

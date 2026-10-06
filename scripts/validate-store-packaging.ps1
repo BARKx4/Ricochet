@@ -77,6 +77,21 @@ function ConvertTo-ReleaseAssetVersion {
     return [regex]::Replace($DebianVersion, "[^A-Za-z0-9._-]", ".")
 }
 
+function Test-KeylessReleaseVersion {
+    param([string] $Version)
+
+    if ($Version -notmatch '^(?<core>\d+\.\d+\.\d+)(?<prerelease>-[^+]+)?(?:\+.*)?$') {
+        return $false
+    }
+    try {
+        $core = [version]$Matches['core']
+    } catch {
+        return $false
+    }
+    return ($core -gt [version]'1.0.1' -or
+        ($core -eq [version]'1.0.1' -and -not $Matches['prerelease']))
+}
+
 function Get-Artifact {
     param(
         [object[]] $Artifacts,
@@ -334,6 +349,18 @@ $archivePath = Assert-Artifact $errors $archive "primary archive"
 $checksumsPath = Assert-Artifact $errors $checksums "checksum"
 $signingReportPath = Assert-Artifact $errors $signingReport "signing report"
 
+if ($RequireProduction -and $Target -eq "linux-x64") {
+    # The keyless attestation is created after packaging. Verify every local
+    # asset, including this report, against both the manifest and SHA256SUMS
+    # before the release workflow attests and publishes the final bytes.
+    try {
+        & (Join-Path $PSScriptRoot "validate-release-artifacts.ps1") `
+            -Target $Target -OutDir $OutDirPath -ManifestPath $ManifestPath -RequireDeb | Out-Null
+    } catch {
+        Add-Error $errors "Linux release asset integrity validation failed: $($_.Exception.Message)"
+    }
+}
+
 if ($checksumsPath) {
     $checksumText = Get-Content -LiteralPath $checksumsPath -Raw
     if ($archive -and -not $checksumText.Contains([string]$archive.name)) {
@@ -392,11 +419,35 @@ switch ($Target) {
         if ($deb -and [string]$deb.name -cne $expectedDebianName) {
             Add-Error $errors "Debian package artifact must be '$expectedDebianName', found '$($deb.name)'."
         }
-        $requiredStatuses = @()
-        if ($RequireProduction) {
-            $requiredStatuses += "status = signed"
+        Assert-SigningReportStatus $errors $signingReportPath @()
+        if ($RequireProduction -and $signingReportPath) {
+            $reportText = Get-Content -LiteralPath $signingReportPath -Raw
+            $statusLines = @([regex]::Matches($reportText, '(?m)^\s*status\s*=\s*([^\r\n]+)\s*$'))
+            $modeLines = @([regex]::Matches($reportText, '(?m)^\s*mode\s*=\s*([^\r\n]+)\s*$'))
+            if ($statusLines.Count -ne 1 -or $modeLines.Count -ne 1) {
+                Add-Error $errors "Production Linux signing report must record exactly one mode and status."
+            } else {
+                $status = $statusLines[0].Groups[1].Value.Trim()
+                $mode = $modeLines[0].Groups[1].Value.Trim()
+                switch ($mode) {
+                    "attestation" {
+                        if (-not (Test-KeylessReleaseVersion ([string]$manifest.package_version))) {
+                            Add-Error $errors "GitHub attestation mode starts with stable release v1.0.1; historical releases require GPG verification."
+                        } elseif ($status -ne "pending-attestation") {
+                            Add-Error $errors "Production Linux attestation mode must record status = pending-attestation."
+                        }
+                    }
+                    { $_ -in @("auto", "require") } {
+                        if ($status -ne "signed") {
+                            Add-Error $errors "Production Linux legacy GPG mode must record status = signed."
+                        }
+                    }
+                    default {
+                        Add-Error $errors "Production Linux release must use attestation mode or verified legacy GPG signatures."
+                    }
+                }
+            }
         }
-        Assert-SigningReportStatus $errors $signingReportPath $requiredStatuses
 
         if (-not $SkipArchiveInspection) {
             if ($archivePath) {

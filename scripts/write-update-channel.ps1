@@ -121,17 +121,25 @@ function Get-RequiredVerification {
     }
 
     $report = Get-Content -LiteralPath (Get-TopLevelArtifactPath -Name $SigningReport) -Raw
+    $baseVerification = if ($Version -eq "1.0.0") {
+        @("sha256")
+    } else {
+        @("github-attestation", "sha256")
+    }
 
     switch ($Target) {
         "windows-x64" {
             if ($report -match '(?im)^\s*status\s*=\s*signed\s*$') {
-                @("authenticode", "sha256")
+                "authenticode"
             }
-            else {
-                @("sha256")
-            }
+            $baseVerification
         }
-        "linux-x64" { @("gpg-detached", "sha256") }
+        "linux-x64" {
+            if ($Version -eq "1.0.0") {
+                "gpg-detached"
+            }
+            $baseVerification
+        }
         { $_ -in @("macos-arm64", "macos-x64") } {
             if ($report -match '(?im)^\s*status\s*=\s*signed\s*$') {
                 "codesign"
@@ -139,9 +147,9 @@ function Get-RequiredVerification {
             if ($report -match '(?im)^\s*status\s*=\s*notarized\s*$') {
                 "notarytool-accepted"
             }
-            "sha256"
+            $baseVerification
         }
-        default { @("sha256") }
+        default { $baseVerification }
     }
 }
 

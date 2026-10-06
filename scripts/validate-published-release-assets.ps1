@@ -5,6 +5,11 @@ param(
     [string] $AssetDir,
     [Parameter(Mandatory = $true)]
     [string] $ExpectedTag,
+    [switch] $RequireAttestations,
+    [string] $SourceRepository = "BARKx4/Ricochet",
+    [string] $SourceRef,
+    [string] $SourceDigest,
+    [string] $SignerWorkflow,
     [switch] $RequireDraft,
     [switch] $RequirePublished,
     [switch] $RequirePrerelease,
@@ -19,6 +24,37 @@ if ($RequireDraft -and $RequirePublished) {
 }
 if ($RequirePrerelease -and $RequireStable) {
     throw "-RequirePrerelease and -RequireStable are mutually exclusive."
+}
+if ($RequireStable -and $ExpectedTag -ne "v1.0.0" -and -not $RequireAttestations) {
+    throw "Stable releases after v1.0.0 require GitHub attestation verification."
+}
+if ($RequireAttestations) {
+    if ($SourceRepository -cne "BARKx4/Ricochet") {
+        throw "Attestation source repository must be BARKx4/Ricochet."
+    }
+    if ($ExpectedTag -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+        throw "Attestation source ref requires a version tag, found '$ExpectedTag'."
+    }
+    $expectedSourceRef = "refs/tags/$ExpectedTag"
+    if (-not $SourceRef) {
+        $SourceRef = $expectedSourceRef
+    }
+    if ($SourceRef -cne $expectedSourceRef) {
+        throw "Attestation source ref must be $expectedSourceRef."
+    }
+    if ($SourceDigest -cnotmatch '^[0-9a-f]{40}$') {
+        throw "Attestation source digest must be a 40-character lowercase Git commit SHA."
+    }
+    $expectedSignerWorkflow = "$SourceRepository/.github/workflows/release.yml"
+    if (-not $SignerWorkflow) {
+        $SignerWorkflow = $expectedSignerWorkflow
+    }
+    if ($SignerWorkflow -cne $expectedSignerWorkflow) {
+        throw "Attestation signer workflow must be $expectedSignerWorkflow."
+    }
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw "GitHub CLI is required to verify release attestations."
+    }
 }
 
 foreach ($pathRecord in @(
@@ -74,7 +110,12 @@ $apiAssets = @($release.assets)
 $localNames = @($localFiles.Name)
 $apiNames = @($apiAssets | ForEach-Object { [string]$_.name })
 if ($RequireStable) {
-    foreach ($requiredName in @("RICOCHET-RELEASE-KEY.asc", "SHA256SUMS.txt.asc")) {
+    $stableRequiredNames = if ($ExpectedTag -eq "v1.0.0") {
+        @("RICOCHET-RELEASE-KEY.asc", "SHA256SUMS.txt.asc")
+    } else {
+        @("SHA256SUMS.txt")
+    }
+    foreach ($requiredName in $stableRequiredNames) {
         if ($localNames -cnotcontains $requiredName) {
             Add-ValidationError "Stable release set is missing $requiredName."
         }
@@ -169,6 +210,17 @@ else {
             Add-ValidationError "Combined checksum mismatch for '$name'."
         }
     }
+}
+
+if ($RequireAttestations) {
+    $attestationValidator = Join-Path $PSScriptRoot "verify-release-attestations.ps1"
+    & $attestationValidator `
+        -AssetDir $AssetDir `
+        -ExpectedTag $ExpectedTag `
+        -SourceRepository $SourceRepository `
+        -SourceRef $SourceRef `
+        -SourceDigest $SourceDigest `
+        -SignerWorkflow $SignerWorkflow | Out-Null
 }
 
 if ($errors.Count -gt 0) {

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ricochet v1.0.1 Release Notes | Ricochet Docs</title>
+    <link rel="stylesheet" href="../reference/styles.css">
+  </head>
+  <body class="guide-page">
+    <header class="topbar">
+      <a class="brand" href="../reference/index.html#top" aria-label="Ricochet Reference home">
+        <span class="brand-mark">rco</span>
+        <span>Ricochet Reference</span>
+      </a>
+      <nav class="nav-links" aria-label="Reference sections">
+        <a href="../reference/index.html#top">Reference</a>
+        <a href="../learn/">Learn</a>
+        <a href="../reference/guides/index.html">Guides</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band">
+        <div class="hero-copy">
+          <p class="eyebrow">Ricochet docs</p>
+          <h1>Ricochet v1.0.1 Release Notes</h1>
+          <p class="lede">A stable patch release that restores random values on a fresh process.</p>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="guide-layout">
+          <aside class="guide-toc" aria-label="Page contents">
+            <strong>On this page</strong>
+            <a href="#release-identity">Release Identity</a>
+            <a href="#random-fix">Random Fix</a>
+            <a href="#stable-contract">Stable Contract</a>
+            <a href="#packaging-and-updates">Packaging And Updates</a>
+            <a href="#verification-checklist">Verification Checklist</a>
+          </aside>
+          <article class="guide-content">
+            <p>Date: 2026-10-06</p>
+            <p>Ricochet 1.0.1 fixes the <code>random</code> word returning zero on every call when its process-wide generator state started at zero. It preserves the public Ricochet 1.0 language and application contract.</p>
+
+            <h2 id="release-identity">Release Identity</h2>
+            <ul>
+              <li>The stable release and tag identities are <code>1.0.1</code> and <code>v1.0.1</code>.</li>
+              <li>The Linux package is <code>ricochet_1.0.1_amd64.deb</code> with Debian control version <code>1.0.1</code>, providing a stable upgrade from 1.0.0.</li>
+              <li>Read the <a href="v1.0.0.html">v1.0.0 release notes</a> for the original stable contract and its platform boundaries.</li>
+            </ul>
+
+            <h2 id="random-fix">Random Fix</h2>
+            <ul>
+              <li>The generator now steps from a nonzero seed while atomically comparing against its uninitialized zero state. Concurrent first calls share a valid generator state.</li>
+              <li>For <code>n random</code> with positive <code>n</code>, the result remains in <code>0..n-1</code>. Zero is still a valid individual result; a bound of one always returns zero.</li>
+              <li>Cold-process and concurrent regression probes distinguish the original stuck-at-zero behavior from the corrected behavior. The change does not alter the syntax of <code>random</code>.</li>
+            </ul>
+
+            <h2 id="stable-contract">Stable Contract</h2>
+            <p>The 1.0.0 WebView-only application surface, Apache-2.0 licensing, and Learn manual remain the stable baseline. This patch does not revise the prior mixed numeric correctness, cycle handling, release probe coverage, or clean tracked-source packaging policies.</p>
+
+            <h2 id="packaging-and-updates">Packaging And Updates</h2>
+            <ul>
+              <li>Official packages include <code>LICENSE</code>, <code>THIRD_PARTY_LICENSES.html</code>, and <code>THIRD_PARTY_NOTICES.txt</code>.</li>
+              <li>CI builds and audits the Windows installer, Linux tarball and Debian package, and macOS arm64/x64 archives before publication.</li>
+              <li>Every uploaded asset, including <code>SHA256SUMS.txt</code>, has GitHub keyless build-provenance attestation tied to the release workflow, tag ref, and source commit. The published immutable release has a separate release attestation.</li>
+              <li>The stable update feed is <code>UPDATE-CHANNEL-stable.json</code>. Its verification metadata requires GitHub attestation and SHA-256 on every platform, and advertises Windows Authenticode or Apple notarization only when produced.</li>
+              <li>Windows and macOS packages may be unsigned when platform certificates are unavailable. Their signing reports identify this fallback, and local security prompts may appear.</li>
+            </ul>
+
+            <h2 id="verification-checklist">Verification Checklist</h2>
+            <p>Before creating the annotated <code>v1.0.1</code> tag, run the repository gates from a clean checkout, confirm GitHub immutable releases are enabled with maintainer credentials, and perform the Windows package check through the same explicit fallback path used by CI:</p>
+            <pre class="code-block"><code class="language-powershell">$version = "1.0.1"
+
+cargo metadata --locked --format-version 1
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit --deny warnings
+$immutable = gh api repos/BARKx4/Ricochet/immutable-releases --jq .enabled
+if ($immutable -ne 'true') { throw 'Enable immutable releases before tagging' }
+pwsh -NoProfile -File .\scripts\validate-release-version.ps1
+pwsh -NoProfile -File .\docs\reference\validate.ps1
+pwsh -NoProfile -File .\scripts\validate-learn-manual.ps1 -RequireWordCoverage -RequireJekyllRawBlocks
+pwsh -NoProfile -File .\scripts\validate-license-governance.ps1
+pwsh -NoProfile -File .\scripts\acceptance.ps1
+
+$releaseOut = Join-Path (Resolve-Path .\target).Path "release-prep-smoke\$version\release-windows"
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -OutDir $releaseOut -RequireInstaller -SigningMode auto
+pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version -RequireInstaller
+pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -OutDir $releaseOut -PackageVersion $version</code></pre>
+            <p>After CI publishes the release, independently verify the peeled tag commit, latest published state, each downloaded asset's build attestation, the immutable release and its assets, matching SHA-256 inventory entries, platform manifests and signing reports, Debian version, and stable update-channel metadata. For example:</p>
+            <pre class="code-block"><code class="language-powershell">$tagCommit = git rev-parse 'v1.0.1^{commit}'
+$asset = 'ricochet-v1.0.1-windows-x64.zip'
+gh attestation verify $asset -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh attestation verify SHA256SUMS.txt -R BARKx4/Ricochet --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+gh release verify v1.0.1 -R BARKx4/Ricochet
+gh release verify-asset v1.0.1 $asset -R BARKx4/Ricochet
+Get-FileHash $asset -Algorithm SHA256</code></pre>
+            <p>Compare the displayed hash with the exact asset entry in <code>SHA256SUMS.txt</code>. These release verification commands require publication and do not work on the draft.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ricochet Docs</span>
+      <a href="../reference/guides/index.html">Back to Guides</a>
+    </footer>
+    <script src="../reference/app.js"></script>
+  </body>
+</html>

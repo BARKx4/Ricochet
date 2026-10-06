@@ -16,11 +16,12 @@ function Add-Failure {
 function New-Fixture {
     param(
         [string] $RootPath,
-        [string] $AssetName = "ricochet_1.0.0_amd64.deb",
+        [string] $Version = "1.0.0",
+        [string] $AssetName,
         [bool] $Draft = $true,
         [bool] $Prerelease = $true,
-        [string] $ApiAssetName = $AssetName,
-        [string] $ChecksumAssetName = $AssetName,
+        [string] $ApiAssetName,
+        [string] $ChecksumAssetName,
         [switch] $CorruptDigest,
         [switch] $OmitApiAsset,
         [switch] $OmitStableSignature
@@ -28,12 +29,21 @@ function New-Fixture {
 
     $assetDir = Join-Path $RootPath "assets"
     New-Item -ItemType Directory -Path $assetDir | Out-Null
+    if (-not $AssetName) {
+        $AssetName = "ricochet_$($Version)_amd64.deb"
+    }
+    if (-not $ApiAssetName) {
+        $ApiAssetName = $AssetName
+    }
+    if (-not $ChecksumAssetName) {
+        $ChecksumAssetName = $AssetName
+    }
     $assetPath = Join-Path $assetDir $AssetName
     [IO.File]::WriteAllText($assetPath, "fixture artifact bytes`n", [Text.UTF8Encoding]::new($false))
     $assetHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $stablePaths = @()
     $checksumLines = @("$assetHash  $ChecksumAssetName")
-    if (-not $Prerelease) {
+    if (-not $Prerelease -and $Version -eq "1.0.0") {
         $keyPath = Join-Path $assetDir "RICOCHET-RELEASE-KEY.asc"
         [IO.File]::WriteAllText($keyPath, "fixture public key`n", [Text.UTF8Encoding]::new($false))
         $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -75,7 +85,7 @@ function New-Fixture {
     }
 
     $release = [pscustomobject][ordered]@{
-        tag_name = "v1.0.0"
+        tag_name = "v$Version"
         draft = $Draft
         prerelease = $Prerelease
         assets = @($assets)
@@ -90,8 +100,16 @@ function New-Fixture {
     [pscustomobject]@{
         AssetDir = $assetDir
         ReleaseJsonPath = $releasePath
+        Version = $Version
     }
 }
+
+# The reusable attestation helper has executable-stub tests of every gh flag.
+# This local command verifies that published inventory validation invokes it.
+$previousGhFunction = Get-Item Function:\gh -ErrorAction SilentlyContinue
+$previousGhScriptBlock = if ($null -ne $previousGhFunction) { $previousGhFunction.ScriptBlock } else { $null }
+$previousCalls = Get-Variable AttestationCalls -Scope Global -ErrorAction SilentlyContinue
+$previousCallsValue = if ($null -ne $previousCalls) { $previousCalls.Value } else { $null }
 
 function Invoke-Case {
     param(
@@ -99,7 +117,8 @@ function Invoke-Case {
         [object] $Fixture,
         [bool] $ExpectSuccess,
         [switch] $RequirePublished,
-        [switch] $RequireStable
+        [switch] $RequireStable,
+        [switch] $OmitAttestationCheck
     )
 
     $succeeded = $true
@@ -107,10 +126,14 @@ function Invoke-Case {
         $parameters = @{
             ReleaseJsonPath = $Fixture.ReleaseJsonPath
             AssetDir = $Fixture.AssetDir
-            ExpectedTag = "v1.0.0"
+            ExpectedTag = "v$($Fixture.Version)"
         }
         if ($RequireStable) {
             $parameters.RequireStable = $true
+            if ($Fixture.Version -ne "1.0.0" -and -not $OmitAttestationCheck) {
+                $parameters.RequireAttestations = $true
+                $parameters.SourceDigest = "0123456789abcdef0123456789abcdef01234567"
+            }
         }
         else {
             $parameters.RequirePrerelease = $true
@@ -133,11 +156,22 @@ function Invoke-Case {
 }
 
 $FixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("ricochet-published-assets-contract-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $FixtureRoot | Out-Null
 
+try {
+$global:AttestationCalls = 0
+function global:gh {
+    $global:AttestationCalls++
+    $global:LASTEXITCODE = 0
+}
+New-Item -ItemType Directory -Path $FixtureRoot | Out-Null
 Invoke-Case "exact draft inventory" (New-Fixture (Join-Path $FixtureRoot "draft-ok")) $true
 Invoke-Case "exact published inventory" (New-Fixture (Join-Path $FixtureRoot "published-ok") -Draft $false) $true -RequirePublished
 Invoke-Case "exact stable inventory" (New-Fixture (Join-Path $FixtureRoot "stable-ok") -Draft $false -Prerelease $false) $true -RequirePublished -RequireStable
+Invoke-Case "attested stable 1.0.1 inventory" (New-Fixture (Join-Path $FixtureRoot "stable-1.0.1") -Version "1.0.1" -Draft $false -Prerelease $false) $true -RequirePublished -RequireStable
+if ($global:AttestationCalls -ne 2) {
+    Add-Failure "Stable 1.0.1 validation must verify attestations for both the package and combined checksum inventory."
+}
+Invoke-Case "stable 1.0.1 without attestation check" (New-Fixture (Join-Path $FixtureRoot "stable-no-attestation-check") -Version "1.0.1" -Draft $false -Prerelease $false) $false -RequirePublished -RequireStable -OmitAttestationCheck
 Invoke-Case "stable release marked prerelease" (New-Fixture (Join-Path $FixtureRoot "stable-wrong") -Draft $false) $false -RequirePublished -RequireStable
 Invoke-Case "stable release missing checksum signature" (New-Fixture (Join-Path $FixtureRoot "stable-unsigned") -Draft $false -Prerelease $false -OmitStableSignature) $false -RequirePublished -RequireStable
 Invoke-Case "GitHub-renamed asset" (New-Fixture (Join-Path $FixtureRoot "renamed") -ApiAssetName "ricochet_1.0~0_amd64.deb") $false
@@ -155,3 +189,15 @@ if ($Failures.Count -gt 0) {
 
 Write-Host "Published release asset contract tests passed."
 Write-Host "Retained fixtures at: $FixtureRoot"
+}
+finally {
+    Remove-Item Function:\gh -Force -ErrorAction SilentlyContinue
+    if ($null -ne $previousGhFunction) {
+        Set-Item Function:global:gh -Value $previousGhScriptBlock
+    }
+    if ($null -ne $previousCalls) {
+        Set-Variable AttestationCalls -Scope Global -Value $previousCallsValue
+    } else {
+        Remove-Variable AttestationCalls -Scope Global -ErrorAction SilentlyContinue
+    }
+}

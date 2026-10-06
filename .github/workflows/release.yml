@@ -97,6 +97,10 @@ jobs:
     name: Package Windows release
     needs: resolve-version
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out
@@ -641,6 +645,16 @@ jobs:
             -RequireProduction `
             -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1
 
+      - name: Attest Windows release assets
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*-setup.exe
+            dist/*.txt
+            dist/*.json
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -656,6 +670,10 @@ jobs:
     name: Package Linux release
     needs: resolve-version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out
@@ -667,6 +685,10 @@ jobs:
         shell: bash
         run: bash scripts/test-linux-release-version.sh
 
+      - name: Test keyless release validation
+        shell: pwsh
+        run: ./scripts/test-keyless-release-validation.ps1
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -676,25 +698,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev
 
-      - name: Import Linux GPG signing key
-        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
-        shell: bash
-        env:
-          RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64 }}
-          RICOCHET_LINUX_GPG_OWNERTRUST_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_OWNERTRUST_BASE64 }}
-          RICOCHET_LINUX_GPG_KEY: ${{ secrets.RICOCHET_LINUX_GPG_KEY }}
-        run: |
-          bash scripts/setup-linux-gpg-key.sh --required
-
       - name: Build release package
         shell: bash
-        env:
-          RICOCHET_LINUX_GPG_PASSPHRASE: ${{ secrets.RICOCHET_LINUX_GPG_PASSPHRASE }}
         run: |
           version='${{ needs.resolve-version.outputs.version }}'
           signature_mode='dry-run'
           if [[ "$GITHUB_REF_TYPE" == "tag" && '${{ needs.resolve-version.outputs.is_prerelease }}' != "true" ]]; then
-            signature_mode='require'
+            signature_mode='attestation'
           elif [[ '${{ needs.resolve-version.outputs.is_nightly }}' == 'true' ]]; then
             signature_mode='auto'
           fi
@@ -825,20 +835,15 @@ jobs:
             -PackageVersion '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:$requireProduction
 
-      - name: Verify production release signatures
+      - name: Attest Linux release assets
         if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
-        shell: pwsh
-        run: |
-          ./scripts/verify-release-signatures.ps1 `
-            -Target linux-x64 `
-            -RequireProduction `
-            -GpgKey $env:RICOCHET_LINUX_GPG_KEY
-
-      - name: Cleanup Linux GPG signing key
-        if: always() && github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
-        shell: bash
-        run: |
-          bash scripts/cleanup-linux-gpg-key.sh
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.txt
+            dist/*.json
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
@@ -856,6 +861,10 @@ jobs:
     name: Package macOS release (${{ matrix.target }})
     needs: resolve-version
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -975,6 +984,15 @@ jobs:
             -RequireProduction `
             -ExpectedMacosIdentity $env:RICOCHET_MACOS_SIGN_IDENTITY
 
+      - name: Attest macOS release assets
+        if: github.ref_type == 'tag' && needs.resolve-version.outputs.is_prerelease != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.txt
+            dist/*.json
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
@@ -1038,6 +1056,8 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     needs:
       - resolve-version
       - package-windows
@@ -1052,19 +1072,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Import release GPG signing key
-        if: needs.resolve-version.outputs.is_prerelease != 'true'
+      - name: Verify release tag commit
         shell: bash
-        env:
-          RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_PRIVATE_KEY_BASE64 }}
-          RICOCHET_LINUX_GPG_OWNERTRUST_BASE64: ${{ secrets.RICOCHET_LINUX_GPG_OWNERTRUST_BASE64 }}
-          RICOCHET_LINUX_GPG_KEY: ${{ secrets.RICOCHET_LINUX_GPG_KEY }}
-        run: bash scripts/setup-linux-gpg-key.sh --required
-
-      - name: Verify signed release tag
-        if: needs.resolve-version.outputs.is_prerelease != 'true'
-        shell: bash
-        run: git tag -v "$GITHUB_REF_NAME"
+        run: |
+          local_commit="$(git rev-parse HEAD)"
+          remote_commit="$(git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" | awk 'NR == 1 { print $1 }')"
+          if [[ "$local_commit" != "$GITHUB_SHA" || "$remote_commit" != "$GITHUB_SHA" ]]; then
+            echo "Release tag must peel to the workflow commit $GITHUB_SHA (local=${local_commit:-<missing>}, remote=${remote_commit:-<missing>})." >&2
+            exit 1
+          fi
 
       - name: Download release artifacts
         uses: actions/download-artifact@v8
@@ -1089,31 +1105,11 @@ jobs:
 
       - name: Write checksums
         shell: bash
-        env:
-          RICOCHET_LINUX_GPG_PASSPHRASE: ${{ secrets.RICOCHET_LINUX_GPG_PASSPHRASE }}
         run: |
           cd dist
-          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
-            gpg --batch --armor --export "$RICOCHET_LINUX_GPG_KEY" > RICOCHET-RELEASE-KEY.asc
-            [[ -s RICOCHET-RELEASE-KEY.asc ]]
-          fi
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' ! -name 'SHA256SUMS.txt.asc' -printf '%f\n' \
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
             | sort \
             | xargs sha256sum > SHA256SUMS.txt
-          if [[ '${{ needs.resolve-version.outputs.is_prerelease }}' != 'true' ]]; then
-            if [[ -n "${RICOCHET_LINUX_GPG_PASSPHRASE:-}" ]]; then
-              printf '%s\n' "$RICOCHET_LINUX_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --armor --detach-sign \
-                --local-user "$RICOCHET_LINUX_GPG_KEY" \
-                --output SHA256SUMS.txt.asc \
-                SHA256SUMS.txt
-            else
-              gpg --batch --yes --armor --detach-sign \
-                --local-user "$RICOCHET_LINUX_GPG_KEY" \
-                --output SHA256SUMS.txt.asc \
-                SHA256SUMS.txt
-            fi
-            gpg --batch --verify SHA256SUMS.txt.asc SHA256SUMS.txt
-          fi
 
       - name: Revalidate finalized update channel
         shell: pwsh
@@ -1123,6 +1119,26 @@ jobs:
             -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
             -Version '${{ needs.resolve-version.outputs.version }}' `
             -RequireProduction:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+
+      - name: Attest release metadata generated by publisher
+        if: needs.resolve-version.outputs.is_prerelease != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/SHA256SUMS.txt
+            dist/UPDATE-CHANNEL-stable.json
+
+      - name: Verify release asset attestations before draft
+        if: needs.resolve-version.outputs.is_prerelease != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/verify-release-attestations.ps1 `
+            -AssetDir dist `
+            -ExpectedTag $env:GITHUB_REF_NAME `
+            -SourceRepository $env:GITHUB_REPOSITORY `
+            -SourceDigest $env:GITHUB_SHA
 
       - name: Create draft GitHub release
         shell: bash
@@ -1135,15 +1151,7 @@ jobs:
             release_flags+=(--prerelease --latest=false)
             release_notes="Audited Windows, Linux, and macOS candidate packages for Ricochet $GITHUB_REF_NAME with dry-run signing-status, artifact manifest, checksum, and update-channel reports."
           else
-            release_notes="GPG-authenticated Ricochet $GITHUB_REF_NAME source and Linux packages, plus audited Windows and macOS packages with explicit platform signing-status reports. Verify SHA256SUMS.txt.asc before installation; Windows Authenticode and Apple notarization are included when project certificates are available."
-          fi
-          remote_tag_commit="$(
-            git ls-remote origin "refs/tags/$GITHUB_REF_NAME^{}" \
-              | awk 'NR == 1 { print $1 }'
-          )"
-          if [[ "$remote_tag_commit" != "$GITHUB_SHA" ]]; then
-            echo "Remote tag $GITHUB_REF_NAME peels to ${remote_tag_commit:-<missing>}, expected workflow commit $GITHUB_SHA." >&2
-            exit 1
+            release_notes="Ricochet $GITHUB_REF_NAME packages carry GitHub Actions provenance attestations and audited SHA-256 manifests. Verify the immutable release and downloaded assets with gh release verify and gh release verify-asset. Windows Authenticode and Apple notarization are included when project certificates are available."
           fi
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
@@ -1192,7 +1200,10 @@ jobs:
             -ExpectedTag $env:GITHUB_REF_NAME `
             -RequireDraft `
             -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
-            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -RequireAttestations:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -SourceRepository $env:GITHUB_REPOSITORY `
+            -SourceDigest $env:GITHUB_SHA
 
           $downloadDir = Join-Path $env:RUNNER_TEMP "ricochet-release-$env:GITHUB_RUN_ID-download"
           New-Item -ItemType Directory -Path $downloadDir | Out-Null
@@ -1210,21 +1221,16 @@ jobs:
               -OutFile $destination `
               -MaximumRedirection 5
           }
-          if ('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') {
-            & gpg --batch --verify `
-              (Join-Path $downloadDir "SHA256SUMS.txt.asc") `
-              (Join-Path $downloadDir "SHA256SUMS.txt")
-            if ($LASTEXITCODE -ne 0) {
-              throw "Downloaded combined checksum signature verification failed."
-            }
-          }
           ./scripts/validate-published-release-assets.ps1 `
             -ReleaseJsonPath $releaseJson `
             -AssetDir $downloadDir `
             -ExpectedTag $env:GITHUB_REF_NAME `
             -RequireDraft `
             -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
-            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -RequireAttestations:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -SourceRepository $env:GITHUB_REPOSITORY `
+            -SourceDigest $env:GITHUB_SHA
           ./scripts/validate-update-channel.ps1 `
             -DistDir $downloadDir `
             -Channel '${{ needs.resolve-version.outputs.release_channel }}' `
@@ -1270,9 +1276,30 @@ jobs:
             -ExpectedTag $env:GITHUB_REF_NAME `
             -RequirePublished `
             -RequirePrerelease:('${{ needs.resolve-version.outputs.is_prerelease }}' -eq 'true') `
-            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true')
+            -RequireStable:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -RequireAttestations:('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') `
+            -SourceRepository $env:GITHUB_REPOSITORY `
+            -SourceDigest $env:GITHUB_SHA
 
-      - name: Cleanup release GPG signing key
-        if: always() && needs.resolve-version.outputs.is_prerelease != 'true'
-        shell: bash
-        run: bash scripts/cleanup-linux-gpg-key.sh
+          if ('${{ needs.resolve-version.outputs.is_prerelease }}' -ne 'true') {
+            $verified = $false
+            for ($attempt = 1; $attempt -le 10; $attempt++) {
+              gh release verify $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY
+              if ($LASTEXITCODE -eq 0) {
+                $verified = $true
+                break
+              }
+              if ($attempt -lt 10) {
+                Start-Sleep -Seconds 3
+              }
+            }
+            if (-not $verified) {
+              throw "Published release has no valid immutable-release attestation."
+            }
+            foreach ($asset in @(Get-ChildItem -LiteralPath dist -File)) {
+              gh release verify-asset $env:GITHUB_REF_NAME $asset.FullName --repo $env:GITHUB_REPOSITORY
+              if ($LASTEXITCODE -ne 0) {
+                throw "Published release attestation does not verify asset '$($asset.Name)'."
+              }
+            }
+          }
