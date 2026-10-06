@@ -106,11 +106,10 @@ function New-Fixture {
 
 # The reusable attestation helper has executable-stub tests of every gh flag.
 # This local command verifies that published inventory validation invokes it.
-$global:AttestationCalls = 0
-function global:gh {
-    $global:AttestationCalls++
-    $global:LASTEXITCODE = 0
-}
+$previousGhFunction = Get-Item Function:\gh -ErrorAction SilentlyContinue
+$previousGhScriptBlock = if ($null -ne $previousGhFunction) { $previousGhFunction.ScriptBlock } else { $null }
+$previousCalls = Get-Variable AttestationCalls -Scope Global -ErrorAction SilentlyContinue
+$previousCallsValue = if ($null -ne $previousCalls) { $previousCalls.Value } else { $null }
 
 function Invoke-Case {
     param(
@@ -157,9 +156,14 @@ function Invoke-Case {
 }
 
 $FixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("ricochet-published-assets-contract-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $FixtureRoot | Out-Null
 
 try {
+$global:AttestationCalls = 0
+function global:gh {
+    $global:AttestationCalls++
+    $global:LASTEXITCODE = 0
+}
+New-Item -ItemType Directory -Path $FixtureRoot | Out-Null
 Invoke-Case "exact draft inventory" (New-Fixture (Join-Path $FixtureRoot "draft-ok")) $true
 Invoke-Case "exact published inventory" (New-Fixture (Join-Path $FixtureRoot "published-ok") -Draft $false) $true -RequirePublished
 Invoke-Case "exact stable inventory" (New-Fixture (Join-Path $FixtureRoot "stable-ok") -Draft $false -Prerelease $false) $true -RequirePublished -RequireStable
@@ -188,5 +192,12 @@ Write-Host "Retained fixtures at: $FixtureRoot"
 }
 finally {
     Remove-Item Function:\gh -Force -ErrorAction SilentlyContinue
-    Remove-Variable AttestationCalls -Scope Global -ErrorAction SilentlyContinue
+    if ($null -ne $previousGhFunction) {
+        Set-Item Function:global:gh -Value $previousGhScriptBlock
+    }
+    if ($null -ne $previousCalls) {
+        Set-Variable AttestationCalls -Scope Global -Value $previousCallsValue
+    } else {
+        Remove-Variable AttestationCalls -Scope Global -ErrorAction SilentlyContinue
+    }
 }
