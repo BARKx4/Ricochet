@@ -71,9 +71,9 @@ On Linux, install the Debian package with:
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
 
-The official GitHub asset for Ricochet `1.0.0` is
-`ricochet_1.0.0_amd64.deb`. Inside the package, the Debian control metadata
-records `Version: 1.0.0`.
+The official GitHub asset for Ricochet `1.0.1` is
+`ricochet_1.0.1_amd64.deb`. Inside the package, the Debian control metadata
+records `Version: 1.0.1`.
 
 The Debian package declares the current Linux launcher runtime packages:
 `libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `libxdo3`. Install those packages

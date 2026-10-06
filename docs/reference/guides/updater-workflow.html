@@ -46,19 +46,19 @@
           <p>Ricochet's production updater workflow is channel metadata plus platform verification. Ricochet 1.0 does not ship a self-replacing <code>rco update</code> command; installers, package managers, or a future elevated desktop updater can consume the same metadata without moving risky install privileges into the Ricochet runtime.</p>
 
           <h2 id="channel-metadata">Channel Metadata</h2>
-          <p>Stable tags such as <code>v1.0.0</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside a GPG-signed combined checksum inventory. Stable metadata always requires SHA-256, requires detached GPG verification for Linux, and requires Authenticode or Apple verification only when the signing report proves it was produced. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code> with dry-run SHA-256 metadata.</p>
+          <p>Stable tags such as <code>v1.0.1</code> publish <code>UPDATE-CHANNEL-stable.json</code> beside a GPG-signed combined checksum inventory. Stable metadata always requires SHA-256, requires detached GPG verification for Linux, and requires Authenticode or Apple verification only when the signing report proves it was produced. Semver prerelease tags publish <code>UPDATE-CHANNEL-candidate.json</code> with dry-run SHA-256 metadata.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/write-update-channel.ps1 `
   -DistDir dist `
   -Channel stable `
-  -Version 1.0.0 `
-  -ReleaseTag v1.0.0 `
-  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.0</code></pre>
+  -Version 1.0.1 `
+  -ReleaseTag v1.0.1 `
+  -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.1</code></pre>
           <p>The channel document records release identity, rollout percentage, rollback policy, target manifests, primary artifacts, checksum files, signing reports, optional notary reports, required verification methods, and per-artifact SHA-256 metadata.</p>
           <p>Validate channel metadata before publishing it:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 `
   -DistDir dist `
   -Channel stable `
-  -Version 1.0.0 `
+  -Version 1.0.1 `
   -RequireProduction</code></pre>
           <p>The release workflow writes and validates the channel document before writing <code>SHA256SUMS.txt</code>, then signs that inventory as <code>SHA256SUMS.txt.asc</code> and verifies the downloaded draft again before publication.</p>
 

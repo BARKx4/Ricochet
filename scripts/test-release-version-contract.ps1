@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ValidatorPath = Join-Path $Root "scripts\validate-release-version.ps1"
-$ReleasePagePath = Join-Path $Root "docs\releases\v1.0.0.html"
+$ReleasePagePath = Join-Path $Root "docs\releases\v1.0.1.html"
 $HistoricalReleases = @(
     [pscustomobject]@{
         Version = "0.1.19-rc.3"
@@ -40,6 +40,12 @@ $HistoricalReleases = @(
         PagePath = Join-Path $Root ("docs\releases\v0.1.19-rc." + "8.html")
         Ref = "b6ab41a19559c65346e6427199dfbd06efd8b060"
         Sha256 = "69c5b6902c98047174ad113627af654825b2d0118bca2b1c87c3b8efe1d53408"
+    },
+    [pscustomobject]@{
+        Version = "1.0.0"
+        PagePath = Join-Path $Root "docs\releases\v1.0.0.html"
+        Ref = "v1.0.0"
+        Sha256 = "22d836fc53599b2038699bbb1091ae81deeeedcae65a8a660ccd552627b4eec2"
     }
 )
 $Failures = [System.Collections.Generic.List[string]]::new()
@@ -55,20 +61,20 @@ $releaseLines = @($releasePage -split "`r?`n")
 
 $packageCommands = @($releaseLines | Where-Object { $_ -match 'package-release\.ps1' })
 if ($packageCommands.Count -ne 1 -or $packageCommands[0] -notmatch '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The 1.0.0 package-release command must retain -RequireInstaller."
+    Add-Failure "The current release package-release command must retain -RequireInstaller."
 }
 
 $artifactCommands = @($releaseLines | Where-Object { $_ -match 'validate-release-artifacts\.ps1' })
 if ($artifactCommands.Count -ne 1 -or $artifactCommands[0] -notmatch '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The 1.0.0 artifact-validator command must retain -RequireInstaller."
+    Add-Failure "The current release artifact-validator command must retain -RequireInstaller."
 }
 
 $storeCommands = @($releaseLines | Where-Object { $_ -match 'validate-store-packaging\.ps1' })
 if ($storeCommands.Count -ne 1) {
-    Add-Failure "The 1.0.0 checklist must contain exactly one store-packaging validator command."
+    Add-Failure "The current release checklist must contain exactly one store-packaging validator command."
 }
 elseif ($storeCommands[0] -match '(?:^|\s)-RequireInstaller(?:\s|<|$)') {
-    Add-Failure "The 1.0.0 store-packaging command passes unsupported -RequireInstaller."
+    Add-Failure "The current release store-packaging command passes unsupported -RequireInstaller."
 }
 
 $tokens = $null
