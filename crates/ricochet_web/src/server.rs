@@ -2751,7 +2751,7 @@ fn hex_decode(source: &str) -> Result<Vec<u8>, ()> {
     }
 
     let mut decoded = Vec::with_capacity(bytes.len() / 2);
-    for chunk in bytes.chunks_exact(2) {
+    for chunk in bytes.as_chunks::<2>().0 {
         let high = hex_value(chunk[0]).ok_or(())?;
         let low = hex_value(chunk[1]).ok_or(())?;
         decoded.push((high << 4) | low);

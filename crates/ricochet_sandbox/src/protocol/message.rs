@@ -208,7 +208,7 @@ impl ConnectionNonce {
             return Err(protocol_error());
         }
         let mut bytes = [0_u8; 32];
-        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             bytes[index] =
                 u8::from_str_radix(std::str::from_utf8(pair).map_err(|_| protocol_error())?, 16)
                     .map_err(|_| protocol_error())?;
