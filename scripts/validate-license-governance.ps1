@@ -204,6 +204,7 @@ $approvedTrackedMarkdownPaths = @(
     "packages/ricochet_forms/README.md",
     "packages/ricochet_python/README.md",
     "packages/ricochet_test_helpers/README.md",
+    "third_party/glib/README.md",
     "third_party/portable-pty/LICENSE.md",
     "third_party/portable-pty/RICOCHET-PATCH.md"
 )

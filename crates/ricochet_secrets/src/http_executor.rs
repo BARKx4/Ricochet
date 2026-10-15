@@ -77,6 +77,7 @@ enum DestinationResolver {
 struct TestDestinationResolver {
     host: String,
     address: SocketAddr,
+    trusted_certificate: Option<reqwest::Certificate>,
 }
 
 #[cfg(feature = "test-host")]
@@ -370,15 +371,18 @@ impl SecretsHttpExecutor {
         credential.apply(&mut headers)?;
         let client = Client::builder()
             .timeout(request.timeout)
+            .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .retry(reqwest::retry::never())
             .resolve_to_addrs(&request.resolved_host, &request.resolved_addresses);
         #[cfg(feature = "test-host")]
-        let client = if matches!(self.inner.resolver, DestinationResolver::Test(_)) {
-            client.danger_accept_invalid_certs(true)
-        } else {
-            client
+        let client = match &self.inner.resolver {
+            DestinationResolver::Test(resolver) => match &resolver.trusted_certificate {
+                Some(certificate) => client.add_root_certificate(certificate.clone()),
+                None => client,
+            },
+            _ => client,
         };
         let client = client
             .build()
@@ -879,6 +883,37 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
 pub mod test_host {
     use super::*;
 
+    /// Ephemeral TLS material for a loopback test server, signed by a unique fixture CA.
+    /// Private keys are generated in memory; only the CA is added to a test client's trust.
+    pub struct TestTlsFixture {
+        pub certificate_der: Vec<u8>,
+        pub private_key_der: Vec<u8>,
+        pub ca_der: Vec<u8>,
+    }
+
+    impl TestTlsFixture {
+        pub fn new(host: &str) -> Self {
+            let mut ca_params =
+                rcgen::CertificateParams::new(Vec::<String>::new()).expect("fixture CA parameters");
+            ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            let ca_key = rcgen::KeyPair::generate().expect("fixture CA key");
+            let ca = ca_params
+                .self_signed(&ca_key)
+                .expect("fixture CA certificate");
+            let leaf_params = rcgen::CertificateParams::new(vec![host.to_string()])
+                .expect("fixture server parameters");
+            let leaf_key = rcgen::KeyPair::generate().expect("fixture server key");
+            let leaf = leaf_params
+                .signed_by(&leaf_key, &ca, &ca_key)
+                .expect("CA-signed fixture server certificate");
+            Self {
+                certificate_der: leaf.der().to_vec(),
+                private_key_der: leaf_key.serialize_der(),
+                ca_der: ca.der().to_vec(),
+            }
+        }
+    }
+
     pub struct TestEnvironmentValue(TestEnvironmentValueInner);
 
     enum TestEnvironmentValueInner {
@@ -945,11 +980,26 @@ pub mod test_host {
                     resolver: DestinationResolver::Test(TestDestinationResolver {
                         host: canonical.host().to_string(),
                         address,
+                        trusted_certificate: None,
                     }),
                     metrics: Some(Arc::clone(&metrics)),
                 }),
             };
             Self { executor, metrics }
+        }
+
+        /// Add trust for this fixture before cloning the executor. Normal TLS
+        /// certificate-chain, validity and hostname validation remain enabled.
+        pub fn with_trusted_certificate(mut self, certificate_der: &[u8]) -> Self {
+            let certificate = reqwest::Certificate::from_der(certificate_der)
+                .expect("fixture CA must be a DER certificate");
+            let inner = Arc::get_mut(&mut self.executor.inner)
+                .expect("configure fixture trust before sharing its executor");
+            let DestinationResolver::Test(resolver) = &mut inner.resolver else {
+                unreachable!("test-host always uses its loopback resolver")
+            };
+            resolver.trusted_certificate = Some(certificate);
+            self
         }
 
         pub fn executor(&self) -> SecretsHttpExecutor {
@@ -1013,6 +1063,78 @@ mod tests {
             self.source_accesses.fetch_add(1, Ordering::AcqRel);
             Ok(Zeroizing::new("must-not-resolve".to_string()))
         }
+    }
+
+    #[test]
+    fn deferred_http_transport_rejects_plain_http() {
+        // Deliberately corrupt an internal prepared request to exercise send_once's
+        // transport guard, even if a future caller bypasses prepare's URL check.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let request = PreparedSecretHttpRequest {
+            credentials: DeferredHttpCredentials::bearer(
+                DeferredSecretSource::literal("transport-fixture".to_string()).unwrap(),
+            ),
+            method: reqwest::Method::GET,
+            url: format!("http://localhost:{}/must-not-send", address.port()),
+            headers: HeaderMap::new(),
+            json: None,
+            body: None,
+            timeout: Duration::from_millis(50),
+            max_response_bytes: 1024,
+            resolved_host: "localhost".to_string(),
+            resolved_addresses: vec![address],
+            secret_session: None,
+            security_domain_id: None,
+        };
+        let error = SecretsHttpExecutor::new().execute(request).unwrap_err();
+        assert_eq!(error.kind(), HTTP_ERROR);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn deferred_http_prepare_rejects_plain_http_before_source_access() {
+        let source_accesses = Arc::new(AtomicUsize::new(0));
+        let executor = SecretsHttpExecutor {
+            inner: Arc::new(SecretsHttpExecutorInner {
+                source: Arc::new(CountingCredentialSource {
+                    source_accesses: Arc::clone(&source_accesses),
+                }),
+                resolver: DestinationResolver::System,
+                #[cfg(feature = "test-host")]
+                metrics: None,
+            }),
+        };
+        let credentials = DeferredHttpCredentials::bearer(DeferredSecretSource::environment(
+            SecretName::parse("provider.api-key").unwrap(),
+        ));
+        let error = executor
+            .prepare(
+                credentials,
+                reqwest::Method::GET,
+                "http://example.test/".to_string(),
+                HeaderMap::new(),
+                None,
+                None,
+                Duration::from_millis(50),
+                1024,
+                None,
+                None,
+                SecretHttpPolicySnapshot::new(
+                    true,
+                    None,
+                    BTreeSet::new(),
+                    EnvironmentCredentialPolicy::new(true, None),
+                ),
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), PERMISSION_ERROR);
+        assert_eq!(error.message(), "deferred HTTP credentials require HTTPS");
+        assert_eq!(source_accesses.load(Ordering::Acquire), 0);
     }
 
     #[test]

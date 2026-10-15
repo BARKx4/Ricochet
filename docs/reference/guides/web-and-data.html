@@ -93,6 +93,7 @@ url = &quot;db/development.sqlite3&quot;</code></pre>
 adapter = &quot;postgres&quot;
 url = &quot;${DATABASE_URL}&quot; # use sslmode=require for remote databases</code></pre>
           <p>Ricochet requires TLS for remote Postgres connections. <code>sslmode=disable</code> is accepted only for <code>localhost</code> or loopback development databases.</p>
+          <p>PostgreSQL application transactions reuse a bounded pool of up to eight connections, separate from the shared autocommit connection. Checkout, including connection startup, times out after ten seconds. After the last transaction handle is dropped, Ricochet rolls back outstanding work and runs <code>DISCARD ALL</code> before reuse. Cleanup has a five-second deadline; failed or cancelled cleanup closes the connection. Rust embedders can configure these bounds with <code>PostgresDatabase::connect_with_pool_options</code> and <code>PostgresPoolOptions</code>.</p>
           <h2 id="mysql-and-mariadb">MySQL And MariaDB</h2>
           <p>For a MySQL or MariaDB-backed app, use the MySQL adapter with a <code>mysql://</code> URL:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>[database.default]
@@ -114,6 +115,7 @@ $db savepoint value checkpoint var
 $checkpoint rollback value drop
 $db commit</code></pre>
           <p>Every manual transaction word returns a Result, nested <code>begin</code> calls fail, and savepoints must be completed last-created first. Active Record calls and direct <code>$db</code> calls in the same VM use the active transaction. SQLite pins its connection, while PostgreSQL and MySQL/MariaDB use a dedicated connection for the transaction. An uncaught VM failure triggers best-effort rollback when the database session is discarded. Database rollback does not undo cookies, session edits, logs, HTTP calls, filesystem writes, or other external effects.</p>
+          <p>A PostgreSQL commit or rollback attempt is terminal once it starts executing, including when it fails or is cancelled. Completed handles reject further queries. A failed finish releases the Database capability's transaction state so a new transaction can begin. A connection failure during commit can leave the outcome uncertain; Ricochet does not retry the write automatically.</p>
           <h2 id="migrations-and-seeds">Migrations And Seeds</h2>
           <p>Use <code>rco migrate new NAME [path]</code> to create an apply-only SQL migration, or <code>rco migrate new NAME --dsl [path]</code> to create paired Ricochet migration DSL files. Use <code>rco migrate status [path]</code> to list ordered migration files and <code>rco migrate apply [path]</code> to apply pending SQL or DSL. Existing <code>VERSION_name.sql</code> files remain compatible. For reversible migrations, use paired SQL or DSL files such as <code>VERSION_name.up.sql</code>, <code>VERSION_name.down.sql</code>, <code>VERSION_name.up.rco</code>, and <code>VERSION_name.down.rco</code>.</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>rco migrate status

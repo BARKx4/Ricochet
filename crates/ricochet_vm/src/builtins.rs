@@ -11137,7 +11137,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("sync-task-synthetic-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let request =
             deferred_environment_request(format!("https://phase0.test:{port}/native-boundary"));
@@ -11228,7 +11229,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("denial-synthetic-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let https_url = format!("https://phase0.test:{port}/denied");
 
@@ -11357,7 +11359,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("post-auth-collision-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let request =
             deferred_environment_request(format!("https://phase0.test:{port}/post-auth-collision"));
@@ -11409,7 +11412,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("denied-boundary-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let url = format!("https://phase0.test:{port}/denied-boundary");
 
@@ -11453,7 +11457,8 @@ mod tests {
                 TestHttpsCaptureServer::new(status, &[("Retry-After", "0")])
             };
             let test_host =
-                TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+                TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new())
+                    .with_trusted_certificate(server.ca_der());
             let port = server.address().port();
             let mut vm = deferred_send_vm(&test_host, port);
             vm.set_environment_enabled(false);
@@ -11474,7 +11479,8 @@ mod tests {
     #[test]
     fn deferred_http_send_protocol_nack_is_not_retried() {
         let server = TestHttpsProtocolNackServer::new();
-        let test_host = TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+        let test_host = TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new())
+            .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let mut vm = deferred_send_vm(&test_host, port);
         vm.set_environment_enabled(false);
@@ -11529,7 +11535,8 @@ mod tests {
                 "phase0.test",
                 server.address(),
                 BTreeMap::from([("OPENAI_API_KEY".to_string(), environment_value)]),
-            );
+            )
+            .with_trusted_certificate(server.ca_der());
             let port = server.address().port();
             let mut vm = deferred_send_vm(&test_host, port);
             vm.push_value(Value::Map(deferred_environment_request(format!(
@@ -11549,6 +11556,45 @@ mod tests {
             assert_eq!(test_host.credential_resolution_count(), 1);
             assert_eq!(test_host.environment_source_access_count(), 1);
             assert!(server.wait_for_requests(0).is_empty());
+        }
+    }
+
+    #[test]
+    fn deferred_http_send_rejects_untrusted_ca_and_wrong_hostname() {
+        for case in ["untrusted", "wrong-ca", "wrong-host"] {
+            let certificate_host = if case == "wrong-host" {
+                "other.test"
+            } else {
+                "phase0.test"
+            };
+            let server = TestHttpsCaptureServer::new_for_host(certificate_host, 200, &[]);
+            let test_host =
+                TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+            let test_host = match case {
+                "wrong-ca" => {
+                    let unrelated = ricochet_secrets::test_host::TestTlsFixture::new("phase0.test");
+                    test_host.with_trusted_certificate(&unrelated.ca_der)
+                }
+                "wrong-host" => test_host.with_trusted_certificate(server.ca_der()),
+                _ => test_host,
+            };
+            let mut vm = deferred_send_vm(&test_host, server.address().port());
+            vm.push_value(Value::Map(deferred_literal_request(
+                format!(
+                    "https://phase0.test:{}/must-not-send",
+                    server.address().port()
+                ),
+                "certificate-check-synthetic-secret",
+            )));
+            let result = vm
+                .method_http_request(Value::Capability(Capability::Http), "request")
+                .expect("TLS validation failure should return a result");
+            assert_http_error_kind(&result, "HttpError");
+            assert!(
+                server.wait_for_requests(0).is_empty(),
+                "TLS rejection must precede HTTP headers"
+            );
+            assert!(!format!("{result:?}").contains("certificate-check-synthetic-secret"));
         }
     }
 
@@ -11640,7 +11686,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("stream-denial-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let port = server.address().port();
         let mut vm = deferred_send_vm(&test_host, port);
         vm.set_environment_enabled(false);
@@ -11671,6 +11718,14 @@ mod tests {
                 "--nocapture",
             ])
             .env("RICOCHET_DEFERRED_HTTP_PROXY_CHILD", "1")
+            .env(
+                "RICOCHET_DEFERRED_HTTP_FIXTURE_CA",
+                server
+                    .ca_der()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>(),
+            )
             .env(
                 "RICOCHET_DEFERRED_HTTP_DESTINATION",
                 server.address().to_string(),
@@ -11706,6 +11761,17 @@ mod tests {
             .expect("proxy child destination should be provided")
             .parse::<std::net::SocketAddr>()
             .expect("proxy child destination should parse");
+        let ca_hex = std::env::var("RICOCHET_DEFERRED_HTTP_FIXTURE_CA")
+            .expect("proxy child public fixture CA should be provided");
+        let (pairs, remainder) = ca_hex.as_bytes().as_chunks::<2>();
+        assert!(
+            remainder.is_empty(),
+            "fixture CA hex must contain whole bytes"
+        );
+        let ca_der: Vec<u8> = pairs
+            .iter()
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
         let test_host = TestSecretsHttpHost::new(
             "phase0.test",
             address,
@@ -11713,7 +11779,8 @@ mod tests {
                 "OPENAI_API_KEY".to_string(),
                 TestEnvironmentValue::unicode("proxy-child-synthetic-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(&ca_der);
         let mut vm = deferred_send_vm(&test_host, address.port());
         vm.push_value(Value::Map(deferred_environment_request(format!(
             "https://phase0.test:{}/proxy-child",
@@ -11723,11 +11790,6 @@ mod tests {
             .method_http_request(Value::Capability(Capability::Http), "request")
             .expect("proxy child request should execute");
         assert_http_status(&result, 200);
-        println!(
-            "credential_resolutions={} environment_source_accesses={}",
-            test_host.credential_resolution_count(),
-            test_host.environment_source_access_count()
-        );
         assert_eq!(test_host.credential_resolution_count(), 1);
         assert_eq!(test_host.environment_source_access_count(), 1);
     }

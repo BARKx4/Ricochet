@@ -1134,7 +1134,7 @@ mod tests {
         for trusted in ["ricochet://localhost/", "ricochet://localhost/#details"] {
             assert!(
                 callback_webview_ipc_is_trusted(trusted),
-                "callback IPC should accept {trusted:?}"
+                "callback IPC should accept the trusted local document fixture"
             );
         }
 

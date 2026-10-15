@@ -33,13 +33,16 @@ impl NativeMethod {
 
 #[derive(Clone)]
 pub struct BytecodeCallable {
-    pub chunk: Chunk,
+    pub chunk: Arc<Chunk>,
     pub args: Option<ArgsSpec>,
 }
 
 impl BytecodeCallable {
     pub fn new(chunk: Chunk, args: Option<ArgsSpec>) -> Self {
-        Self { chunk, args }
+        Self {
+            chunk: Arc::new(chunk),
+            args,
+        }
     }
 }
 

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ValidatorPath = Join-Path $Root "scripts\validate-release-version.ps1"
-$ReleasePagePath = Join-Path $Root "docs\releases\v1.0.1.html"
+$ReleasePagePath = Join-Path $Root "docs\releases\v1.0.2.html"
 $HistoricalReleases = @(
     [pscustomobject]@{
         Version = "0.1.19-rc.3"
@@ -46,6 +46,12 @@ $HistoricalReleases = @(
         PagePath = Join-Path $Root "docs\releases\v1.0.0.html"
         Ref = "v1.0.0"
         Sha256 = "22d836fc53599b2038699bbb1091ae81deeeedcae65a8a660ccd552627b4eec2"
+    },
+    [pscustomobject]@{
+        Version = "1.0.1"
+        PagePath = Join-Path $Root "docs\releases\v1.0.1.html"
+        Ref = "v1.0.1"
+        Sha256 = "c55ca160d0cf8503054f6f57a4178cbd71389649b0347249edb652f531dac55c"
     }
 )
 $Failures = [System.Collections.Generic.List[string]]::new()

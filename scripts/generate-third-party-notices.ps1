@@ -105,7 +105,7 @@ function Select-ActiveCargoAboutHtml {
     )
 
     $emptyLicenseSections = [regex]::new(
-        '\s*<section>\s*<h3>.*?</h3>\s*<p>Used by:</p>\s*<ul>\s*</ul>\s*<pre>.*?</pre>\s*</section>',
+        '\s*<section>\s*<h3>[^<]*</h3>\s*<p>Used by:</p>\s*<ul>\s*</ul>\s*<pre>[^<]*</pre>\s*</section>',
         $singleline
     )
     return Normalize-Text ($emptyLicenseSections.Replace($filtered, ""))

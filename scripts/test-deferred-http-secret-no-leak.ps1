@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$ByteBufferSelfTestOnly,
-    [switch]$ArtifactSelectionSelfTestOnly
+    [switch]$ArtifactSelectionSelfTestOnly,
+    [string]$AdditionalApplicationArtifact
 )
 
 $ErrorActionPreference = 'Stop'
@@ -785,9 +786,24 @@ try {
     )
     $evidenceFiles = @(Get-ChildItem -LiteralPath $applicationEvidence -File | ForEach-Object FullName)
     $applicationFiles = @($workspaceFiles + $evidenceFiles + $rco)
+    $additionalArtifactPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($AdditionalApplicationArtifact)) {
+        $additionalArtifactPath = [System.IO.Path]::GetFullPath($AdditionalApplicationArtifact)
+        if (-not [System.IO.File]::Exists($additionalArtifactPath)) {
+            throw 'The additional application artifact must be an existing file'
+        }
+        $additionalArtifactHash = (Get-FileHash -LiteralPath $additionalArtifactPath -Algorithm SHA256).Hash
+        $applicationFiles += $additionalArtifactPath
+    }
     $applicationScan = Scan-Files $applicationFiles $secretBuffer $secretDigest $secretDigestTextLower $secretDigestTextUpper
     if ($applicationScan.RawHits -ne 0 -or $applicationScan.DigestHits -ne 0) {
         throw 'deferred HTTP application evidence contains audited secret material'
+    }
+    if ($null -ne $additionalArtifactPath) {
+        if ((Get-FileHash -LiteralPath $additionalArtifactPath -Algorithm SHA256).Hash -cne $additionalArtifactHash) {
+            throw 'The additional application artifact changed during the scan'
+        }
+        Write-Output ("additional_application_artifact={0};sha256={1}" -f $additionalArtifactPath, $additionalArtifactHash)
     }
 
     $selfPrefix = $utf8.GetBytes('ricochet-scanner-self-test-')

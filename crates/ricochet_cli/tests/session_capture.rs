@@ -56,6 +56,7 @@ impl NativePromptControl for SyntheticNativePrompt {
 
 struct LocalTlsCapture {
     address: SocketAddr,
+    ca_der: Vec<u8>,
     requests: Arc<Mutex<Vec<String>>>,
     shutdown: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
@@ -63,11 +64,10 @@ struct LocalTlsCapture {
 
 impl LocalTlsCapture {
     fn new() -> Self {
-        let certified = rcgen::generate_simple_self_signed(vec![TEST_HOST.to_string()])
-            .expect("test TLS certificate");
-        let certificate = certified.cert.der().clone();
-        let private_key =
-            rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der());
+        let fixture = ricochet_secrets::test_host::TestTlsFixture::new(TEST_HOST);
+        let ca_der = fixture.ca_der;
+        let certificate = rustls::pki_types::CertificateDer::from(fixture.certificate_der);
+        let private_key = rustls::pki_types::PrivatePkcs8KeyDer::from(fixture.private_key_der);
         let tls = Arc::new(
             rustls::ServerConfig::builder()
                 .with_no_client_auth()
@@ -129,6 +129,7 @@ impl LocalTlsCapture {
         });
         Self {
             address,
+            ca_der,
             requests,
             shutdown,
             worker: Some(worker),
@@ -261,7 +262,8 @@ fn callback_gui_session_capture_is_opaque_one_use_and_succeeds_for_sync_spawn_an
         let sentinel = unique_sentinel(variant);
         let capture = LocalTlsCapture::new();
         let address = capture.address();
-        let http = TestSecretsHttpHost::new(TEST_HOST, address, Default::default());
+        let http = TestSecretsHttpHost::new(TEST_HOST, address, Default::default())
+            .with_trusted_certificate(&capture.ca_der);
         let destination =
             DestinationGrant::new(TEST_HOST, address.port()).expect("exact local test destination");
         let chunk = compile_source(

@@ -95,6 +95,18 @@ pub trait DatabaseBackend: Send + Sync {
         ))
     }
 
+    /// Whether an unsuccessful finish still consumes the transaction handle.
+    /// Backends with recoverable commit errors keep the default behavior.
+    fn transaction_finish_error_is_terminal(&self) -> bool {
+        false
+    }
+
+    /// Abandon a session's transaction. Pooled backends can defer bounded
+    /// cleanup to their final lease drop instead of blocking this destructor.
+    fn abandon_transaction(&self) {
+        let _ = self.rollback_transaction();
+    }
+
     fn create_savepoint(&self, _name: &str) -> Result<(), ActiveRecordError> {
         Err(transaction_error(
             "create savepoint",
@@ -118,6 +130,15 @@ pub trait DatabaseBackend: Send + Sync {
 }
 
 impl DatabaseBackend for PostgresDatabase {
+    fn transaction_finish_error_is_terminal(&self) -> bool {
+        true
+    }
+
+    fn abandon_transaction(&self) {
+        // Final lease destruction owns rollback/reset with a deadline. Waiting
+        // here could block forever before that cleanup task can even start.
+    }
+
     fn find(&self, mapping: &ModelMapping, id: &Value) -> Result<Option<Value>, ActiveRecordError> {
         block_on_postgres("find", PostgresDatabase::find(self, mapping, id))
     }
@@ -634,10 +655,12 @@ impl SessionDatabase {
             .backend
             .as_ref()
             .ok_or_else(|| transaction_error("commit transaction", "no transaction is active"))?;
-        backend.commit_transaction()?;
-        state.backend = None;
-        state.savepoints.clear();
-        Ok(())
+        let result = backend.commit_transaction();
+        if result.is_ok() || backend.transaction_finish_error_is_terminal() {
+            state.backend = None;
+            state.savepoints.clear();
+        }
+        result
     }
 
     fn rollback(&self) -> Result<(), ActiveRecordError> {
@@ -651,10 +674,12 @@ impl SessionDatabase {
             .backend
             .as_ref()
             .ok_or_else(|| transaction_error("rollback transaction", "no transaction is active"))?;
-        backend.rollback_transaction()?;
-        state.backend = None;
-        state.savepoints.clear();
-        Ok(())
+        let result = backend.rollback_transaction();
+        if result.is_ok() || backend.transaction_finish_error_is_terminal() {
+            state.backend = None;
+            state.savepoints.clear();
+        }
+        result
     }
 
     fn savepoint(&self) -> Result<String, ActiveRecordError> {
@@ -723,7 +748,7 @@ impl Drop for DatabaseSession {
             .get_mut()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(backend) = state.backend.take() {
-            let _ = backend.rollback_transaction();
+            backend.abandon_transaction();
         }
     }
 }
@@ -1708,6 +1733,106 @@ mod tests {
     use super::*;
     use ricochet_vm::RicochetResult;
     use std::sync::Mutex;
+
+    fn postgres_pool_test_url() -> String {
+        let url = std::env::var("RICOCHET_POSTGRES_TEST_URL").unwrap();
+        let config = url.parse::<tokio_postgres::Config>().unwrap();
+        assert!(config
+            .get_dbname()
+            .is_some_and(|name| { name.starts_with("ricochet_test_") }));
+        assert!(config.get_hosts().iter().all(|host| {
+            matches!(host, tokio_postgres::config::Host::Tcp(name) if name == "127.0.0.1" || name == "localhost" || name == "::1")
+        }));
+        url
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires a dedicated local PostgreSQL RICOCHET_POSTGRES_TEST_URL"]
+    async fn postgres_pool_tests_failed_commit_releases_the_capability_transaction() {
+        let url = postgres_pool_test_url();
+        let database = Arc::new(
+            PostgresDatabase::connect_with_pool_options(
+                &url,
+                crate::PostgresPoolOptions {
+                    max_connections: 1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap(),
+        );
+        let transaction = database.begin_transaction().await.unwrap();
+        transaction.execute_batch("create temporary table ricochet_capability_deferred(id int, unique(id) deferrable initially deferred); insert into ricochet_capability_deferred values(1),(1)").await.unwrap();
+        let session = SessionDatabase::new(database);
+        session.session.transaction.lock().unwrap().backend = Some(Arc::new(transaction));
+        session.savepoint().unwrap();
+        assert!(session.commit().is_err());
+        {
+            let state = session.session.transaction.lock().unwrap();
+            assert!(
+                state.backend.is_none(),
+                "terminal commit failure must release the lease"
+            );
+            assert!(state.savepoints.is_empty());
+        }
+        session
+            .begin()
+            .expect("the capability can begin again after a failed commit");
+        session.rollback().unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires a dedicated local PostgreSQL RICOCHET_POSTGRES_TEST_URL"]
+    async fn postgres_pool_tests_dropping_a_session_does_not_wait_for_a_stalled_backend() {
+        use std::time::{Duration, Instant};
+        let url = postgres_pool_test_url();
+        let database = Arc::new(
+            PostgresDatabase::connect_with_pool_options(
+                &url,
+                crate::PostgresPoolOptions {
+                    max_connections: 1,
+                    acquire_timeout: Duration::from_secs(2),
+                    recycle_timeout: Duration::from_millis(40),
+                },
+            )
+            .await
+            .unwrap(),
+        );
+        let (monitor, driver) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            driver.await.unwrap();
+        });
+        let transaction = database.begin_transaction().await.unwrap();
+        transaction
+            .execute_batch("set application_name = 'ricochet_pool_session_drop_test'")
+            .await
+            .unwrap();
+        let old_pid: i32 = monitor.query_one("select pid from pg_stat_activity where application_name='ricochet_pool_session_drop_test'", &[]).await.unwrap().get(0);
+        assert!(tokio::time::timeout(
+            Duration::from_millis(20),
+            transaction.execute_batch("select pg_sleep(3)")
+        )
+        .await
+        .is_err());
+        let session = SessionDatabase::new(database.clone());
+        session.session.transaction.lock().unwrap().backend = Some(Arc::new(transaction));
+        let start = Instant::now();
+        drop(session);
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "session Drop bypassed the bounded pool cleanup by waiting for rollback"
+        );
+        let replacement = database.begin_transaction().await.unwrap();
+        replacement
+            .execute_batch("set application_name = 'ricochet_pool_session_drop_replacement'")
+            .await
+            .unwrap();
+        let new_pid: i32 = monitor.query_one("select pid from pg_stat_activity where application_name='ricochet_pool_session_drop_replacement'", &[]).await.unwrap().get(0);
+        assert_ne!(old_pid, new_pid);
+        replacement.rollback_transaction().await.unwrap();
+    }
 
     struct FixtureDatabase;
 

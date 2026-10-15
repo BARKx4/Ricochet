@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use bytes::BytesMut;
@@ -16,6 +15,13 @@ use tokio_postgres::config::{Host as PostgresHost, SslMode};
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql as PostgresToSql, Type};
 use tokio_postgres::{Client, Config as PostgresConfig, Row as PostgresRow};
 use tokio_postgres_rustls::MakeRustlsConnect;
+
+pub use crate::postgres_pool::PostgresPoolOptions;
+use crate::postgres_pool::{PostgresLease, PostgresPool};
+
+#[cfg(test)]
+#[path = "postgres_pool_tests.rs"]
+mod postgres_pool_tests;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelMapping {
@@ -488,7 +494,23 @@ impl ModelMapping {
 pub struct PostgresDatabase {
     client: Arc<Client>,
     config: Arc<PostgresConfig>,
-    transaction_active: Option<Arc<AtomicBool>>,
+    pool: PostgresPool,
+    transaction_active: Option<Arc<tokio::sync::RwLock<bool>>>,
+    // Clones keep the exclusive connection lease until the final handle is gone.
+    _transaction_lease: Option<Arc<PostgresLease>>,
+}
+
+struct PostgresOperation<'a> {
+    client: &'a Client,
+    _transaction: Option<tokio::sync::RwLockReadGuard<'a, bool>>,
+}
+
+impl std::ops::Deref for PostgresOperation<'_> {
+    type Target = Client;
+
+    fn deref(&self) -> &Self::Target {
+        self.client
+    }
 }
 
 impl fmt::Debug for PostgresDatabase {
@@ -499,16 +521,34 @@ impl fmt::Debug for PostgresDatabase {
 
 impl PostgresDatabase {
     pub async fn connect(url: &str) -> Result<Self, ActiveRecordError> {
+        Self::connect_with_pool_options(url, PostgresPoolOptions::default()).await
+    }
+
+    pub async fn connect_with_pool_options(
+        url: &str,
+        options: PostgresPoolOptions,
+    ) -> Result<Self, ActiveRecordError> {
+        options.validate()?;
         let mut config = url
             .parse::<PostgresConfig>()
             .map_err(|error| database_error("parse connection string", error))?;
         apply_postgres_tls_policy(&mut config)?;
-        let client = connect_postgres_client(&config).await?;
+        let client =
+            tokio::time::timeout(options.acquire_timeout, connect_postgres_client(&config))
+                .await
+                .map_err(|_| ActiveRecordError::Database {
+                    operation: "connect",
+                    message: "connection timed out".to_string(),
+                })??;
+        let config = Arc::new(config);
+        let pool = PostgresPool::new(config.clone(), options);
 
         Ok(Self {
             client: Arc::new(client),
-            config: Arc::new(config),
+            config,
+            pool,
             transaction_active: None,
+            _transaction_lease: None,
         })
     }
 
@@ -519,15 +559,18 @@ impl PostgresDatabase {
                 "a transaction is already active",
             ));
         }
-        let client = connect_postgres_client(&self.config).await?;
-        client
+        let lease = self.pool.acquire().await?;
+        lease
+            .client()
             .batch_execute("begin")
             .await
             .map_err(|error| database_error("begin transaction", error))?;
         Ok(Self {
-            client: Arc::new(client),
+            client: lease.client().clone(),
             config: self.config.clone(),
-            transaction_active: Some(Arc::new(AtomicBool::new(true))),
+            pool: self.pool.clone(),
+            transaction_active: Some(Arc::new(tokio::sync::RwLock::new(true))),
+            _transaction_lease: Some(Arc::new(lease)),
         })
     }
 
@@ -571,10 +614,20 @@ impl PostgresDatabase {
         sql: &str,
         operation: &'static str,
     ) -> Result<(), ActiveRecordError> {
-        self.transaction_control(operation, sql).await?;
-        self.transaction_active(operation)?
-            .store(false, Ordering::Release);
-        Ok(())
+        let mut active = self.transaction_active(operation)?.write().await;
+        if !*active {
+            return Err(transaction_error(
+                operation,
+                "transaction is already complete",
+            ));
+        }
+        // Finishing is terminal even on cancellation or a server error. No stale
+        // handle may run a later query outside the transaction; Drop still resets.
+        *active = false;
+        self.client
+            .batch_execute(sql)
+            .await
+            .map_err(|error| database_error(operation, error))
     }
 
     async fn transaction_control(
@@ -582,13 +635,9 @@ impl PostgresDatabase {
         operation: &'static str,
         sql: &str,
     ) -> Result<(), ActiveRecordError> {
-        if !self.transaction_active(operation)?.load(Ordering::Acquire) {
-            return Err(transaction_error(
-                operation,
-                "transaction is already complete",
-            ));
-        }
-        self.client
+        self.transaction_active(operation)?;
+        self.operation_client(operation)
+            .await?
             .batch_execute(sql)
             .await
             .map_err(|error| database_error(operation, error))
@@ -597,14 +646,38 @@ impl PostgresDatabase {
     fn transaction_active(
         &self,
         operation: &'static str,
-    ) -> Result<&AtomicBool, ActiveRecordError> {
+    ) -> Result<&tokio::sync::RwLock<bool>, ActiveRecordError> {
         self.transaction_active
             .as_deref()
             .ok_or_else(|| transaction_error(operation, "no transaction is active"))
     }
 
+    async fn operation_client(
+        &self,
+        operation: &'static str,
+    ) -> Result<PostgresOperation<'_>, ActiveRecordError> {
+        let transaction = match &self.transaction_active {
+            Some(active) => {
+                let guard = active.read().await;
+                if !*guard {
+                    return Err(transaction_error(
+                        operation,
+                        "transaction is already complete",
+                    ));
+                }
+                Some(guard)
+            }
+            None => None,
+        };
+        Ok(PostgresOperation {
+            client: &self.client,
+            _transaction: transaction,
+        })
+    }
+
     pub async fn ping(&self) -> Result<(), ActiveRecordError> {
-        self.client
+        self.operation_client("query")
+            .await?
             .simple_query("select 1")
             .await
             .map_err(|error| database_error("ping", error))?;
@@ -612,7 +685,8 @@ impl PostgresDatabase {
     }
 
     pub async fn execute_batch(&self, sql: &str) -> Result<(), ActiveRecordError> {
-        self.client
+        self.operation_client("query")
+            .await?
             .batch_execute(sql)
             .await
             .map_err(|error| database_error("execute migration", error))?;
@@ -620,8 +694,7 @@ impl PostgresDatabase {
     }
 
     pub async fn migration_versions(&self) -> Result<Option<Vec<String>>, ActiveRecordError> {
-        let exists = self
-            .client
+        let exists = self.operation_client("query").await?
             .query_one(
                 "select exists (select 1 from information_schema.tables where table_schema = current_schema() and table_name = 'schema_migrations')",
                 &[],
@@ -633,7 +706,8 @@ impl PostgresDatabase {
             return Ok(None);
         }
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 "select version from schema_migrations order by version",
                 &[],
@@ -660,7 +734,8 @@ create table if not exists schema_migrations (
         version: &str,
         applied_at: &str,
     ) -> Result<(), ActiveRecordError> {
-        self.client
+        self.operation_client("query")
+            .await?
             .execute(
                 "insert into schema_migrations (version, applied_at) values ($1, $2)",
                 &[&version, &applied_at],
@@ -671,7 +746,8 @@ create table if not exists schema_migrations (
     }
 
     pub async fn forget_migration(&self, version: &str) -> Result<(), ActiveRecordError> {
-        self.client
+        self.operation_client("query")
+            .await?
             .execute(
                 "delete from schema_migrations where version = $1",
                 &[&version],
@@ -736,7 +812,8 @@ create table if not exists schema_migrations (
 
     pub async fn schema_dump(&self) -> Result<String, ActiveRecordError> {
         let sequence_rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 r#"
 select sequence_class.relname as sequence_name
@@ -752,7 +829,8 @@ order by sequence_class.relname
             .map_err(|error| database_error("dump schema", error))?;
 
         let column_rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 r#"
 select
@@ -799,7 +877,8 @@ order by table_class.relname, attribute.attnum
         }
 
         let constraint_rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 r#"
 select
@@ -820,7 +899,8 @@ order by table_class.relname, constraint_object.conname
             .map_err(|error| database_error("dump schema", error))?;
 
         let index_rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 r#"
 select
@@ -909,7 +989,8 @@ order by table_class.relname, index_class.relname
     ) -> Result<Option<Value>, ActiveRecordError> {
         let parameter = PostgresParameter::try_from(id)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(mapping.select_by_id_sql().as_str(), &[parameter.as_sql()])
             .await
             .map_err(|error| database_error("find", error))?;
@@ -921,7 +1002,8 @@ order by table_class.relname, index_class.relname
 
     pub async fn all(&self, mapping: &ModelMapping) -> Result<Vec<Value>, ActiveRecordError> {
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(mapping.select_all_sql().as_str(), &[])
             .await
             .map_err(|error| database_error("all", error))?;
@@ -931,7 +1013,8 @@ order by table_class.relname, index_class.relname
 
     pub async fn count(&self, mapping: &ModelMapping) -> Result<i64, ActiveRecordError> {
         let row = self
-            .client
+            .operation_client("query")
+            .await?
             .query_one(mapping.select_count_sql().as_str(), &[])
             .await
             .map_err(|error| database_error("count", error))?;
@@ -941,7 +1024,8 @@ order by table_class.relname, index_class.relname
 
     pub async fn first(&self, mapping: &ModelMapping) -> Result<Option<Value>, ActiveRecordError> {
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(mapping.select_first_sql().as_str(), &[])
             .await
             .map_err(|error| database_error("first", error))?;
@@ -959,7 +1043,8 @@ order by table_class.relname, index_class.relname
         let limit = Value::Number(limit);
         let parameter = PostgresParameter::try_from(&limit)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(mapping.select_limit_sql().as_str(), &[parameter.as_sql()])
             .await
             .map_err(|error| database_error("limit", error))?;
@@ -978,7 +1063,8 @@ order by table_class.relname, index_class.relname
         let limit = PostgresParameter::try_from(&limit)?;
         let offset = PostgresParameter::try_from(&offset)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 mapping.select_page_sql().as_str(),
                 &[limit.as_sql(), offset.as_sql()],
@@ -1000,7 +1086,8 @@ order by table_class.relname, index_class.relname
         let limit = PostgresParameter::try_from(&limit)?;
         let offset = PostgresParameter::try_from(&offset)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(sql.as_str(), &[limit.as_sql(), offset.as_sql()])
             .await
             .map_err(|error| database_error("order_page", error))?;
@@ -1015,7 +1102,8 @@ order by table_class.relname, index_class.relname
     ) -> Result<bool, ActiveRecordError> {
         let parameter = PostgresParameter::try_from(id)?;
         let row = self
-            .client
+            .operation_client("query")
+            .await?
             .query_one(mapping.exists_by_id_sql().as_str(), &[parameter.as_sql()])
             .await
             .map_err(|error| database_error("exists", error))?;
@@ -1032,7 +1120,8 @@ order by table_class.relname, index_class.relname
         let sql = mapping.select_where_eq_sql(field)?;
         let parameter = PostgresParameter::try_from(value)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(sql.as_str(), &[parameter.as_sql()])
             .await
             .map_err(|error| database_error("where", error))?;
@@ -1052,7 +1141,8 @@ order by table_class.relname, index_class.relname
         let limit = Value::Number(limit);
         let limit = PostgresParameter::try_from(&limit)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(sql.as_str(), &[value.as_sql(), limit.as_sql()])
             .await
             .map_err(|error| database_error("where_limit", error))?;
@@ -1075,7 +1165,8 @@ order by table_class.relname, index_class.relname
         let limit = PostgresParameter::try_from(&limit)?;
         let offset = PostgresParameter::try_from(&offset)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 sql.as_str(),
                 &[value.as_sql(), limit.as_sql(), offset.as_sql()],
@@ -1101,7 +1192,8 @@ order by table_class.relname, index_class.relname
         let limit = PostgresParameter::try_from(&limit)?;
         let offset = PostgresParameter::try_from(&offset)?;
         let rows = self
-            .client
+            .operation_client("query")
+            .await?
             .query(
                 sql.as_str(),
                 &[value.as_sql(), limit.as_sql(), offset.as_sql()],
@@ -1149,7 +1241,8 @@ order by table_class.relname, index_class.relname
             .map(PostgresParameter::as_sql)
             .collect::<Vec<_>>();
         let row = self
-            .client
+            .operation_client("query")
+            .await?
             .query_one(sql.as_str(), &references)
             .await
             .map_err(|error| database_error(operation, error))?;
@@ -1158,16 +1251,24 @@ order by table_class.relname, index_class.relname
 }
 
 async fn connect_postgres_client(config: &PostgresConfig) -> Result<Client, ActiveRecordError> {
+    connect_postgres_client_with_driver(config)
+        .await
+        .map(|(client, _driver)| client)
+}
+
+pub(crate) async fn connect_postgres_client_with_driver(
+    config: &PostgresConfig,
+) -> Result<(Client, tokio::task::AbortHandle), ActiveRecordError> {
     let (client, connection) = config
         .connect(postgres_tls_connector())
         .await
         .map_err(|error| database_error("connect", error))?;
-    tokio::spawn(async move {
+    let driver = tokio::spawn(async move {
         if let Err(error) = connection.await {
             eprintln!("Ricochet PostgreSQL connection failed: {error}");
         }
     });
-    Ok(client)
+    Ok((client, driver.abort_handle()))
 }
 
 fn postgres_tls_connector() -> MakeRustlsConnect {

@@ -523,6 +523,7 @@ fn now_millis() -> i64 {
 #[cfg(test)]
 pub(crate) struct TestHttpsCaptureServer {
     address: SocketAddr,
+    ca_der: Vec<u8>,
     requests: Arc<Mutex<Vec<String>>>,
     shutdown: Arc<std::sync::atomic::AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
@@ -531,15 +532,18 @@ pub(crate) struct TestHttpsCaptureServer {
 #[cfg(test)]
 impl TestHttpsCaptureServer {
     pub(crate) fn new(status: u16, response_headers: &[(&str, &str)]) -> Self {
+        Self::new_for_host("phase0.test", status, response_headers)
+    }
+
+    pub(crate) fn new_for_host(host: &str, status: u16, response_headers: &[(&str, &str)]) -> Self {
         use std::io::{Read as _, Write as _};
         use std::net::TcpListener;
         use std::sync::atomic::Ordering;
 
-        let certified = rcgen::generate_simple_self_signed(vec!["phase0.test".to_string()])
-            .expect("test TLS certificate should generate");
-        let certificate = certified.cert.der().clone();
-        let private_key =
-            rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der());
+        let fixture = ricochet_secrets::test_host::TestTlsFixture::new(host);
+        let ca_der = fixture.ca_der;
+        let certificate = rustls::pki_types::CertificateDer::from(fixture.certificate_der);
+        let private_key = rustls::pki_types::PrivatePkcs8KeyDer::from(fixture.private_key_der);
         let tls = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate], private_key.into())
@@ -591,6 +595,9 @@ impl TestHttpsCaptureServer {
                         break;
                     }
                 }
+                if !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    continue;
+                }
                 captured
                     .lock()
                     .expect("test HTTPS requests lock should not be poisoned")
@@ -617,10 +624,15 @@ impl TestHttpsCaptureServer {
         });
         Self {
             address,
+            ca_der,
             requests,
             shutdown,
             worker: Some(worker),
         }
+    }
+
+    pub(crate) fn ca_der(&self) -> &[u8] {
+        &self.ca_der
     }
 
     pub(crate) fn address(&self) -> SocketAddr {
@@ -661,6 +673,7 @@ impl Drop for TestHttpsCaptureServer {
 #[cfg(test)]
 pub(crate) struct TestHttpsProtocolNackServer {
     address: SocketAddr,
+    ca_der: Vec<u8>,
     attempts: Arc<std::sync::atomic::AtomicUsize>,
     credential_attempts: Arc<std::sync::atomic::AtomicUsize>,
     shutdown: Arc<std::sync::atomic::AtomicBool>,
@@ -673,11 +686,10 @@ impl TestHttpsProtocolNackServer {
         use std::net::TcpListener;
         use std::sync::atomic::Ordering;
 
-        let certified = rcgen::generate_simple_self_signed(vec!["phase0.test".to_string()])
-            .expect("test HTTP/2 TLS certificate should generate");
-        let certificate = certified.cert.der().clone();
-        let private_key =
-            rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der());
+        let fixture = ricochet_secrets::test_host::TestTlsFixture::new("phase0.test");
+        let ca_der = fixture.ca_der;
+        let certificate = rustls::pki_types::CertificateDer::from(fixture.certificate_der);
+        let private_key = rustls::pki_types::PrivatePkcs8KeyDer::from(fixture.private_key_der);
         let mut tls = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate], private_key.into())
@@ -750,11 +762,16 @@ impl TestHttpsProtocolNackServer {
 
         Self {
             address,
+            ca_der,
             attempts,
             credential_attempts,
             shutdown,
             worker: Some(worker),
         }
+    }
+
+    pub(crate) fn ca_der(&self) -> &[u8] {
+        &self.ca_der
     }
 
     pub(crate) fn address(&self) -> SocketAddr {
@@ -937,7 +954,8 @@ mod tests {
                 "provider.api-key".to_string(),
                 TestEnvironmentValue::unicode("stream-synthetic-secret".to_string()),
             )]),
-        );
+        )
+        .with_trusted_certificate(server.ca_der());
         let executor = test_host.executor();
         let credentials = DeferredHttpCredentials::bearer(DeferredSecretSource::environment(
             ricochet_application::SecretName::parse("provider.api-key")
@@ -1007,7 +1025,8 @@ mod tests {
     #[test]
     fn http_stream_deferred_credential_literal_resolves_once_without_source_access() {
         let server = TestHttpsCaptureServer::new(200, &[]);
-        let test_host = TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new());
+        let test_host = TestSecretsHttpHost::new("phase0.test", server.address(), BTreeMap::new())
+            .with_trusted_certificate(server.ca_der());
         let executor = test_host.executor();
         let credentials = DeferredHttpCredentials::bearer(
             DeferredSecretSource::literal("stream-literal-synthetic-secret".to_string())
