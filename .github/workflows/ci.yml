@@ -4,7 +4,36 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  postgres-pool:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: ricochet_test_pool
+          POSTGRES_USER: ricochet_test
+          POSTGRES_PASSWORD: local-ci-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ricochet_test -d ricochet_test_pool"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      RICOCHET_POSTGRES_TEST_URL: postgres://ricochet_test:local-ci-test-only@127.0.0.1:5432/ricochet_test_pool?sslmode=disable
+    steps:
+      - name: Check out pool tests
+        uses: actions/checkout@v6
+      - name: Install pool-test Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install pool-test native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev
+      - name: Test PostgreSQL pool lifecycle and isolation
+        run: cargo test --locked --release -p ricochet_web --lib --features ricochet_vm/test-host postgres_pool_tests -- --include-ignored --test-threads=1
+
   verify:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -36,11 +65,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Test GLib iterator security backport with optimizations
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --manifest-path third_party/glib/Cargo.toml --release --lib variant_str_iter
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Test secure GUI session capture
+        run: cargo test -p ricochet_cli --features test-host --test session_capture
 
       - name: Run benchmark smoke
         run: cargo run -p ricochet_cli --bin rco -- bench --smoke

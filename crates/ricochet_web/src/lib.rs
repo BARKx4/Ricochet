@@ -3,6 +3,7 @@ pub mod ai_capability;
 pub mod controller;
 pub mod database_capability;
 pub mod manifest;
+mod postgres_pool;
 pub mod revision;
 pub mod router;
 pub mod serve_builder;
@@ -11,7 +12,8 @@ pub mod template;
 mod value_json;
 
 pub use active_record::{
-    ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase, SqliteDatabase,
+    ActiveRecordError, ModelMapping, MysqlDatabase, OrderPage, PostgresDatabase,
+    PostgresPoolOptions, SqliteDatabase,
 };
 pub use ai_capability::{install_ai_capability, AiProvider, AiProviderConfig};
 pub use controller::{ActionResult, ControllerRegistry, RequestContext};

@@ -57,7 +57,7 @@ cargo audit --deny warnings
 pwsh -NoProfile -File .\scripts\acceptance.ps1</code></pre>
 <p>The acceptance suite validates the static reference docs, editor assets, word inventory drift check, examples, scaffolded project checks/tests, and a live <code>rco serve</code> smoke request against the generated no-database scaffold.</p>
 <h2 id="release-packaging">Release Packaging</h2>
-<p>See <code>docs/releases/v1.0.1.html</code> for the current stable release notes, hardening checklist, and artifact smoke-test expectations.</p>
+<p>See <code>docs/releases/v1.0.2.html</code> for the current stable release notes, hardening checklist, and artifact smoke-test expectations.</p>
 <p>Windows release packages are built from this repository with:</p>
 <pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File .\scripts\package-release.ps1</code></pre>
 <p>The script builds <code>rco.exe</code>, <code>rco-gui.exe</code>, and <code>ricochet.exe</code>, creates a portable ZIP, writes <code>SHA256SUMS-windows-x64.txt</code>, and creates a Windows <code>.exe</code> installer when NSIS <code>makensis.exe</code> is installed. It also writes <code>ARTIFACTS-windows-x64.json</code>, a machine-readable release manifest covering the ZIP, installer when present, checksum file, and signing-status report. GitHub Actions installs NSIS automatically in the release workflow.</p>
@@ -129,7 +129,7 @@ pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-x64</
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-x64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
 <h2 id="production-release-commands">Production Release Commands</h2>
 <p>Production releases are tag-driven. GitHub keyless attestation is required for every uploaded asset; Windows and Apple platform credentials add optional trust signals. The maintainer must confirm GitHub immutable releases are enabled before pushing the tag. The normal release path is:</p>
-<pre class="code-block"><code class="language-powershell">$version = "1.0.1"
+<pre class="code-block"><code class="language-powershell">$version = "1.0.2"
 $tag = "v$version"
 
 git fetch origin
@@ -154,25 +154,25 @@ gh release view $tag --json tagName,name,isDraft,isPrerelease,url</code></pre>
 <p>From <code>v1.0.1</code>, the release workflow builds and audits every platform package, creates <code>SHA256SUMS.txt</code>, attests every uploaded asset with GitHub keyless build provenance, and verifies downloaded draft assets before publication. The maintainer checks the immutable release setting before tagging; the published release then receives a separate release attestation. Stable update metadata requires <code>github-attestation</code> and <code>sha256</code> for every target. Windows and macOS jobs sign and verify when their platform credentials are present; otherwise their signing reports explicitly record the unsigned fallback. Semver prerelease tags remain GitHub prereleases with dry-run platform signing metadata.</p>
 <p>For a manual production package dry run before tagging, run the platform packaging commands on their native operating systems with production modes:</p>
 <pre class="code-block"><code class="language-powershell"># Windows, with NSIS and the Authenticode certificate already available.
-$version = "1.0.1"
+$version = "1.0.2"
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Version $version -Target windows-x64 -RequireInstaller -SigningMode require
 pwsh -NoProfile -File .\scripts\validate-release-artifacts.ps1 -Target windows-x64 -PackageVersion $version -RequireInstaller
 pwsh -NoProfile -File .\scripts\validate-store-packaging.ps1 -Target windows-x64 -PackageVersion $version -RequireProduction
 pwsh -NoProfile -File .\scripts\verify-release-signatures.ps1 -Target windows-x64 -RequireProduction -ExpectedWindowsThumbprint $env:RICOCHET_WINDOWS_CERT_SHA1</code></pre>
 <pre class="code-block"><code class="language-bash"># Linux; GitHub attestation is added by the release workflow.
-version="1.0.1"
+version="1.0.2"
 bash scripts/package-release-linux.sh --target linux-x64 --version "$version" --signature-mode attestation
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target linux-x64 -PackageVersion "$version" -RequireDeb
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target linux-x64 -PackageVersion "$version" -RequireProduction</code></pre>
 <pre class="code-block"><code class="language-bash"># macOS, once for each native target with the signing keychain prepared.
-version="1.0.1"
+version="1.0.2"
 bash scripts/package-release-macos.sh --target macos-arm64 --version "$version" --signing-mode require --notarization-mode require
 pwsh -NoProfile -File ./scripts/validate-release-artifacts.ps1 -Target macos-arm64 -PackageVersion "$version"
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 -Target macos-arm64 -PackageVersion "$version" -RequireProduction
 pwsh -NoProfile -File ./scripts/verify-release-signatures.ps1 -Target macos-arm64 -RequireProduction -ExpectedMacosIdentity "$RICOCHET_MACOS_SIGN_IDENTITY"</code></pre>
 <p>After all platform artifacts are collected in one <code>dist</code> directory, validate the release channel and combined artifact set:</p>
-<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.1 -ReleaseTag v1.0.1 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.1
-pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.1 -RequireProduction</code></pre>
+<pre class="code-block"><code class="language-powershell">pwsh -NoProfile -File ./scripts/write-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.2 -ReleaseTag v1.0.2 -ReleaseUrl https://github.com/BARKx4/Ricochet/releases/tag/v1.0.2
+pwsh -NoProfile -File ./scripts/validate-update-channel.ps1 -DistDir dist -Channel stable -Version 1.0.2 -RequireProduction</code></pre>
 <p>The release workflow writes validated update-channel metadata and <code>SHA256SUMS.txt</code>, attests the uploaded assets, then audits the downloaded draft before publication. After publication, verify the immutable release with <code>gh release verify</code> and an asset with <code>gh release verify-asset</code>. Every platform manifest, package smoke, installer/deb requirement, signing report, and attestation is checked. Authenticode and Apple verification run only when their reports claim those signatures. See <a href="store-packaging.html">Store Packaging</a> and <a href="updater-workflow.html">Updater Workflow</a> for handoff and verification rules.</p>
 <p>The same workflow also runs nightly from <code>main</code>. Nightly packages, manifests, and binaries retain the exact compiled workspace version; only the GitHub Actions artifact label appends <code>-nightly.N</code> for run identification. The workflow builds the same Windows, Linux, and macOS packages and retains them for 30 days. Nightlies do not create public GitHub releases.</p>
 <h2 id="reference-docs">Reference Docs</h2>

@@ -71,9 +71,9 @@ On Linux, install the Debian package with:
 sudo apt install ./ricochet_X.Y.Z_amd64.deb
 ```
 
-The official GitHub asset for Ricochet `1.0.1` is
-`ricochet_1.0.1_amd64.deb`. Inside the package, the Debian control metadata
-records `Version: 1.0.1`.
+The official GitHub asset for Ricochet `1.0.2` is
+`ricochet_1.0.2_amd64.deb`. Inside the package, the Debian control metadata
+records `Version: 1.0.2`.
 
 The Debian package declares the current Linux launcher runtime packages:
 `libgtk-3-0`, `libwebkit2gtk-4.1-0`, and `libxdo3`. Install those packages
@@ -96,16 +96,16 @@ available only after publication. For example, after downloading the Windows
 portable ZIP and checksum inventory:
 
 ```powershell
-$tagCommit = ((git ls-remote https://github.com/BARKx4/Ricochet.git 'refs/tags/v1.0.1^{}') -split '\s+')[0]
-$asset = 'ricochet-v1.0.1-windows-x64.zip'
+$tagCommit = ((git ls-remote https://github.com/BARKx4/Ricochet.git 'refs/tags/v1.0.2^{}') -split '\s+')[0]
+$asset = 'ricochet-v1.0.2-windows-x64.zip'
 gh attestation verify $asset -R BARKx4/Ricochet `
   --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml `
-  --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
+  --source-ref refs/tags/v1.0.2 --source-digest $tagCommit
 gh attestation verify SHA256SUMS.txt -R BARKx4/Ricochet `
   --signer-workflow BARKx4/Ricochet/.github/workflows/release.yml `
-  --source-ref refs/tags/v1.0.1 --source-digest $tagCommit
-gh release verify v1.0.1 -R BARKx4/Ricochet
-gh release verify-asset v1.0.1 $asset -R BARKx4/Ricochet
+  --source-ref refs/tags/v1.0.2 --source-digest $tagCommit
+gh release verify v1.0.2 -R BARKx4/Ricochet
+gh release verify-asset v1.0.2 $asset -R BARKx4/Ricochet
 Get-FileHash $asset -Algorithm SHA256
 ```
 

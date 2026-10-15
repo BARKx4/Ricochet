@@ -81,7 +81,7 @@ pub struct ImageCallable {
 impl From<&BytecodeCallable> for ImageCallable {
     fn from(callable: &BytecodeCallable) -> Self {
         Self {
-            chunk: callable.chunk.clone(),
+            chunk: callable.chunk.as_ref().clone(),
             args: callable.args.clone(),
         }
     }

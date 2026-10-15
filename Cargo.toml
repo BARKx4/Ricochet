@@ -11,12 +11,12 @@ members = [
   "crates/ricochet_cli",
   "crates/ricochet_sandbox",
 ]
-exclude = ["third_party/portable-pty"]
+exclude = ["third_party/portable-pty", "third_party/glib"]
 
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-version = "1.0.1"
+version = "1.0.2"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -63,3 +63,4 @@ zeroize = "1"
 
 [patch.crates-io]
 portable-pty = { path = "third_party/portable-pty" }
+glib = { path = "third_party/glib" }

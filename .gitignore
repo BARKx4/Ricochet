@@ -35,3 +35,5 @@ examples/**/db/*.sqlite3-*
 !third_party/portable-pty/LICENSE.md
 !third_party/portable-pty/RICOCHET-PATCH.md
 third_party/portable-pty/Cargo.lock
+third_party/glib/Cargo.lock
+third_party/glib/target/

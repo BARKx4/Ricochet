@@ -1572,6 +1572,14 @@ impl Vm {
         frame: &str,
         instruction: &ricochet_bytecode::Instruction,
     ) -> Result<(), VmError> {
+        if self.breakpoints.is_empty()
+            && !self.step_mode
+            && self.step_over_depth.is_none()
+            && self.step_out_depth.is_none()
+            && self.suppressed_breakpoint.is_none()
+        {
+            return Ok(());
+        }
         let breakpoint_site = (
             frame.to_string(),
             instruction.span.file.clone(),

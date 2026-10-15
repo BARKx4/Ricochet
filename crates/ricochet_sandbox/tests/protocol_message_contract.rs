@@ -1500,7 +1500,10 @@ fn raw_protocol_arguments_round_trip_while_debug_and_audit_are_redacted() {
         &"aa".repeat(32),
         &"bb".repeat(32),
     ] {
-        assert!(!joined.contains(secret), "debug leaked {secret}");
+        assert!(
+            !joined.contains(secret),
+            "debug leaked a synthetic secret fixture"
+        );
     }
 
     let constrained = policy(ExecutionAccess::Read, true, true);

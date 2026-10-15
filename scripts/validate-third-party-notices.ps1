@@ -78,6 +78,7 @@ function Get-HtmlDependencyIdentities {
 }
 
 Assert-CargoAboutVersion
+& (Join-Path $PSScriptRoot "test-third-party-notice-filter.ps1")
 $generated = & $Generator -PassThru
 if ($null -eq $generated -or [string]::IsNullOrWhiteSpace([string]$generated.OutputDirectory)) {
     throw "Third-party notice generator did not return its retained output directory under $ValidationOutputRelativeRoot"

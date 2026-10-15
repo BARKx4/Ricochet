@@ -1,0 +1,32 @@
+Component: glib 0.18.5 (gtk-rs Project Developers), MIT
+Original distribution: https://static.crates.io/crates/glib/glib-0.18.5.crate
+Archive SHA-256: 233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5
+Archive VCS commit: 42b9caf98e03ded086362d9653ca58fe94dc8658
+Fix: https://github.com/gtk-rs/gtk-rs-core/pull/1343
+Fix commit: b5a4071e439bef2b5eea76c3aa25e5ae84839e34
+Author: Fabio Valentini; date: 2024-03-30
+Advisory: RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g
+
+Local source changes:
+- src/variant_iter.rs: identical two-line mutability correction from upstream;
+  two regression tests, and formatting of the new tests.
+- README.md: prepend backport explanation and test commands.
+- RICOCHET-PATCH.txt: this provenance record.
+Upstream Cargo manifests, .cargo_vcs_info.json, COPYRIGHT, LICENSE, generated
+bindings and other sources are preserved. The root workspace selects this
+crate with [patch.crates-io]; it is excluded from workspace membership.
+Standalone generated Cargo.lock and target/ are ignored.
+
+Advisory coverage: next, next_back, nth, nth_back and last all use impl_get;
+the only production code changes make its out-pointer mutable and pass &mut p.
+No API/version bump and no parallel vulnerable registry glib remain resolved.
+The advisory version range does not recognize this local 0.18.5 backport.
+Retain explicit scanner caveats until GitHub results can be inspected.
+
+Regression qualification on 2026-10-12, existing WSL Ubuntu:
+- rustc 1.96.1; GLib 2.80.0; optimized release profile.
+- Same tests/dependency versions in a separate original-source control:
+  process terminated with SIGSEGV (signal 11), reproducing the null-pointer UB.
+- Patched source: 5 focused iterator tests passed, 0 failed.
+- Standalone builds report 34 pre-existing upstream Rust lifetime warnings.
+Native affected GUI build qualification is recorded in the task review report.

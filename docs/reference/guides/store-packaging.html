@@ -56,16 +56,16 @@
           <p>Run the store packaging validator after artifact manifest validation:</p>
           <pre class="code-block"><button class="copy-button" type="button" aria-label="Copy code" title="Copy">copy</button><code>pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target windows-x64 `
-  -PackageVersion 1.0.1
+  -PackageVersion 1.0.2
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target linux-x64 `
-  -PackageVersion 1.0.1
+  -PackageVersion 1.0.2
 
 pwsh -NoProfile -File ./scripts/validate-store-packaging.ps1 `
   -Target macos-arm64 `
-  -PackageVersion 1.0.1</code></pre>
-          <p>Add <code>-RequireProduction</code> when a production signing or attestation mode must be verified. Stable CI uses it for Linux's <code>pending-attestation</code> mode and for Windows/macOS when platform credentials were imported. GitHub attestations and SHA-256 authenticate <code>v1.0.1</code> Linux release assets outside this package validator. The ordinary validation path still rejects malformed manifests and packages while permitting an explicit unsigned fallback report.</p>
+  -PackageVersion 1.0.2</code></pre>
+          <p>Add <code>-RequireProduction</code> when a production signing or attestation mode must be verified. Stable CI uses it for Linux's <code>pending-attestation</code> mode and for Windows/macOS when platform credentials were imported. GitHub attestations and SHA-256 authenticate <code>v1.0.2</code> Linux release assets outside this package validator. The ordinary validation path still rejects malformed manifests and packages while permitting an explicit unsigned fallback report.</p>
           <p>The release workflow runs this validator for every platform package before uploading artifacts. It inspects Windows ZIP contents and installer presence, Linux tarball and Debian metadata, macOS tarball contents, any claimed signature/notarization evidence, and the required license and notice files in every package.</p>
 
           <h2 id="marketplace-submission">Marketplace Submission</h2>
